@@ -3,6 +3,7 @@ use crate::DumpConfig;
 use account_utils::read_password_from_user;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{
+    SensitiveUrl,
     lighthouse_vc::{
         std_types::{
             DeleteKeystoreStatus, DeleteKeystoresRequest, ImportKeystoreStatus, InterchangeJsonStr,
@@ -10,7 +11,6 @@ use eth2::{
         },
         types::{ExportKeystoresResponse, SingleExportKeystoresResponse},
     },
-    SensitiveUrl,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -277,7 +277,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-async fn run<'a>(config: MoveConfig) -> Result<(), String> {
+async fn run(config: MoveConfig) -> Result<(), String> {
     let MoveConfig {
         src_vc_url,
         src_vc_token_path,
@@ -458,8 +458,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                             Err(e) => {
                                 eprintln!(
                                     "Retrying after error: {:?}. If this error persists the user will need to \
-                                        manually recover their keystore for validator {:?} from the mnemonic."
-                                    ,
+                                        manually recover their keystore for validator {:?} from the mnemonic.",
                                     e, pubkey_to_move
                                 );
                             }
@@ -668,8 +667,8 @@ mod test {
     use crate::import_validators::tests::TestBuilder as ImportTestBuilder;
     use account_utils::validator_definitions::SigningDefinition;
     use std::fs;
-    use tempfile::{tempdir, TempDir};
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use tempfile::{TempDir, tempdir};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
 
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
     const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";
@@ -901,13 +900,13 @@ mod test {
                             );
                             if self.reuse_password_files.is_some() {
                                 assert!(
-                                src_vc
-                                    .secrets_dir
-                                    .path()
-                                    .join(format!("{:?}", pubkey))
-                                    .exists(),
-                                "the source password file was used by another validator and should not be deleted"
-                            )
+                                    src_vc
+                                        .secrets_dir
+                                        .path()
+                                        .join(format!("{:?}", pubkey))
+                                        .exists(),
+                                    "the source password file was used by another validator and should not be deleted"
+                                )
                             } else {
                                 assert!(
                                     !src_vc
@@ -978,13 +977,13 @@ mod test {
                     })
                     .unwrap();
                 // Set all definitions to use the same password path as the primary.
-                definitions.iter_mut().enumerate().for_each(|(_, def)| {
-                    match &mut def.signing_definition {
-                        SigningDefinition::LocalKeystore {
-                            voting_keystore_password_path: Some(path),
-                            ..
-                        } => *path = primary_path.clone(),
-                        _ => (),
+                definitions.iter_mut().for_each(|def| {
+                    if let SigningDefinition::LocalKeystore {
+                        voting_keystore_password_path: Some(path),
+                        ..
+                    } = &mut def.signing_definition
+                    {
+                        *path = primary_path.clone()
                     }
                 })
             }

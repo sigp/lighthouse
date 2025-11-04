@@ -2,11 +2,13 @@ use beacon_node::{get_data_dir, set_network_config};
 use bytes::Bytes;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
-use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
+use lighthouse_network::discv5::{self, Enr, enr::CombinedKey};
 use lighthouse_network::{
+    NetworkConfig,
     discovery::{load_enr_from_disk, use_or_load_enr},
-    load_private_key, CombinedKeyExt, NetworkConfig,
+    load_private_key,
 };
+use network_utils::enr_ext::CombinedKeyExt;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
@@ -53,31 +55,33 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
         let mut network_config = NetworkConfig::default();
 
-        let logger = slog_scope::logger();
-
-        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
+        set_network_config(&mut network_config, matches, &data_dir)?;
 
         // Set the Enr Discovery ports to the listening ports if not present.
-        if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
-            if network_config.enr_udp4_port.is_none() {
-                network_config.enr_udp4_port =
-                    Some(network_config.enr_udp4_port.unwrap_or(
-                        listening_addr_v4.disc_port.try_into().map_err(|_| {
-                            "boot node enr-udp-port not set and listening port is zero"
-                        })?,
-                    ))
-            }
+        if let Some(listening_addr_v4) = network_config.listen_addrs().v4()
+            && network_config.enr_udp4_port.is_none()
+        {
+            network_config.enr_udp4_port = Some(
+                network_config.enr_udp4_port.unwrap_or(
+                    listening_addr_v4
+                        .disc_port
+                        .try_into()
+                        .map_err(|_| "boot node enr-udp-port not set and listening port is zero")?,
+                ),
+            )
         };
 
-        if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
-            if network_config.enr_udp6_port.is_none() {
-                network_config.enr_udp6_port =
-                    Some(network_config.enr_udp6_port.unwrap_or(
-                        listening_addr_v6.disc_port.try_into().map_err(|_| {
-                            "boot node enr-udp-port not set and listening port is zero"
-                        })?,
-                    ))
-            }
+        if let Some(listening_addr_v6) = network_config.listen_addrs().v6()
+            && network_config.enr_udp6_port.is_none()
+        {
+            network_config.enr_udp6_port = Some(
+                network_config.enr_udp6_port.unwrap_or(
+                    listening_addr_v6
+                        .disc_port
+                        .try_into()
+                        .map_err(|_| "boot node enr-udp-port not set and listening port is zero")?,
+                ),
+            )
         };
 
         // By default this is enabled. If it is not set, revert to false.
@@ -85,7 +89,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
             network_config.discv5_config.enr_update = false;
         }
 
-        let private_key = load_private_key(&network_config, &logger);
+        let private_key = load_private_key(&network_config);
         let local_key = CombinedKey::from_libp2p(private_key)?;
 
         let local_enr = if let Some(dir) = matches.get_one::<String>("network-dir") {
@@ -104,7 +108,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                 if eth2_network_config.genesis_state_is_known() {
                     let mut genesis_state = eth2_network_config
-                        .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
+                        .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout).await?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()
@@ -113,7 +117,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                     let genesis_state_root = genesis_state
                         .canonical_root()
                         .map_err(|e| format!("Error hashing genesis state: {e:?}"))?;
-                    slog::info!(logger, "Genesis state found"; "root" => ?genesis_state_root);
+                    tracing::info!(root = ?genesis_state_root, "Genesis state found");
                     let enr_fork = spec.enr_fork_id::<E>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
@@ -121,10 +125,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                     Some(enr_fork.as_ssz_bytes())
                 } else {
-                    slog::warn!(
-                        logger,
-                        "No genesis state provided. No Eth2 field added to the ENR"
-                    );
+                    tracing::warn!("No genesis state provided. No Eth2 field added to the ENR");
                     None
                 }
             };
@@ -160,7 +161,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                     .map_err(|e| format!("Failed to build ENR: {:?}", e))?
             };
 
-            use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
+            use_or_load_enr(&local_key, &mut local_enr, &network_config)?;
             local_enr
         };
 

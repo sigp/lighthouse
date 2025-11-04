@@ -1,0 +1,44 @@
+# Define the Rust image as an argument with a default to x86_64 Rust 1.88 image based on Debian Bullseye
+ARG RUST_IMAGE="rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816"
+FROM ${RUST_IMAGE} AS builder
+
+# Install specific version of the build dependencies
+RUN apt-get update && apt-get install -y libclang-dev=1:11.0-51+nmu5 cmake=3.18.4-2+deb11u1
+
+# Add target architecture argument with default value
+ARG RUST_TARGET="x86_64-unknown-linux-gnu"
+
+# Copy the project to the container
+COPY . /app
+WORKDIR /app
+
+# Get the latest commit timestamp and set SOURCE_DATE_EPOCH (default it to 0 if not passed)
+ARG SOURCE_DATE=0
+
+# Set environment variables for reproducibility
+ARG RUSTFLAGS="-C link-arg=-Wl,--build-id=none -C metadata='' --remap-path-prefix $(pwd)=."
+ENV SOURCE_DATE_EPOCH=$SOURCE_DATE \
+    CARGO_INCREMENTAL=0 \
+    LC_ALL=C \
+    TZ=UTC \
+    RUSTFLAGS="${RUSTFLAGS}"
+
+# Set the default features if not provided
+ARG FEATURES="gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc"
+
+# Set the default profile if not provided
+ARG PROFILE="reproducible"
+
+# Build the project with the reproducible settings
+RUN cargo build --bin lighthouse \
+    --features "${FEATURES}" \
+    --profile "${PROFILE}" \
+    --locked \
+    --target "${RUST_TARGET}"
+
+RUN mv /app/target/${RUST_TARGET}/${PROFILE}/lighthouse /lighthouse
+
+# Create a minimal final image with just the binary
+FROM gcr.io/distroless/cc-debian12:nonroot-6755e21ccd99ddead6edc8106ba03888cbeed41a
+COPY --from=builder /lighthouse /lighthouse
+ENTRYPOINT [ "/lighthouse" ]

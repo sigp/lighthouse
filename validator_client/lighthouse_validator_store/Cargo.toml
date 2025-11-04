@@ -1,0 +1,30 @@
+[package]
+name = "lighthouse_validator_store"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[dependencies]
+account_utils = { workspace = true }
+beacon_node_fallback = { workspace = true }
+doppelganger_service = { workspace = true }
+either = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
+initialized_validators = { workspace = true }
+logging = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+signing_method = { workspace = true }
+slashing_protection = { workspace = true }
+slot_clock = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+types = { workspace = true }
+validator_metrics = { workspace = true }
+validator_store = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+logging = { workspace = true }

@@ -15,18 +15,17 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
 };
-use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
-use store::KeyValueStore;
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, sleep_until, Instant};
+use tokio::time::{Instant, sleep, sleep_until};
+use tracing::{Instrument, debug, debug_span, error, instrument, warn};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
@@ -34,7 +33,7 @@ use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, Relative
 ///
 /// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
 /// for some period of time.
-const MAX_ADVANCE_DISTANCE: u64 = 4;
+const MAX_ADVANCE_DISTANCE: u64 = 256;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
 ///
@@ -45,27 +44,17 @@ const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
 
 #[derive(Debug)]
 enum Error {
-    BeaconChain(BeaconChainError),
+    BeaconChain(Box<BeaconChainError>),
     // We don't use the inner value directly, but it's used in the Debug impl.
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     BeaconState(#[allow(dead_code)] BeaconStateError),
     Store(#[allow(dead_code)] store::Error),
-    MaxDistanceExceeded {
-        current_slot: Slot,
-        head_slot: Slot,
-    },
-    StateAlreadyAdvanced {
-        block_root: Hash256,
-    },
-    BadStateSlot {
-        _state_slot: Slot,
-        _block_slot: Slot,
-    },
+    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        Self::BeaconChain(e)
+        Self::BeaconChain(e.into())
     }
 }
 
@@ -107,10 +96,9 @@ impl Lock {
 pub fn spawn_state_advance_timer<T: BeaconChainTypes>(
     executor: TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) {
     executor.spawn(
-        state_advance_timer(executor.clone(), beacon_chain, log),
+        state_advance_timer(executor.clone(), beacon_chain),
         "state_advance_timer",
     );
 }
@@ -119,7 +107,6 @@ pub fn spawn_state_advance_timer<T: BeaconChainTypes>(
 async fn state_advance_timer<T: BeaconChainTypes>(
     executor: TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) {
     let is_running = Lock::new();
     let slot_clock = &beacon_chain.slot_clock;
@@ -127,7 +114,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
     loop {
         let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() else {
-            error!(log, "Failed to read slot clock");
+            error!("Failed to read slot clock");
             // If we can't read the slot clock, just wait another slot.
             sleep(slot_duration).await;
             continue;
@@ -161,9 +148,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             Ok(slot) => slot,
             Err(e) => {
                 warn!(
-                    log,
-                    "Unable to determine slot in state advance timer";
-                    "error" => ?e
+                    error = ?e,
+                    "Unable to determine slot in state advance timer"
                 );
                 // If we can't read the slot clock, just wait another slot.
                 sleep(slot_duration).await;
@@ -173,37 +159,24 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
         // Only spawn the state advance task if the lock was previously free.
         if !is_running.lock() {
-            let log = log.clone();
             let beacon_chain = beacon_chain.clone();
             let is_running = is_running.clone();
 
             executor.spawn_blocking(
                 move || {
-                    match advance_head(&beacon_chain, &log) {
+                    match advance_head(&beacon_chain) {
                         Ok(()) => (),
                         Err(Error::BeaconChain(e)) => error!(
-                            log,
-                            "Failed to advance head state";
-                            "error" => ?e
-                        ),
-                        Err(Error::StateAlreadyAdvanced { block_root }) => debug!(
-                            log,
-                            "State already advanced on slot";
-                            "block_root" => ?block_root
+                            error = ?e,
+                            "Failed to advance head state"
                         ),
                         Err(Error::MaxDistanceExceeded {
                             current_slot,
                             head_slot,
-                        }) => debug!(
-                            log,
-                            "Refused to advance head state";
-                            "head_slot" => head_slot,
-                            "current_slot" => current_slot,
-                        ),
+                        }) => debug!(%head_slot, %current_slot, "Refused to advance head state"),
                         other => warn!(
-                            log,
-                            "Did not advance head state";
-                            "reason" => ?other
+                            reason = ?other,
+                            "Did not advance head state"
                         ),
                     };
 
@@ -214,9 +187,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             );
         } else {
             warn!(
-                log,
-                "State advance routine overloaded";
-                "msg" => "system resources may be overloaded"
+                msg = "system resources may be overloaded",
+                "State advance routine overloaded"
             )
         }
 
@@ -225,7 +197,6 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         // Wait for the fork choice instant (which may already be past).
         sleep_until(fork_choice_instant).await;
 
-        let log = log.clone();
         let beacon_chain = beacon_chain.clone();
         let next_slot = current_slot + 1;
         executor.spawn(
@@ -245,10 +216,9 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                     .await
                     .unwrap_or_else(|e| {
                         warn!(
-                            log,
-                            "Unable to prepare proposer with lookahead";
-                            "error" => ?e,
-                            "slot" => next_slot,
+                            error = ?e,
+                            slot = %next_slot,
+                            "Unable to prepare proposer with lookahead"
                         );
                         None
                     });
@@ -258,20 +228,20 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                 beacon_chain.task_executor.clone().spawn_blocking(
                     move || {
                         // Signal block proposal for the next slot (if it happens to be waiting).
-                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
-                            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
-                                warn!(
-                                    log,
-                                    "Error signalling fork choice waiter";
-                                    "error" => ?e,
-                                    "slot" => next_slot,
-                                );
-                            }
+                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx
+                            && let Err(e) = tx.notify_fork_choice_complete(next_slot)
+                        {
+                            warn!(
+                                error = ?e,
+                                slot = %next_slot,
+                                "Error signalling fork choice waiter"
+                            );
                         }
                     },
                     "fork_choice_advance_signal_tx",
                 );
-            },
+            }
+            .instrument(debug_span!("fork_choice_advance")),
             "fork_choice_advance",
         );
     }
@@ -282,10 +252,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 /// slot then placed in the `state_cache` to be used for block verification.
 ///
 /// See the module-level documentation for rationale.
-fn advance_head<T: BeaconChainTypes>(
-    beacon_chain: &Arc<BeaconChain<T>>,
-    log: &Logger,
-) -> Result<(), Error> {
+#[instrument(skip_all)]
+fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
 
     // These brackets ensure that the `head_slot` value is dropped before we run fork choice and
@@ -314,25 +282,6 @@ fn advance_head<T: BeaconChainTypes>(
         .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
-    // Protect against advancing a state more than a single slot.
-    //
-    // Advancing more than one slot without storing the intermediate state would corrupt the
-    // database. Future works might store temporary, intermediate states inside this function.
-    match state.slot().cmp(&state.latest_block_header().slot) {
-        std::cmp::Ordering::Equal => (),
-        std::cmp::Ordering::Greater => {
-            return Err(Error::StateAlreadyAdvanced {
-                block_root: head_block_root,
-            });
-        }
-        std::cmp::Ordering::Less => {
-            return Err(Error::BadStateSlot {
-                _block_slot: state.latest_block_header().slot,
-                _state_slot: state.slot(),
-            });
-        }
-    }
-
     let initial_slot = state.slot();
     let initial_epoch = state.current_epoch();
 
@@ -344,10 +293,9 @@ fn advance_head<T: BeaconChainTypes>(
         // Expose Prometheus metrics.
         if let Err(e) = summary.observe_metrics() {
             error!(
-                log,
-                "Failed to observe epoch summary metrics";
-                "src" => "state_advance_timer",
-                "error" => ?e
+                src = "state_advance_timer",
+                error = ?e,
+                "Failed to observe epoch summary metrics"
             );
         }
 
@@ -362,20 +310,18 @@ fn advance_head<T: BeaconChainTypes>(
                 .process_validator_statuses(state.current_epoch(), &summary, &beacon_chain.spec)
             {
                 error!(
-                    log,
-                    "Unable to process validator statuses";
-                    "error" => ?e
+                    error = ?e,
+                    "Unable to process validator statuses"
                 );
             }
         }
     }
 
     debug!(
-        log,
-        "Advanced head state one slot";
-        "head_block_root" => ?head_block_root,
-        "state_slot" => state.slot(),
-        "current_slot" => current_slot,
+        ?head_block_root,
+        state_slot = %state.slot(),
+        %current_slot,
+        "Advanced head state one slot"
     );
 
     // Build the current epoch cache, to prepare to compute proposer duties.
@@ -387,25 +333,54 @@ fn advance_head<T: BeaconChainTypes>(
         .build_committee_cache(RelativeEpoch::Next, &beacon_chain.spec)
         .map_err(BeaconChainError::from)?;
 
-    // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer shuffling
-    // for the state's current epoch and the committee cache for the state's next epoch.
+    // The state root is required to prime the proposer cache AND for writing it to disk.
+    let advanced_state_root = state.update_tree_hash_cache()?;
+
+    // If the `pre_state` is in a later epoch than `state`, pre-emptively update the proposer
+    // shuffling and attester shuffling caches.
     if initial_epoch < state.current_epoch() {
-        // Update the proposer cache.
-        //
-        // We supply the `head_block_root` as the decision block since the prior `if` statement guarantees
-        // the head root is the latest block from the prior epoch.
-        beacon_chain
-            .beacon_proposer_cache
-            .lock()
-            .insert(
-                state.current_epoch(),
-                head_block_root,
-                state
-                    .get_beacon_proposer_indices(&beacon_chain.spec)
-                    .map_err(BeaconChainError::from)?,
-                state.fork(),
-            )
-            .map_err(BeaconChainError::from)?;
+        // Include the proposer shuffling from the current epoch, which is likely to be useful
+        // pre-Fulu, and probably redundant post-Fulu (it should already have been in the cache).
+        let current_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
+            state.current_epoch(),
+            head_block_root,
+            &beacon_chain.spec,
+        )?;
+        beacon_chain.with_proposer_cache(
+            current_epoch_decision_root,
+            state.current_epoch(),
+            |_| Ok(()),
+            || {
+                debug!(
+                    shuffling_decision_root = ?current_epoch_decision_root,
+                    epoch = %state.current_epoch(),
+                    "Computing current epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
+        )?;
+
+        // For epochs *greater than* the Fulu fork epoch, we have also determined the proposer
+        // shuffling for the next epoch.
+        let next_epoch = state.next_epoch()?;
+        let next_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
+            next_epoch,
+            head_block_root,
+            &beacon_chain.spec,
+        )?;
+        beacon_chain.with_proposer_cache(
+            next_epoch_decision_root,
+            next_epoch,
+            |_| Ok(()),
+            || {
+                debug!(
+                    shuffling_decision_root = ?next_epoch_decision_root,
+                    epoch = %next_epoch,
+                    "Computing next epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
+        )?;
 
         // Update the attester cache.
         let shuffling_id =
@@ -420,12 +395,11 @@ fn advance_head<T: BeaconChainTypes>(
             .insert_committee_cache(shuffling_id.clone(), committee_cache);
 
         debug!(
-            log,
-            "Primed proposer and attester caches";
-            "head_block_root" => ?head_block_root,
-            "next_epoch_shuffling_root" => ?shuffling_id.shuffling_decision_block,
-            "state_epoch" => state.current_epoch(),
-            "current_epoch" => current_slot.epoch(T::EthSpec::slots_per_epoch()),
+            ?head_block_root,
+            next_epoch_shuffling_root = ?shuffling_id.shuffling_decision_block,
+            state_epoch = %state.current_epoch(),
+            current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
+            "Primed proposer and attester caches"
         );
     }
 
@@ -447,37 +421,27 @@ fn advance_head<T: BeaconChainTypes>(
     let current_slot = beacon_chain.slot()?;
     if starting_slot < current_slot {
         warn!(
-            log,
-            "State advance too slow";
-            "head_block_root" => %head_block_root,
-            "advanced_slot" => final_slot,
-            "current_slot" => current_slot,
-            "starting_slot" => starting_slot,
-            "msg" => "system resources may be overloaded",
+            %head_block_root,
+            advanced_slot = %final_slot,
+            %current_slot,
+            %starting_slot,
+            msg = "system resources may be overloaded",
+            "State advance too slow"
         );
     }
 
-    // Write the advanced state to the database with a temporary flag that will be deleted when
-    // a block is imported on top of this state. We should delete this once we bring in the DB
-    // changes from tree-states that allow us to prune states without temporary flags.
-    let advanced_state_root = state.update_tree_hash_cache()?;
-    let txn_lock = beacon_chain.store.hot_db.begin_rw_transaction();
-    let state_already_exists = beacon_chain
-        .store
-        .load_hot_state_summary(&advanced_state_root)?
-        .is_some();
-    let temporary = !state_already_exists;
-    beacon_chain
-        .store
-        .put_state_possibly_temporary(&advanced_state_root, &state, temporary)?;
-    drop(txn_lock);
+    // Write the advanced state to the database.
+    // We no longer use a transaction lock here when checking whether the state exists, because
+    // even if we race with the deletion of this state by the finalization pruning code, the worst
+    // case is we end up with a finalized state stored, that will get pruned the next time pruning
+    // runs.
+    beacon_chain.store.put_state(&advanced_state_root, &state)?;
 
     debug!(
-        log,
-        "Completed state advance";
-        "head_block_root" => ?head_block_root,
-        "advanced_slot" => final_slot,
-        "initial_slot" => initial_slot,
+        ?head_block_root,
+        advanced_slot = %final_slot,
+        %initial_slot,
+        "Completed state advance"
     );
 
     Ok(())

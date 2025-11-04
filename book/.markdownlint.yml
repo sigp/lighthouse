@@ -8,7 +8,7 @@ MD010:
 MD013: false
 
 # MD028: set to false to allow blank line between blockquote: https://github.com/DavidAnson/markdownlint/blob/main/doc/md028.md
-# This is because the blockquotes are shown separatedly (a deisred outcome) when having a blank line in between
+# This is because the blockquotes are shown separately (a desired outcome) when having a blank line in between
 MD028: false
 
 # MD024: set siblings_only to true so that same headings with different parent headings are allowed
@@ -26,3 +26,7 @@ MD036: false
 # MD040 code blocks should have a language specified: https://github.com/DavidAnson/markdownlint/blob/main/doc/md040.md
 # Set to false as the help_x.md files are code blocks without a language specified, which is fine and does not need to change
 MD040: false
+
+# MD059 Link text should be descriptive: https://github.com/DavidAnson/markdownlint/blob/main/doc/md059.md
+# Set to false because it is too strict
+MD059: false

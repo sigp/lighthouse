@@ -1,34 +1,33 @@
-use account_utils::{read_input_from_user, STDIN_INPUTS_FLAG};
+use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
 use beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
-    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_RE_ORG_PARENT_THRESHOLD,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
+    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
 };
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
-use beacon_chain::TrustedSetup;
-use clap::{parser::ValueSource, ArgMatches, Id};
+use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
-use lighthouse_network::ListenAddress;
-use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
+use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
+use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
-use slog::{info, warn, Logger};
-use std::cmp::max;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fs;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
+use tracing::{error, info, warn};
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
@@ -46,7 +45,6 @@ pub fn get_config<E: EthSpec>(
     context: &RuntimeContext<E>,
 ) -> Result<ClientConfig, String> {
     let spec = &context.eth2_config.spec;
-    let log = context.log();
 
     let mut client_config = ClientConfig::default();
 
@@ -64,12 +62,10 @@ pub fn get_config<E: EthSpec>(
             let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
             if std::io::stdin().is_terminal() || stdin_inputs {
                 info!(
-                    log,
                     "You are about to delete the chain database. This is irreversable \
                     and you will need to resync the chain."
                 );
                 info!(
-                    log,
                     "Type 'confirm' to delete the database. Any other input will leave \
                     the database intact and Lighthouse will exit."
                 );
@@ -80,14 +76,13 @@ pub fn get_config<E: EthSpec>(
                     let freezer_db = client_config.get_freezer_db_path();
                     let blobs_db = client_config.get_blobs_db_path();
                     purge_db(chain_db, freezer_db, blobs_db)?;
-                    info!(log, "Database was deleted.");
+                    info!("Database was deleted.");
                 } else {
-                    info!(log, "Database was not deleted. Lighthouse will now close.");
+                    info!("Database was not deleted. Lighthouse will now close.");
                     std::process::exit(1);
                 }
             } else {
                 warn!(
-                    log,
                     "The `--purge-db` flag was passed, but Lighthouse is not running \
                     interactively. The database was not purged. Use `--purge-db-force` \
                     to purge the database without requiring confirmation."
@@ -104,7 +99,7 @@ pub fn get_config<E: EthSpec>(
     let mut log_dir = client_config.data_dir().clone();
     // remove /beacon from the end
     log_dir.pop();
-    info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
+    info!(datadir = %log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"), "Data directory initialised");
 
     /*
      * Networking
@@ -112,7 +107,19 @@ pub fn get_config<E: EthSpec>(
 
     let data_dir_ref = client_config.data_dir().clone();
 
-    set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
+    set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
+
+    // Parse custody mode from CLI flags
+    let is_supernode = parse_flag(cli_args, "supernode");
+    let is_semi_supernode = parse_flag(cli_args, "semi-supernode");
+
+    client_config.chain.node_custody_type = if is_supernode {
+        NodeCustodyType::Supernode
+    } else if is_semi_supernode {
+        NodeCustodyType::SemiSupernode
+    } else {
+        NodeCustodyType::Fullnode
+    };
 
     /*
      * Staking flag
@@ -174,21 +181,24 @@ pub fn get_config<E: EthSpec>(
 
         client_config.http_api.duplicate_block_status_code =
             parse_required(cli_args, "http-duplicate-block-status")?;
-
-        client_config.http_api.enable_light_client_server =
-            cli_args.get_flag("light-client-server");
     }
 
-    if cli_args.get_flag("light-client-server") {
-        client_config.chain.enable_light_client_server = true;
+    if cli_args.get_flag("disable-light-client-server") {
+        client_config.chain.enable_light_client_server = false;
+    }
+
+    if cli_args.get_flag("disable-get-blobs") {
+        client_config.chain.disable_get_blobs = true;
+    }
+
+    if let Some(sync_tolerance_epochs) =
+        clap_utils::parse_optional(cli_args, "sync-tolerance-epochs")?
+    {
+        client_config.chain.sync_tolerance_epochs = sync_tolerance_epochs;
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
-    }
-
-    if cli_args.get_flag("enable-sampling") {
-        client_config.chain.enable_sampling = true;
     }
 
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
@@ -248,42 +258,14 @@ pub fn get_config<E: EthSpec>(
     // (e.g. using the --staking flag).
     if cli_args.get_flag("staking") {
         warn!(
-            log,
-            "Running HTTP server on port {}", client_config.http_api.listen_port
+            "Running HTTP server on port {}",
+            client_config.http_api.listen_port
         );
     }
 
     // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
     if cli_args.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
         client_config.http_metrics.allocator_metrics_enabled = false;
-    }
-
-    /*
-     * Eth1
-     */
-
-    if cli_args.get_flag("dummy-eth1") {
-        warn!(log, "The --dummy-eth1 flag is deprecated");
-    }
-
-    if cli_args.get_flag("eth1") {
-        warn!(log, "The --eth1 flag is deprecated");
-    }
-
-    if let Some(val) = cli_args.get_one::<String>("eth1-blocks-per-log-query") {
-        client_config.eth1.blocks_per_log_query = val
-            .parse()
-            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
-    }
-
-    if cli_args.get_flag("eth1-purge-cache") {
-        client_config.eth1.purge_cache = true;
-    }
-
-    if let Some(follow_distance) =
-        clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
-    {
-        client_config.eth1.cache_follow_distance = Some(follow_distance);
     }
 
     // `--execution-endpoint` is required now.
@@ -295,18 +277,14 @@ pub fn get_config<E: EthSpec>(
         endpoints.as_str(),
         SensitiveUrl::parse,
         "--execution-endpoint",
-        log,
     )?;
 
     // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
     // file_path or directly as string.
-
     let secret_file: PathBuf;
     // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
     if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
-        secret_file =
-            parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
-
+        secret_file = parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt")?;
     // Check if the JWT secret key is passed directly via cli flag and persist it to the default
     // file location.
     } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key") {
@@ -329,8 +307,7 @@ pub fn get_config<E: EthSpec>(
 
     // Parse and set the payload builder, if any.
     if let Some(endpoint) = cli_args.get_one::<String>("builder") {
-        let payload_builder =
-            parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
+        let payload_builder = parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder")?;
         el_config.builder_url = Some(payload_builder);
 
         el_config.builder_user_agent = clap_utils::parse_optional(cli_args, "builder-user-agent")?;
@@ -338,6 +315,8 @@ pub fn get_config<E: EthSpec>(
         el_config.builder_header_timeout =
             clap_utils::parse_optional(cli_args, "builder-header-timeout")?
                 .map(Duration::from_millis);
+
+        el_config.disable_builder_ssz_requests = cli_args.get_flag("builder-disable-ssz");
     }
 
     // Set config values from parse values.
@@ -354,35 +333,16 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
-    client_config.eth1.endpoint = Eth1Endpoint::Auth {
-        endpoint: execution_endpoint,
-        jwt_path: secret_file,
-        jwt_id: el_config.jwt_id.clone(),
-        jwt_version: el_config.jwt_version.clone(),
-    };
-
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);
-
-    // 4844 params
-    if let Some(trusted_setup) = context
-        .eth2_network_config
-        .as_ref()
-        .map(|config| serde_json::from_slice(&config.kzg_trusted_setup))
-        .transpose()
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?
-    {
-        client_config.trusted_setup = trusted_setup;
-    };
 
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")
     {
-        let file = std::fs::File::open(trusted_setup_file_path)
-            .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
-        let trusted_setup: TrustedSetup = serde_json::from_reader(file)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
-        client_config.trusted_setup = trusted_setup;
+        client_config.trusted_setup = std::fs::read(trusted_setup_file_path)
+            .map_err(|e| format!("Failed to read trusted setup file: {}", e))?;
+    } else if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {
+        client_config.trusted_setup = eth2_network_config.kzg_trusted_setup.clone();
     }
 
     if let Some(freezer_dir) = cli_args.get_one::<String>("freezer-dir") {
@@ -414,7 +374,13 @@ pub fn get_config<E: EthSpec>(
     if let Some(hdiff_buffer_cache_size) =
         clap_utils::parse_optional(cli_args, "hdiff-buffer-cache-size")?
     {
-        client_config.store.hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+        client_config.store.cold_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+    }
+
+    if let Some(hdiff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "hot-hdiff-buffer-cache-size")?
+    {
+        client_config.store.hot_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
     }
 
     client_config.store.compact_on_init = cli_args.get_flag("compact-db");
@@ -429,7 +395,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     if clap_utils::parse_optional::<u64>(cli_args, "slots-per-restore-point")?.is_some() {
-        warn!(log, "The slots-per-restore-point flag is deprecated");
+        warn!("The slots-per-restore-point flag is deprecated");
+    }
+
+    if let Some(backend) = clap_utils::parse_optional(cli_args, "beacon-node-backend")? {
+        client_config.store.backend = backend;
     }
 
     if let Some(hierarchy_config) = clap_utils::parse_optional(cli_args, "hierarchy-exponents")? {
@@ -440,6 +410,12 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "epochs-per-migration")?
     {
         client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
+    if let Some(state_cache_headroom) =
+        clap_utils::parse_optional(cli_args, "state-cache-headroom")?
+    {
+        client_config.store.state_cache_headroom = state_cache_headroom;
     }
 
     if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
@@ -458,6 +434,7 @@ pub fn get_config<E: EthSpec>(
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
+    #[cfg(feature = "testing")]
     if let Some(malicious_withhold_count) =
         clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
     {
@@ -486,33 +463,22 @@ pub fn get_config<E: EthSpec>(
         .as_ref()
         .ok_or("Context is missing eth2 network config")?;
 
-    client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
-    client_config.eth1.deposit_contract_deploy_block =
-        eth2_network_config.deposit_contract_deploy_block;
-    client_config.eth1.lowest_cached_block_number =
-        client_config.eth1.deposit_contract_deploy_block;
-    client_config.eth1.follow_distance = spec.eth1_follow_distance;
-    client_config.eth1.node_far_behind_seconds =
-        max(5, spec.eth1_follow_distance / 2) * spec.seconds_per_eth1_block;
-    client_config.eth1.chain_id = spec.deposit_chain_id.into();
-    client_config.eth1.set_block_cache_truncation::<E>(spec);
-
     info!(
-        log,
-        "Deposit contract";
-        "deploy_block" => client_config.eth1.deposit_contract_deploy_block,
-        "address" => &client_config.eth1.deposit_contract_address
+        deploy_block = eth2_network_config.deposit_contract_deploy_block,
+        address = ?spec.deposit_contract_address,
+        "Deposit contract"
     );
 
     // Only append network config bootnodes if discovery is not disabled
-    if !client_config.network.disable_discovery {
-        if let Some(boot_nodes) = &eth2_network_config.boot_enr {
-            client_config
-                .network
-                .boot_nodes_enr
-                .extend_from_slice(boot_nodes)
-        }
+    if !client_config.network.disable_discovery
+        && let Some(boot_nodes) = &eth2_network_config.boot_enr
+    {
+        client_config
+            .network
+            .boot_nodes_enr
+            .extend_from_slice(boot_nodes)
     }
+
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
@@ -648,10 +614,7 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
-    client_config.chain.max_network_size = lighthouse_network::gossip_max_size(
-        spec.bellatrix_fork_epoch.is_some(),
-        spec.gossip_max_size as usize,
-    );
+    client_config.chain.max_network_size = spec.max_payload_size as usize;
 
     if cli_args.get_flag("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.get_one::<String>("slasher-dir") {
@@ -799,11 +762,6 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    // Note: This overrides any previous flags that enable this option.
-    if cli_args.get_flag("disable-deposit-contract-sync") {
-        client_config.sync_eth1_chain = false;
-    }
-
     client_config.chain.prepare_payload_lookahead =
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
             .map(Duration::from_millis)
@@ -852,6 +810,14 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
+    client_config.chain.complete_blob_backfill = cli_args.get_flag("complete-blob-backfill");
+
+    // Ensure `prune_blobs` is false whenever complete-blob-backfill is set. This overrides any
+    // setting of `--prune-blobs true` applied earlier in flag parsing.
+    if client_config.chain.complete_blob_backfill {
+        client_config.store.prune_blobs = false;
+    }
+
     // Backfill sync rate-limiting
     client_config.beacon_processor.enable_backfill_rate_limiting =
         !cli_args.get_flag("disable-backfill-rate-limiting");
@@ -883,22 +849,59 @@ pub fn get_config<E: EthSpec>(
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
+    #[cfg(feature = "testing")]
+    if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
+        client_config.chain.block_publishing_delay = Some(Duration::from_secs_f64(delay));
+    }
+
+    #[cfg(feature = "testing")]
+    if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-data-column-publishing")? {
+        client_config.chain.data_column_publishing_delay = Some(Duration::from_secs_f64(delay));
+    }
+
+    if let Some(invalid_block_roots_file_path) =
+        clap_utils::parse_optional::<String>(cli_args, "invalid-block-roots")?
+    {
+        let mut file = std::fs::File::open(invalid_block_roots_file_path)
+            .map_err(|e| format!("Failed to open invalid-block-roots file: {}", e))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|e| format!("Failed to read invalid-block-roots file {}", e))?;
+        let invalid_block_roots: HashSet<Hash256> = contents
+            .split(',')
+            .filter_map(
+                |s| match Hash256::from_str(s.strip_prefix("0x").unwrap_or(s).trim()) {
+                    Ok(block_root) => Some(block_root),
+                    Err(error) => {
+                        warn!(block_root = s, ?error, "Unable to parse invalid block root",);
+                        None
+                    }
+                },
+            )
+            .collect();
+        client_config.chain.invalid_block_roots = invalid_block_roots;
+    } else if spec
+        .config_name
+        .as_ref()
+        .is_some_and(|network_name| network_name == "holesky")
+    {
+        client_config.chain.invalid_block_roots = HashSet::from([*INVALID_HOLESKY_BLOCK_ROOT]);
+    }
+
     Ok(client_config)
 }
 
 /// Gets the listening_addresses for lighthouse based on the cli options.
-pub fn parse_listening_addresses(
-    cli_args: &ArgMatches,
-    log: &Logger,
-) -> Result<ListenAddress, String> {
+pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress, String> {
     let listen_addresses_str = cli_args
         .get_many::<String>("listen-address")
-        .expect("--listen_addresses has a default value");
+        .unwrap_or_default();
     let use_zero_ports = parse_flag(cli_args, "zero-ports");
 
     // parse the possible ips
     let mut maybe_ipv4 = None;
     let mut maybe_ipv6 = None;
+
     for addr_str in listen_addresses_str {
         let addr = addr_str.parse::<IpAddr>().map_err(|parse_error| {
             format!("Failed to parse listen-address ({addr_str}) as an Ip address: {parse_error}")
@@ -908,18 +911,18 @@ pub fn parse_listening_addresses(
             IpAddr::V4(v4_addr) => match &maybe_ipv4 {
                 Some(first_ipv4_addr) => {
                     return Err(format!(
-                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
-                                Got two IpV4 addresses {first_ipv4_addr} and {v4_addr}"
-                            ));
+                        "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
+                                Got two IPv4 addresses {first_ipv4_addr} and {v4_addr}"
+                    ));
                 }
                 None => maybe_ipv4 = Some(v4_addr),
             },
             IpAddr::V6(v6_addr) => match &maybe_ipv6 {
                 Some(first_ipv6_addr) => {
                     return Err(format!(
-                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
-                                Got two IpV6 addresses {first_ipv6_addr} and {v6_addr}"
-                            ));
+                        "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
+                                Got two IPv6 addresses {first_ipv6_addr} and {v6_addr}"
+                    ));
                 }
                 None => maybe_ipv6 = Some(v6_addr),
             },
@@ -932,12 +935,11 @@ pub fn parse_listening_addresses(
         .expect("--port has a default value")
         .parse::<u16>()
         .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
-    let port6 = cli_args
+    let maybe_port6 = cli_args
         .get_one::<String>("port6")
         .map(|s| str::parse::<u16>(s))
         .transpose()
-        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
-        .unwrap_or(9090);
+        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
 
     // parse the possible discovery ports.
     let maybe_disc_port = cli_args
@@ -973,47 +975,68 @@ pub fn parse_listening_addresses(
             format!("Failed to parse --quic6-port as an integer: {parse_error}")
         })?;
 
+    // Here we specify the default listening addresses for Lighthouse.
+    // By default, we listen on 0.0.0.0.
+    //
+    // IF the host supports a globally routable IPv6 address, we also listen on ::.
+    if matches!((maybe_ipv4, maybe_ipv6), (None, None)) {
+        maybe_ipv4 = Some(Ipv4Addr::UNSPECIFIED);
+
+        if NetworkConfig::is_ipv6_supported() {
+            maybe_ipv6 = Some(Ipv6Addr::UNSPECIFIED);
+        }
+    }
+
     // Now put everything together
     let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
         (None, None) => {
-            // This should never happen unless clap is broken
-            return Err("No listening addresses provided".into());
+            unreachable!("This path is handled above this match statement");
         }
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
             if cli_args.value_source("port6") == Some(ValueSource::CommandLine) {
-                warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
+                warn!(
+                    "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored."
+                );
             }
+
+            // If we are only listening on ipv6 and the user has specified --port6, lets just use
+            // that.
+            let port = maybe_port6.unwrap_or(port);
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port);
 
             if maybe_disc6_port.is_some() {
-                warn!(log, "When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
+                warn!(
+                    "When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored."
+                )
             }
 
             if maybe_quic6_port.is_some() {
-                warn!(log, "When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored.")
+                warn!(
+                    "When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored."
+                )
             }
 
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
 
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V6(lighthouse_network::ListenAddr {
+            ListenAddress::V6(network_utils::listen_addr::ListenAddr {
                 addr: ipv6,
                 quic_port,
                 disc_port,
@@ -1025,25 +1048,25 @@ pub fn parse_listening_addresses(
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             // use zero ports if required. If not, use the specific discovery port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
             // use zero ports if required. If not, use the specific quic port. If none given, use
             // the tcp port + 1.
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V4(lighthouse_network::ListenAddr {
+            ListenAddress::V4(network_utils::listen_addr::ListenAddr {
                 addr: ipv4,
                 disc_port,
                 quic_port,
@@ -1051,17 +1074,20 @@ pub fn parse_listening_addresses(
             })
         }
         (Some(ipv4), Some(ipv6)) => {
+            // If --port6 is not set, we use --port
+            let port6 = maybe_port6.unwrap_or(port);
+
             let ipv4_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             let ipv4_disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(ipv4_tcp_port);
             let ipv4_quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if ipv4_tcp_port == 0 {
@@ -1070,18 +1096,18 @@ pub fn parse_listening_addresses(
                     ipv4_tcp_port + 1
                 });
 
-            // Defaults to 9090 when required
+            // Defaults to 9000 when required
             let ipv6_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
             let ipv6_disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
             let ipv6_quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic6_port)
                 .unwrap_or(if ipv6_tcp_port == 0 {
@@ -1091,13 +1117,13 @@ pub fn parse_listening_addresses(
                 });
 
             ListenAddress::DualStack(
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv4,
                     disc_port: ipv4_disc_port,
                     quic_port: ipv4_quic_port,
                     tcp_port: ipv4_tcp_port,
                 },
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv6,
                     disc_port: ipv6_disc_port,
                     quic_port: ipv6_quic_port,
@@ -1115,7 +1141,6 @@ pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
     data_dir: &Path,
-    log: &Logger,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.get_one::<String>("network-dir") {
@@ -1123,10 +1148,6 @@ pub fn set_network_config(
     } else {
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
-
-    if parse_flag(cli_args, "subscribe-all-data-column-subnets") {
-        config.subscribe_all_data_column_subnets = true;
-    }
 
     if parse_flag(cli_args, "subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
@@ -1136,11 +1157,18 @@ pub fn set_network_config(
         config.import_all_attestations = true;
     }
 
+    #[cfg(feature = "testing")]
+    if let Some(advertise_false_custody_group_count) =
+        clap_utils::parse_optional(cli_args, "advertise-false-custody-group-count")?
+    {
+        config.advertise_false_custody_group_count = Some(advertise_false_custody_group_count);
+    }
+
     if parse_flag(cli_args, "shutdown-after-sync") {
         config.shutdown_after_sync = true;
     }
 
-    config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
+    config.set_listening_addr(parse_listening_addresses(cli_args)?);
 
     // A custom target-peers command will overwrite the --proposer-only default.
     if let Some(target_peers_str) = cli_args.get_one::<String>("target-peers") {
@@ -1168,10 +1196,10 @@ pub fn set_network_config(
                         .parse()
                         .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
                     if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
-                        slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                        error!(multiaddr = multi.to_string(), "Missing UDP in Multiaddr");
                     }
                     if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
-                        slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                        error!(multiaddr = multi.to_string(), "Missing P2P in Multiaddr");
                     }
                     multiaddrs.push(multi);
                 }
@@ -1206,7 +1234,11 @@ pub fn set_network_config(
             })
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
         if config.trusted_peers.len() >= config.target_peers {
-            slog::warn!(log, "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "trusted_peers" => config.trusted_peers.len());
+            warn!(
+                target_peers = config.target_peers,
+                trusted_peers = config.trusted_peers.len(),
+                "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."
+            );
         }
     }
 
@@ -1306,14 +1338,14 @@ pub fn set_network_config(
             match addr.parse::<IpAddr>() {
                 Ok(IpAddr::V4(v4_addr)) => {
                     if let Some(used) = enr_ip4.as_ref() {
-                        warn!(log, "More than one Ipv4 ENR address provided"; "used" => %used, "ignored" => %v4_addr)
+                        warn!(used = %used, ignored = %v4_addr, "More than one Ipv4 ENR address provided")
                     } else {
                         enr_ip4 = Some(v4_addr)
                     }
                 }
                 Ok(IpAddr::V6(v6_addr)) => {
                     if let Some(used) = enr_ip6.as_ref() {
-                        warn!(log, "More than one Ipv6 ENR address provided"; "used" => %used, "ignored" => %v6_addr)
+                        warn!(used = %used, ignored = %v6_addr,"More than one Ipv6 ENR address provided")
                     } else {
                         enr_ip6 = Some(v6_addr)
                     }
@@ -1336,7 +1368,7 @@ pub fn set_network_config(
                     let addr_str = format!("{addr}:{port}");
                     match addr_str.to_socket_addrs() {
                         Err(_e) => {
-                            return Err(format!("Failed to parse or resolve address {addr}."))
+                            return Err(format!("Failed to parse or resolve address {addr}."));
                         }
                         Ok(resolved_addresses) => {
                             for socket_addr in resolved_addresses {
@@ -1379,13 +1411,13 @@ pub fn set_network_config(
     }
 
     if parse_flag(cli_args, "disable-packet-filter") {
-        warn!(log, "Discv5 packet filter is disabled");
+        warn!("Discv5 packet filter is disabled");
         config.discv5_config.enable_packet_filter = false;
     }
 
     if parse_flag(cli_args, "disable-discovery") {
         config.disable_discovery = true;
-        warn!(log, "Discovery is disabled. New peers will not be found");
+        warn!("Discovery is disabled. New peers will not be found");
     }
 
     if parse_flag(cli_args, "disable-quic") {
@@ -1409,7 +1441,7 @@ pub fn set_network_config(
     }
 
     // Light client server config.
-    config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
+    config.enable_light_client_server = !parse_flag(cli_args, "disable-light-client-server");
 
     // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
     // the default params will be used.
@@ -1427,12 +1459,11 @@ pub fn set_network_config(
     if parse_flag(cli_args, "proposer-only") {
         config.subscribe_all_subnets = false;
 
-        if cli_args.get_one::<String>("target-peers").is_none() {
-            // If a custom value is not set, change the default to 15
-            config.target_peers = 15;
-        }
         config.proposer_only = true;
-        warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
+        warn!(
+            info = "Proposer-only mode enabled",
+            "Do not connect a validator client to this node unless via the --proposer-nodes flag"
+        );
     }
     // The inbound rate limiter is enabled by default unless `disabled` via the
     // `disable-inbound-rate-limiter` flag.
@@ -1490,7 +1521,6 @@ pub fn parse_only_one_value<F, T, U>(
     cli_value: &str,
     parser: F,
     flag_name: &str,
-    log: &Logger,
 ) -> Result<T, String>
 where
     F: Fn(&str) -> Result<T, U>,
@@ -1504,11 +1534,10 @@ where
 
     if values.len() > 1 {
         warn!(
-            log,
-            "Multiple values provided";
-            "info" => "multiple values are deprecated, only the first value will be used",
-            "count" => values.len(),
-            "flag" => flag_name
+            info = "Multiple values provided",
+            count = values.len(),
+            flag = flag_name,
+            "multiple values are deprecated, only the first value will be used"
         );
     }
 

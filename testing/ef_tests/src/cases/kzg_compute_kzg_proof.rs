@@ -39,10 +39,6 @@ impl<E: EthSpec> Case for KZGComputeKZGProof<E> {
         fork_name == ForkName::Deneb
     }
 
-    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        feature_name != FeatureName::Eip7594
-    }
-
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGComputeKZGProofInput| -> Result<_, Error> {
             let blob = parse_blob::<E>(&input.blob)?;

@@ -6,33 +6,44 @@ use crate::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
     },
     service::NetworkMessage,
-    sync::{manager::BlockProcessType, SyncMessage},
+    sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
+use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
+use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
-    test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
+    test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
-use lighthouse_network::discovery::ConnectionId;
-use lighthouse_network::rpc::methods::BlobsByRangeRequest;
-use lighthouse_network::rpc::{RequestId, SubstreamId};
+use gossipsub::MessageAcceptance;
+use itertools::Itertools;
+use lighthouse_network::rpc::InboundRequestId;
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, MetaDataV3,
+};
 use lighthouse_network::{
+    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
     discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
 };
+use matches::assert_matches;
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, Epoch, Hash256, MainnetEthSpec,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot,
-    SubnetId,
+    AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
+    DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
+    RuntimeVariableList, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -53,16 +64,17 @@ struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
     next_blobs: Option<BlobSidecarList<E>>,
-    attestations: Vec<(Attestation<E>, SubnetId)>,
-    next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
+    next_data_columns: Option<DataColumnSidecarList<E>>,
+    attestations: Vec<(SingleAttestation, SubnetId)>,
+    next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
-    _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
+    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -80,24 +92,44 @@ impl Drop for TestRig {
 
 impl TestRig {
     pub async fn new(chain_length: u64) -> Self {
+        // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = test_spec::<E>();
+        spec.shard_committee_period = 2;
         Self::new_parametric(
             chain_length,
-            BeaconProcessorConfig::default().enable_backfill_rate_limiting,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Fullnode,
+            spec,
         )
         .await
     }
 
-    pub async fn new_parametric(chain_length: u64, enable_backfill_rate_limiting: bool) -> Self {
+    pub async fn new_supernode(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        let spec = Arc::new(spec);
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Supernode,
+            spec,
+        )
+        .await
+    }
 
+    pub async fn new_parametric(
+        chain_length: u64,
+        beacon_processor_config: BeaconProcessorConfig,
+        node_custody_type: NodeCustodyType,
+        spec: ChainSpec,
+    ) -> Self {
+        let spec = Arc::new(spec);
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .node_custody_type(node_custody_type)
             .chain_config(<_>::default())
             .build();
 
@@ -123,13 +155,21 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
+        // Ensure there is a blob in the next block. Required for some tests.
+        harness
+            .mock_execution_layer
+            .as_ref()
+            .unwrap()
+            .server
+            .execution_block_generator()
+            .set_min_blob_count(1);
         let (next_block_tuple, next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
-            .get_unaggregated_attestations(
+            .get_single_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
                 head_state_root,
@@ -146,7 +186,7 @@ impl TestRig {
         );
 
         let next_block_attestations = harness
-            .get_unaggregated_attestations(
+            .get_single_attestations(
                 &AttestationStrategy::AllValidators,
                 &next_state,
                 next_block_tuple.0.state_root(),
@@ -180,29 +220,31 @@ impl TestRig {
 
         let chain = harness.chain.clone();
 
-        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
 
-        let log = harness.logger().clone();
-
-        let beacon_processor_config = BeaconProcessorConfig {
-            enable_backfill_rate_limiting,
-            ..Default::default()
-        };
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
-        let meta_data = MetaData::V2(MetaDataV2 {
-            seq_number: SEQ_NUMBER,
-            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
-        });
+        let meta_data = if spec.is_peer_das_scheduled() {
+            MetaData::V3(MetaDataV3 {
+                seq_number: SEQ_NUMBER,
+                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                custody_group_count: spec.custody_requirement,
+            })
+        } else {
+            MetaData::V2(MetaDataV2 {
+                seq_number: SEQ_NUMBER,
+                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+            })
+        };
+
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
         let network_config = Arc::new(NetworkConfig::default());
@@ -211,7 +253,6 @@ impl TestRig {
             meta_data,
             vec![],
             false,
-            &log,
             network_config,
             spec,
         ));
@@ -227,25 +268,20 @@ impl TestRig {
             chain: harness.chain.clone(),
             network_tx,
             sync_tx,
-            reprocess_tx: work_reprocessing_tx.clone(),
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: executor.clone(),
-            log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
         let beacon_processor = BeaconProcessor {
-            network_globals,
+            network_globals: network_globals.clone(),
             executor,
             current_workers: 0,
             config: beacon_processor_config,
-            log: log.clone(),
         }
         .spawn_manager(
             beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
             chain.spec.maximum_gossip_clock_disparity(),
@@ -258,15 +294,38 @@ impl TestRig {
 
         assert!(beacon_processor.is_ok());
         let block = next_block_tuple.0;
-        let blob_sidecars = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
-            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap())
+        let (blob_sidecars, data_columns) = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
+            if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+                let kzg = get_kzg(&chain.spec);
+                let epoch = block.slot().epoch(E::slots_per_epoch());
+                let sampling_indices = chain.sampling_columns_for_epoch(epoch);
+                let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
+                    &blobs.iter().collect_vec(),
+                    kzg_proofs.clone().into_iter().collect_vec(),
+                    &block,
+                    &kzg,
+                    &chain.spec,
+                )
+                .unwrap()
+                .into_iter()
+                .filter(|c| sampling_indices.contains(&c.index))
+                .collect::<Vec<_>>();
+
+                (None, Some(custody_columns))
+            } else {
+                let blob_sidecars =
+                    BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
+                (Some(blob_sidecars), None)
+            }
         } else {
-            None
+            (None, None)
         };
+
         Self {
             chain,
             next_block: block,
             next_blobs: blob_sidecars,
+            next_data_columns: data_columns,
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,
@@ -275,8 +334,8 @@ impl TestRig {
             voluntary_exit,
             beacon_processor_tx,
             work_journal_rx,
-            _network_rx,
-            _sync_rx,
+            network_rx,
+            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -319,6 +378,21 @@ impl TestRig {
         }
     }
 
+    pub fn enqueue_gossip_data_columns(&self, col_index: usize) {
+        if let Some(data_columns) = self.next_data_columns.as_ref() {
+            let data_column = data_columns.get(col_index).unwrap();
+            self.network_beacon_processor
+                .send_gossip_data_column_sidecar(
+                    junk_message_id(),
+                    junk_peer_id(),
+                    DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
+                    data_column.clone(),
+                    Duration::from_secs(0),
+                )
+                .unwrap();
+        }
+    }
+
     pub fn enqueue_rpc_block(&self) {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
@@ -342,39 +416,72 @@ impl TestRig {
             )
             .unwrap();
     }
+
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
+            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
             self.network_beacon_processor
                 .send_rpc_blobs(
                     self.next_block.canonical_root(),
                     blobs,
                     std::time::Duration::default(),
-                    BlockProcessType::SingleBlock { id: 1 },
+                    BlockProcessType::SingleBlob { id: 1 },
                 )
                 .unwrap();
         }
     }
 
-    pub fn enqueue_blobs_by_range_request(&self, count: u64) {
+    pub fn enqueue_single_lookup_rpc_data_columns(&self) {
+        if let Some(data_columns) = self.next_data_columns.clone() {
+            self.network_beacon_processor
+                .send_rpc_custody_columns(
+                    self.next_block.canonical_root(),
+                    data_columns,
+                    Duration::default(),
+                    BlockProcessType::SingleCustodyColumn(1),
+                )
+                .unwrap();
+        }
+    }
+
+    pub fn enqueue_blobs_by_range_request(&self, start_slot: u64, count: u64) {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
-                ConnectionId::new_unchecked(42),
-                SubstreamId::new(24),
-                RequestId::new_unchecked(0),
-                BlobsByRangeRequest {
+                InboundRequestId::new_unchecked(42, 24),
+                BlobsByRangeRequest { start_slot, count },
+            )
+            .unwrap();
+    }
+
+    pub fn enqueue_blobs_by_root_request(&self, blob_ids: RuntimeVariableList<BlobIdentifier>) {
+        self.network_beacon_processor
+            .send_blobs_by_roots_request(
+                PeerId::random(),
+                InboundRequestId::new_unchecked(42, 24),
+                BlobsByRootRequest { blob_ids },
+            )
+            .unwrap();
+    }
+
+    pub fn enqueue_data_columns_by_range_request(&self, count: u64, columns: Vec<u64>) {
+        self.network_beacon_processor
+            .send_data_columns_by_range_request(
+                PeerId::random(),
+                InboundRequestId::new_unchecked(42, 24),
+                DataColumnsByRangeRequest {
                     start_slot: 0,
                     count,
+                    columns,
                 },
             )
             .unwrap();
     }
 
-    pub fn enqueue_backfill_batch(&self) {
+    pub fn enqueue_backfill_batch(&self, epoch: Epoch) {
         self.network_beacon_processor
             .send_chain_segment(
-                ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
+                ChainSegmentProcessId::BackSyncBatchId(epoch),
                 Vec::default(),
             )
             .unwrap();
@@ -519,15 +626,51 @@ impl TestRig {
     }
 
     pub async fn assert_event_journal(&mut self, expected: &[&str]) {
-        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT)
+        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT, false, false)
             .await
+    }
+
+    pub async fn assert_event_journal_completes_with_timeout(
+        &mut self,
+        expected: &[WorkType],
+        timeout: Duration,
+    ) {
+        self.assert_event_journal_with_timeout(
+            &expected
+                .iter()
+                .map(Into::<&'static str>::into)
+                .chain(std::iter::once(WORKER_FREED))
+                .chain(std::iter::once(NOTHING_TO_DO))
+                .collect::<Vec<_>>(),
+            timeout,
+            false,
+            false,
+        )
+        .await
+    }
+
+    pub async fn assert_event_journal_does_not_complete_with_timeout(
+        &mut self,
+        expected: &[WorkType],
+        timeout: Duration,
+    ) {
+        self.assert_not_in_event_journal_with_timeout(
+            &expected
+                .iter()
+                .map(Into::<&'static str>::into)
+                .chain(std::iter::once(WORKER_FREED))
+                .chain(std::iter::once(NOTHING_TO_DO))
+                .collect::<Vec<_>>(),
+            timeout,
+        )
+        .await
     }
 
     pub async fn assert_event_journal_completes(&mut self, expected: &[WorkType]) {
         self.assert_event_journal(
             &expected
                 .iter()
-                .map(|ev| Into::<&'static str>::into(ev))
+                .map(Into::<&'static str>::into)
                 .chain(std::iter::once(WORKER_FREED))
                 .chain(std::iter::once(NOTHING_TO_DO))
                 .collect::<Vec<_>>(),
@@ -545,11 +688,21 @@ impl TestRig {
         &mut self,
         expected: &[&str],
         timeout: Duration,
+        ignore_worker_freed: bool,
+        ignore_nothing_to_do: bool,
     ) {
         let mut events = Vec::with_capacity(expected.len());
 
         let drain_future = async {
             while let Some(event) = self.work_journal_rx.recv().await {
+                if event == WORKER_FREED && ignore_worker_freed {
+                    continue;
+                }
+
+                if event == NOTHING_TO_DO && ignore_nothing_to_do {
+                    continue;
+                }
+
                 events.push(event);
 
                 // Break as soon as we collect the desired number of events.
@@ -572,6 +725,120 @@ impl TestRig {
 
         assert_eq!(events, expected);
     }
+
+    /// Assert that the `BeaconProcessor` event journal is not as `expected`.
+    pub async fn assert_not_in_event_journal_with_timeout(
+        &mut self,
+        expected: &[&str],
+        timeout: Duration,
+    ) {
+        let mut events = Vec::with_capacity(expected.len());
+
+        let drain_future = async {
+            while let Some(event) = self.work_journal_rx.recv().await {
+                events.push(event);
+
+                // Break as soon as we collect the desired number of events.
+                if events.len() >= expected.len() {
+                    break;
+                }
+            }
+        };
+
+        // Panic if we don't time out.
+        tokio::select! {
+            _ = tokio::time::sleep(timeout) => {},
+            _ = drain_future =>  panic!(
+                "Got events before timeout. Expected no events but got {:?}",
+                events
+            ),
+        }
+
+        assert_ne!(events, expected);
+    }
+
+    /// Listen for network messages and collect them for a specified duration or until reaching a count.
+    ///
+    /// Returns None if no messages were received, or Some(Vec) containing the received messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Maximum duration to listen for messages
+    /// * `count` - Optional maximum number of messages to collect before returning
+    pub async fn receive_network_messages_with_timeout(
+        &mut self,
+        timeout: Duration,
+        count: Option<usize>,
+    ) -> Option<Vec<NetworkMessage<E>>> {
+        let mut events = vec![];
+
+        let timeout_future = tokio::time::sleep(timeout);
+        tokio::pin!(timeout_future);
+
+        loop {
+            // Break if we've received the requested count of messages
+            if let Some(target_count) = count
+                && events.len() >= target_count
+            {
+                break;
+            }
+
+            tokio::select! {
+                _ = &mut timeout_future => break,
+                maybe_msg = self.network_rx.recv() => {
+                    match maybe_msg {
+                        Some(msg) => events.push(msg),
+                        None => break, // Channel closed
+                    }
+                }
+            }
+        }
+
+        if events.is_empty() {
+            None
+        } else {
+            Some(events)
+        }
+    }
+
+    /// Listen for sync messages and collect them for a specified duration or until reaching a count.
+    ///
+    /// Returns None if no messages were received, or Some(Vec) containing the received messages.
+    pub async fn receive_sync_messages_with_timeout(
+        &mut self,
+        timeout: Duration,
+        count: Option<usize>,
+    ) -> Option<Vec<SyncMessage<E>>> {
+        let mut events = vec![];
+
+        let timeout_future = tokio::time::sleep(timeout);
+        tokio::pin!(timeout_future);
+
+        loop {
+            // Break if we've received the requested count of messages
+            if let Some(target_count) = count
+                && events.len() >= target_count
+            {
+                break;
+            }
+
+            tokio::select! {
+                _ = &mut timeout_future => break,
+                maybe_msg = self.sync_rx.recv() => {
+                    match maybe_msg {
+                        Some(msg) => events.push(msg),
+                        None => break, // Channel closed
+                    }
+                }
+            }
+        }
+
+        if events.is_empty() {
+            None
+        } else {
+            Some(events)
+        }
+    }
 }
 
 fn junk_peer_id() -> PeerId {
@@ -580,6 +847,159 @@ fn junk_peer_id() -> PeerId {
 
 fn junk_message_id() -> MessageId {
     MessageId::new(&[])
+}
+
+// Test that column reconstruction is delayed for columns that arrive
+// at the beginning of the slot.
+#[tokio::test]
+async fn data_column_reconstruction_at_slot_start() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    if num_data_columns > 0 {
+        // Reconstruction is delayed by 100ms, we should not be able to complete
+        // reconstruction up to this point
+        rig.assert_event_journal_does_not_complete_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(100),
+        )
+        .await;
+
+        // We've waited at least 150ms, reconstruction can now be triggered
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(200),
+        )
+        .await;
+    }
+}
+
+// Test that column reconstruction happens immediately for columns that arrive at the
+// reconstruction deadline.
+#[tokio::test]
+async fn data_column_reconstruction_at_deadline() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_secs(3));
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
+    if num_data_columns > 0 {
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(50),
+        )
+        .await;
+    }
+}
+
+// Test the column reconstruction is delayed for columns that arrive for a previous slot.
+#[tokio::test]
+async fn data_column_reconstruction_at_next_slot() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    // We push the slot clock to the next slot.
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_secs(12));
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    if num_data_columns > 0 {
+        // Since we are in the next slot reconstruction for the previous slot should be delayed again
+        rig.assert_event_journal_does_not_complete_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(100),
+        )
+        .await;
+
+        // We've waited at least 150ms, reconstruction can now be triggered
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(200),
+        )
+        .await;
+    }
 }
 
 /// Blocks that arrive early should be queued for later processing.
@@ -612,6 +1032,13 @@ async fn import_gossip_block_acceptably_early() {
     for i in 0..num_blobs {
         rig.enqueue_gossip_blob(i);
         rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
+            .await;
+    }
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
             .await;
     }
 
@@ -675,6 +1102,61 @@ async fn import_gossip_block_unacceptably_early() {
     );
 }
 
+/// Data columns that have already been processed but unobserved should be propagated without re-importing.
+#[tokio::test]
+async fn accept_processed_gossip_data_columns_without_import() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    // GIVEN the data columns have already been processed but unobserved.
+    // 1. verify data column with `DoNotObserve` to create verified but unobserved data columns.
+    // 2. put verified but unobserved data columns into the data availability cache.
+    let verified_data_columns: Vec<_> = rig
+        .next_data_columns
+        .clone()
+        .unwrap()
+        .into_iter()
+        .map(|data_column| {
+            let subnet_id =
+                DataColumnSubnetId::from_column_index(data_column.index, &rig.chain.spec);
+            validate_data_column_sidecar_for_gossip::<_, DoNotObserve>(
+                data_column,
+                subnet_id,
+                &rig.chain,
+            )
+            .expect("should be valid data column")
+        })
+        .collect();
+
+    let block_root = rig.next_block.canonical_root();
+    rig.chain
+        .data_availability_checker
+        .put_gossip_verified_data_columns(block_root, rig.next_block.slot(), verified_data_columns)
+        .expect("should put data columns into availability cache");
+
+    // WHEN an already processed but unobserved data column is received via gossip
+    rig.enqueue_gossip_data_columns(0);
+
+    // THEN the data column should be propagated without re-importing (not sure if there's an easy way to test this)
+    let network_message = rig
+        .receive_network_messages_with_timeout(Duration::from_millis(100), Some(1))
+        .await
+        .and_then(|mut vec| vec.pop())
+        .expect("should receive network messages");
+
+    assert_matches!(
+        network_message,
+        NetworkMessage::ValidationResult {
+            propagation_source: _,
+            message_id: _,
+            validation_result: MessageAcceptance::Accept,
+        }
+    );
+}
+
 /// Blocks that arrive on-time should be processed normally.
 #[tokio::test]
 async fn import_gossip_block_at_current_slot() {
@@ -691,16 +1173,17 @@ async fn import_gossip_block_at_current_slot() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
-    let num_blobs = rig
-        .next_blobs
-        .as_ref()
-        .map(|blobs| blobs.len())
-        .unwrap_or(0);
-
+    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     for i in 0..num_blobs {
         rig.enqueue_gossip_blob(i);
-
         rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
+            .await;
+    }
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
             .await;
     }
 
@@ -756,11 +1239,8 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig
-        .next_blobs
-        .as_ref()
-        .map(|blobs| blobs.len())
-        .unwrap_or(0);
+    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
         BlockImportMethod::Gossip => {
@@ -770,6 +1250,10 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
                 rig.enqueue_gossip_blob(i);
                 events.push(WorkType::GossipBlobSidecar);
             }
+            for i in 0..num_data_columns {
+                rig.enqueue_gossip_data_columns(i);
+                events.push(WorkType::GossipDataColumnSidecar);
+            }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
@@ -777,6 +1261,10 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
                 events.push(WorkType::RpcBlobs);
+            }
+            if num_data_columns > 0 {
+                rig.enqueue_single_lookup_rpc_data_columns();
+                events.push(WorkType::RpcCustodyColumn);
             }
         }
     };
@@ -837,11 +1325,8 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig
-        .next_blobs
-        .as_ref()
-        .map(|blobs| blobs.len())
-        .unwrap_or(0);
+    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
         BlockImportMethod::Gossip => {
@@ -851,6 +1336,10 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
                 rig.enqueue_gossip_blob(i);
                 events.push(WorkType::GossipBlobSidecar);
             }
+            for i in 0..num_data_columns {
+                rig.enqueue_gossip_data_columns(i);
+                events.push(WorkType::GossipDataColumnSidecar)
+            }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
@@ -858,6 +1347,10 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
                 events.push(WorkType::RpcBlobs);
+            }
+            if num_data_columns > 0 {
+                rig.enqueue_single_lookup_rpc_data_columns();
+                events.push(WorkType::RpcCustodyColumn);
             }
         }
     };
@@ -923,6 +1416,8 @@ async fn requeue_unknown_block_gossip_attestation_without_import() {
             NOTHING_TO_DO,
         ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
     )
     .await;
 
@@ -963,6 +1458,8 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
             NOTHING_TO_DO,
         ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
     )
     .await;
 
@@ -1043,9 +1540,17 @@ async fn test_rpc_block_reprocessing() {
     rig.assert_event_journal_completes(&[WorkType::RpcBlock])
         .await;
 
-    rig.enqueue_single_lookup_rpc_blobs();
-    if rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0) > 0 {
+    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
+    if num_blobs > 0 {
+        rig.enqueue_single_lookup_rpc_blobs();
         rig.assert_event_journal_completes(&[WorkType::RpcBlobs])
+            .await;
+    }
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    if num_data_columns > 0 {
+        rig.enqueue_single_lookup_rpc_data_columns();
+        rig.assert_event_journal_completes(&[WorkType::RpcCustodyColumn])
             .await;
     }
 
@@ -1060,11 +1565,25 @@ async fn test_rpc_block_reprocessing() {
     tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
 
     rig.assert_event_journal(&[WorkType::RpcBlock.into()]).await;
-    // Add an extra delay for block processing
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    // head should update to next block now since the duplicate
-    // cache handle was dropped.
-    assert_eq!(next_block_root, rig.head_root());
+
+    let max_retries = 3;
+    let mut success = false;
+    for _ in 0..max_retries {
+        // Add an extra delay for block processing
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        // head should update to the next block now since the duplicate
+        // cache handle was dropped.
+        if next_block_root == rig.head_root() {
+            success = true;
+            break;
+        }
+    }
+    assert!(
+        success,
+        "expected head_root to be {:?} but was {:?}",
+        next_block_root,
+        rig.head_root()
+    );
 }
 
 /// Ensure that backfill batches get rate-limited and processing is scheduled at specified intervals.
@@ -1075,8 +1594,8 @@ async fn test_backfill_sync_processing() {
     // (not straight forward to manipulate `TestingSlotClock` due to cloning of `SlotClock` in code)
     // and makes the test very slow, hence timing calculation is unit tested separately in
     // `work_reprocessing_queue`.
-    for _ in 0..1 {
-        rig.enqueue_backfill_batch();
+    for i in 0..1 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
         // ensure queued batch is not processed until later
         rig.assert_no_events_for(Duration::from_millis(100)).await;
         // A new batch should be processed within a slot.
@@ -1087,6 +1606,8 @@ async fn test_backfill_sync_processing() {
                 NOTHING_TO_DO,
             ],
             rig.chain.slot_clock.slot_duration(),
+            false,
+            false,
         )
         .await;
     }
@@ -1095,11 +1616,20 @@ async fn test_backfill_sync_processing() {
 /// Ensure that backfill batches get processed as fast as they can when rate-limiting is disabled.
 #[tokio::test]
 async fn test_backfill_sync_processing_rate_limiting_disabled() {
-    let enable_backfill_rate_limiting = false;
-    let mut rig = TestRig::new_parametric(SMALL_CHAIN, enable_backfill_rate_limiting).await;
+    let beacon_processor_config = BeaconProcessorConfig {
+        enable_backfill_rate_limiting: false,
+        ..Default::default()
+    };
+    let mut rig = TestRig::new_parametric(
+        SMALL_CHAIN,
+        beacon_processor_config,
+        NodeCustodyType::Fullnode,
+        test_spec::<E>(),
+    )
+    .await;
 
-    for _ in 0..3 {
-        rig.enqueue_backfill_batch();
+    for i in 0..3 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
     }
 
     // ensure all batches are processed
@@ -1110,6 +1640,8 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
             WorkType::ChainSegmentBackfill.into(),
         ],
         Duration::from_millis(100),
+        true,
+        true,
     )
     .await;
 }
@@ -1120,8 +1652,9 @@ async fn test_blobs_by_range() {
         return;
     };
     let mut rig = TestRig::new(64).await;
+    let start_slot = 0;
     let slot_count = 32;
-    rig.enqueue_blobs_by_range_request(slot_count);
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
 
     let mut blob_count = 0;
     for slot in 0..slot_count {
@@ -1130,16 +1663,85 @@ async fn test_blobs_by_range() {
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
             .unwrap();
         blob_count += root
-            .map(|root| rig.chain.get_blobs(&root).unwrap_or_default().len())
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
             .unwrap_or(0);
     }
     let mut actual_count = 0;
-    while let Some(next) = rig._network_rx.recv().await {
+    while let Some(next) = rig.network_rx.recv().await {
         if let NetworkMessage::SendResponse {
             peer_id: _,
             response: Response::BlobsByRange(blob),
-            id: _,
-            request_id: _,
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    if test_spec::<E>().fulu_fork_epoch.is_some() {
+        assert_eq!(0, actual_count, "Post-Fulu should return 0 blobs");
+    } else {
+        assert_eq!(blob_count, actual_count);
+    }
+}
+
+#[tokio::test]
+async fn test_blobs_by_range_spans_fulu_fork() {
+    // Only test for Electra & Fulu fork transition
+    if test_spec::<E>().electra_fork_epoch.is_none() {
+        return;
+    };
+    let mut spec = test_spec::<E>();
+    spec.fulu_fork_epoch = Some(Epoch::new(1));
+    spec.gloas_fork_epoch = Some(Epoch::new(2));
+
+    let mut rig = TestRig::new_parametric(
+        64,
+        BeaconProcessorConfig::default(),
+        NodeCustodyType::Fullnode,
+        spec,
+    )
+    .await;
+
+    let start_slot = 16;
+    // This will span from epoch 0 (Electra) to epoch 1 (Fulu)
+    let slot_count = 32;
+
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
+
+    let mut blob_count = 0;
+    for slot in start_slot..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        blob_count += root
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+    }
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            inbound_request_id: _,
         } = next
         {
             if blob.is_some() {
@@ -1152,4 +1754,226 @@ async fn test_blobs_by_range() {
         }
     }
     assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_root() {
+    if test_spec::<E>().deneb_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+
+    // Get the block root of a sample slot, e.g., slot 1
+    let block_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+
+    let blobs = rig.chain.get_blobs(&block_root).unwrap();
+    let blob_count = blobs.len();
+
+    let blob_ids: Vec<BlobIdentifier> = (0..blob_count)
+        .map(|index| BlobIdentifier {
+            block_root,
+            index: index as u64,
+        })
+        .collect();
+
+    let blob_ids_list = RuntimeVariableList::new(blob_ids, blob_count).unwrap();
+
+    rig.enqueue_blobs_by_root_request(blob_ids_list);
+
+    let mut blob_count = 0;
+    let root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap();
+    blob_count += root
+        .map(|root| {
+            rig.chain
+                .get_blobs(&root)
+                .map(|list| list.len())
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRoot(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_root_post_fulu_should_return_empty() {
+    // Only test for Fulu fork
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+
+    let block_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+
+    let blob_ids = vec![BlobIdentifier {
+        block_root,
+        index: 0,
+    }];
+
+    let blob_ids_list = RuntimeVariableList::new(blob_ids, 1).unwrap();
+
+    rig.enqueue_blobs_by_root_request(blob_ids_list);
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRoot(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    // Post-Fulu should return 0 blobs
+    assert_eq!(0, actual_count);
+}
+
+/// Ensure that data column processing that results in block import sends a sync notification
+#[tokio::test]
+async fn test_data_column_import_notifies_sync() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    // Enqueue the block first to prepare for data column processing
+    rig.enqueue_gossip_block();
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+    rig.receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
+        .await
+        .expect("should receive sync message");
+
+    // Enqueue data columns which should trigger block import when complete
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    if num_data_columns > 0 {
+        for i in 0..num_data_columns {
+            rig.enqueue_gossip_data_columns(i);
+            rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+                .await;
+        }
+
+        // Verify block import succeeded
+        assert_eq!(
+            rig.head_root(),
+            block_root,
+            "block should be imported and become head"
+        );
+
+        // Check that sync was notified of the successful import
+        let sync_messages = rig
+            .receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
+            .await
+            .expect("should receive sync message");
+
+        // Verify we received the expected GossipBlockProcessResult message
+        assert_eq!(
+            sync_messages.len(),
+            1,
+            "should receive exactly one sync message"
+        );
+        match &sync_messages[0] {
+            SyncMessage::GossipBlockProcessResult {
+                block_root: msg_block_root,
+                imported,
+            } => {
+                assert_eq!(*msg_block_root, block_root, "block root should match");
+                assert!(*imported, "block should be marked as imported");
+            }
+            other => panic!("expected GossipBlockProcessResult, got {:?}", other),
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_data_columns_by_range_request_only_returns_requested_columns() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+    let slot_count = 4;
+
+    let all_custody_columns = rig
+        .chain
+        .sampling_columns_for_epoch(rig.chain.epoch().unwrap());
+    let available_columns: Vec<u64> = all_custody_columns.to_vec();
+
+    let requested_columns = vec![available_columns[0], available_columns[2]];
+
+    rig.enqueue_data_columns_by_range_request(slot_count, requested_columns.clone());
+
+    let mut received_columns = Vec::new();
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::DataColumnsByRange(data_column),
+            inbound_request_id: _,
+        } = next
+        {
+            if let Some(column) = data_column {
+                received_columns.push(column.index);
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+
+    for received_index in &received_columns {
+        assert!(
+            requested_columns.contains(received_index),
+            "Received column index {} was not in requested columns {:?}",
+            received_index,
+            requested_columns
+        );
+    }
+
+    let unique_received: HashSet<_> = received_columns.into_iter().collect();
+    assert!(
+        !unique_received.is_empty(),
+        "Should have received at least some data columns"
+    );
 }

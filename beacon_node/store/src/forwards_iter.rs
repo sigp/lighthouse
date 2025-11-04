@@ -4,7 +4,6 @@ use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore};
 use itertools::process_results;
 use std::marker::PhantomData;
 use types::{BeaconState, EthSpec, Hash256, Slot};
-
 pub type HybridForwardsBlockRootsIterator<'a, E, Hot, Cold> =
     HybridForwardsIterator<'a, E, Hot, Cold>;
 pub type HybridForwardsStateRootsIterator<'a, E, Hot, Cold> =
@@ -159,6 +158,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
             return None;
         }
         self.inner
+            .as_mut()
             .next()?
             .and_then(|(slot_bytes, root_bytes)| {
                 let slot = slot_bytes
@@ -265,7 +265,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 // `end_slot`. If it tries to continue further a `NoContinuationData` error will be
                 // returned.
                 let continuation_data =
-                    if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_bound) {
+                    if end_slot.is_some_and(|end_slot| end_slot < freezer_upper_bound) {
                         None
                     } else {
                         Some(Box::new(get_state()?))
@@ -306,7 +306,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                     None => {
                         // If the iterator has an end slot (inclusive) which has already been
                         // covered by the (exclusive) frozen forwards iterator, then we're done!
-                        if end_slot.map_or(false, |end_slot| iter.end_slot == end_slot + 1) {
+                        if end_slot.is_some_and(|end_slot| iter.end_slot == end_slot + 1) {
                             *self = Finished;
                             return Ok(None);
                         }

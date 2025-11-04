@@ -5,11 +5,12 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::*;
 use validator_manager::{
     create_validators::CreateConfig,
     delete_validators::DeleteConfig,
+    exit_validators::ExitConfig,
     import_validators::ImportConfig,
     list_validators::ListConfig,
     move_validators::{MoveConfig, PasswordSource, Validators},
@@ -119,6 +120,12 @@ impl CommandLineTest<DeleteConfig> {
     }
 }
 
+impl CommandLineTest<ExitConfig> {
+    fn validators_exit() -> Self {
+        Self::default().flag("exit", None)
+    }
+}
+
 #[test]
 pub fn validator_create_without_output_path() {
     CommandLineTest::validators_create().assert_failed();
@@ -136,7 +143,7 @@ pub fn validator_create_defaults() {
                 count: 1,
                 deposit_gwei: MainnetEthSpec::default_spec().max_effective_balance,
                 mnemonic_path: None,
-                stdin_inputs: cfg!(windows) || false,
+                stdin_inputs: cfg!(windows),
                 disable_deposits: false,
                 specify_voting_keystore_password: false,
                 eth1_withdrawal_address: None,
@@ -201,7 +208,7 @@ pub fn validator_create_disable_deposits() {
         .flag("--disable-deposits", None)
         .flag("--builder-proposals", Some("false"))
         .assert_success(|config| {
-            assert_eq!(config.disable_deposits, true);
+            assert!(config.disable_deposits);
             assert_eq!(config.builder_proposals, Some(false));
         });
 }
@@ -300,7 +307,7 @@ pub fn validator_move_defaults() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -350,7 +357,7 @@ pub fn validator_move_misc_flags_1() {
         .flag("--src-vc-token", Some("./1.json"))
         .flag("--dest-vc-url", Some("http://localhost:2"))
         .flag("--dest-vc-token", Some("./2.json"))
-        .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
+        .flag("--validators", Some(EXAMPLE_PUBKEY_0))
         .flag("--builder-proposals", Some("false"))
         .flag("--prefer-builder-proposals", Some("false"))
         .assert_success(|config| {
@@ -360,7 +367,7 @@ pub fn validator_move_misc_flags_1() {
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Specific(vec![
-                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
                 ]),
                 builder_proposals: Some(false),
                 builder_boost_factor: None,
@@ -368,7 +375,7 @@ pub fn validator_move_misc_flags_1() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -382,7 +389,7 @@ pub fn validator_move_misc_flags_2() {
         .flag("--src-vc-token", Some("./1.json"))
         .flag("--dest-vc-url", Some("http://localhost:2"))
         .flag("--dest-vc-token", Some("./2.json"))
-        .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
+        .flag("--validators", Some(EXAMPLE_PUBKEY_0))
         .flag("--builder-proposals", Some("false"))
         .flag("--builder-boost-factor", Some("100"))
         .assert_success(|config| {
@@ -392,7 +399,7 @@ pub fn validator_move_misc_flags_2() {
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Specific(vec![
-                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
                 ]),
                 builder_proposals: Some(false),
                 builder_boost_factor: Some(100),
@@ -400,7 +407,7 @@ pub fn validator_move_misc_flags_2() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -428,7 +435,7 @@ pub fn validator_move_count() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -443,6 +450,8 @@ pub fn validator_list_defaults() {
             let expected = ListConfig {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
+                beacon_url: None,
+                validators_to_display: vec![],
             };
             assert_eq!(expected, config);
         });
@@ -467,4 +476,107 @@ pub fn validator_delete_defaults() {
             };
             assert_eq!(expected, config);
         });
+}
+
+#[test]
+pub fn validator_delete_missing_validator_flag() {
+    CommandLineTest::validators_delete()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_defaults() {
+    CommandLineTest::validators_exit()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--beacon-node", Some("http://localhost:5052"))
+        .assert_success(|config| {
+            let expected = ExitConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_exit: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
+                beacon_url: Some(SensitiveUrl::parse("http://localhost:5052").unwrap()),
+                exit_epoch: None,
+                presign: false,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_exit_exit_epoch_and_presign_flags() {
+    CommandLineTest::validators_exit()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--exit-epoch", Some("1234567"))
+        .flag("--presign", None)
+        .assert_success(|config| {
+            let expected = ExitConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_exit: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
+                beacon_url: None,
+                exit_epoch: Some(Epoch::new(1234567)),
+                presign: true,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_exit_missing_validator_flag() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_using_beacon_and_presign_flags() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--presign", None)
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_using_beacon_and_exit_epoch_flags() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--exit-epoch", Some("1234567"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_exit_epoch_flag_without_presign_flag() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--exit-epoch", Some("1234567"))
+        .assert_failed();
 }

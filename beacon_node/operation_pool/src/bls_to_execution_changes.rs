@@ -1,5 +1,5 @@
 use state_processing::SigVerifiedOp;
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::sync::Arc;
 use types::{
     AbstractExecPayload, BeaconState, ChainSpec, EthSpec, SignedBeaconBlock,
@@ -112,7 +112,7 @@ impl<E: EthSpec> BlsToExecutionChanges<E> {
             head_state
                 .validators()
                 .get(validator_index as usize)
-                .map_or(true, |validator| {
+                .is_none_or(|validator| {
                     let prune = validator.has_execution_withdrawal_credential(spec)
                         && head_block
                             .message()

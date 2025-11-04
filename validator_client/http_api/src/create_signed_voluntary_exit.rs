@@ -1,17 +1,17 @@
 use bls::{PublicKey, PublicKeyBytes};
 use eth2::types::GenericResponse;
-use slog::{info, Logger};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use slot_clock::SlotClock;
 use std::sync::Arc;
+use tracing::info;
 use types::{Epoch, EthSpec, SignedVoluntaryExit, VoluntaryExit};
 use validator_store::ValidatorStore;
 
 pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
     pubkey: PublicKey,
     maybe_epoch: Option<Epoch>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     slot_clock: T,
-    log: Logger,
 ) -> Result<GenericResponse<SignedVoluntaryExit>, warp::Rejection> {
     let epoch = match maybe_epoch {
         Some(epoch) => epoch,
@@ -45,10 +45,9 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
     };
 
     info!(
-        log,
-        "Signing voluntary exit";
-        "validator" => pubkey_bytes.as_hex_string(),
-        "epoch" => epoch
+        validator = pubkey_bytes.as_hex_string(),
+        %epoch,
+        "Signing voluntary exit"
     );
 
     let signed_voluntary_exit = validator_store

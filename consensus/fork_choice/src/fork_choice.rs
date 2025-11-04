@@ -1,10 +1,11 @@
 use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
+use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
-    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
+    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use slog::{crit, debug, warn, Logger};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
@@ -13,11 +14,13 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
+use superstruct::superstruct;
+use tracing::{debug, instrument, warn};
 use types::{
-    consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
-    AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, Hash256,
-    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    FixedBytesExtended, Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::bellatrix::INTERVALS_PER_SLOT,
 };
 
 #[derive(Debug)]
@@ -471,6 +474,7 @@ where
     /// Is equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
+    #[instrument(skip_all, level = "debug")]
     pub fn get_head(
         &mut self,
         system_time_current_slot: Slot,
@@ -519,6 +523,7 @@ where
     ///
     /// You *must* call `get_head` for the proposal slot prior to calling this function and pass
     /// in the result of `get_head` as `canonical_head`.
+    #[instrument(level = "debug", skip_all)]
     pub fn get_proposer_head(
         &self,
         current_slot: Slot,
@@ -645,6 +650,12 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = "fork_choice_on_block",
+        skip_all,
+        fields(
+            fork_choice_block_delay = ?block_delay
+        ))]
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
@@ -728,6 +739,11 @@ where
         self.update_checkpoints(
             state.current_justified_checkpoint(),
             state.finalized_checkpoint(),
+            || {
+                state
+                    .get_state_root_at_epoch_start(state.current_justified_checkpoint().epoch)
+                    .map_err(Into::into)
+            },
         )?;
 
         // Update unrealized justified/finalized checkpoints.
@@ -755,20 +771,15 @@ where
             if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
                 (parent_justified, parent_finalized)
             } else {
-                let justification_and_finalization_state = match block {
-                    BeaconBlockRef::Electra(_)
-                    | BeaconBlockRef::Deneb(_)
-                    | BeaconBlockRef::Capella(_)
-                    | BeaconBlockRef::Bellatrix(_)
-                    | BeaconBlockRef::Altair(_) => {
+                let justification_and_finalization_state =
+                    if block.fork_name_unchecked().altair_enabled() {
                         // NOTE: Processing justification & finalization requires the progressive
                         // balances cache, but we cannot initialize it here as we only have an
                         // immutable reference. The state *should* have come straight from block
                         // processing, which initialises the cache, but if we add other `on_block`
                         // calls in future it could be worth passing a mutable reference.
                         per_epoch_processing::altair::process_justification_and_finalization(state)?
-                    }
-                    BeaconBlockRef::Base(_) => {
+                    } else {
                         let mut validator_statuses =
                             per_epoch_processing::base::ValidatorStatuses::new(state, spec)
                                 .map_err(Error::ValidatorStatuses)?;
@@ -780,8 +791,7 @@ where
                             &validator_statuses.total_balances,
                             spec,
                         )?
-                    }
-                };
+                    };
 
                 (
                     justification_and_finalization_state.current_justified_checkpoint(),
@@ -793,8 +803,15 @@ where
         if unrealized_justified_checkpoint.epoch
             > self.fc_store.unrealized_justified_checkpoint().epoch
         {
-            self.fc_store
-                .set_unrealized_justified_checkpoint(unrealized_justified_checkpoint);
+            // Justification has recently updated therefore the justified state root should be in
+            // range of the head state's `state_roots` vector.
+            let unrealized_justified_state_root =
+                state.get_state_root_at_epoch_start(unrealized_justified_checkpoint.epoch)?;
+
+            self.fc_store.set_unrealized_justified_checkpoint(
+                unrealized_justified_checkpoint,
+                unrealized_justified_state_root,
+            );
         }
         if unrealized_finalized_checkpoint.epoch
             > self.fc_store.unrealized_finalized_checkpoint().epoch
@@ -808,6 +825,13 @@ where
             self.pull_up_store_checkpoints(
                 unrealized_justified_checkpoint,
                 unrealized_finalized_checkpoint,
+                || {
+                    // In the case where we actually update justification, it must be that the
+                    // unrealized justification is recent and in range of the `state_roots` vector.
+                    state
+                        .get_state_root_at_epoch_start(unrealized_justified_checkpoint.epoch)
+                        .map_err(Into::into)
+                },
             )?;
         }
 
@@ -847,7 +871,7 @@ where
                             block_slot: block.slot(),
                             block_root,
                             payload_verification_status,
-                        })
+                        });
                     }
                 }
             }
@@ -894,11 +918,13 @@ where
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        justified_state_root_producer: impl FnOnce() -> Result<Hash256, Error<T::Error>>,
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
         if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
+            let justified_state_root = justified_state_root_producer()?;
             self.fc_store
-                .set_justified_checkpoint(justified_checkpoint)
+                .set_justified_checkpoint(justified_checkpoint, justified_state_root)
                 .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
 
@@ -1164,10 +1190,12 @@ where
         // Update the justified/finalized checkpoints based upon the
         // best-observed unrealized justification/finality.
         let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
+        let unrealized_justified_state_root = self.fc_store.unrealized_justified_state_root();
         let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
         self.pull_up_store_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
+            || Ok(unrealized_justified_state_root),
         )?;
 
         Ok(())
@@ -1177,10 +1205,12 @@ where
         &mut self,
         unrealized_justified_checkpoint: Checkpoint,
         unrealized_finalized_checkpoint: Checkpoint,
+        unrealized_justified_state_root_producer: impl FnOnce() -> Result<Hash256, Error<T::Error>>,
     ) -> Result<(), Error<T::Error>> {
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
+            unrealized_justified_state_root_producer,
         )
     }
 
@@ -1259,6 +1289,11 @@ where
     pub fn is_finalized_checkpoint_or_descendant(&self, block_root: Hash256) -> bool {
         self.proto_array
             .is_finalized_checkpoint_or_descendant::<E>(block_root)
+    }
+
+    pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
+        self.proto_array
+            .is_descendant(ancestor_root, descendant_root)
     }
 
     /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.
@@ -1368,20 +1403,21 @@ where
     /// Instantiate `Self` from some `PersistedForkChoice` generated by a earlier call to
     /// `Self::to_persisted`.
     pub fn proto_array_from_persisted(
-        persisted: &PersistedForkChoice,
+        persisted_proto_array: proto_array::core::SszContainer,
+        justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
-        let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
-            .map_err(Error::InvalidProtoArrayBytes)?;
+        let mut proto_array = ProtoArrayForkChoice::from_container(
+            persisted_proto_array.clone(),
+            justified_balances.clone(),
+        )
+        .map_err(Error::InvalidProtoArrayBytes)?;
         let contains_invalid_payloads = proto_array.contains_invalid_payloads();
 
         debug!(
-            log,
-            "Restoring fork choice from persisted";
-            "reset_payload_statuses" => ?reset_payload_statuses,
-            "contains_invalid_payloads" => contains_invalid_payloads,
+            ?reset_payload_statuses,
+            contains_invalid_payloads, "Restoring fork choice from persisted"
         );
 
         // Exit early if there are no "invalid" payloads, if requested.
@@ -1400,18 +1436,14 @@ where
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
             crit!(
-                log,
-                "Failed to reset payload statuses";
-                "error" => e,
-                "info" => "please report this error",
+                error = ?e,
+                info = "please report this error",
+                "Failed to reset payload statuses"
             );
-            ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
+            ProtoArrayForkChoice::from_container(persisted_proto_array, justified_balances)
                 .map_err(Error::InvalidProtoArrayBytes)
         } else {
-            debug!(
-                log,
-                "Successfully reset all payload statuses";
-            );
+            debug!("Successfully reset all payload statuses");
             Ok(proto_array)
         }
     }
@@ -1423,10 +1455,14 @@ where
         reset_payload_statuses: ResetPayloadStatuses,
         fc_store: T,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<Self, Error<T::Error>> {
-        let proto_array =
-            Self::proto_array_from_persisted(&persisted, reset_payload_statuses, spec, log)?;
+        let justified_balances = fc_store.justified_balances().clone();
+        let proto_array = Self::proto_array_from_persisted(
+            persisted.proto_array,
+            justified_balances,
+            reset_payload_statuses,
+            spec,
+        )?;
 
         let current_slot = fc_store.get_current_slot();
 
@@ -1450,10 +1486,9 @@ where
         // an optimistic status so that we can have a head to start from.
         if let Err(e) = fork_choice.get_head(current_slot, spec) {
             warn!(
-                log,
-                "Could not find head on persisted FC";
-                "info" => "resetting all payload statuses and retrying",
-                "error" => ?e
+                info = "resetting all payload statuses and retrying",
+                error = ?e,
+                "Could not find head on persisted FC"
             );
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
@@ -1473,7 +1508,7 @@ where
     /// be instantiated again later.
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
-            proto_array_bytes: self.proto_array().as_bytes(),
+            proto_array: self.proto_array().as_ssz_container(),
             queued_attestations: self.queued_attestations().to_vec(),
         }
     }
@@ -1487,10 +1522,46 @@ where
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
 ///
 /// This is used when persisting the state of the fork choice to disk.
-#[derive(Encode, Decode, Clone)]
+#[superstruct(
+    variants(V17, V28),
+    variant_attributes(derive(Encode, Decode, Clone)),
+    no_enum
+)]
 pub struct PersistedForkChoice {
+    #[superstruct(only(V17))]
     pub proto_array_bytes: Vec<u8>,
-    queued_attestations: Vec<QueuedAttestation>,
+    #[superstruct(only(V28))]
+    pub proto_array: proto_array::core::SszContainerV28,
+    pub queued_attestations: Vec<QueuedAttestation>,
+}
+
+pub type PersistedForkChoice = PersistedForkChoiceV28;
+
+impl TryFrom<PersistedForkChoiceV17> for PersistedForkChoiceV28 {
+    type Error = ssz::DecodeError;
+
+    fn try_from(v17: PersistedForkChoiceV17) -> Result<Self, Self::Error> {
+        let container_v17 =
+            proto_array::core::SszContainerV17::from_ssz_bytes(&v17.proto_array_bytes)?;
+        let container_v28 = container_v17.into();
+
+        Ok(Self {
+            proto_array: container_v28,
+            queued_attestations: v17.queued_attestations,
+        })
+    }
+}
+
+impl From<(PersistedForkChoiceV28, JustifiedBalances)> for PersistedForkChoiceV17 {
+    fn from((v28, balances): (PersistedForkChoiceV28, JustifiedBalances)) -> Self {
+        let container_v17 = proto_array::core::SszContainerV17::from((v28.proto_array, balances));
+        let proto_array_bytes = container_v17.as_ssz_bytes();
+
+        Self {
+            proto_array_bytes,
+            queued_attestations: v28.queued_attestations,
+        }
+    }
 }
 
 #[cfg(test)]

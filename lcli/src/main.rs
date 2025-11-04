@@ -11,18 +11,17 @@ mod state_root;
 mod transition_blocks;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::{parse_optional, FLAG_HEADER};
+use clap_utils::{FLAG_HEADER, parse_optional};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::Eth2NetworkConfig;
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
+use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 
 fn main() {
-    env_logger::init();
-
     let matches = Command::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .display_order(0)
@@ -552,6 +551,15 @@ fn main() {
                                 until Prague is triggered on mainnet.")
                         .display_order(0)
                 )
+                .arg(
+                    Arg::new("osaka-time")
+                        .long("osaka-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .action(ArgAction::Set)
+                        .help("The payload timestamp that enables Osaka. No default is provided \
+                                until Osaka is triggered on mainnet.")
+                        .display_order(0)
+                )
         )
         .subcommand(
             Command::new("http-sync")
@@ -643,26 +651,46 @@ fn main() {
 }
 
 fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> Result<(), String> {
+    let (env_builder, file_logging_layer, stdout_logging_layer, _sse_logging_layer_opt) =
+        env_builder
+            .multi_threaded_tokio_runtime()
+            .map_err(|e| format!("should start tokio runtime: {:?}", e))?
+            .init_tracing(
+                LoggerConfig {
+                    path: None,
+                    debug_level: LevelFilter::TRACE,
+                    logfile_debug_level: LevelFilter::TRACE,
+                    log_format: None,
+                    logfile_format: None,
+                    log_color: true,
+                    logfile_color: false,
+                    disable_log_timestamp: false,
+                    max_log_size: 0,
+                    max_log_number: 0,
+                    compression: false,
+                    is_restricted: true,
+                    sse_logging: false, // No SSE Logging in LCLI
+                    extra_info: false,
+                },
+                "",
+                0o600,
+            );
+
     let env = env_builder
-        .multi_threaded_tokio_runtime()
-        .map_err(|e| format!("should start tokio runtime: {:?}", e))?
-        .initialize_logger(LoggerConfig {
-            path: None,
-            debug_level: String::from("trace"),
-            logfile_debug_level: String::from("trace"),
-            log_format: None,
-            logfile_format: None,
-            log_color: false,
-            disable_log_timestamp: false,
-            max_log_size: 0,
-            max_log_number: 0,
-            compression: false,
-            is_restricted: true,
-            sse_logging: false, // No SSE Logging in LCLI
-        })
-        .map_err(|e| format!("should start logger: {:?}", e))?
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
+
+    let mut logging_layers = vec![file_logging_layer];
+    if let Some(stdout) = stdout_logging_layer {
+        logging_layers.push(stdout);
+    }
+    let logging_result = tracing_subscriber::registry()
+        .with(logging_layers)
+        .try_init();
+
+    if let Err(e) = logging_result {
+        eprintln!("Failed to initialize logger: {e}");
+    }
 
     // Determine testnet-dir path or network name depending on CLI flags.
     let (testnet_dir, network_name) =

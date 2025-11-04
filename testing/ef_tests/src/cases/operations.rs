@@ -10,24 +10,25 @@ use state_processing::per_block_processing::process_operations::{
     process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
+    ConsensusContext,
     per_block_processing::{
+        VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
             altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
         },
-        process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
+        process_sync_aggregate, process_withdrawals,
     },
-    ConsensusContext,
 };
 use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload, FullPayload,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
-    WithdrawalRequest,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
+    BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
+    ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -98,29 +99,24 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
     ) -> Result<(), BlockProcessingError> {
         initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
-        match state {
-            BeaconState::Base(_) => base::process_attestations(
+        if state.fork_name_unchecked().altair_enabled() {
+            initialize_progressive_balances_cache(state, spec)?;
+            altair_deneb::process_attestation(
+                state,
+                self.to_ref(),
+                0,
+                &mut ctxt,
+                VerifySignatures::True,
+                spec,
+            )
+        } else {
+            base::process_attestations(
                 state,
                 [self.clone().to_ref()].into_iter(),
                 VerifySignatures::True,
                 &mut ctxt,
                 spec,
-            ),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
-                initialize_progressive_balances_cache(state, spec)?;
-                altair_deneb::process_attestation(
-                    state,
-                    self.to_ref(),
-                    0,
-                    &mut ctxt,
-                    VerifySignatures::True,
-                    spec,
-                )
-            }
+            )
         }
     }
 }
@@ -131,14 +127,11 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        Ok(match fork_name {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb => Self::Base(ssz_decode_file(path)?),
-            ForkName::Electra => Self::Electra(ssz_decode_file(path)?),
-        })
+        if fork_name.electra_enabled() {
+            Ok(Self::Electra(ssz_decode_file(path)?))
+        } else {
+            Ok(Self::Base(ssz_decode_file(path)?))
+        }
     }
 
     fn apply_to(
@@ -179,7 +172,7 @@ impl<E: EthSpec> Operation<E> for Deposit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposits(state, &[self.clone()], spec)
+        process_deposits(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -202,7 +195,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
-            &[self.clone()],
+            std::slice::from_ref(self),
             VerifySignatures::True,
             &mut ctxt,
             spec,
@@ -225,7 +218,12 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_exits(state, &[self.clone()], VerifySignatures::True, spec)
+        process_exits(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -308,6 +306,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Fulu => BeaconBlockBody::Fulu(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
             })
         })
@@ -322,7 +321,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
         let valid = extra
             .execution_metadata
             .as_ref()
-            .map_or(false, |e| e.execution_valid);
+            .is_some_and(|e| e.execution_valid);
         if valid {
             process_execution_payload::<E, FullPayload<E>>(state, self.to_ref(), spec)
         } else {
@@ -363,6 +362,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }
+                ForkName::Fulu => {
+                    let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Fulu(inner.clone_as_blinded())
+                }
                 _ => panic!(),
             })
         })
@@ -377,7 +380,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
         let valid = extra
             .execution_metadata
             .as_ref()
-            .map_or(false, |e| e.execution_valid);
+            .is_some_and(|e| e.execution_valid);
         if valid {
             process_execution_payload::<E, BlindedPayload<E>>(state, self.to_ref(), spec)
         } else {
@@ -401,7 +404,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes(bytes, fork_name)
+            ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
         })
         .map(|payload| WithdrawalsPayload {
             payload: payload.into(),
@@ -441,7 +444,12 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+        process_bls_to_execution_changes(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -465,7 +473,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_withdrawal_requests(state, &[self.clone()], spec)
+        process_withdrawal_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -488,7 +496,7 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposit_requests(state, &[self.clone()], spec)
+        process_deposit_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -512,7 +520,7 @@ impl<E: EthSpec> Operation<E> for ConsolidationRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_consolidation_requests(state, &[self.clone()], spec)
+        process_consolidation_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -590,10 +598,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        if O::handler_name() != "withdrawals" {
-            if let Some(post_state) = expected.as_mut() {
-                post_state.build_all_committee_caches(spec).unwrap();
-            }
+        if O::handler_name() != "withdrawals"
+            && let Some(post_state) = expected.as_mut()
+        {
+            post_state.build_all_committee_caches(spec).unwrap();
         }
 
         let mut result = self

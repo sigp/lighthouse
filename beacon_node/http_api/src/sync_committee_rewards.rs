@@ -1,18 +1,16 @@
 use crate::{BlockId, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::lighthouse::SyncCommitteeReward;
-use eth2::types::ValidatorId;
-use slog::{debug, Logger};
+use eth2::types::{SyncCommitteeReward, ValidatorId};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
+use tracing::debug;
 use types::{BeaconState, SignedBlindedBeaconBlock};
-use warp_utils::reject::{beacon_chain_error, custom_not_found};
+use warp_utils::reject::{custom_not_found, unhandled_error};
 
 pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_id: BlockId,
     validators: Vec<ValidatorId>,
-    log: Logger,
 ) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic, bool), warp::Rejection> {
     let (block, execution_optimistic, finalized) = block_id.blinded_block(&chain)?;
 
@@ -20,10 +18,10 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
 
     let reward_payload = chain
         .compute_sync_committee_rewards(block.message(), &mut state)
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     let data = if reward_payload.is_empty() {
-        debug!(log, "compute_sync_committee_rewards returned empty");
+        debug!("compute_sync_committee_rewards returned empty");
         None
     } else if validators.is_empty() {
         Some(reward_payload)
@@ -58,8 +56,10 @@ pub fn get_state_before_applying_block<T: BeaconChainTypes>(
         })
         .map_err(|e| custom_not_found(format!("Parent block is not available! {:?}", e)))?;
 
+    // We are about to apply a new block to the chain. It's parent state
+    // is a useful/recent state, we elect to cache it.
     let parent_state = chain
-        .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+        .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
         .and_then(|maybe_state| {
             maybe_state
                 .ok_or_else(|| BeaconChainError::MissingBeaconState(parent_block.state_root()))
@@ -71,7 +71,7 @@ pub fn get_state_before_applying_block<T: BeaconChainTypes>(
         .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
         .minimal_block_root_verification()
         .apply_blocks(vec![], Some(block.slot()))
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error::<BeaconChainError>)?;
 
     Ok(replayer.into_state())
 }

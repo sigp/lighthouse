@@ -2,11 +2,11 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use itertools::process_results;
 use lru::LruCache;
 use parking_lot::Mutex;
-use slog::debug;
 use std::num::NonZeroUsize;
 use std::time::Duration;
-use types::non_zero_usize::new_non_zero_usize;
+use tracing::debug;
 use types::Hash256;
+use types::non_zero_usize::new_non_zero_usize;
 
 const BLOCK_ROOT_CACHE_LIMIT: NonZeroUsize = new_non_zero_usize(512);
 const LOOKUP_LIMIT: NonZeroUsize = new_non_zero_usize(8);
@@ -87,10 +87,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // blocks have been flushed out. Solving this issue isn't as simple as hooking the
             // beacon processor's functions that handle failed blocks because we need the block root
             // and it has been erased from the `BlockError` by that point.
-            debug!(
-                self.log,
-                "Pre-finalization lookup cache is full";
-            );
+            debug!("Pre-finalization lookup cache is full");
         }
         Ok(false)
     }

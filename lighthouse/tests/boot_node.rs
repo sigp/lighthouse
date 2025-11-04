@@ -3,8 +3,8 @@ use boot_node::config::BootNodeConfigSerialization;
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use clap::ArgMatches;
 use clap_utils::get_eth2_network_config;
-use lighthouse_network::discovery::ENR_FILENAME;
-use lighthouse_network::Enr;
+use lighthouse_network::{Enr, discovery::ENR_FILENAME};
+use network_utils::unused_port::unused_udp4_port;
 use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;
@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use tempfile::TempDir;
-use unused_port::unused_udp4_port;
 
 const IP_ADDRESS: &str = "192.168.2.108";
 
@@ -149,7 +148,7 @@ fn disable_packet_filter_flag() {
         .flag("disable-packet-filter", None)
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.disable_packet_filter, true);
+            assert!(config.disable_packet_filter);
         });
 }
 
@@ -159,7 +158,7 @@ fn enable_enr_auto_update_flag() {
         .flag("enable-enr-auto-update", None)
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.enable_enr_auto_update, true);
+            assert!(config.enable_enr_auto_update);
         });
 }
 

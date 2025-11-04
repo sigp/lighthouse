@@ -1,4 +1,4 @@
-use crate::{signing_root_from_row, SigningRoot};
+use crate::{SigningRoot, signing_root_from_row};
 use types::{AttestationData, Epoch, Hash256, SignedRoot};
 
 /// An attestation that has previously been signed.
@@ -10,7 +10,7 @@ pub struct SignedAttestation {
 }
 
 /// Reasons why an attestation may be slashable (or invalid).
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum InvalidAttestation {
     /// The attestation has the same target epoch as an attestation from the DB (enclosed).
     DoubleVote(SignedAttestation),

@@ -1,11 +1,10 @@
 use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
-use crate::cases::common::previous_fork;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
-    upgrade_to_electra,
+    upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas,
 };
 use types::BeaconState;
 
@@ -33,7 +32,10 @@ impl<E: EthSpec> LoadCase for ForkTest<E> {
         assert_eq!(metadata.fork_name(), fork_name);
 
         // Decode pre-state with previous fork.
-        let pre_spec = &previous_fork(fork_name).make_genesis_spec(E::default_spec());
+        let pre_spec = &fork_name
+            .previous_fork()
+            .unwrap_or(ForkName::Base)
+            .make_genesis_spec(E::default_spec());
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), pre_spec)?;
 
         // Decode post-state with target fork.
@@ -58,7 +60,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let mut result_state = self.pre.clone();
         let mut expected = Some(self.post.clone());
-        let spec = &E::default_spec();
+        let spec = &fork_name.make_genesis_spec(E::default_spec());
 
         let mut result = match fork_name {
             ForkName::Base => panic!("phase0 not supported"),
@@ -69,6 +71,8 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Capella => upgrade_to_capella(&mut result_state, spec).map(|_| result_state),
             ForkName::Deneb => upgrade_to_deneb(&mut result_state, spec).map(|_| result_state),
             ForkName::Electra => upgrade_to_electra(&mut result_state, spec).map(|_| result_state),
+            ForkName::Fulu => upgrade_to_fulu(&mut result_state, spec).map(|_| result_state),
+            ForkName::Gloas => upgrade_to_gloas(&mut result_state, spec).map(|_| result_state),
         };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

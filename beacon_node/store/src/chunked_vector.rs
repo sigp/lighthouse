@@ -165,17 +165,17 @@ pub trait Field<E: EthSpec>: Copy {
             if vindex >= start_vindex && vindex < end_vindex {
                 let vector_value = Self::get_value(state, vindex as u64, spec)?;
 
-                if let Some(existing_value) = existing_chunk.values.get(i) {
-                    if *existing_value != vector_value && *existing_value != Self::Value::default()
-                    {
-                        return Err(ChunkError::Inconsistent {
-                            field: Self::column(),
-                            chunk_index,
-                            existing_value: format!("{:?}", existing_value),
-                            new_value: format!("{:?}", vector_value),
-                        }
-                        .into());
+                if let Some(existing_value) = existing_chunk.values.get(i)
+                    && *existing_value != vector_value
+                    && *existing_value != Self::Value::default()
+                {
+                    return Err(ChunkError::Inconsistent {
+                        field: Self::column(),
+                        chunk_index,
+                        existing_value: format!("{:?}", existing_value),
+                        new_value: format!("{:?}", vector_value),
                     }
+                    .into());
                 }
 
                 new_chunk.values[i] = vector_value;
@@ -680,7 +680,7 @@ where
         key: &[u8],
     ) -> Result<Option<Self>, Error> {
         store
-            .get_bytes(column.into(), key)?
+            .get_bytes(column, key)?
             .map(|bytes| Self::decode(&bytes))
             .transpose()
     }
@@ -691,8 +691,11 @@ where
         key: &[u8],
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let db_key = get_key_for_col(column.into(), key);
-        ops.push(KeyValueStoreOp::PutKeyValue(db_key, self.encode()?));
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            column,
+            key.to_vec(),
+            self.encode()?,
+        ));
         Ok(())
     }
 

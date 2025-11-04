@@ -1,4 +1,4 @@
-use crate::listen_addr::{ListenAddr, ListenAddress};
+use crate::peer_manager::config::DEFAULT_TARGET_PEERS;
 use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
@@ -6,6 +6,8 @@ use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
 use libp2p::Multiaddr;
+use local_ip_address::local_ipv6;
+use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -13,7 +15,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ForkContext, ForkName};
+use types::ForkContext;
 
 pub const DEFAULT_IPV4_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 pub const DEFAULT_TCP_PORT: u16 = 9000u16;
@@ -21,18 +23,9 @@ pub const DEFAULT_DISC_PORT: u16 = 9000u16;
 pub const DEFAULT_QUIC_PORT: u16 = 9001u16;
 pub const DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD: usize = 1000usize;
 
-/// The maximum size of gossip messages.
-pub fn gossip_max_size(is_merge_enabled: bool, gossip_max_size: usize) -> usize {
-    if is_merge_enabled {
-        gossip_max_size
-    } else {
-        gossip_max_size / 10
-    }
-}
-
 pub struct GossipsubConfigParams {
     pub message_domain_valid_snappy: [u8; 4],
-    pub gossip_max_size: usize,
+    pub gossipsub_max_transmit_size: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -101,9 +94,6 @@ pub struct Config {
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
 
-    /// Subscribe to all data column subnets for the duration of the runtime.
-    pub subscribe_all_data_column_subnets: bool,
-
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
 
@@ -116,7 +106,8 @@ pub struct Config {
     pub network_load: u8,
 
     /// Indicates if the user has set the network to be in private mode. Currently this
-    /// prevents sending client identifying information over identify.
+    /// prevents sending client identifying information over identify and prevents
+    /// EIP-7636 indentifiable information being provided in the ENR.
     pub private: bool,
 
     /// Shutdown beacon node after sync is completed.
@@ -146,6 +137,9 @@ pub struct Config {
     /// Configuration for the minimum message size for which IDONTWANT messages are send in the mesh.
     /// Lower the value reduces the optimization effect of the IDONTWANT messages.
     pub idontwant_message_size_threshold: usize,
+
+    /// Flag for advertising a fake CGC to peers for testing ONLY.
+    pub advertise_false_custody_group_count: Option<u64>,
 }
 
 impl Config {
@@ -166,7 +160,7 @@ impl Config {
             tcp_port,
         });
         self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
-        self.discv5_config.table_filter = |enr| enr.ip4().as_ref().map_or(false, is_global_ipv4)
+        self.discv5_config.table_filter = |enr| enr.ip4().as_ref().is_some_and(is_global_ipv4)
     }
 
     /// Sets the listening address to use an ipv6 address. The discv5 ip_mode and table filter is
@@ -187,7 +181,7 @@ impl Config {
         });
 
         self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
-        self.discv5_config.table_filter = |enr| enr.ip6().as_ref().map_or(false, is_global_ipv6)
+        self.discv5_config.table_filter = |enr| enr.ip6().as_ref().is_some_and(is_global_ipv6)
     }
 
     /// Sets the listening address to use both an ipv4 and ipv6 address. The discv5 ip_mode and
@@ -265,6 +259,18 @@ impl Config {
         }
     }
 
+    /// A helper function to check if the local host has a globally routeable IPv6 address. If so,
+    /// returns true.
+    pub fn is_ipv6_supported() -> bool {
+        // If IPv6 is supported
+        let Ok(std::net::IpAddr::V6(local_ip)) = local_ipv6() else {
+            return false;
+        };
+
+        // If its globally routable, return true
+        is_global_ipv6(&local_ip)
+    }
+
     pub fn listen_addrs(&self) -> &ListenAddress {
         &self.listen_addresses
     }
@@ -317,7 +323,7 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
-            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global_ipv4(&ip))) // Filter non-global IPs
+            .table_filter(|enr| enr.ip4().is_some_and(|ip| is_global_ipv4(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
@@ -333,7 +339,7 @@ impl Default for Config {
             enr_udp6_port: None,
             enr_quic6_port: None,
             enr_tcp6_port: None,
-            target_peers: 100,
+            target_peers: DEFAULT_TARGET_PEERS,
             discv5_config,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
@@ -344,20 +350,20 @@ impl Default for Config {
             disable_discovery: false,
             disable_quic_support: false,
             upnp_enabled: true,
-            network_load: 4,
+            network_load: 3,
             private: false,
-            subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             shutdown_after_sync: false,
             topics: Vec::new(),
             proposer_only: false,
             metrics_enabled: false,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
+            advertise_false_custody_group_count: None,
         }
     }
 }
@@ -412,8 +418,8 @@ impl From<u8> for NetworkLoad {
                 mesh_n_low: 4,
                 outbound_min: 3,
                 mesh_n: 8,
-                mesh_n_high: 12,
-                gossip_lazy: 3,
+                mesh_n_high: 10,
+                gossip_lazy: 2,
                 history_gossip: 3,
                 heartbeat_interval: Duration::from_millis(1000),
             },
@@ -448,7 +454,7 @@ pub fn gossipsub_config(
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
 
-        if fork_context.current_fork().altair_enabled() {
+        if fork_context.current_fork_name().altair_enabled() {
             let topic_len_bytes = topic_bytes.len().to_le_bytes();
             let mut vec = Vec::with_capacity(
                 prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
@@ -466,7 +472,6 @@ pub fn gossipsub_config(
         }
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
-    let is_bellatrix_enabled = fork_context.fork_exists(ForkName::Bellatrix);
     let gossip_message_id = move |message: &gossipsub::Message| {
         gossipsub::MessageId::from(
             &Sha256::digest(
@@ -485,10 +490,7 @@ pub fn gossipsub_config(
     let duplicate_cache_time = Duration::from_secs(slots_per_epoch * seconds_per_slot * 2);
 
     gossipsub::ConfigBuilder::default()
-        .max_transmit_size(gossip_max_size(
-            is_bellatrix_enabled,
-            gossipsub_config_params.gossip_max_size,
-        ))
+        .max_transmit_size(gossipsub_config_params.gossipsub_max_transmit_size)
         .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)

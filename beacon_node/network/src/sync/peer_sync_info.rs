@@ -30,8 +30,8 @@ pub fn remote_sync_type<T: BeaconChainTypes>(
 ) -> PeerSyncType {
     // auxiliary variables for clarity: Inclusive boundaries of the range in which we consider a peer's
     // head "near" ours.
-    let near_range_start = local.head_slot - SLOT_IMPORT_TOLERANCE as u64;
-    let near_range_end = local.head_slot + SLOT_IMPORT_TOLERANCE as u64;
+    let near_range_start = local.head_slot.saturating_sub(SLOT_IMPORT_TOLERANCE);
+    let near_range_end = local.head_slot.saturating_add(SLOT_IMPORT_TOLERANCE);
 
     match remote.finalized_epoch.cmp(&local.finalized_epoch) {
         Ordering::Less => {

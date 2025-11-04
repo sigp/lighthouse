@@ -1,10 +1,11 @@
 use crate::AttestationStats;
 use itertools::Itertools;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use types::{
+    AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector, Checkpoint,
+    Epoch, EthSpec, Hash256, Slot, Unsigned,
     attestation::{AttestationBase, AttestationElectra},
-    superstruct, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector,
-    Checkpoint, Epoch, EthSpec, Hash256, Slot, Unsigned,
+    superstruct,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -96,7 +97,7 @@ impl<E: EthSpec> SplitAttestation<E> {
         }
     }
 
-    pub fn as_ref(&self) -> CompactAttestationRef<E> {
+    pub fn as_ref(&self) -> CompactAttestationRef<'_, E> {
         CompactAttestationRef {
             checkpoint: &self.checkpoint,
             data: &self.data,
@@ -116,6 +117,18 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
                 epoch: self.checkpoint.target_epoch,
                 root: self.data.target_root,
             },
+        }
+    }
+
+    pub fn get_committee_indices_map(&self) -> HashSet<u64> {
+        match self.indexed {
+            CompactIndexedAttestation::Base(_) => HashSet::from([self.data.index]),
+            CompactIndexedAttestation::Electra(indexed_att) => indexed_att
+                .committee_bits
+                .iter()
+                .enumerate()
+                .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+                .collect(),
         }
     }
 
@@ -214,7 +227,7 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
                 .is_zero()
     }
 
-    /// Returns `true` if aggregated, otherwise `false`.
+    /// Returns `true` if aggregated, otherwise `false`.
     pub fn aggregate_same_committee(&mut self, other: &Self) -> bool {
         if self.committee_bits != other.committee_bits {
             return false;
@@ -268,7 +281,11 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
     }
 
     pub fn committee_index(&self) -> Option<u64> {
-        self.get_committee_indices().first().copied()
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {
@@ -422,7 +439,7 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 
     /// Iterate all attestations in the map.
-    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<E>> {
+    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<'_, E>> {
         self.checkpoint_map
             .iter()
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))

@@ -1,7 +1,9 @@
+use crate::custody_context::NodeCustodyType;
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use types::{Checkpoint, Epoch};
+use std::str::FromStr;
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
+use types::{Checkpoint, Epoch, Hash256};
 
 pub const DEFAULT_RE_ORG_HEAD_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_PARENT_THRESHOLD: ReOrgThreshold = ReOrgThreshold(160);
@@ -15,6 +17,15 @@ pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
 
 /// Fraction of a slot lookahead for fork choice in the state advance timer (500ms on mainnet).
 pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
+
+/// Default sync tolerance epochs.
+pub const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 2;
+
+/// Invalid block root to be banned from processing and importing on Holesky network by default.
+pub static INVALID_HOLESKY_BLOCK_ROOT: LazyLock<Hash256> = LazyLock::new(|| {
+    Hash256::from_str("2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359")
+        .expect("valid block root")
+});
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
@@ -76,6 +87,8 @@ pub struct ChainConfig {
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
+    /// EXPERIMENTAL: backfill blobs and data columns beyond the data availability window.
+    pub complete_blob_backfill: bool,
     /// Whether to send payload attributes every slot, regardless of connected proposers.
     ///
     /// This is useful for block builders and testing.
@@ -86,14 +99,28 @@ pub struct ChainConfig {
     pub enable_light_client_server: bool,
     /// The number of data columns to withhold / exclude from publishing when proposing a block.
     pub malicious_withhold_count: usize,
-    /// Enable peer sampling on blocks.
-    pub enable_sampling: bool,
     /// Number of batches that the node splits blobs or data columns into during publication.
     /// This doesn't apply if the node is the block proposer. For PeerDAS only.
     pub blob_publication_batches: usize,
     /// The delay in milliseconds applied by the node between sending each blob or data column batch.
     /// This doesn't apply if the node is the block proposer.
     pub blob_publication_batch_interval: Duration,
+    /// The max distance between the head block and the current slot at which Lighthouse will
+    /// consider itself synced and still serve validator-related requests.
+    pub sync_tolerance_epochs: u64,
+    /// Artificial delay for block publishing. For PeerDAS testing only.
+    pub block_publishing_delay: Option<Duration>,
+    /// Artificial delay for data column publishing. For PeerDAS testing only.
+    pub data_column_publishing_delay: Option<Duration>,
+    /// Block roots of "banned" blocks which Lighthouse will refuse to import.
+    ///
+    /// On Holesky there is a block which is added to this set by default but which can be removed
+    /// by using `--invalid-block-roots ""`.
+    pub invalid_block_roots: HashSet<Hash256>,
+    /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
+    pub disable_get_blobs: bool,
+    /// The node's custody type, determining how many data columns to custody and sample.
+    pub node_custody_type: NodeCustodyType,
 }
 
 impl Default for ChainConfig {
@@ -122,13 +149,19 @@ impl Default for ChainConfig {
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
+            complete_blob_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             malicious_withhold_count: 0,
-            enable_sampling: false,
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
+            sync_tolerance_epochs: DEFAULT_SYNC_TOLERANCE_EPOCHS,
+            block_publishing_delay: None,
+            data_column_publishing_delay: None,
+            invalid_block_roots: HashSet::new(),
+            disable_get_blobs: false,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }

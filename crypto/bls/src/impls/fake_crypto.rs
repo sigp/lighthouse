@@ -1,23 +1,23 @@
 use crate::{
+    Error, Hash256, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE, ZeroizeHash,
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_aggregate_signature::TAggregateSignature,
     generic_public_key::{
-        GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+        GenericPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN, TPublicKey,
     },
-    generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
-    generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
+    generic_secret_key::{SECRET_KEY_BYTES_LEN, TSecretKey},
+    generic_signature::{SIGNATURE_BYTES_LEN, SIGNATURE_UNCOMPRESSED_BYTES_LEN, TSignature},
 };
 
 /// Provides the externally-facing, core BLS types.
 pub mod types {
-    pub use super::verify_signature_sets;
     pub use super::AggregatePublicKey;
     pub use super::AggregateSignature;
     pub use super::PublicKey;
     pub use super::SecretKey;
     pub use super::Signature;
     pub use super::SignatureSet;
+    pub use super::verify_signature_sets;
 }
 
 pub type SignatureSet<'a> = crate::generic_signature_set::GenericSignatureSet<
@@ -106,10 +106,20 @@ impl TSignature<PublicKey> for Signature {
         self.0
     }
 
+    fn serialize_uncompressed(&self) -> [u8; SIGNATURE_UNCOMPRESSED_BYTES_LEN] {
+        let mut ret = [0; SIGNATURE_UNCOMPRESSED_BYTES_LEN];
+        ret[0..SIGNATURE_BYTES_LEN].copy_from_slice(&self.0);
+        ret
+    }
+
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         let mut signature = Self::infinity();
         signature.0[..].copy_from_slice(&bytes[0..SIGNATURE_BYTES_LEN]);
         Ok(signature)
+    }
+
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        Self::deserialize(bytes)
     }
 
     fn verify(&self, _pubkey: &PublicKey, _msg: Hash256) -> bool {

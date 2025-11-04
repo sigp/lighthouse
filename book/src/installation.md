@@ -4,18 +4,18 @@ Lighthouse runs on Linux, macOS, and Windows.
 
 There are three core methods to obtain the Lighthouse application:
 
-- [Pre-built binaries](./installation-binaries.md).
-- [Docker images](./docker.md).
-- [Building from source](./installation-source.md).
+- [Pre-built binaries](./installation_binaries.md).
+- [Docker images](./installation_docker.md).
+- [Building from source](./installation_source.md).
 
 Additionally, there are two extra guides for specific uses:
 
-- [Raspberry Pi 4 guide](./pi.md). (Archived)
-- [Cross-compiling guide for developers](./cross-compiling.md).
+- [Raspberry Pi 4 guide](./archived_pi.md). (Archived)
+- [Cross-compiling guide for developers](./installation_cross_compiling.md).
 
 There are also community-maintained installation methods:
 
-- [Homebrew package](./homebrew.md).
+- [Homebrew package](./installation_homebrew.md).
 - Arch Linux AUR packages: [source](https://aur.archlinux.org/packages/lighthouse-ethereum),
   [binary](https://aur.archlinux.org/packages/lighthouse-ethereum-bin).
 

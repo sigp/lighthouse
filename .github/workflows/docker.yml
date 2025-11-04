@@ -64,7 +64,7 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
             - name: Update Rust
               if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap::{Arg, ArgAction, ArgGroup, Command, builder::ArgPredicate, crate_version};
+use clap_utils::{FLAG_HEADER, get_color_style};
 use strum::VariantNames;
 
 #[allow(clippy::large_stack_frames)]
@@ -18,15 +18,6 @@ pub fn cli_app() -> Command {
         /*
          * Configuration directory locations.
          */
-        .arg(
-            Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
-        )
         .arg(
             Arg::new("network-dir")
                 .long("network-dir")
@@ -56,33 +47,47 @@ pub fn cli_app() -> Command {
          * Network parameters.
          */
         .arg(
-            Arg::new("subscribe-all-data-column-subnets")
-                .long("subscribe-all-data-column-subnets")
+            Arg::new("supernode")
+                .long("supernode")
+                .alias("subscribe-all-data-column-subnets")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("Subscribe to all data column subnets and participate in data custody for \
-                        all columns. This will also advertise the beacon node as being long-lived \
-                        subscribed to all data column subnets. \
-                        NOTE: this is an experimental flag and may change any time without notice!")
+                .help("Run as a voluntary supernode. This node will subscribe to all data column \
+                          subnets, custody all data columns, and perform reconstruction and cross-seeding. \
+                          This requires significantly more bandwidth, storage, and computation requirements but \
+                          the node will have direct access to all blobs via the beacon API and it \
+                          helps network resilience by serving all data columns to syncing peers.")
                 .display_order(0)
-                .hide(true)
         )
         .arg(
-            // TODO(das): remove this before PeerDAS release
+            Arg::new("semi-supernode")
+                .long("semi-supernode")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("supernode")
+                .help("Run in minimal reconstruction mode. This node will subscribe to and custody \
+                          half of the data columns (enough for reconstruction), enabling efficient \
+                          data availability with lower bandwidth and storage requirements compared to \
+                          a supernode, while still supporting full blob reconstruction.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("malicious-withhold-count")
                 .long("malicious-withhold-count")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY do not use this")
+                .help("TESTING ONLY: Withholds a subset of data columns during publishing. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
         .arg(
-            Arg::new("enable-sampling")
-                .long("enable-sampling")
-                .action(ArgAction::SetTrue)
+            Arg::new("advertise-false-custody-group-count")
+                .long("advertise-false-custody-group-count")
+                .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("Enable peer sampling on data columns. Disabled by default.")
+                .help("TESTING ONLY: Advertises a false custody group count for testing PeerDAS. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
@@ -156,16 +161,16 @@ pub fn cli_app() -> Command {
                 .long("listen-address")
                 .value_name("ADDRESS")
                 .help("The address lighthouse will listen for UDP and TCP connections. To listen \
-                      over IpV4 and IpV6 set this flag twice with the different values.\n\
+                      over IPv4 and IPv6 set this flag twice with the different values.\n\
                       Examples:\n\
                       - --listen-address '0.0.0.0' will listen over IPv4.\n\
                       - --listen-address '::' will listen over IPv6.\n\
                       - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
                       IPv4 and IPv6. The order of the given addresses is not relevant. However, \
-                      multiple IPv4, or multiple IPv6 addresses will not be accepted.")
+                      multiple IPv4, or multiple IPv6 addresses will not be accepted. \
+                      If omitted, Lighthouse will listen on all interfaces, for both IPv4 and IPv6.")
                 .action(ArgAction::Append)
                 .num_args(0..=2)
-                .default_value("0.0.0.0")
                 .display_order(0)
         )
         .arg(
@@ -185,8 +190,7 @@ pub fn cli_app() -> Command {
                 .long("port6")
                 .value_name("PORT")
                 .help("The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
-                      IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
-                .default_value("9090")
+                      IPv6. Defaults to --port. The Quic UDP port will be set to this value + 1.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -245,7 +249,6 @@ pub fn cli_app() -> Command {
                 .long("network-load")
                 .value_name("INTEGER")
                 .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
-                .default_value("3")
                 .hide(true)
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -410,6 +413,16 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("complete-blob-backfill")
+                .long("complete-blob-backfill")
+                .help("Download all blobs back to the Deneb fork epoch. This will likely result in \
+                       the node banning most of its peers.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("enable-private-discovery")
@@ -698,59 +711,6 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
-
-        /*
-         * Eth1 Integration
-         */
-        .arg(
-            Arg::new("eth1")
-                .long("eth1")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("dummy-eth1")
-                .long("dummy-eth1")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("eth1")
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-purge-cache")
-                .long("eth1-purge-cache")
-                .value_name("PURGE-CACHE")
-                .help("Purges the eth1 block and deposit caches")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("eth1-blocks-per-log-query")
-                .long("eth1-blocks-per-log-query")
-                .value_name("BLOCKS")
-                .help("Specifies the number of blocks that a deposit log query should span. \
-                    This will reduce the size of responses from the Eth1 endpoint.")
-                .default_value("1000")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("eth1-cache-follow-distance")
-                .long("eth1-cache-follow-distance")
-                .value_name("BLOCKS")
-                .help("Specifies the distance between the Eth1 chain head and the last block which \
-                       should be imported into the cache. Setting this value lower can help \
-                       compensate for irregular Proof-of-Work block times, but setting it too low \
-                       can make the node vulnerable to re-orgs.")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
         .arg(
             Arg::new("slots-per-restore-point")
                 .long("slots-per-restore-point")
@@ -787,11 +747,20 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("state-cache-headroom")
+                .long("state-cache-headroom")
+                .value_name("N")
+                .help("Minimum number of states to cull from the state cache when it gets full")
+                .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory")
-                .default_value("5")
+                .default_value("0")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -809,11 +778,23 @@ pub fn cli_app() -> Command {
             Arg::new("hdiff-buffer-cache-size")
                 .long("hdiff-buffer-cache-size")
                 .value_name("SIZE")
-                .help("Number of hierarchical diff (hdiff) buffers to cache in memory. Each buffer \
-                       is around the size of a BeaconState so you should be cautious about setting \
-                       this value too high. This flag is irrelevant for most nodes, which run with \
-                       state pruning enabled.")
+                .help("Number of cold hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. This flag is irrelevant for most nodes, which \
+                       run with state pruning enabled.")
                 .default_value("16")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hot-hdiff-buffer-cache-size")
+                .long("hot-hdiff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("Number of hot hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. Setting this value higher can reduce the time \
+                       taken to store new states on disk at the cost of higher memory usage.")
+                .default_value("1")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -919,6 +900,14 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("disable-get-blobs")
+                .long("disable-get-blobs")
+                .help("Disables the getBlobs optimisation to fetch blobs from the EL mempool")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("builder-header-timeout")
                 .long("builder-header-timeout")
                 .value_name("MILLISECONDS")
@@ -1019,7 +1008,7 @@ pub fn cli_app() -> Command {
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
                 .action(ArgAction::Set)
-                .default_value("1")
+                .default_value("256")
                 .display_order(0)
         )
         .arg(
@@ -1471,6 +1460,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("builder-disable-ssz")
+                .long("builder-disable-ssz")
+                .value_name("BOOLEAN")
+                .help("Disables sending requests using SSZ over the builder API.")
+                .requires("builder")
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
@@ -1478,17 +1476,6 @@ pub fn cli_app() -> Command {
                        failure caused by the execution layer.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("disable-deposit-contract-sync")
-                .long("disable-deposit-contract-sync")
-                .help("Explicitly disables syncing of deposit logs from the execution node. \
-                      This overrides any previous option that depends on it. \
-                      Useful if you intend to run a non-validating beacon node.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("staking")
                 .display_order(0)
         )
         .arg(
@@ -1502,12 +1489,25 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("light-client-server")
-                .long("light-client-server")
-                .help("Act as a full node supporting light clients on the p2p network \
-                       [experimental]")
+            Arg::new("disable-light-client-server")
+                .long("disable-light-client-server")
+                .help("Disables light client support on the p2p network")
                 .action(ArgAction::SetTrue)
+
                 .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("sync-tolerance-epochs")
+                .long("sync-tolerance-epochs")
+                .help("Overrides the default SYNC_TOLERANCE_EPOCHS. This flag is not intended \
+                    for production and MUST only be used in TESTING only. This is primarily used \
+                    for testing range sync, to prevent the node from producing a block before the \
+                    node is synced with the network which may result in the node getting \
+                    disconnected from peers immediately.")
+                .hide(true)
+                .requires("enable_http")
+                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(
@@ -1590,6 +1590,48 @@ pub fn cli_app() -> Command {
                 .default_value("64")
                 .action(ArgAction::Set)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("beacon-node-backend")
+                .long("beacon-node-backend")
+                .value_name("DATABASE")
+                .value_parser(store::config::DatabaseBackend::VARIANTS.to_vec())
+                .help("Set the database backend to be used by the beacon node.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("delay-block-publishing")
+                .long("delay-block-publishing")
+                .value_name("SECONDS")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY: Artificially delays block publishing by the specified number of seconds. \
+                       This only works if BroadcastValidation::Gossip is used (default). \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("delay-data-column-publishing")
+                .long("delay-data-column-publishing")
+                .value_name("SECONDS")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY: Artificially delays data column publishing by the specified number of seconds. \
+                       Limitation: If delay-block-publishing is also used, data columns will be delayed for a \
+                       minimum of delay-block-publishing seconds. \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("invalid-block-roots")
+                .long("invalid-block-roots")
+                .value_name("FILE")
+                .help("Path to a comma separated file containing block roots that should be treated as invalid during block verification.")
+                .action(ArgAction::Set)
+                .hide(true)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
 }

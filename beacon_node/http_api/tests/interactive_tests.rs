@@ -1,10 +1,12 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::{
-    chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
-    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     ChainConfig,
+    chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
+    test_utils::{
+        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
+    },
 };
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -73,6 +75,7 @@ async fn state_by_root_pruned_from_fork_choice() {
         })),
         None,
         Default::default(),
+        false,
     )
     .await;
 
@@ -114,10 +117,10 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.metadata.finalized.unwrap());
-        assert!(!response.metadata.execution_optimistic.unwrap());
+        assert!(response.metadata().finalized.unwrap());
+        assert!(!response.metadata().execution_optimistic.unwrap());
 
-        let mut state = response.data;
+        let mut state = response.into_data();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
 }
@@ -139,7 +142,7 @@ impl ForkChoiceUpdates {
     fn insert(&mut self, update: ForkChoiceUpdateMetadata) {
         self.updates
             .entry(update.state.head_block_hash)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(update);
     }
 
@@ -161,7 +164,7 @@ impl ForkChoiceUpdates {
                 update
                     .payload_attributes
                     .as_ref()
-                    .map_or(false, |payload_attributes| {
+                    .is_some_and(|payload_attributes| {
                         payload_attributes.timestamp() == proposal_timestamp
                     })
             })
@@ -429,6 +432,7 @@ pub async fn proposer_boost_re_org_test(
                 )
         })),
         Default::default(),
+        false,
     )
     .await;
     let harness = &tester.harness;
@@ -538,7 +542,7 @@ pub async fn proposer_boost_re_org_test(
         slot_a,
         num_parent_votes,
     );
-    harness.process_attestations(block_a_parent_votes);
+    harness.process_attestations(block_a_parent_votes, &state_a);
 
     // Attest to block A during slot B.
     for _ in 0..parent_distance {
@@ -552,7 +556,7 @@ pub async fn proposer_boost_re_org_test(
         slot_b,
         num_empty_votes,
     );
-    harness.process_attestations(block_a_empty_votes);
+    harness.process_attestations(block_a_empty_votes, &state_a);
 
     let remaining_attesters = all_validators
         .iter()
@@ -585,7 +589,7 @@ pub async fn proposer_boost_re_org_test(
         slot_b,
         num_head_votes,
     );
-    harness.process_attestations(block_b_head_votes);
+    harness.process_attestations(block_b_head_votes, &state_b);
 
     let payload_lookahead = harness.chain.config.prepare_payload_lookahead;
     let fork_choice_lookahead = Duration::from_millis(500);
@@ -666,6 +670,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Check the fork choice updates that were sent.
     let forkchoice_updates = forkchoice_updates.lock();
+
     let block_a_exec_hash = block_a
         .0
         .message()
@@ -817,10 +822,10 @@ pub async fn fork_choice_before_proposal() {
         block_root_c,
         slot_c,
     );
-    harness.process_attestations(attestations_c);
+    harness.process_attestations(attestations_c, &state_c);
 
     // Apply the attestations to B, but don't re-run fork choice.
-    harness.process_attestations(attestations_b);
+    harness.process_attestations(attestations_b, &state_b);
 
     // Due to proposer boost, the head should be C during slot C.
     assert_eq!(
@@ -845,7 +850,7 @@ pub async fn fork_choice_before_proposal() {
         .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
-        .data
+        .into_data()
         .deconstruct()
         .0;
 
@@ -890,27 +895,29 @@ async fn queue_attestations_from_http() {
     let pre_state = harness.get_current_state();
     let (block, post_state) = harness.make_block(pre_state, attestation_slot).await;
     let block_root = block.0.canonical_root();
+    let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
 
     // Make attestations to the block and POST them to the beacon node on a background thread.
-    let attestations = harness
-        .make_unaggregated_attestations(
-            &all_validators,
-            &post_state,
-            block.0.state_root(),
-            block_root.into(),
-            attestation_slot,
-        )
-        .into_iter()
-        .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
-        .collect::<Vec<_>>();
+    let attestation_future = {
+        let single_attestations = harness
+            .make_single_attestations(
+                &all_validators,
+                &post_state,
+                block.0.state_root(),
+                block_root.into(),
+                attestation_slot,
+            )
+            .into_iter()
+            .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
+            .collect::<Vec<_>>();
 
-    let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
-    let attestation_future = tokio::spawn(async move {
-        client
-            .post_beacon_pool_attestations_v2(&attestations, fork_name)
-            .await
-            .expect("attestations should be processed successfully")
-    });
+        tokio::spawn(async move {
+            client
+                .post_beacon_pool_attestations_v2::<E>(single_attestations, fork_name)
+                .await
+                .expect("attestations should be processed successfully")
+        })
+    };
 
     // In parallel, apply the block. We need to manually notify the reprocess queue, because the
     // `beacon_chain` does not know about the queue and will not update it for us.
@@ -921,15 +928,198 @@ async fn queue_attestations_from_http() {
         .unwrap();
     tester
         .ctx
-        .beacon_processor_reprocess_send
+        .beacon_processor_send
         .as_ref()
         .unwrap()
-        .send(ReprocessQueueMessage::BlockImported {
-            block_root,
-            parent_root,
+        .try_send(WorkEvent {
+            drop_during_sync: false,
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root,
+                parent_root,
+            }),
         })
-        .await
         .unwrap();
 
     attestation_future.await.unwrap();
+}
+
+// Test that a request for next epoch proposer duties suceeds when the current slot clock is within
+// gossip clock disparity (500ms) of the new epoch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposer_duties_with_gossip_tolerance() {
+    let validator_count = 24;
+
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    let spec = &harness.spec;
+    let client = &tester.client;
+
+    let num_initial = 4 * E::slots_per_epoch() - 1;
+    let next_epoch_start_slot = Slot::new(num_initial + 1);
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    assert_eq!(harness.chain.slot().unwrap(), num_initial);
+
+    // Set the clock to just before the next epoch.
+    harness.chain.slot_clock.advance_time(
+        Duration::from_secs(spec.seconds_per_slot) - spec.maximum_gossip_clock_disparity(),
+    );
+    assert_eq!(
+        harness
+            .chain
+            .slot_clock
+            .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
+            .unwrap(),
+        next_epoch_start_slot
+    );
+
+    let head_state = harness.get_current_state();
+    let head_block_root = harness.head_block_root();
+    let tolerant_current_epoch = next_epoch_start_slot.epoch(E::slots_per_epoch());
+
+    // This is a regression test for the bug described here:
+    // https://github.com/sigp/lighthouse/pull/8130/files#r2386594566
+    //
+    // To trigger it, we need to prime the proposer shuffling cache with an incorrect entry which
+    // the previous code would be liable to lookup due to the bugs in its decision root calculation.
+    let wrong_decision_root = head_state
+        .proposer_shuffling_decision_root(head_block_root, spec)
+        .unwrap();
+    let wrong_proposer_indices = vec![0; E::slots_per_epoch() as usize];
+    harness
+        .chain
+        .beacon_proposer_cache
+        .lock()
+        .insert(
+            tolerant_current_epoch,
+            wrong_decision_root,
+            wrong_proposer_indices.clone(),
+            head_state.fork(),
+        )
+        .unwrap();
+
+    // Request the proposer duties.
+    let proposer_duties_tolerant_current_epoch = client
+        .get_validator_duties_proposer(tolerant_current_epoch)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        proposer_duties_tolerant_current_epoch.dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                tolerant_current_epoch,
+                head_block_root,
+                spec
+            )
+            .unwrap()
+    );
+    assert_ne!(
+        proposer_duties_tolerant_current_epoch
+            .data
+            .iter()
+            .map(|data| data.validator_index as usize)
+            .collect::<Vec<_>>(),
+        wrong_proposer_indices,
+    );
+
+    // We should get the exact same result after properly advancing into the epoch.
+    harness
+        .chain
+        .slot_clock
+        .advance_time(spec.maximum_gossip_clock_disparity());
+    assert_eq!(harness.chain.slot().unwrap(), next_epoch_start_slot);
+    let proposer_duties_current_epoch = client
+        .get_validator_duties_proposer(tolerant_current_epoch)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        proposer_duties_tolerant_current_epoch,
+        proposer_duties_current_epoch
+    );
+}
+
+// Test that a request for next epoch proposer duties suceeds when the current slot clock is within
+// gossip clock disparity (500ms) of the new epoch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lighthouse_custody_info() {
+    let mut spec = test_spec::<E>();
+
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    // Use a short DA expiry period so we can observe non-zero values for the oldest data column
+    // slot.
+    spec.min_epochs_for_blob_sidecars_requests = 2;
+    spec.min_epochs_for_data_column_sidecars_requests = 2;
+
+    let validator_count = 24;
+
+    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let harness = &tester.harness;
+    let spec = &harness.spec;
+    let client = &tester.client;
+
+    let num_initial = 2 * E::slots_per_epoch();
+    let num_secondary = 2 * E::slots_per_epoch();
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    assert_eq!(harness.chain.slot().unwrap(), num_initial);
+
+    let info = client.get_lighthouse_custody_info().await.unwrap();
+    assert_eq!(info.earliest_custodied_data_column_slot, 0);
+    assert_eq!(info.custody_group_count, spec.custody_requirement);
+    assert_eq!(
+        info.custody_columns.len(),
+        info.custody_group_count as usize
+    );
+
+    // Advance the chain some more to expire some blobs.
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_secondary as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    assert_eq!(harness.chain.slot().unwrap(), num_initial + num_secondary);
+
+    let info = client.get_lighthouse_custody_info().await.unwrap();
+    assert_eq!(
+        info.earliest_custodied_data_column_slot,
+        num_initial + num_secondary
+            - spec.min_epochs_for_data_column_sidecars_requests * E::slots_per_epoch()
+    );
+    assert_eq!(info.custody_group_count, spec.custody_requirement);
+    assert_eq!(
+        info.custody_columns.len(),
+        info.custody_group_count as usize
+    );
 }

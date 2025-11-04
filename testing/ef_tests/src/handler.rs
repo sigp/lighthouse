@@ -1,14 +1,12 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
-use crate::{type_name, FeatureName};
+use crate::{FeatureName, type_name};
+use context_deserialize::ContextDeserialize;
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
-
-const EIP7594_FORK: ForkName = ForkName::Deneb;
-const EIP7594_TESTS: [&str; 4] = ["ssz_static", "merkle_proof", "networking", "kzg"];
 
 pub trait Handler {
     type Case: Case + LoadCase;
@@ -24,7 +22,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
+        vec![ForkName::Gloas]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -39,14 +37,30 @@ pub trait Handler {
         for fork_name in ForkName::list_all() {
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name);
-
-                if fork_name == EIP7594_FORK
-                    && EIP7594_TESTS.contains(&Self::runner_name())
-                    && self.is_enabled_for_feature(FeatureName::Eip7594)
-                {
-                    self.run_for_feature(EIP7594_FORK, FeatureName::Eip7594);
-                }
             }
+        }
+
+        // Run feature tests for future forks that are not yet added to `ForkName`.
+        // This runs tests in the directory named by the feature instead of the fork name.
+        // e.g. consensus-spec-tests/tests/general/[feature_name]/[runner_name]
+        // e.g. consensus-spec-tests/tests/general/peerdas/ssz_static
+        for feature_name in FeatureName::list_all() {
+            if self.is_enabled_for_feature(feature_name) {
+                self.run_for_feature(feature_name);
+            }
+        }
+    }
+
+    // Do NOT override this function.
+    // TODO: use default keyword when stable.
+    fn rayon_enabled() -> bool {
+        #[cfg(feature = "disable_rayon")]
+        {
+            false
+        }
+        #[cfg(not(feature = "disable_rayon"))]
+        {
+            Self::use_rayon()
         }
     }
 
@@ -79,13 +93,12 @@ pub trait Handler {
             .filter_map(as_directory)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
-
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
                 (path, case)
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+        let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
         let name = format!(
             "{}/{}/{}",
@@ -96,8 +109,9 @@ pub trait Handler {
         crate::results::assert_tests_pass(&name, &handler_path, &results);
     }
 
-    fn run_for_feature(&self, fork_name: ForkName, feature_name: FeatureName) {
+    fn run_for_feature(&self, feature_name: FeatureName) {
         let feature_name_str = feature_name.to_string();
+        let fork_name = feature_name.fork_name();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("consensus-spec-tests")
@@ -126,7 +140,7 @@ pub trait Handler {
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+        let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
         let name = format!(
             "{}/{}/{}",
@@ -204,7 +218,7 @@ macro_rules! bls_handler {
                     })
                     .collect();
 
-                let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+                let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
                 let name = format!(
                     "{}/{}/{}",
@@ -287,6 +301,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Electra])
     }
 
+    pub fn fulu_only() -> Self {
+        Self::for_forks(vec![ForkName::Fulu])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -307,6 +325,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[5..].to_vec())
     }
 
+    pub fn fulu_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[6..].to_vec())
+    }
+
     pub fn pre_electra() -> Self {
         Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
@@ -318,13 +340,37 @@ impl<T, E> SszStaticHandler<T, E> {
 pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
 
 /// Handler for SSZ types that don't implement `ssz::Decode`.
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
-pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
+pub struct SszStaticWithSpecHandler<T, E> {
+    supported_forks: Vec<ForkName>,
+    _phantom: PhantomData<(T, E)>,
+}
+
+impl<T, E> Default for SszStaticWithSpecHandler<T, E> {
+    fn default() -> Self {
+        Self::for_forks(ForkName::list_all())
+    }
+}
+
+impl<T, E> SszStaticWithSpecHandler<T, E> {
+    pub fn for_forks(supported_forks: Vec<ForkName>) -> Self {
+        SszStaticWithSpecHandler {
+            supported_forks,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn fulu_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[6..].to_vec())
+    }
+}
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
-    T: cases::SszStaticType + tree_hash::TreeHash + ssz::Decode + TypeName,
+    T: cases::SszStaticType
+        + for<'de> ContextDeserialize<'de, ForkName>
+        + tree_hash::TreeHash
+        + ssz::Decode
+        + TypeName,
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;
@@ -383,6 +429,10 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        self.supported_forks.contains(&fork_name)
     }
 }
 
@@ -644,6 +694,11 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
+        // Deposit tests exist only after Electra.
+        if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
+            return false;
+        }
+
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
@@ -841,10 +896,10 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct GetCustodyColumnsHandler<E>(PhantomData<E>);
+pub struct GetCustodyGroupsHandler<E>(PhantomData<E>);
 
-impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
-    type Case = cases::GetCustodyColumns<E>;
+impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
+    type Case = cases::GetCustodyGroups<E>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -855,7 +910,47 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
     }
 
     fn handler_name(&self) -> String {
-        "get_custody_columns".into()
+        "get_custody_groups".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct ComputeColumnsForCustodyGroupHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> {
+    type Case = cases::ComputeColumnsForCustodyGroups<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_columns_for_custody_group".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGComputeCellsHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
+    type Case = cases::KZGComputeCells<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_cells".into()
     }
 }
 
@@ -921,30 +1016,6 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct BeaconStateMerkleProofValidityHandler<E>(PhantomData<E>);
-
-impl<E: EthSpec + TypeName> Handler for BeaconStateMerkleProofValidityHandler<E> {
-    type Case = cases::BeaconStateMerkleProofValidity<E>;
-
-    fn config_name() -> &'static str {
-        E::name()
-    }
-
-    fn runner_name() -> &'static str {
-        "light_client"
-    }
-
-    fn handler_name(&self) -> String {
-        "single_merkle_proof/BeaconState".into()
-    }
-
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name.altair_enabled()
-    }
-}
-
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
 pub struct KzgInclusionMerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E> {
@@ -963,17 +1034,16 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Enabled in Deneb
         fork_name.deneb_enabled()
     }
 }
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct BeaconBlockBodyMerkleProofValidityHandler<E>(PhantomData<E>);
+pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
-impl<E: EthSpec + TypeName> Handler for BeaconBlockBodyMerkleProofValidityHandler<E> {
-    type Case = cases::BeaconBlockBodyMerkleProofValidity<E>;
+impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
+    type Case = cases::GenericMerkleProofValidity<E>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -984,11 +1054,11 @@ impl<E: EthSpec + TypeName> Handler for BeaconBlockBodyMerkleProofValidityHandle
     }
 
     fn handler_name(&self) -> String {
-        "single_merkle_proof/BeaconBlockBody".into()
+        "single_merkle_proof".into()
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name.capella_enabled()
+        fork_name.altair_enabled()
     }
 }
 

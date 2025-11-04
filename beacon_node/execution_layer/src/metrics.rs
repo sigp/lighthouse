@@ -41,17 +41,17 @@ pub static EXECUTION_LAYER_REQUEST_TIMES: LazyLock<Result<HistogramVec>> = LazyL
 pub static EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
-        "execution_layer_payload_attributes_lookahead",
-        "Duration between an fcU call with PayloadAttributes and when the block should be produced",
-    )
+            "execution_layer_payload_attributes_lookahead",
+            "Duration between an fcU call with PayloadAttributes and when the block should be produced",
+        )
     });
 pub static EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID: LazyLock<Result<IntCounterVec>> = LazyLock::new(
     || {
         try_create_int_counter_vec(
-        "execution_layer_pre_prepared_payload_id",
-        "Indicates hits or misses for already having prepared a payload id before payload production",
-        &["event"]
-    )
+            "execution_layer_pre_prepared_payload_id",
+            "Indicates hits or misses for already having prepared a payload id before payload production",
+            &["event"],
+        )
     },
 );
 pub static EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE: LazyLock<Result<Histogram>> =
@@ -113,6 +113,32 @@ pub static EXECUTION_LAYER_PAYLOAD_BIDS: LazyLock<Result<IntGaugeVec>> = LazyLoc
     try_create_int_gauge_vec(
         "execution_layer_payload_bids",
         "The gwei bid value of payloads received by local EEs or builders. Only shows values up to i64::MAX.",
-        &["source"]
+        &["source"],
     )
 });
+pub static EXECUTION_LAYER_INFO: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "execution_layer_info",
+        "The build of the execution layer connected to lighthouse",
+        &["code", "name", "version", "commit"],
+    )
+});
+
+pub fn reset_execution_layer_info_gauge() {
+    let _ = EXECUTION_LAYER_INFO.as_ref().map(|gauge| gauge.reset());
+}
+
+pub fn expose_execution_layer_info(els: &Vec<crate::ClientVersionV1>) {
+    for el in els {
+        set_gauge_vec(
+            &EXECUTION_LAYER_INFO,
+            &[
+                &el.code.to_string(),
+                &el.name,
+                &el.version,
+                &el.commit.to_string(),
+            ],
+            1,
+        );
+    }
+}

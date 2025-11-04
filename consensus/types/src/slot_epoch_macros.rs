@@ -227,17 +227,6 @@ macro_rules! impl_display {
                 write!(f, "{}", self.0)
             }
         }
-
-        impl slog::Value for $type {
-            fn serialize(
-                &self,
-                record: &slog::Record,
-                key: slog::Key,
-                serializer: &mut dyn slog::Serializer,
-            ) -> slog::Result {
-                slog::Value::serialize(&self.0, record, key, serializer)
-            }
-        }
     };
 }
 

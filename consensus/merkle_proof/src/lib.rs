@@ -1,4 +1,4 @@
-use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
+use ethereum_hashing::{ZERO_HASHES, hash, hash32_concat};
 use safe_arith::ArithError;
 use std::sync::LazyLock;
 
@@ -34,6 +34,8 @@ pub enum MerkleTree {
 pub enum MerkleTreeError {
     // Trying to push in a leaf
     LeafReached,
+    // Trying to generate a proof for a non-leaf node
+    NonLeafProof,
     // No more space in the MerkleTree
     MerkleTreeFull,
     // MerkleTree is invalid
@@ -111,13 +113,13 @@ impl MerkleTree {
             Zero(_) => {
                 *self = MerkleTree::create(&[elem], depth);
             }
-            Node(ref mut hash, ref mut left, ref mut right) => {
+            Node(hash, left, right) => {
                 let left: &mut MerkleTree = &mut *left;
                 let right: &mut MerkleTree = &mut *right;
                 match (&*left, &*right) {
                     // Tree is full
                     (Leaf(_), Leaf(_)) | (Finalized(_), Leaf(_)) => {
-                        return Err(MerkleTreeError::MerkleTreeFull)
+                        return Err(MerkleTreeError::MerkleTreeFull);
                     }
                     // There is a right node so insert in right node
                     (Node(_, _, _), Node(_, _, _)) | (Finalized(_), Node(_, _, _)) => {
@@ -313,8 +315,17 @@ impl MerkleTree {
             current_depth -= 1;
         }
 
-        debug_assert_eq!(proof.len(), depth);
-        debug_assert!(current_node.is_leaf());
+        if proof.len() != depth {
+            // This should be unreachable regardless of how the method is called, because we push
+            // one proof element for each layer of `depth`.
+            return Err(MerkleTreeError::PleaseNotifyTheDevs);
+        }
+
+        // Generating a proof for a non-leaf node is invalid and indicates an error on the part of
+        // the caller.
+        if !current_node.is_leaf() {
+            return Err(MerkleTreeError::NonLeafProof);
+        }
 
         // Put proof in bottom-up order.
         proof.reverse();

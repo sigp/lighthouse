@@ -1,7 +1,10 @@
-use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
+use crate::beacon_block_body::{BLOB_KZG_COMMITMENTS_INDEX, KzgCommitments};
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::BeaconStateError;
-use crate::{BeaconBlockHeader, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
+use crate::{
+    BeaconBlockHeader, BeaconStateError, Epoch, EthSpec, ForkName, Hash256,
+    SignedBeaconBlockHeader, Slot,
+};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::Error as KzgError;
@@ -11,10 +14,8 @@ use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
-use std::hash::Hash;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -24,32 +25,27 @@ pub type ColumnIndex = u64;
 pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
-/// Container of the data that identifies an individual data column.
-#[derive(
-    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
-)]
-pub struct DataColumnIdentifier {
+/// Identifies a set of data columns associated with a specific beacon block.
+#[derive(Encode, Decode, Clone, Debug, PartialEq, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
+pub struct DataColumnsByRootIdentifier<E: EthSpec> {
     pub block_root: Hash256,
-    pub index: ColumnIndex,
+    pub columns: VariableList<ColumnIndex, E::NumberOfColumns>,
 }
 
 pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
 #[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    Derivative,
-    arbitrary::Arbitrary,
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
 )]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[context_deserialize(ForkName)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
@@ -57,7 +53,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     pub column: DataColumn<E>,
     /// All the KZG commitments and proofs associated with the block, used for verifying sample cells.
     pub kzg_commitments: KzgCommitments<E>,
-    pub kzg_proofs: KzgProofs<E>,
+    pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     pub signed_block_header: SignedBeaconBlockHeader,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
@@ -66,6 +62,10 @@ pub struct DataColumnSidecar<E: EthSpec> {
 impl<E: EthSpec> DataColumnSidecar<E> {
     pub fn slot(&self) -> Slot {
         self.signed_block_header.message.slot
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.slot().epoch(E::slots_per_epoch())
     }
 
     pub fn block_root(&self) -> Hash256 {
@@ -110,18 +110,16 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         .len()
     }
 
-    pub fn max_size() -> usize {
+    pub fn max_size(max_blobs_per_block: usize) -> usize {
         Self {
             index: 0,
-            column: VariableList::new(vec![Cell::<E>::default(); E::MaxBlobsPerBlock::to_usize()])
-                .unwrap(),
+            column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
             kzg_commitments: VariableList::new(vec![
                 KzgCommitment::empty_for_testing();
-                E::MaxBlobsPerBlock::to_usize()
+                max_blobs_per_block
             ])
             .unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); E::MaxBlobsPerBlock::to_usize()])
-                .unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
                 message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),
@@ -130,27 +128,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         }
         .as_ssz_bytes()
         .len()
-    }
-
-    pub fn empty() -> Self {
-        Self {
-            index: 0,
-            column: DataColumn::<E>::default(),
-            kzg_commitments: VariableList::default(),
-            kzg_proofs: VariableList::default(),
-            signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader::empty(),
-                signature: Signature::empty(),
-            },
-            kzg_commitments_inclusion_proof: Default::default(),
-        }
-    }
-
-    pub fn id(&self) -> DataColumnIdentifier {
-        DataColumnIdentifier {
-            block_root: self.block_root(),
-            index: self.index,
-        }
     }
 }
 
@@ -166,6 +143,7 @@ pub enum DataColumnSidecarError {
     PreDeneb,
     SszError(SszError),
     BuildSidecarFailed(String),
+    InvalidCellProofLength { expected: usize, actual: usize },
 }
 
 impl From<ArithError> for DataColumnSidecarError {

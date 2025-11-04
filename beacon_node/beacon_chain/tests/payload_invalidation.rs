@@ -1,18 +1,18 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
+    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
+    StateSkipConfig, WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError, NotifyExecutionLayer,
-    OverrideForkchoiceUpdate, StateSkipConfig, WhenSlotSkipped,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
+    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
-use logging::test_logger;
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -56,7 +56,6 @@ impl InvalidPayloadRig {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()
             })
-            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .mock_execution_layer()
             .fresh_ephemeral_store()
@@ -413,7 +412,7 @@ async fn invalid_payload_invalidates_parent() {
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
-    let roots = vec![
+    let roots = [
         rig.import_block(Payload::Syncing).await,
         rig.import_block(Payload::Syncing).await,
         rig.import_block(Payload::Syncing).await,
@@ -508,13 +507,11 @@ async fn justified_checkpoint_becomes_invalid() {
     let is_valid = Payload::Invalid {
         latest_valid_hash: Some(parent_hash_of_justified),
     };
-    rig.import_block_parametric(is_valid, is_valid, None, |error| {
-        matches!(
-            error,
-            // The block import should fail since the beacon chain knows the justified payload
-            // is invalid.
-            BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
-        )
+    rig.import_block_parametric(is_valid, is_valid, None, |error| match error {
+        BlockError::BeaconChainError(e) => {
+            matches!(e.as_ref(), BeaconChainError::JustifiedPayloadInvalid { .. })
+        }
+        _ => false,
     })
     .await;
 
@@ -688,12 +685,13 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block,
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -789,12 +787,13 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block,
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -823,9 +822,10 @@ async fn switches_heads() {
     assert_eq!(rig.harness.head_block_root(), fork_parent_root);
 
     // The fork block has not yet been validated.
-    assert!(rig
-        .execution_status(fork_block_root)
-        .is_optimistic_or_invalid());
+    assert!(
+        rig.execution_status(fork_block_root)
+            .is_optimistic_or_invalid()
+    );
 
     for root in blocks {
         let slot = rig
@@ -873,12 +873,13 @@ async fn invalid_during_processing() {
     ];
 
     // 0 should be present in the chain.
-    assert!(rig
-        .harness
-        .chain
-        .get_blinded_block(&roots[0])
-        .unwrap()
-        .is_some());
+    assert!(
+        rig.harness
+            .chain
+            .get_blinded_block(&roots[0])
+            .unwrap()
+            .is_some()
+    );
     // 1 should *not* be present in the chain.
     assert_eq!(
         rig.harness.chain.get_blinded_block(&roots[1]).unwrap(),
@@ -1052,14 +1053,15 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone().into()).await,
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
+    let rpc_block = RpcBlock::new_without_blobs(None, block.clone());
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
+        rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1193,10 +1195,10 @@ async fn attesting_to_optimistic_head() {
             .unwrap();
 
         match &mut attestation {
-            Attestation::Base(ref mut att) => {
+            Attestation::Base(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
-            Attestation::Electra(ref mut att) => {
+            Attestation::Electra(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
         }
@@ -1283,7 +1285,7 @@ impl InvalidHeadSetup {
     ///
     /// 1. A chain where the only viable head block has an invalid execution payload.
     /// 2. A block (`fork_block`) which will become the head of the chain when
-    ///     it is imported.
+    ///    it is imported.
     async fn new() -> InvalidHeadSetup {
         let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -1354,11 +1356,12 @@ impl InvalidHeadSetup {
         // head block as invalid should not result in another head being chosen.
         // Rather, it should fail to run fork choice and leave the invalid block as
         // the head.
-        assert!(rig
-            .canonical_head()
-            .head_execution_status()
-            .unwrap()
-            .is_invalid());
+        assert!(
+            rig.canonical_head()
+                .head_execution_status()
+                .unwrap()
+                .is_invalid()
+        );
 
         // Ensure that we're getting the correct error when trying to find a new
         // head.
@@ -1381,11 +1384,12 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     rig.harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block.clone(),
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1420,8 +1424,8 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
 
     let slot_clock = rig.harness.chain.slot_clock.clone();
 
-    // Forcefully persist the head and fork choice.
-    rig.harness.chain.persist_head_and_fork_choice().unwrap();
+    // Forcefully persist fork choice.
+    rig.harness.chain.persist_fork_choice().unwrap();
 
     let resumed = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
@@ -1510,7 +1514,12 @@ async fn weights_after_resetting_optimistic_status() {
             .fork_choice_read_lock()
             .get_block_weight(&head.head_block_root())
             .unwrap(),
-        head.snapshot.beacon_state.validators().get(0).unwrap().effective_balance,
+        head.snapshot
+            .beacon_state
+            .validators()
+            .get(0)
+            .unwrap()
+            .effective_balance,
         "proposer boost should be removed from the head block and the vote of a single validator applied"
     );
 

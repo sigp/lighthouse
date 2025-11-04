@@ -83,7 +83,7 @@ impl RewardCache {
         if self
             .initialization
             .as_ref()
-            .map_or(true, |init| *init != new_init)
+            .is_none_or(|init| *init != new_init)
         {
             self.update_previous_epoch_participation(state)
                 .map_err(OpPoolError::RewardCacheUpdatePrevEpoch)?;

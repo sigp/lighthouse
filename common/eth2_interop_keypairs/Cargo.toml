@@ -3,16 +3,15 @@ name = "eth2_interop_keypairs"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-num-bigint = "0.4.2"
+bls = { workspace = true }
 ethereum_hashing = { workspace = true }
 hex = { workspace = true }
-serde_yaml = { workspace = true }
+num-bigint = "0.4.2"
 serde = { workspace = true }
-bls = { workspace = true }
+serde_yaml = { workspace = true }
 
 [dev-dependencies]
 base64 = "0.13.0"

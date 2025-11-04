@@ -5,5 +5,5 @@ RESTful HTTP/JSON APIs.
 
 There are two APIs served by Lighthouse:
 
-- [Beacon Node API](./api-bn.md)
-- [Validator Client API](./api-vc.md)
+- [Beacon Node API](./api_bn.md)
+- [Validator Client API](./api_vc.md)

@@ -1,15 +1,14 @@
 #![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
-use logging::test_logger;
 use maplit::hashset;
 use rayon::prelude::*;
 use slasher::{
+    Config, Slasher,
     config::DEFAULT_CHUNK_SIZE,
     test_utils::{
-        att_slashing, chain_spec, indexed_att, indexed_att_electra,
-        slashed_validators_from_slashings, E,
+        E, att_slashing, chain_spec, indexed_att, indexed_att_electra,
+        slashed_validators_from_slashings,
     },
-    Config, Slasher,
 };
 use std::collections::HashSet;
 use tempfile::tempdir;
@@ -272,7 +271,7 @@ fn slasher_test(
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let spec = chain_spec();
-    let slasher = Slasher::open(config, spec, test_logger()).unwrap();
+    let slasher = Slasher::open(config, spec).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
     for (i, attestation) in attestations.iter().enumerate() {
@@ -302,7 +301,7 @@ fn parallel_slasher_test(
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let spec = chain_spec();
-    let slasher = Slasher::open(config, spec, test_logger()).unwrap();
+    let slasher = Slasher::open(config, spec).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
     attestations

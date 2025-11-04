@@ -1,11 +1,11 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use milhouse::List;
 use rayon::prelude::*;
 use ssz::Encode;
 use std::sync::Arc;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconState, Epoch, Eth1Data, EthSpec,
-    FixedBytesExtended, Hash256, MainnetEthSpec, Validator,
+    BeaconState, Epoch, Eth1Data, EthSpec, FixedBytesExtended, Hash256, MainnetEthSpec, Validator,
+    test_utils::generate_deterministic_keypair,
 };
 
 fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {

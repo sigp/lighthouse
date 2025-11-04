@@ -8,8 +8,7 @@ pub mod slashing_protection;
 
 use crate::{VALIDATOR_DIR_FLAG, VALIDATOR_DIR_FLAG_ALIAS};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
-use directory::{parse_path_or_default_with_flag, DEFAULT_VALIDATOR_DIR};
+use directory::{DEFAULT_VALIDATOR_DIR, parse_path_or_default_with_flag};
 use environment::Environment;
 use std::path::PathBuf;
 use types::EthSpec;
@@ -20,16 +19,6 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .display_order(0)
         .about("Provides commands for managing Eth2 validators.")
-        .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER)
-                .global(true),
-        )
         .arg(
             Arg::new(VALIDATOR_DIR_FLAG)
                 .long(VALIDATOR_DIR_FLAG)

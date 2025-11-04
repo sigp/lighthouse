@@ -17,6 +17,8 @@ pub enum ForkName {
     Capella,
     Deneb,
     Electra,
+    Fulu,
+    Gloas,
 }
 
 impl ForkName {
@@ -28,22 +30,28 @@ impl ForkName {
             ForkName::Capella,
             ForkName::Deneb,
             ForkName::Electra,
+            ForkName::Fulu,
+            ForkName::Gloas,
         ]
     }
 
     pub fn list_all_fork_epochs(spec: &ChainSpec) -> Vec<(ForkName, Option<Epoch>)> {
-        vec![
-            (ForkName::Altair, spec.altair_fork_epoch),
-            (ForkName::Bellatrix, spec.bellatrix_fork_epoch),
-            (ForkName::Capella, spec.capella_fork_epoch),
-            (ForkName::Deneb, spec.deneb_fork_epoch),
-            (ForkName::Electra, spec.electra_fork_epoch),
-        ]
+        ForkName::list_all()
+            .into_iter()
+            .map(|fork| (fork, spec.fork_epoch(fork)))
+            .collect()
     }
 
     pub fn latest() -> ForkName {
         // This unwrap is safe as long as we have 1+ forks. It is tested below.
         *ForkName::list_all().last().unwrap()
+    }
+
+    /// Returns the fork primarily used for testing purposes.
+    /// This fork serves as the baseline for many tests, and the goal
+    /// is to ensure features are passing on this fork.
+    pub fn latest_stable() -> ForkName {
+        ForkName::Fulu
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
@@ -57,6 +65,8 @@ impl ForkName {
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.fulu_fork_epoch = None;
+                spec.gloas_fork_epoch = None;
                 spec
             }
             ForkName::Altair => {
@@ -65,6 +75,8 @@ impl ForkName {
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.fulu_fork_epoch = None;
+                spec.gloas_fork_epoch = None;
                 spec
             }
             ForkName::Bellatrix => {
@@ -73,6 +85,8 @@ impl ForkName {
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.fulu_fork_epoch = None;
+                spec.gloas_fork_epoch = None;
                 spec
             }
             ForkName::Capella => {
@@ -81,6 +95,8 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.fulu_fork_epoch = None;
+                spec.gloas_fork_epoch = None;
                 spec
             }
             ForkName::Deneb => {
@@ -89,6 +105,8 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.electra_fork_epoch = None;
+                spec.fulu_fork_epoch = None;
+                spec.gloas_fork_epoch = None;
                 spec
             }
             ForkName::Electra => {
@@ -97,6 +115,28 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.fulu_fork_epoch = None;
+                spec.gloas_fork_epoch = None;
+                spec
+            }
+            ForkName::Fulu => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.fulu_fork_epoch = Some(Epoch::new(0));
+                spec.gloas_fork_epoch = None;
+                spec
+            }
+            ForkName::Gloas => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.fulu_fork_epoch = Some(Epoch::new(0));
+                spec.gloas_fork_epoch = Some(Epoch::new(0));
                 spec
             }
         }
@@ -104,7 +144,7 @@ impl ForkName {
 
     /// Return the name of the fork immediately prior to the current one.
     ///
-    /// If `self` is `ForkName::Base` then `Base` is returned.
+    /// If `self` is `ForkName::Base` then `None` is returned.
     pub fn previous_fork(self) -> Option<ForkName> {
         match self {
             ForkName::Base => None,
@@ -113,6 +153,8 @@ impl ForkName {
             ForkName::Capella => Some(ForkName::Bellatrix),
             ForkName::Deneb => Some(ForkName::Capella),
             ForkName::Electra => Some(ForkName::Deneb),
+            ForkName::Fulu => Some(ForkName::Electra),
+            ForkName::Gloas => Some(ForkName::Fulu),
         }
     }
 
@@ -126,7 +168,9 @@ impl ForkName {
             ForkName::Bellatrix => Some(ForkName::Capella),
             ForkName::Capella => Some(ForkName::Deneb),
             ForkName::Deneb => Some(ForkName::Electra),
-            ForkName::Electra => None,
+            ForkName::Electra => Some(ForkName::Fulu),
+            ForkName::Fulu => Some(ForkName::Gloas),
+            ForkName::Gloas => None,
         }
     }
 
@@ -148,6 +192,54 @@ impl ForkName {
 
     pub fn electra_enabled(self) -> bool {
         self >= ForkName::Electra
+    }
+
+    pub fn fulu_enabled(self) -> bool {
+        self >= ForkName::Fulu
+    }
+
+    pub fn gloas_enabled(self) -> bool {
+        self >= ForkName::Gloas
+    }
+
+    pub fn fork_ascii(self) {
+        if self == ForkName::Fulu {
+            println!(
+                r#"
+                                  ╔═══════════════════════════════════════╗
+                                  ║                                       ║
+                                  ║    TO FULU, MOAR BLOBS TO ETHEREUM    ║
+                                  ║                                       ║
+                                  ║          III DECEMBER MMXXV           ║
+                                  ║                                       ║
+                                  ╚═══════════════════════════════════════╝
+            
+                =============================================================================
+                ||||                                                                     ||||
+                |---------------------------------------------------------------------------|
+                |___-----___-----___-----___-----___-----___-----___-----___-----___-----___|
+                / _ \===/ _ \   / _ \===/ _ \                   / _ \===/ _ \   / _ \===/ _ \
+               ( (.\ oOo /.) ) ( (.\ oOo /.) )                 ( (.\ oOo /.) ) ( (.\ oOo /.) )
+                \__/=====\__/   \__/=====\__/                   \__/=====\__/   \__/=====\__/
+                   |||||||         |||||||                         |||||||         |||||||
+                   |||||||         |||||||     \\/),               |||||||         |||||||
+                   |||||||         |||||||    ,'.' /,              |||||||         |||||||
+                   |||||||         |||||||   (_)- / /,             |||||||         |||||||
+                   |||||||         |||||||      /\_/ |__..--,  *   |||||||         |||||||
+                   |||||||         |||||||     (\___/\ \ \ / ).'   |||||||         |||||||
+                   |||||||         |||||||      \____/ / (_ //     |||||||         |||||||
+                   |||||||         |||||||       \\_ ,'--'\_(      |||||||         |||||||
+                   (oOoOo)         (oOoOo)       )_)_/ )_/ )_)     (oOoOo)         (oOoOo)
+                   J%%%%%L         J%%%%%L      (_(_.'(_.'(_.'     J%%%%%L         J%%%%%L
+                  ZZZZZZZZZ       ZZZZZZZZZ                       ZZZZZZZZZ       ZZZZZZZZZ
+                ===========================================================================
+                |_________________________________________________________________________|
+               |___________________________________________________________________________|
+              |_____________________________________________________________________________|
+             |_______________________________________________________________________________|
+            "#
+            );
+        }
     }
 }
 
@@ -200,6 +292,14 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Electra(value), extra_data)
             }
+            ForkName::Fulu => {
+                let (value, extra_data) = $body;
+                ($t::Fulu(value), extra_data)
+            }
+            ForkName::Gloas => {
+                let (value, extra_data) = $body;
+                ($t::Gloas(value), extra_data)
+            }
         }
     };
 }
@@ -215,6 +315,8 @@ impl FromStr for ForkName {
             "capella" => ForkName::Capella,
             "deneb" => ForkName::Deneb,
             "electra" => ForkName::Electra,
+            "fulu" => ForkName::Fulu,
+            "gloas" => ForkName::Gloas,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
@@ -229,6 +331,8 @@ impl Display for ForkName {
             ForkName::Capella => "capella".fmt(f),
             ForkName::Deneb => "deneb".fmt(f),
             ForkName::Electra => "electra".fmt(f),
+            ForkName::Fulu => "fulu".fmt(f),
+            ForkName::Gloas => "gloas".fmt(f),
         }
     }
 }

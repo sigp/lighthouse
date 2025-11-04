@@ -9,5 +9,5 @@ description = "Procedural derive macros for implementation of TestRandom trait"
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true }
 quote = { workspace = true }
+syn = { workspace = true }

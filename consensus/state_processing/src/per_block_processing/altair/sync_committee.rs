@@ -1,6 +1,6 @@
 use crate::common::{altair::BaseRewardPerIncrement, decrease_balance, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
-use crate::{signature_sets::sync_aggregate_signature_set, VerifySignatures};
+use crate::{VerifySignatures, signature_sets::sync_aggregate_signature_set};
 use safe_arith::SafeArith;
 use std::borrow::Cow;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
@@ -38,7 +38,7 @@ pub fn process_sync_aggregate<E: EthSpec>(
         )?;
 
         // If signature set is `None` then the signature is valid (infinity).
-        if signature_set.map_or(false, |signature| !signature.verify()) {
+        if signature_set.is_some_and(|signature| !signature.verify()) {
             return Err(SyncAggregateInvalid::SignatureInvalid.into());
         }
     }

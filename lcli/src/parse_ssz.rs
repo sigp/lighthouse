@@ -1,7 +1,6 @@
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use eth2_network_config::Eth2NetworkConfig;
-use log::info;
 use serde::Serialize;
 use snap::raw::Decoder;
 use ssz::Decode;
@@ -9,6 +8,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Read;
 use std::str::FromStr;
+use tracing::info;
 use types::*;
 
 enum OutputFormat {
@@ -59,7 +59,7 @@ pub fn run_parse_ssz<E: EthSpec>(
         spec.config_name.as_deref().unwrap_or("unknown"),
         E::spec_name()
     );
-    info!("Type: {type_str}");
+    info!(%type_str, "Type");
 
     // More fork-specific decoders may need to be added in future, but shouldn't be 100% necessary,
     // as the fork-generic decoder will always be available (requires correct --network flag).

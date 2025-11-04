@@ -1,12 +1,12 @@
 use crate::builder::{
-    keystore_password_path, ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
-    WITHDRAWAL_KEYSTORE_FILE,
+    ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
+    WITHDRAWAL_KEYSTORE_FILE, keystore_password_path,
 };
 use deposit_contract::decode_eth1_tx_data;
 use derivative::Derivative;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use lockfile::{Lockfile, LockfileError};
-use std::fs::{read, write, File};
+use std::fs::{File, read, write};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;

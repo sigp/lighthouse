@@ -4,7 +4,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
 pub struct SignedValidatorRegistrationData {
     pub message: ValidatorRegistrationData,
     pub signature: Signature,

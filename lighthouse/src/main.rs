@@ -7,22 +7,29 @@ use clap::FromArgMatches;
 use clap::Subcommand;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{
-    flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config, FLAG_HEADER,
+    FLAG_HEADER, flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config,
 };
 use cli::LighthouseSubcommands;
-use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
+use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
+use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info};
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::tonic_types::transport::ClientTlsConfig;
+use opentelemetry_otlp::{WithExportConfig, WithTonicConfig};
 use std::backtrace::Backtrace;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
+use tracing::{Level, info};
+use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -64,14 +71,13 @@ fn bls_hardware_acceleration() -> bool {
 
     #[cfg(target_arch = "aarch64")]
     return std::arch::is_aarch64_feature_detected!("neon");
+
+    #[cfg(target_arch = "riscv64")]
+    return false;
 }
 
-fn allocator_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "system"
-    } else {
-        "jemalloc"
-    }
+fn allocator_name() -> String {
+    malloc_utils::allocator_name()
 }
 
 fn build_profile_name() -> String {
@@ -88,7 +94,12 @@ fn build_profile_name() -> String {
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {
-        std::env::set_var("RUST_BACKTRACE", "1");
+        // `set_var` is marked unsafe because it is unsafe to use if there are multiple threads
+        // reading or writing from the environment. We are at the very beginning of execution and
+        // have not spun up any threads or the tokio runtime, so it is safe to use.
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
     }
 
     // Parse the CLI parameters.
@@ -116,15 +127,11 @@ fn main() {
                 .display_order(0),
         )
         .arg(
-            Arg::new("logfile")
-                .long("logfile")
-                .value_name("FILE")
+            Arg::new("logfile-dir")
+                .long("logfile-dir")
+                .value_name("DIR")
                 .help(
-                    "File path where the log file will be stored. Once it grows to the \
-                    value specified in `--logfile-max-size` a new log file is generated where \
-                    future logs are stored. \
-                    Once the number of log files exceeds the value specified in \
-                    `--logfile-max-number` the oldest log file will be overwritten.")
+                    "Directory path where the log file will be stored")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
@@ -135,7 +142,7 @@ fn main() {
                 .value_name("LEVEL")
                 .help("The verbosity level used when emitting logs to the log file.")
                 .action(ArgAction::Set)
-                .value_parser(["info", "debug", "trace", "warn", "error", "crit"])
+                .value_parser(["info", "debug", "trace", "warn", "error"])
                 .default_value("debug")
                 .global(true)
                 .display_order(0)
@@ -211,12 +218,35 @@ fn main() {
         .arg(
             Arg::new("log-color")
                 .long("log-color")
-                .alias("log-colour")
-                .help("Force outputting colors when emitting logs to the terminal.")
+                .alias("log-color")
+                .help("Enables/Disables colors for logs in terminal. \
+                    Set it to false to disable colors.")
+                .num_args(0..=1)
+                .default_missing_value("true")
+                .default_value("true")
+                .value_parser(clap::value_parser!(bool))
+                .help_heading(FLAG_HEADER)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("logfile-color")
+                .long("logfile-color")
+                .alias("logfile-colour")
+                .help("Enables colors in logfile.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .global(true)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("log-extra-info")
+            .long("log-extra-info")
+            .action(ArgAction::SetTrue)
+            .help_heading(FLAG_HEADER)
+            .help("If present, show module,file,line in logs")
+            .global(true)
+            .display_order(0)
         )
         .arg(
             Arg::new("disable-log-timestamp")
@@ -233,9 +263,35 @@ fn main() {
                 .value_name("LEVEL")
                 .help("Specifies the verbosity level used when emitting logs to the terminal.")
                 .action(ArgAction::Set)
-                .value_parser(["info", "debug", "trace", "warn", "error", "crit"])
+                .value_parser(["info", "debug", "trace", "warn", "error"])
                 .global(true)
                 .default_value("info")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("telemetry-collector-url")
+                .long("telemetry-collector-url")
+                .value_name("URL")
+                .help(
+                    "URL of the OpenTelemetry collector to export tracing spans \
+                    (e.g., http://localhost:4317). If not set, tracing export is disabled.",
+                )
+                .action(ArgAction::Set)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("telemetry-service-name")
+                .long("telemetry-service-name")
+                .value_name("NAME")
+                .help(
+                    "Override the OpenTelemetry service name. \
+                    Defaults to 'lighthouse-bn' for beacon node, 'lighthouse-vc' for validator \
+                    client, or 'lighthouse' for other subcommands."
+                )
+                .requires("telemetry-collector-url")
+                .action(ArgAction::Set)
+                .global(true)
                 .display_order(0)
         )
         .arg(
@@ -320,48 +376,6 @@ fn main() {
                 .display_order(0)
         )
         .arg(
-            Arg::new("terminal-total-difficulty-override")
-                .long("terminal-total-difficulty-override")
-                .value_name("INTEGER")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("terminal-block-hash-override")
-                .long("terminal-block-hash-override")
-                .value_name("TERMINAL_BLOCK_HASH")
-                .help("DEPRECATED")
-                .requires("terminal-block-hash-epoch-override")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("terminal-block-hash-epoch-override")
-                .long("terminal-block-hash-epoch-override")
-                .value_name("EPOCH")
-                .help("DEPRECATED")
-                .requires("terminal-block-hash-override")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("safe-slots-to-import-optimistically")
-                .long("safe-slots-to-import-optimistically")
-                .value_name("INTEGER")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
             Arg::new("genesis-state-url")
                 .long("genesis-state-url")
                 .value_name("URL")
@@ -383,7 +397,7 @@ fn main() {
                     "The timeout in seconds for the request to --genesis-state-url.",
                 )
                 .action(ArgAction::Set)
-                .default_value("180")
+                .default_value("300")
                 .global(true)
                 .display_order(0)
         )
@@ -395,10 +409,10 @@ fn main() {
             .action(ArgAction::HelpLong)
             .display_order(0)
             .help_heading(FLAG_HEADER)
+            .global(true)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
-        .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .subcommand(validator_manager::cli_app());
 
@@ -412,15 +426,16 @@ fn main() {
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
     let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
-    if is_beacon_node && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
-        if let Err(e) = configure_memory_allocator() {
-            eprintln!(
-                "Unable to configure the memory allocator: {} \n\
+    if is_beacon_node
+        && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG)
+        && let Err(e) = configure_memory_allocator()
+    {
+        eprintln!(
+            "Unable to configure the memory allocator: {} \n\
                 Try providing the --{} flag",
-                e, DISABLE_MALLOC_TUNING_FLAG
-            );
-            exit(1)
-        }
+            e, DISABLE_MALLOC_TUNING_FLAG
+        );
+        exit(1)
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
@@ -495,10 +510,21 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
-    let log_color = matches.get_flag("log-color");
+    let log_color = if std::io::stdin().is_terminal() {
+        matches
+            .get_one::<bool>("log-color")
+            .copied()
+            .unwrap_or(true)
+    } else {
+        // Disable color when in non-interactive mode.
+        false
+    };
+
+    let logfile_color = matches.get_flag("logfile-color");
 
     let disable_log_timestamp = matches.get_flag("disable-log-timestamp");
 
+    let extra_info = matches.get_flag("log-extra-info");
     let logfile_debug_level = matches
         .get_one::<String>("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
@@ -525,15 +551,13 @@ fn run<E: EthSpec>(
     let logfile_restricted = !matches.get_flag("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
-    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile-dir")?;
     if log_path.is_none() {
         log_path = match matches.subcommand() {
             Some(("beacon_node", _)) => Some(
                 parse_path_or_default(matches, "datadir")?
                     .join(DEFAULT_BEACON_NODE_DIR)
-                    .join("logs")
-                    .join("beacon")
-                    .with_extension("log"),
+                    .join("logs"),
             ),
             Some(("validator_client", vc_matches)) => {
                 let base_path = if vc_matches.contains_id("validators-dir") {
@@ -542,12 +566,7 @@ fn run<E: EthSpec>(
                     parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
                 };
 
-                Some(
-                    base_path
-                        .join("logs")
-                        .join("validator")
-                        .with_extension("log"),
-                )
+                Some(base_path.join("logs"))
             }
             _ => None,
         };
@@ -563,72 +582,158 @@ fn run<E: EthSpec>(
         }
     };
 
-    let logger_config = LoggerConfig {
-        path: log_path.clone(),
-        debug_level: String::from(debug_level),
-        logfile_debug_level: String::from(logfile_debug_level),
-        log_format: log_format.map(String::from),
-        logfile_format: logfile_format.map(String::from),
-        log_color,
-        disable_log_timestamp,
-        max_log_size: logfile_max_size * 1_024 * 1_024,
-        max_log_number: logfile_max_number,
-        compression: logfile_compress,
-        is_restricted: logfile_restricted,
-        sse_logging,
-    };
+    let (
+        builder,
+        logger_config,
+        stdout_logging_layer,
+        file_logging_layer,
+        sse_logging_layer_opt,
+        libp2p_discv5_layer,
+    ) = tracing_common::construct_logger(
+        LoggerConfig {
+            path: log_path.clone(),
+            debug_level: tracing_common::parse_level(debug_level),
+            logfile_debug_level: tracing_common::parse_level(logfile_debug_level),
+            log_format: log_format.map(String::from),
+            logfile_format: logfile_format.map(String::from),
+            log_color,
+            logfile_color,
+            disable_log_timestamp,
+            max_log_size: logfile_max_size,
+            max_log_number: logfile_max_number,
+            compression: logfile_compress,
+            is_restricted: logfile_restricted,
+            sse_logging,
+            extra_info,
+        },
+        matches,
+        environment_builder,
+    );
 
-    let builder = environment_builder.initialize_logger(logger_config.clone())?;
+    let workspace_filter = build_workspace_filter()?;
+
+    let mut logging_layers = Vec::new();
+
+    logging_layers.push(
+        stdout_logging_layer
+            .with_filter(logger_config.debug_level)
+            .with_filter(workspace_filter.clone())
+            .boxed(),
+    );
+
+    if let Some(file_logging_layer) = file_logging_layer {
+        logging_layers.push(
+            file_logging_layer
+                .with_filter(logger_config.logfile_debug_level)
+                .with_filter(workspace_filter.clone())
+                .boxed(),
+        );
+    }
+
+    if let Some(sse_logging_layer) = sse_logging_layer_opt {
+        logging_layers.push(
+            sse_logging_layer
+                .with_filter(workspace_filter.clone())
+                .boxed(),
+        );
+    }
+
+    if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
+        logging_layers.push(
+            libp2p_discv5_layer
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(Level::DEBUG.into())
+                        .from_env_lossy(),
+                )
+                .boxed(),
+        );
+    }
+
+    logging_layers.push(MetricsLayer.boxed());
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
         .eth2_network_config(eth2_network_config)?
         .build()?;
 
-    let log = environment.core_context().log().clone();
+    if let Some(telemetry_collector_url) = matches.get_one::<String>("telemetry-collector-url") {
+        let telemetry_layer = environment.runtime().block_on(async {
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_tls_config(ClientTlsConfig::new().with_native_roots())
+                .with_endpoint(telemetry_collector_url)
+                .build()
+                .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
+
+            let service_name = matches
+                .get_one::<String>("telemetry-service-name")
+                .cloned()
+                .unwrap_or_else(|| match matches.subcommand() {
+                    Some(("beacon_node", _)) => "lighthouse-bn".to_string(),
+                    Some(("validator_client", _)) => "lighthouse-vc".to_string(),
+                    _ => "lighthouse".to_string(),
+                });
+
+            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_batch_exporter(exporter)
+                .with_resource(
+                    opentelemetry_sdk::Resource::builder()
+                        .with_service_name(service_name)
+                        .build(),
+                )
+                .build();
+
+            let tracer = provider.tracer("lighthouse");
+            Ok::<_, String>(
+                tracing_opentelemetry::layer()
+                    .with_tracer(tracer)
+                    .with_filter(workspace_filter),
+            )
+        })?;
+
+        logging_layers.push(telemetry_layer.boxed());
+    }
+
+    #[cfg(feature = "console-subscriber")]
+    {
+        let console_layer = console_subscriber::spawn();
+        logging_layers.push(console_layer.boxed());
+    }
+
+    let logging_result = tracing_subscriber::registry()
+        .with(logging_layers)
+        .try_init();
+
+    if let Err(e) = logging_result {
+        eprintln!("Failed to initialize logger: {e}");
+    }
 
     // Log panics properly.
     {
-        let log = log.clone();
         std::panic::set_hook(Box::new(move |info| {
             crit!(
-                log,
-                "Task panic. This is a bug!";
-                "location" => info.location().map(ToString::to_string),
-                "message" => info.payload().downcast_ref::<String>(),
-                "backtrace" => %Backtrace::capture(),
-                "advice" => "Please check above for a backtrace and notify the developers",
+                location = info.location().map(ToString::to_string),
+                message = info.payload().downcast_ref::<String>(),
+                backtrace = %Backtrace::capture(),
+                advice = "Please check above for a backtrace and notify the developers",
+                "Task panic. This is a bug!"
             );
         }));
     }
 
     // Allow Prometheus to export the time at which the process was started.
-    metrics::expose_process_start_time(&log);
+    metrics::expose_process_start_time();
 
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        slog::warn!(
-            log,
-            "CPU seems incompatible with optimized Lighthouse build";
-            "advice" => "If you get a SIGILL, please try Lighthouse portable build"
+        tracing::warn!(
+            advice = "If you get a SIGILL, please try Lighthouse portable build",
+            "CPU seems incompatible with optimized Lighthouse build"
         );
-    }
-
-    // Warn for DEPRECATED global flags. This code should be removed when we finish deleting these
-    // flags.
-    let deprecated_flags = [
-        "terminal-total-difficulty-override",
-        "terminal-block-hash-override",
-        "terminal-block-hash-epoch-override",
-        "safe-slots-to-import-optimistically",
-    ];
-    for flag in deprecated_flags {
-        if matches.get_one::<String>(flag).is_some() {
-            slog::warn!(log, "The {} flag is deprecated and does nothing", flag);
-        }
     }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator
@@ -669,78 +774,23 @@ fn run<E: EthSpec>(
         return Ok(());
     }
 
-    if let Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) =
-        LighthouseSubcommands::from_arg_matches(matches)
-    {
-        info!(log, "Running database manager for {} network", network_name);
-        database_manager::run(matches, &db_manager_config, environment)?;
-        return Ok(());
-    };
-
-    info!(log, "Lighthouse started"; "version" => VERSION);
-    info!(
-        log,
-        "Configured for network";
-        "name" => &network_name
-    );
-
-    match matches.subcommand() {
-        Some(("beacon_node", matches)) => {
-            let context = environment.core_context();
-            let log = context.log().clone();
-            let executor = context.executor.clone();
-            let mut config = beacon_node::get_config::<E>(matches, &context)?;
-            config.logger_config = logger_config;
-            // Dump configs if `dump-config` or `dump-chain-config` flags are set
-            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
-
-            let shutdown_flag = matches.get_flag("immediate-shutdown");
-            if shutdown_flag {
-                info!(log, "Beacon node immediate shutdown triggered.");
-                return Ok(());
-            }
-
-            let mut tracing_log_path: Option<PathBuf> =
-                clap_utils::parse_optional(matches, "logfile")?;
-
-            if tracing_log_path.is_none() {
-                tracing_log_path = Some(
-                    parse_path_or_default(matches, "datadir")?
-                        .join(DEFAULT_BEACON_NODE_DIR)
-                        .join("logs"),
-                )
-            }
-
-            let path = tracing_log_path.clone().unwrap();
-
-            logging::create_tracing_layer(path);
-
-            executor.clone().spawn(
-                async move {
-                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                        crit!(log, "Failed to start beacon node"; "reason" => e);
-                        // Ignore the error since it always occurs during normal operation when
-                        // shutting down.
-                        let _ = executor
-                            .shutdown_sender()
-                            .try_send(ShutdownReason::Failure("Failed to start beacon node"));
-                    }
-                },
-                "beacon_node",
-            );
+    match LighthouseSubcommands::from_arg_matches(matches) {
+        Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) => {
+            info!("Running database manager for {} network", network_name);
+            database_manager::run(matches, &db_manager_config, environment)?;
+            return Ok(());
         }
-        Some(("validator_client", matches)) => {
+        Ok(LighthouseSubcommands::ValidatorClient(validator_client_config)) => {
             let context = environment.core_context();
-            let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(matches, context.log())
+            let config = validator_client::Config::from_cli(matches, &validator_client_config)
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
-                info!(log, "Validator client immediate shutdown triggered.");
+                info!("Validator client immediate shutdown triggered.");
                 return Ok(());
             }
 
@@ -750,7 +800,7 @@ fn run<E: EthSpec>(
                         .and_then(|mut vc| async move { vc.start_service().await })
                         .await
                     {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        crit!(reason = e, "Failed to start validator client");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -761,15 +811,53 @@ fn run<E: EthSpec>(
                 "validator_client",
             );
         }
+        Err(_) => (),
+    };
+
+    info!(version = VERSION, "Lighthouse started");
+    info!(network_name, "Configured network");
+
+    match matches.subcommand() {
+        Some(("beacon_node", matches)) => {
+            let context = environment.core_context();
+            let executor = context.executor.clone();
+            let mut config = beacon_node::get_config::<E>(matches, &context)?;
+            config.logger_config = logger_config;
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
+
+            let shutdown_flag = matches.get_flag("immediate-shutdown");
+            if shutdown_flag {
+                info!("Beacon node immediate shutdown triggered.");
+                return Ok(());
+            }
+
+            executor.clone().spawn(
+                async move {
+                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                        crit!(reason = ?e, "Failed to start beacon node");
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send(ShutdownReason::Failure("Failed to start beacon node"));
+                    }
+                },
+                "beacon_node",
+            );
+        }
+        // TODO(clap-derive) delete this once we've fully migrated to clap derive.
+        // Qt the moment this needs to exist so that we dont trigger a crit.
+        Some(("validator_client", _)) => (),
         _ => {
-            crit!(log, "No subcommand supplied. See --help .");
+            crit!("No subcommand supplied. See --help .");
             return Err("No subcommand supplied.".into());
         }
     };
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
     let shutdown_reason = environment.block_until_shutdown_requested()?;
-    info!(log, "Shutting down.."; "reason" => ?shutdown_reason);
+    info!(reason = ?shutdown_reason, "Shutting down..");
 
     environment.fire_signal();
 

@@ -3,9 +3,8 @@
 
 use bls::Keypair;
 use eth2_keystore::{
-    default_kdf,
+    DKLEN, Error, Keystore, KeystoreBuilder, default_kdf,
     json_keystore::{Kdf, Pbkdf2, Prf, Scrypt},
-    Error, Keystore, KeystoreBuilder, DKLEN,
 };
 use std::fs::File;
 use tempfile::tempdir;
@@ -54,25 +53,17 @@ fn file() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("keystore.json");
 
-    let get_file = || {
-        File::options()
-            .write(true)
-            .read(true)
-            .create(true)
-            .open(path.clone())
-            .expect("should create file")
-    };
-
     let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
         .unwrap()
         .build()
         .unwrap();
 
     keystore
-        .to_json_writer(&mut get_file())
+        .to_json_writer(File::create_new(&path).unwrap())
         .expect("should write to file");
 
-    let decoded = Keystore::from_json_reader(&mut get_file()).expect("should read from file");
+    let decoded =
+        Keystore::from_json_reader(File::open(&path).unwrap()).expect("should read from file");
 
     assert_eq!(
         decoded.decrypt_keypair(BAD_PASSWORD).err().unwrap(),

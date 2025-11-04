@@ -11,8 +11,8 @@ pub mod key_cache;
 use account_utils::{
     read_password, read_password_from_user, read_password_string,
     validator_definitions::{
-        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
-        CONFIG_FILENAME,
+        self, CONFIG_FILENAME, SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
+        Web3SignerDefinition,
     },
 };
 use eth2_keystore::Keystore;
@@ -22,13 +22,13 @@ use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use serde::{Deserialize, Serialize};
 use signing_method::SigningMethod;
-use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, error, info, warn};
 use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
@@ -159,10 +159,10 @@ pub struct InitializedValidator {
 
 impl InitializedValidator {
     /// Return a reference to this validator's lockfile if it has one.
-    pub fn keystore_lockfile(&self) -> Option<MappedMutexGuard<Lockfile>> {
+    pub fn keystore_lockfile(&self) -> Option<MappedMutexGuard<'_, Lockfile>> {
         match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore {
-                ref voting_keystore_lockfile,
+                voting_keystore_lockfile,
                 ..
             } => MutexGuard::try_map(voting_keystore_lockfile.lock(), |option_lockfile| {
                 option_lockfile.as_mut()
@@ -503,8 +503,6 @@ pub struct InitializedValidators {
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
     /// The clients used for communications with a remote signer.
     web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
-    /// For logging via `slog`.
-    log: Logger,
     config: Config,
 }
 
@@ -514,7 +512,6 @@ impl InitializedValidators {
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
         config: Config,
-        log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
             validators_dir,
@@ -522,7 +519,6 @@ impl InitializedValidators {
             validators: HashMap::default(),
             web3_signer_client_map: None,
             config,
-            log,
         };
         this.update_validators().await?;
         Ok(this)
@@ -675,20 +671,19 @@ impl InitializedValidators {
 
         // 3. Delete from `self.validators`, which holds the signing method.
         //    Delete the keystore files.
-        if let Some(initialized_validator) = self.validators.remove(&pubkey.compress()) {
-            if let SigningMethod::LocalKeystore {
+        if let Some(initialized_validator) = self.validators.remove(&pubkey.compress())
+            && let SigningMethod::LocalKeystore {
                 ref voting_keystore_path,
                 ref voting_keystore_lockfile,
                 ref voting_keystore,
                 ..
             } = *initialized_validator.signing_method
-            {
-                // Drop the lock file so that it may be deleted. This is particularly important on
-                // Windows where the lockfile will fail to be deleted if it is still open.
-                drop(voting_keystore_lockfile.lock().take());
+        {
+            // Drop the lock file so that it may be deleted. This is particularly important on
+            // Windows where the lockfile will fail to be deleted if it is still open.
+            drop(voting_keystore_lockfile.lock().take());
 
-                self.delete_keystore_or_validator_dir(voting_keystore_path, voting_keystore)?;
-            }
+            self.delete_keystore_or_validator_dir(voting_keystore_path, voting_keystore)?;
         }
 
         // 4. Delete from validator definitions entirely.
@@ -699,17 +694,16 @@ impl InitializedValidators {
             .map_err(Error::UnableToSaveDefinitions)?;
 
         // 5. Delete the keystore password if it's not being used by any definition.
-        if let Some(password_path) = password_path_opt.and_then(|p| p.canonicalize().ok()) {
-            if self
+        if let Some(password_path) = password_path_opt.and_then(|p| p.canonicalize().ok())
+            && self
                 .definitions
                 .iter_voting_keystore_password_paths()
                 // Require canonicalized paths so we can do a true equality check.
                 .filter_map(|existing| existing.canonicalize().ok())
                 .all(|existing| existing != password_path)
-            {
-                fs::remove_file(&password_path)
-                    .map_err(|e| Error::UnableToDeletePasswordFile(password_path, e))?;
-            }
+        {
+            fs::remove_file(&password_path)
+                .map_err(|e| Error::UnableToDeletePasswordFile(password_path, e))?;
         }
 
         Ok(keystore_and_password)
@@ -727,14 +721,13 @@ impl InitializedValidators {
         // If the parent directory is a `ValidatorDir` within `self.validators_dir`, then
         // delete the entire directory so that it may be recreated if the keystore is
         // re-imported.
-        if let Some(validator_dir) = voting_keystore_path.parent() {
-            if validator_dir
+        if let Some(validator_dir) = voting_keystore_path.parent()
+            && validator_dir
                 == ValidatorDirBuilder::get_dir_path(&self.validators_dir, voting_keystore)
-            {
-                fs::remove_dir_all(validator_dir)
-                    .map_err(|e| Error::UnableToDeleteValidatorDir(validator_dir.into(), e))?;
-                return Ok(());
-            }
+        {
+            fs::remove_dir_all(validator_dir)
+                .map_err(|e| Error::UnableToDeleteValidatorDir(validator_dir.into(), e))?;
+            return Ok(());
         }
         // Otherwise just delete the keystore file.
         fs::remove_file(voting_keystore_path)
@@ -1151,10 +1144,9 @@ impl InitializedValidators {
         for uuid in cache.uuids() {
             if !definitions_map.contains_key(uuid) {
                 debug!(
-                    self.log,
-                    "Resetting the key cache";
-                    "keystore_uuid" => %uuid,
-                    "reason" => "impossible to decrypt due to missing keystore",
+                    keystore_uuid = %uuid,
+                    reason = "impossible to decrypt due to missing keystore",
+                    "Resetting the key cache"
                 );
                 return Ok(KeyCache::new());
             }
@@ -1281,30 +1273,27 @@ impl InitializedValidators {
                                 self.validators
                                     .insert(init.voting_public_key().compress(), init);
                                 info!(
-                                    self.log,
-                                    "Enabled validator";
-                                    "signing_method" => "local_keystore",
-                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
+                                    signing_method = "local_keystore",
+                                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                                    "Enabled validator"
                                 );
 
                                 if let Some(lockfile_path) = existing_lockfile_path {
                                     warn!(
-                                        self.log,
-                                        "Ignored stale lockfile";
-                                        "path" => lockfile_path.display(),
-                                        "cause" => "Ungraceful shutdown (harmless) OR \
+                                        path = ?lockfile_path.display(),
+                                        cause = "Ungraceful shutdown (harmless) OR \
                                                     non-Lighthouse client using this keystore \
-                                                    (risky)"
+                                                    (risky)",
+                                        "Ignored stale lockfile"
                                     );
                                 }
                             }
                             Err(e) => {
                                 error!(
-                                    self.log,
-                                    "Failed to initialize validator";
-                                    "error" => format!("{:?}", e),
-                                    "signing_method" => "local_keystore",
-                                    "validator" => format!("{:?}", def.voting_public_key)
+                                    error = format!("{:?}", e),
+                                    signing_method = "local_keystore",
+                                    validator = format!("{:?}", def.voting_public_key),
+                                    "Failed to initialize validator"
                                 );
 
                                 // Exit on an invalid validator.
@@ -1327,19 +1316,17 @@ impl InitializedValidators {
                                     .insert(init.voting_public_key().compress(), init);
 
                                 info!(
-                                    self.log,
-                                    "Enabled validator";
-                                    "signing_method" => "remote_signer",
-                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
+                                    signing_method = "remote_signer",
+                                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                                    "Enabled validator"
                                 );
                             }
                             Err(e) => {
                                 error!(
-                                    self.log,
-                                    "Failed to initialize validator";
-                                    "error" => format!("{:?}", e),
-                                    "signing_method" => "remote_signer",
-                                    "validator" => format!("{:?}", def.voting_public_key)
+                                    error = format!("{:?}", e),
+                                    signing_method = "remote_signer",
+                                    validator = format!("{:?}", def.voting_public_key),
+                                    "Failed to initialize validator"
                                 );
 
                                 // Exit on an invalid validator.
@@ -1364,9 +1351,8 @@ impl InitializedValidators {
                 }
 
                 info!(
-                    self.log,
-                    "Disabled validator";
-                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
+                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                    "Disabled validator"
                 );
             }
         }
@@ -1378,23 +1364,18 @@ impl InitializedValidators {
         }
 
         let validators_dir = self.validators_dir.clone();
-        let log = self.log.clone();
         if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
-                    Err(e) => warn!(
-                        log,
-                        "Error during saving of key_cache";
-                        "err" => format!("{:?}", e)
-                    ),
-                    Ok(true) => info!(log, "Modified key_cache saved successfully"),
+                    Err(e) => warn!(err = format!("{:?}", e), "Error during saving of key_cache"),
+                    Ok(true) => info!("Modified key_cache saved successfully"),
                     _ => {}
                 };
             })
             .await
             .map_err(Error::TokioJoin)?;
         } else {
-            debug!(log, "Key cache not modified");
+            debug!("Key cache not modified");
         }
 
         // Update the enabled and total validator counts
@@ -1431,7 +1412,7 @@ impl InitializedValidators {
         for def in self.definitions.as_mut_slice() {
             match &mut def.signing_definition {
                 SigningDefinition::LocalKeystore {
-                    ref mut voting_keystore_password,
+                    voting_keystore_password,
                     ..
                 } => {
                     if let Some(password) = voting_keystore_password.take() {

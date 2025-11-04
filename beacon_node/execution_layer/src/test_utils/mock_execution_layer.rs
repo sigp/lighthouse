@@ -1,6 +1,6 @@
 use crate::{
     test_utils::{
-        MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
+        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, MockServer,
     },
     *,
 };
@@ -13,7 +13,7 @@ pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
     pub el: ExecutionLayer<E>,
     pub executor: TaskExecutor,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> MockExecutionLayer<E> {
@@ -28,8 +28,10 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec,
+            Arc::new(spec),
             None,
         )
     }
@@ -41,8 +43,10 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
+        osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
         jwt_key: Option<JwtKey>,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let handle = executor.handle().unwrap();
@@ -57,6 +61,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
+            osaka_time,
+            amsterdam_time,
             kzg,
         );
 
@@ -72,8 +78,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
-        let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+        let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
 
         Self {
             server,
@@ -165,10 +170,11 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         assert_eq!(payload.prev_randao(), prev_randao);
 
         // Ensure the payload cache is empty.
-        assert!(self
-            .el
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.el
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),
             slot,
@@ -318,9 +324,9 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         (self, block_hash)
     }
 
-    pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
+    pub async fn with_terminal_block<U, V>(self, func: U) -> Self
     where
-        U: Fn(ChainSpec, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
+        U: Fn(Arc<ChainSpec>, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self

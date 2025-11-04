@@ -1,11 +1,12 @@
 use crate::beacon_state::balance::Balance;
 use crate::{
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
 };
+#[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
 
@@ -13,12 +14,14 @@ use safe_arith::SafeArith;
 /// epochs. The cached values can be utilised by fork choice to calculate unrealized justification
 /// and finalization instead of converting epoch participation arrays to balances for each block we
 /// process.
-#[derive(Default, Debug, PartialEq, Arbitrary, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct ProgressiveBalancesCache {
     inner: Option<Inner>,
 }
 
-#[derive(Debug, PartialEq, Arbitrary, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[derive(Debug, PartialEq, Clone)]
 struct Inner {
     pub current_epoch: Epoch,
     pub previous_epoch_cache: EpochTotalBalances,
@@ -26,7 +29,8 @@ struct Inner {
 }
 
 /// Caches the participation values for one epoch (either the previous or current).
-#[derive(PartialEq, Debug, Clone, Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[derive(PartialEq, Debug, Clone)]
 pub struct EpochTotalBalances {
     /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
     /// for all flags in `NUM_FLAG_INDICES`.
@@ -145,7 +149,7 @@ impl ProgressiveBalancesCache {
     pub fn is_initialized_at(&self, epoch: Epoch) -> bool {
         self.inner
             .as_ref()
-            .map_or(false, |inner| inner.current_epoch == epoch)
+            .is_some_and(|inner| inner.current_epoch == epoch)
     }
 
     /// When a new target attestation has been processed, we update the cached
@@ -285,12 +289,5 @@ impl ProgressiveBalancesCache {
 
 /// `ProgressiveBalancesCache` is only enabled from `Altair` as it uses Altair-specific logic.
 pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    match state {
-        BeaconState::Base(_) => false,
-        BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_)
-        | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => true,
-    }
+    state.fork_name_unchecked().altair_enabled()
 }

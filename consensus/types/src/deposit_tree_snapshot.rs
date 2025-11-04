@@ -1,5 +1,5 @@
 use crate::*;
-use ethereum_hashing::{hash32_concat, ZERO_HASHES};
+use ethereum_hashing::{ZERO_HASHES, hash32_concat};
 use int_to_bytes::int_to_bytes32;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -72,8 +72,7 @@ impl DepositTreeSnapshot {
         Some(Hash256::from_slice(&deposit_root))
     }
     pub fn is_valid(&self) -> bool {
-        self.calculate_root()
-            .map_or(false, |calculated| self.deposit_root == calculated)
+        self.calculate_root() == Some(self.deposit_root)
     }
 }
 

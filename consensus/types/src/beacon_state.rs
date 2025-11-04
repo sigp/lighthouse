@@ -1,18 +1,18 @@
 use self::committee_cache::get_active_validator_indices;
+use crate::ContextDeserialize;
+use crate::FixedBytesExtended;
 use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
-use crate::FixedBytesExtended;
 use crate::*;
 use compare_fields::CompareFields;
-use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
-use metastruct::{metastruct, NumFields};
+use metastruct::{NumFields, metastruct};
 pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use serde::{Deserialize, Serialize};
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use serde::{Deserialize, Deserializer, Serialize};
+use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
@@ -23,8 +23,8 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 pub use self::committee_cache::{
-    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
-    CommitteeCache,
+    CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,
+    epoch_committee_count,
 };
 pub use crate::beacon_state::balance::Balance;
 pub use crate::beacon_state::exit_cache::ExitCache;
@@ -32,7 +32,8 @@ pub use crate::beacon_state::progressive_balances_cache::*;
 pub use crate::beacon_state::slashings_cache::SlashingsCache;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
-pub use milhouse::{interface::Interface, List, Vector};
+pub use milhouse::{List, Vector, interface::Interface};
+use tracing::instrument;
 
 #[macro_use]
 mod committee_cache;
@@ -46,6 +47,7 @@ mod tests;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
+const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 
 pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
 pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
@@ -59,6 +61,7 @@ pub enum Error {
     UnknownValidator(usize),
     UnableToDetermineProducer,
     InvalidBitfield,
+    EmptyCommittee,
     ValidatorIsWithdrawable,
     ValidatorIsInactive {
         val_index: usize,
@@ -155,11 +158,12 @@ pub enum Error {
         current_fork: ForkName,
     },
     TotalActiveBalanceDiffUninitialized,
+    GeneralizedIndexNotSupported(usize),
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
-    NonExecutionAddresWithdrawalCredential,
+    NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
     InvalidSelectionProof {
@@ -167,6 +171,21 @@ pub enum Error {
     },
     AggregatorNotInCommittee {
         aggregator_index: u64,
+    },
+    ComputeProposerIndicesPastEpoch {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ComputeProposerIndicesInsufficientLookahead {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ComputeProposerIndicesExcessiveLookahead {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ProposerLookaheadOutOfBounds {
+        i: usize,
     },
 }
 
@@ -186,7 +205,8 @@ impl AllowNextEpoch {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct BeaconStateHash(Hash256);
 
 impl fmt::Debug for BeaconStateHash {
@@ -222,7 +242,7 @@ impl From<BeaconStateHash> for Hash256 {
 ///
 /// https://github.com/sigp/milhouse/issues/43
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             Derivative,
@@ -235,10 +255,13 @@ impl From<BeaconStateHash> for Hash256 {
             TreeHash,
             TestRandom,
             CompareFields,
-            arbitrary::Arbitrary,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec")
+        ),
         derivative(Clone),
     ),
     specific_variant_attributes(
@@ -325,16 +348,48 @@ impl From<BeaconStateHash> for Hash256 {
                 groups(tree_lists)
             )),
             num_fields(all()),
+        )),
+        Fulu(metastruct(
+            mappings(
+                map_beacon_state_fulu_fields(),
+                map_beacon_state_fulu_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_fulu_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_fulu_tree_list_fields(
+                other_type = "BeaconStateFulu",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        )),
+        Gloas(metastruct(
+            mappings(
+                map_beacon_state_gloas_fields(),
+                map_beacon_state_gloas_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_gloas_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_gloas_tree_list_fields(
+                other_type = "BeaconStateGloas",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
         ))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     map_ref_mut_into(BeaconStateRef)
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, arbitrary::Arbitrary)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<E>
 where
@@ -407,11 +462,11 @@ where
 
     // Participation (Altair and later)
     #[compare_fields(as_iter)]
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     #[compare_fields(as_iter)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
@@ -431,15 +486,15 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
@@ -468,57 +523,78 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    #[superstruct(
+        only(Fulu),
+        partial_getter(rename = "latest_execution_payload_header_fulu")
+    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    #[superstruct(
+        only(Gloas),
+        partial_getter(rename = "latest_execution_payload_header_gloas")
+    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderGloas<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Electra
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    #[superstruct(only(Electra))]
-    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[superstruct(only(Electra, Fulu, Gloas))]
+    pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
+
+    // Fulu
+    #[compare_fields(as_iter)]
+    #[test_random(default)]
+    #[superstruct(only(Fulu, Gloas))]
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
+    pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
+
+    // Gloas
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -658,6 +734,8 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Capella { .. } => ForkName::Capella,
             BeaconState::Deneb { .. } => ForkName::Deneb,
             BeaconState::Electra { .. } => ForkName::Electra,
+            BeaconState::Fulu { .. } => ForkName::Fulu,
+            BeaconState::Gloas { .. } => ForkName::Gloas,
         }
     }
 
@@ -776,7 +854,7 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         slot: Slot,
         index: CommitteeIndex,
-    ) -> Result<BeaconCommittee, Error> {
+    ) -> Result<BeaconCommittee<'_>, Error> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
         let cache = self.committee_cache(relative_epoch)?;
@@ -791,7 +869,10 @@ impl<E: EthSpec> BeaconState<E> {
     /// Utilises the committee cache.
     ///
     /// Spec v0.12.1
-    pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
+    pub fn get_beacon_committees_at_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let cache = self.committee_cache_at_slot(slot)?;
         cache.get_beacon_committees_at_slot(slot)
     }
@@ -804,7 +885,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_beacon_committees_at_epoch(
         &self,
         relative_epoch: RelativeEpoch,
-    ) -> Result<Vec<BeaconCommittee>, Error> {
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let cache = self.committee_cache(relative_epoch)?;
         cache.get_all_beacon_committees()
     }
@@ -819,8 +900,9 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         epoch: Epoch,
         block_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<Hash256, Error> {
-        let decision_slot = self.proposer_shuffling_decision_slot(epoch);
+        let decision_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
         if self.slot() <= decision_slot {
             Ok(block_root)
         } else {
@@ -835,19 +917,18 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// The `block_root` covers the one-off scenario where the genesis block decides its own
     /// shuffling. It should be set to the latest block applied to `self` or the genesis block root.
-    pub fn proposer_shuffling_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
-        let decision_slot = self.proposer_shuffling_decision_slot(self.current_epoch());
-        if self.slot() == decision_slot {
-            Ok(block_root)
-        } else {
-            self.get_block_root(decision_slot).copied()
-        }
+    pub fn proposer_shuffling_decision_root(
+        &self,
+        block_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, Error> {
+        self.proposer_shuffling_decision_root_at_epoch(self.current_epoch(), block_root, spec)
     }
 
-    /// Returns the slot at which the proposer shuffling was decided. The block root at this slot
-    /// can be used to key the proposer shuffling for the given epoch.
-    fn proposer_shuffling_decision_slot(&self, epoch: Epoch) -> Slot {
-        epoch.start_slot(E::slots_per_epoch()).saturating_sub(1_u64)
+    pub fn epoch_cache_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
+        // Epoch cache decision root for the current epoch (N) is the block root at the end of epoch
+        // N - 1. This is the same as the root that determines the next epoch attester shuffling.
+        self.attester_shuffling_decision_root(block_root, RelativeEpoch::Next)
     }
 
     /// Returns the block root which decided the attester shuffling for the given `relative_epoch`.
@@ -894,6 +975,11 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+            MAX_RANDOM_VALUE
+        } else {
+            MAX_RANDOM_BYTE
+        };
 
         let mut i = 0;
         loop {
@@ -907,14 +993,85 @@ impl<E: EthSpec> BeaconState<E> {
             let candidate_index = *indices
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_byte = Self::shuffling_random_byte(i, seed)?;
+            let random_value = self.shuffling_random_value(i, seed)?;
             let effective_balance = self.get_effective_balance(candidate_index)?;
-            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= max_effective_balance.safe_mul(u64::from(random_byte))?
+            if effective_balance.safe_mul(max_random_value)?
+                >= max_effective_balance.safe_mul(random_value)?
             {
                 return Ok(candidate_index);
             }
             i.safe_add_assign(1)?;
+        }
+    }
+
+    // Vec is just much easier to work with here
+    fn compute_proposer_indices(
+        &self,
+        epoch: Epoch,
+        seed: &[u8],
+        indices: &[usize],
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        // Regardless of fork, we never support computing proposer indices for past epochs.
+        let current_epoch = self.current_epoch();
+        if epoch < current_epoch {
+            return Err(Error::ComputeProposerIndicesPastEpoch {
+                current_epoch,
+                request_epoch: epoch,
+            });
+        }
+
+        if spec.fork_name_at_epoch(epoch).fulu_enabled() {
+            // Post-Fulu we must never compute proposer indices using insufficient lookahead. This
+            // would be very dangerous as it would lead to conflicts between the *true* proposer as
+            // defined by `self.proposer_lookahead` and the output of this function.
+            // With MIN_SEED_LOOKAHEAD=1 (common config), this is equivalent to checking that the
+            // requested epoch is not the current epoch.
+            //
+            // We do not run this check if this function is called from `upgrade_to_fulu`,
+            // which runs *after* the slot is incremented, and needs to compute the proposer
+            // shuffling for the epoch that was just transitioned into.
+            if self.fork_name_unchecked().fulu_enabled()
+                && epoch < current_epoch.safe_add(spec.min_seed_lookahead)?
+            {
+                return Err(Error::ComputeProposerIndicesInsufficientLookahead {
+                    current_epoch,
+                    request_epoch: epoch,
+                });
+            }
+        } else {
+            // Pre-Fulu the situation is reversed, we *should not* compute proposer indices using
+            // too much lookahead. To do so would make us vulnerable to changes in the proposer
+            // indices caused by effective balance changes.
+            if epoch >= current_epoch.safe_add(spec.min_seed_lookahead)? {
+                return Err(Error::ComputeProposerIndicesExcessiveLookahead {
+                    current_epoch,
+                    request_epoch: epoch,
+                });
+            }
+        }
+
+        epoch
+            .slot_iter(E::slots_per_epoch())
+            .map(|slot| {
+                let mut preimage = seed.to_vec();
+                preimage.append(&mut int_to_bytes8(slot.as_u64()));
+                let seed = hash(&preimage);
+                self.compute_proposer_index(indices, &seed, spec)
+            })
+            .collect()
+    }
+
+    /// Fork-aware abstraction for the shuffling.
+    ///
+    /// In Electra and later, the random value is a 16-bit integer stored in a `u64`.
+    ///
+    /// Prior to Electra, the random value is an 8-bit integer stored in a `u64`.
+    fn shuffling_random_value(&self, i: usize, seed: &[u8]) -> Result<u64, Error> {
+        if self.fork_name_unchecked().electra_enabled() {
+            Self::shuffling_random_u16_electra(i, seed).map(u64::from)
+        } else {
+            Self::shuffling_random_byte(i, seed).map(u64::from)
         }
     }
 
@@ -931,8 +1088,25 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::ShuffleIndexOutOfBounds(index))
     }
 
+    /// Get two random bytes from the given `seed`.
+    ///
+    /// This is used in place of `shuffling_random_byte` from Electra onwards.
+    fn shuffling_random_u16_electra(i: usize, seed: &[u8]) -> Result<u16, Error> {
+        let mut preimage = seed.to_vec();
+        preimage.append(&mut int_to_bytes8(i.safe_div(16)? as u64));
+        let offset = i.safe_rem(16)?.safe_mul(2)?;
+        hash(&preimage)
+            .get(offset..offset.safe_add(2)?)
+            .ok_or(Error::ShuffleIndexOutOfBounds(offset))?
+            .try_into()
+            .map(u16::from_le_bytes)
+            .map_err(|_| Error::ShuffleIndexOutOfBounds(offset))
+    }
+
     /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
-    pub fn latest_execution_payload_header(&self) -> Result<ExecutionPayloadHeaderRef<E>, Error> {
+    pub fn latest_execution_payload_header(
+        &self,
+    ) -> Result<ExecutionPayloadHeaderRef<'_, E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRef::Bellatrix(
@@ -947,12 +1121,18 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRef::Electra(
                 &state.latest_execution_payload_header,
             )),
+            BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRef::Fulu(
+                &state.latest_execution_payload_header,
+            )),
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadHeaderRef::Gloas(
+                &state.latest_execution_payload_header,
+            )),
         }
     }
 
     pub fn latest_execution_payload_header_mut(
         &mut self,
-    ) -> Result<ExecutionPayloadHeaderRefMut<E>, Error> {
+    ) -> Result<ExecutionPayloadHeaderRefMut<'_, E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRefMut::Bellatrix(
@@ -965,6 +1145,12 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.latest_execution_payload_header,
             )),
             BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRefMut::Electra(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRefMut::Fulu(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadHeaderRefMut::Gloas(
                 &mut state.latest_execution_payload_header,
             )),
         }
@@ -998,37 +1184,64 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Returns the beacon proposer index for the `slot` in `self.current_epoch()`.
     ///
-    /// Spec v0.12.1
+    /// Spec v1.6.0-alpha.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
         // Proposer indices are only known for the current epoch, due to the dependence on the
         // effective balances of validators, which change at every epoch transition.
         let epoch = slot.epoch(E::slots_per_epoch());
+        // TODO(EIP-7917): Explore allowing this function to be called with a slot one epoch in the future.
         if epoch != self.current_epoch() {
             return Err(Error::SlotOutOfBounds);
         }
 
-        let seed = self.get_beacon_proposer_seed(slot, spec)?;
-        let indices = self.get_active_validator_indices(epoch, spec)?;
+        if let Ok(proposer_lookahead) = self.proposer_lookahead() {
+            // Post-Fulu
+            let index = slot.as_usize().safe_rem(E::slots_per_epoch() as usize)?;
+            proposer_lookahead
+                .get(index)
+                .ok_or(Error::ProposerLookaheadOutOfBounds { i: index })
+                .map(|index| *index as usize)
+        } else {
+            // Pre-Fulu
+            let seed = self.get_beacon_proposer_seed(slot, spec)?;
+            let indices = self.get_active_validator_indices(epoch, spec)?;
 
-        self.compute_proposer_index(&indices, &seed, spec)
+            self.compute_proposer_index(&indices, &seed, spec)
+        }
     }
 
-    /// Returns the beacon proposer index for each `slot` in `self.current_epoch()`.
+    /// Returns the beacon proposer index for each `slot` in `epoch`.
     ///
-    /// The returned `Vec` contains one proposer index for each slot. For example, if
-    /// `state.current_epoch() == 1`, then `vec[0]` refers to slot `32` and `vec[1]` refers to slot
-    /// `33`. It will always be the case that `vec.len() == SLOTS_PER_EPOCH`.
-    pub fn get_beacon_proposer_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
-        // Not using the cached validator indices since they are shuffled.
-        let indices = self.get_active_validator_indices(self.current_epoch(), spec)?;
+    /// The returned `Vec` contains one proposer index for each slot in the epoch.
+    pub fn get_beacon_proposer_indices(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        // This isn't in the spec, but we remove the footgun that is requesting the current epoch
+        // for a Fulu state.
+        if let Ok(proposer_lookahead) = self.proposer_lookahead()
+            && epoch >= self.current_epoch()
+            && epoch <= self.next_epoch()?
+        {
+            let slots_per_epoch = E::slots_per_epoch() as usize;
+            let start_offset = if epoch == self.current_epoch() {
+                0
+            } else {
+                slots_per_epoch
+            };
+            return Ok(proposer_lookahead
+                .iter_from(start_offset)?
+                .take(slots_per_epoch)
+                .map(|x| *x as usize)
+                .collect());
+        }
 
-        self.current_epoch()
-            .slot_iter(E::slots_per_epoch())
-            .map(|slot| {
-                let seed = self.get_beacon_proposer_seed(slot, spec)?;
-                self.compute_proposer_index(&indices, &seed, spec)
-            })
-            .collect()
+        // Not using the cached validator indices since they are shuffled.
+        let indices = self.get_active_validator_indices(epoch, spec)?;
+
+        let preimage = self.get_seed(epoch, Domain::BeaconProposer, spec)?;
+        self.compute_proposer_indices(epoch, preimage.as_slice(), &indices, spec)
     }
 
     /// Compute the seed to use for the beacon proposer selection at the given `slot`.
@@ -1092,6 +1305,11 @@ impl<E: EthSpec> BeaconState<E> {
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+            MAX_RANDOM_VALUE
+        } else {
+            MAX_RANDOM_BYTE
+        };
 
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
@@ -1106,10 +1324,10 @@ impl<E: EthSpec> BeaconState<E> {
             let candidate_index = *active_validator_indices
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_byte = Self::shuffling_random_byte(i, seed.as_slice())?;
+            let random_value = self.shuffling_random_value(i, seed.as_slice())?;
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
-            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= max_effective_balance.safe_mul(u64::from(random_byte))?
+            if effective_balance.safe_mul(max_random_value)?
+                >= max_effective_balance.safe_mul(random_value)?
             {
                 sync_committee_indices.push(candidate_index);
             }
@@ -1324,6 +1542,12 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::StateRootsOutOfBounds(i))
     }
 
+    /// Gets the state root for the start slot of some epoch.
+    pub fn get_state_root_at_epoch_start(&self, epoch: Epoch) -> Result<Hash256, Error> {
+        self.get_state_root(epoch.start_slot(E::slots_per_epoch()))
+            .copied()
+    }
+
     /// Gets the oldest (earliest slot) state root.
     pub fn get_oldest_state_root(&self) -> Result<&Hash256, Error> {
         let oldest_slot = self.slot().saturating_sub(self.state_roots().len());
@@ -1480,6 +1704,26 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
+            BeaconState::Fulu(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Gloas(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
         }
     }
 
@@ -1547,19 +1791,23 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::UnknownValidator(validator_index))
     }
 
+    /// Add a validator to the registry and return the validator index that was allocated for it.
     pub fn add_validator_to_registry(
         &mut self,
-        deposit_data: &DepositData,
+        pubkey: PublicKeyBytes,
+        withdrawal_credentials: Hash256,
+        amount: u64,
         spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let fork = self.fork_name_unchecked();
-        let amount = if fork.electra_enabled() {
-            0
-        } else {
-            deposit_data.amount
-        };
-        self.validators_mut()
-            .push(Validator::from_deposit(deposit_data, amount, fork, spec))?;
+    ) -> Result<usize, Error> {
+        let index = self.validators().len();
+        let fork_name = self.fork_name_unchecked();
+        self.validators_mut().push(Validator::from_deposit(
+            pubkey,
+            withdrawal_credentials,
+            amount,
+            fork_name,
+            spec,
+        ))?;
         self.balances_mut().push(amount)?;
 
         // Altair or later initializations.
@@ -1573,14 +1821,27 @@ impl<E: EthSpec> BeaconState<E> {
             inactivity_scores.push(0)?;
         }
 
-        Ok(())
+        // Keep the pubkey cache up to date if it was up to date prior to this call.
+        //
+        // Doing this here while we know the pubkey and index is marginally quicker than doing it in
+        // a call to `update_pubkey_cache` later because we don't need to index into the validators
+        // tree again.
+        let pubkey_cache = self.pubkey_cache_mut();
+        if pubkey_cache.len() == index {
+            let success = pubkey_cache.insert(pubkey, index);
+            if !success {
+                return Err(Error::PubkeyCacheInconsistent);
+            }
+        }
+
+        Ok(index)
     }
 
     /// Safe copy-on-write accessor for the `validators` list.
     pub fn get_validator_cow(
         &mut self,
         validator_index: usize,
-    ) -> Result<milhouse::Cow<Validator>, Error> {
+    ) -> Result<milhouse::Cow<'_, Validator>, Error> {
         self.validators_mut()
             .get_cow(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))
@@ -1644,7 +1905,10 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Altair(_)
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_) => self.get_validator_churn_limit(spec)?,
-            BeaconState::Deneb(_) | BeaconState::Electra(_) => std::cmp::min(
+            BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_)
+            | BeaconState::Gloas(_) => std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
                 self.get_validator_churn_limit(spec)?,
             ),
@@ -1725,6 +1989,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the total active balance cache for the current epoch if it is not already built.
+    #[instrument(skip_all, level = "debug")]
     pub fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if self
             .get_total_active_balance_at_epoch(self.current_epoch())
@@ -1765,6 +2030,8 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Fulu(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Gloas(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == previous_epoch {
             match self {
@@ -1774,26 +2041,16 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Deneb(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Fulu(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Gloas(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
         }
     }
 
-    /// Get the number of outstanding deposits.
-    ///
-    /// Returns `Err` if the state is invalid.
-    pub fn get_outstanding_deposit_len(&self) -> Result<u64, Error> {
-        self.eth1_data()
-            .deposit_count
-            .checked_sub(self.eth1_deposit_index())
-            .ok_or(Error::InvalidDepositState {
-                deposit_count: self.eth1_data().deposit_count,
-                deposit_index: self.eth1_deposit_index(),
-            })
-    }
-
     /// Build all caches (except the tree hash cache), if they need to be built.
+    #[instrument(skip_all, level = "debug")]
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
@@ -1804,6 +2061,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build all committee caches, if they need to be built.
+    #[instrument(skip_all, level = "debug")]
     pub fn build_all_committee_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_committee_cache(RelativeEpoch::Previous, spec)?;
         self.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -1812,6 +2070,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the exit cache, if it needs to be built.
+    #[instrument(skip_all, level = "debug")]
     pub fn build_exit_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if self.exit_cache().check_initialized().is_err() {
             *self.exit_cache_mut() = ExitCache::new(self.validators(), spec)?;
@@ -1820,6 +2079,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the slashings cache if it needs to be built.
+    #[instrument(skip_all, level = "debug")]
     pub fn build_slashings_cache(&mut self) -> Result<(), Error> {
         let latest_block_slot = self.latest_block_header().slot;
         if !self.slashings_cache().is_initialized(latest_block_slot) {
@@ -1851,12 +2111,13 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn committee_cache_is_initialized(&self, relative_epoch: RelativeEpoch) -> bool {
         let i = Self::committee_cache_index(relative_epoch);
 
-        self.committee_cache_at_index(i).map_or(false, |cache| {
+        self.committee_cache_at_index(i).is_ok_and(|cache| {
             cache.is_initialized_at(relative_epoch.into_epoch(self.current_epoch()))
         })
     }
 
     /// Build a committee cache, unless it is has already been built.
+    #[instrument(skip_all, level = "debug")]
     pub fn build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
@@ -1977,6 +2238,7 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Adds all `pubkeys` from the `validators` which are not already in the cache. Will
     /// never re-add a pubkey.
+    #[instrument(skip_all, level = "debug")]
     pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
         let mut pubkey_cache = mem::take(self.pubkey_cache_mut());
         let start_index = pubkey_cache.len();
@@ -2040,6 +2302,16 @@ impl<E: EthSpec> BeaconState<E> {
                     }
                 );
             }
+            Self::Fulu(self_inner) => {
+                map_beacon_state_fulu_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
+            Self::Gloas(self_inner) => {
+                map_beacon_state_gloas_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
         };
         any_pending_mutations
     }
@@ -2052,6 +2324,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
+    #[instrument(skip_all, level = "debug")]
     pub fn update_tree_hash_cache<'a>(&'a mut self) -> Result<Hash256, Error> {
         self.apply_pending_mutations()?;
         map_beacon_state_ref!(&'a _, self.to_ref(), |inner, cons| {
@@ -2124,7 +2397,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     // ******* Electra accessors *******
 
-    /// Return the churn limit for the current epoch.
+    /// Return the churn limit for the current epoch.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         let total_active_balance = self.get_total_active_balance()?;
         let churn = std::cmp::max(
@@ -2149,33 +2422,12 @@ impl<E: EthSpec> BeaconState<E> {
             .map_err(Into::into)
     }
 
-    /// Get active balance for the given `validator_index`.
-    pub fn get_active_balance(
-        &self,
-        validator_index: usize,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> Result<u64, Error> {
-        let max_effective_balance = self
-            .validators()
-            .get(validator_index)
-            .map(|validator| validator.get_max_effective_balance(spec, current_fork))
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        Ok(std::cmp::min(
-            *self
-                .balances()
-                .get(validator_index)
-                .ok_or(Error::UnknownValidator(validator_index))?,
-            max_effective_balance,
-        ))
-    }
-
     pub fn get_pending_balance_to_withdraw(&self, validator_index: usize) -> Result<u64, Error> {
         let mut pending_balance = 0;
         for withdrawal in self
             .pending_partial_withdrawals()?
             .iter()
-            .filter(|withdrawal| withdrawal.index as usize == validator_index)
+            .filter(|withdrawal| withdrawal.validator_index as usize == validator_index)
         {
             pending_balance.safe_add_assign(withdrawal.amount)?;
         }
@@ -2196,40 +2448,16 @@ impl<E: EthSpec> BeaconState<E> {
         if *balance > spec.min_activation_balance {
             let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
             *balance = spec.min_activation_balance;
-            self.pending_balance_deposits_mut()?
-                .push(PendingBalanceDeposit {
-                    index: validator_index as u64,
-                    amount: excess_balance,
-                })?;
+            let validator = self.get_validator(validator_index)?.clone();
+            self.pending_deposits_mut()?.push(PendingDeposit {
+                pubkey: validator.pubkey,
+                withdrawal_credentials: validator.withdrawal_credentials,
+                amount: excess_balance,
+                signature: Signature::infinity()?.into(),
+                slot: spec.genesis_slot,
+            })?;
         }
         Ok(())
-    }
-
-    pub fn queue_entire_balance_and_reset_validator(
-        &mut self,
-        validator_index: usize,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let balance = self
-            .balances_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        let balance_copy = *balance;
-        *balance = 0_u64;
-
-        let validator = self
-            .validators_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        validator.effective_balance = 0;
-        validator.activation_eligibility_epoch = spec.far_future_epoch;
-
-        self.pending_balance_deposits_mut()?
-            .push(PendingBalanceDeposit {
-                index: validator_index as u64,
-                amount: balance_copy,
-            })
-            .map_err(Into::into)
     }
 
     /// Change the withdrawal prefix of the given `validator_index` to the compounding withdrawal validator prefix.
@@ -2242,12 +2470,10 @@ impl<E: EthSpec> BeaconState<E> {
             .validators_mut()
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
-        if validator.has_eth1_withdrawal_credential(spec) {
-            AsMut::<[u8; 32]>::as_mut(&mut validator.withdrawal_credentials)[0] =
-                spec.compounding_withdrawal_prefix_byte;
+        AsMut::<[u8; 32]>::as_mut(&mut validator.withdrawal_credentials)[0] =
+            spec.compounding_withdrawal_prefix_byte;
 
-            self.queue_excess_active_balance(validator_index, spec)?;
-        }
+        self.queue_excess_active_balance(validator_index, spec)?;
         Ok(())
     }
 
@@ -2280,12 +2506,20 @@ impl<E: EthSpec> BeaconState<E> {
             exit_balance_to_consume
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_churn)?)?;
         }
-        let state = self.as_electra_mut()?;
-        // Consume the balance and update state variables
-        state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-        state.earliest_exit_epoch = earliest_exit_epoch;
-
-        Ok(state.earliest_exit_epoch)
+        match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Electra(_) | BeaconState::Fulu(_) | BeaconState::Gloas(_) => {
+                // Consume the balance and update state variables
+                *self.exit_balance_to_consume_mut()? =
+                    exit_balance_to_consume.safe_sub(exit_balance)?;
+                *self.earliest_exit_epoch_mut()? = earliest_exit_epoch;
+                self.earliest_exit_epoch()
+            }
+        }
     }
 
     pub fn compute_consolidation_epoch_and_update_churn(
@@ -2319,13 +2553,20 @@ impl<E: EthSpec> BeaconState<E> {
             consolidation_balance_to_consume
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_consolidation_churn)?)?;
         }
-        // Consume the balance and update state variables
-        let state = self.as_electra_mut()?;
-        state.consolidation_balance_to_consume =
-            consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-        state.earliest_consolidation_epoch = earliest_consolidation_epoch;
-
-        Ok(state.earliest_consolidation_epoch)
+        match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Electra(_) | BeaconState::Fulu(_) | BeaconState::Gloas(_) => {
+                // Consume the balance and update state variables.
+                *self.consolidation_balance_to_consume_mut()? =
+                    consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
+                *self.earliest_consolidation_epoch_mut()? = earliest_consolidation_epoch;
+                self.earliest_consolidation_epoch()
+            }
+        }
     }
 
     #[allow(clippy::arithmetic_side_effects)]
@@ -2381,22 +2622,36 @@ impl<E: EthSpec> BeaconState<E> {
                 );
             }
             (Self::Electra(_), _) => (),
+            (Self::Fulu(self_inner), Self::Fulu(base_inner)) => {
+                bimap_beacon_state_fulu_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Fulu(_), _) => (),
+            (Self::Gloas(self_inner), Self::Gloas(base_inner)) => {
+                bimap_beacon_state_gloas_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Gloas(_), _) => (),
         }
 
         // Use sync committees from `base` if they are equal.
-        if let Ok(current_sync_committee) = self.current_sync_committee_mut() {
-            if let Ok(base_sync_committee) = base.current_sync_committee() {
-                if current_sync_committee == base_sync_committee {
-                    *current_sync_committee = base_sync_committee.clone();
-                }
-            }
+        if let Ok(current_sync_committee) = self.current_sync_committee_mut()
+            && let Ok(base_sync_committee) = base.current_sync_committee()
+            && current_sync_committee == base_sync_committee
+        {
+            *current_sync_committee = base_sync_committee.clone();
         }
-        if let Ok(next_sync_committee) = self.next_sync_committee_mut() {
-            if let Ok(base_sync_committee) = base.next_sync_committee() {
-                if next_sync_committee == base_sync_committee {
-                    *next_sync_committee = base_sync_committee.clone();
-                }
-            }
+        if let Ok(next_sync_committee) = self.next_sync_committee_mut()
+            && let Ok(base_sync_committee) = base.next_sync_committee()
+            && next_sync_committee == base_sync_committee
+        {
+            *next_sync_committee = base_sync_committee.clone();
         }
 
         // Rebase caches like the committee caches and the pubkey cache, which are expensive to
@@ -2408,11 +2663,17 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn rebase_caches_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
         // Use pubkey cache from `base` if it contains superior information (likely if our cache is
-        // uninitialized).
+        // uninitialized). Be careful not to use a cache which has *more* validators than expected,
+        // as other code expects `self.pubkey_cache().len() <= self.validators.len()`.
         let num_validators = self.validators().len();
         let pubkey_cache = self.pubkey_cache_mut();
         let base_pubkey_cache = base.pubkey_cache();
-        if pubkey_cache.len() < base_pubkey_cache.len() && pubkey_cache.len() < num_validators {
+
+        let current_cache_is_incomplete = pubkey_cache.len() < num_validators;
+        let base_cache_is_compatible = base_pubkey_cache.len() <= num_validators;
+        let base_cache_is_superior = base_pubkey_cache.len() > pubkey_cache.len();
+
+        if current_cache_is_incomplete && base_cache_is_compatible && base_cache_is_superior {
             *pubkey_cache = base_pubkey_cache.clone();
         }
 
@@ -2440,6 +2701,12 @@ impl<E: EthSpec> BeaconState<E> {
     }
 }
 
+impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
+    }
+}
+
 impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
@@ -2453,6 +2720,8 @@ impl<E: EthSpec> BeaconState<E> {
             ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Fulu => BeaconStateFulu::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Gloas => BeaconStateGloas::<E>::NUM_FIELDS.next_power_of_two(),
         }
     }
 
@@ -2501,6 +2770,12 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Electra(inner) => {
                 map_beacon_state_electra_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
+            Self::Fulu(inner) => {
+                map_beacon_state_fulu_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Gloas(inner) => {
+                map_beacon_state_gloas_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
         }
         Ok(())
     }
@@ -2510,11 +2785,12 @@ impl<E: EthSpec> BeaconState<E> {
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
+        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
         } else {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
         };
+        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
@@ -2524,11 +2800,12 @@ impl<E: EthSpec> BeaconState<E> {
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
+        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
         } else {
             light_client_update::NEXT_SYNC_COMMITTEE_INDEX
         };
+        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
@@ -2536,33 +2813,44 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn compute_finalized_root_proof(&self) -> Result<Vec<Hash256>, Error> {
         // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
         // the generalized index of `state.finalized_checkpoint`.
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
-            // Index should be 169/2 - 64 = 20 which matches the position
-            // of `finalized_checkpoint` in `BeaconState`
+        let checkpoint_root_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
         } else {
-            // Index should be 105/2 - 32 = 20 which matches the position
-            // of `finalized_checkpoint` in `BeaconState`
             light_client_update::FINALIZED_ROOT_INDEX
         };
+        let checkpoint_gindex = checkpoint_root_gindex / 2;
+
+        // Convert gindex to index by subtracting 2**depth (gindex = 2**depth + index).
+        //
+        // After Electra, the index should be 169/2 - 64 = 20 which matches the position
+        // of `finalized_checkpoint` in `BeaconState`.
+        //
+        // Prior to Electra, the index should be 105/2 - 32 = 20 which matches the position
+        // of `finalized_checkpoint` in `BeaconState`.
+        let checkpoint_index = checkpoint_gindex.safe_sub(self.num_fields_pow2())?;
+
         let leaves = self.get_beacon_state_leaves();
-        let mut proof = self.generate_proof(field_index, &leaves)?;
+        let mut proof = self.generate_proof(checkpoint_index, &leaves)?;
         proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
         Ok(proof)
     }
 
-    fn generate_proof(
+    pub fn generate_proof(
         &self,
         field_index: usize,
         leaves: &[Hash256],
     ) -> Result<Vec<Hash256>, Error> {
+        if field_index >= leaves.len() {
+            return Err(Error::IndexNotSupported(field_index));
+        }
+
         let depth = self.num_fields_pow2().ilog2() as usize;
         let tree = merkle_proof::MerkleTree::create(leaves, depth);
         let (_, proof) = tree.generate_proof(field_index, depth)?;
         Ok(proof)
     }
 
-    fn get_beacon_state_leaves(&self) -> Vec<Hash256> {
+    pub fn get_beacon_state_leaves(&self) -> Vec<Hash256> {
         let mut leaves = vec![];
         #[allow(clippy::arithmetic_side_effects)]
         match self {
@@ -2593,6 +2881,16 @@ impl<E: EthSpec> BeaconState<E> {
             }
             BeaconState::Electra(state) => {
                 map_beacon_state_electra_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Fulu(state) => {
+                map_beacon_state_fulu_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Gloas(state) => {
+                map_beacon_state_gloas_fields!(state, |_, field| {
                     leaves.push(field.tree_hash_root());
                 });
             }
@@ -2653,23 +2951,22 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
             (BeaconState::Capella(x), BeaconState::Capella(y)) => x.compare_fields(y),
             (BeaconState::Deneb(x), BeaconState::Deneb(y)) => x.compare_fields(y),
             (BeaconState::Electra(x), BeaconState::Electra(y)) => x.compare_fields(y),
+            (BeaconState::Fulu(x), BeaconState::Fulu(y)) => x.compare_fields(y),
+            (BeaconState::Gloas(x), BeaconState::Gloas(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for BeaconState<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BeaconState<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         Ok(map_fork_name!(
-            fork_name,
+            context,
             Self,
-            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
-                "BeaconState failed to deserialize: {:?}",
-                e
-            )))?
+            serde::Deserialize::deserialize(deserializer)?
         ))
     }
 }

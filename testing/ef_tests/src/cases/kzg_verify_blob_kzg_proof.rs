@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blob;
 use kzg::trusted_setup::get_trusted_setup;
-use kzg::{Cell, Error as KzgError, Kzg, KzgCommitment, KzgProof, TrustedSetup};
+use kzg::{Cell, Error as KzgError, Kzg, KzgCommitment, KzgProof};
 use serde::Deserialize;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -10,10 +10,7 @@ use std::sync::LazyLock;
 use types::Blob;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .map_err(|e| Error::InternalError(format!("Failed to initialize trusted setup: {:?}", e)))
-        .expect("failed to initialize trusted setup");
-    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup)
+    let kzg = Kzg::new_from_trusted_setup(&get_trusted_setup())
         .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))
         .expect("failed to initialize kzg");
     Arc::new(kzg)
@@ -114,10 +111,6 @@ impl<E: EthSpec> LoadCase for KZGVerifyBlobKZGProof<E> {
 impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         fork_name == ForkName::Deneb
-    }
-
-    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        feature_name != FeatureName::Eip7594
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

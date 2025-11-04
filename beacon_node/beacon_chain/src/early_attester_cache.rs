@@ -1,4 +1,4 @@
-use crate::data_availability_checker::AvailableBlock;
+use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{
     attester_cache::{CommitteeLengths, Error},
     metrics,
@@ -33,7 +33,7 @@ pub struct CacheItem<E: EthSpec> {
 ///
 /// - Produce an attestation without using `chain.canonical_head`.
 /// - Verify that a block root exists (i.e., will be imported in the future) during attestation
-///     verification.
+///   verification.
 /// - Provide a block which can be sent to peers via RPC.
 #[derive(Default)]
 pub struct EarlyAttesterCache<E: EthSpec> {
@@ -52,7 +52,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     pub fn add_head_block(
         &self,
         beacon_block_root: Hash256,
-        block: AvailableBlock<E>,
+        block: &AvailableBlock<E>,
         proto_block: ProtoBlock,
         state: &BeaconState<E>,
         spec: &ChainSpec,
@@ -70,14 +70,19 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (_, block, blobs, data_columns) = block.deconstruct();
+        let (blobs, data_columns) = match block.data() {
+            AvailableBlockData::NoData => (None, None),
+            AvailableBlockData::Blobs(blobs) => (Some(blobs.clone()), None),
+            AvailableBlockData::DataColumns(data_columns) => (None, Some(data_columns.clone())),
+        };
+
         let item = CacheItem {
             epoch,
             committee_lengths,
             beacon_block_root,
             source,
             target,
-            block,
+            block: block.block_cloned(),
             blobs,
             data_columns,
             proto_block,
@@ -145,7 +150,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         self.item
             .read()
             .as_ref()
-            .map_or(false, |item| item.beacon_block_root == block_root)
+            .is_some_and(|item| item.beacon_block_root == block_root)
     }
 
     /// Returns the block, if `block_root` matches the cached item.

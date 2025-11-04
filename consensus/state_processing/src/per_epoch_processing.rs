@@ -5,6 +5,7 @@ pub use epoch_processing_summary::{EpochProcessingSummary, ParticipationEpochSum
 use errors::EpochProcessingError as Error;
 pub use justification_and_finalization_state::JustificationAndFinalizationState;
 use safe_arith::SafeArith;
+use tracing::instrument;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 pub use registry_updates::{process_registry_updates, process_registry_updates_slow};
@@ -30,6 +31,7 @@ pub mod weigh_justification_and_finalization;
 ///
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
+#[instrument(skip_all)]
 pub fn process_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -41,13 +43,10 @@ pub fn process_epoch<E: EthSpec>(
         .fork_name(spec)
         .map_err(Error::InconsistentStateFork)?;
 
-    match state {
-        BeaconState::Base(_) => base::process_epoch(state, spec),
-        BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_)
-        | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => altair::process_epoch(state, spec),
+    if state.fork_name_unchecked().altair_enabled() {
+        altair::process_epoch(state, spec)
+    } else {
+        base::process_epoch(state, spec)
     }
 }
 

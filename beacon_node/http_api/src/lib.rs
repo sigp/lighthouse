@@ -5,6 +5,7 @@
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.
 
+mod aggregate_attestation;
 mod attestation_performance;
 mod attester_duties;
 mod block_id;
@@ -12,9 +13,11 @@ mod block_packing_efficiency;
 mod block_rewards;
 mod build_block_contents;
 mod builder_states;
+mod custody;
 mod database;
 mod light_client;
 mod metrics;
+mod peer;
 mod produce_block;
 mod proposer_duties;
 mod publish_attestations;
@@ -30,44 +33,48 @@ mod validator;
 mod validator_inclusion;
 mod validators;
 mod version;
-
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
-use crate::version::fork_versioned_response;
+use crate::version::beacon_response;
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
-    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes, WhenSlotSkipped,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped, attestation_verification::VerifiedAttestation,
+    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
 };
-use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
+use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
-    ValidatorStatus, ValidatorsRequestBody,
+    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
+    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, StateId as CoreStateId,
+    ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody, ValidatorStatus,
+    ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
-use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
+use health_metrics::observe::Observe;
+use lighthouse_network::rpc::methods::MetaData;
+use lighthouse_network::{Enr, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
 use lighthouse_version::version_with_platform;
-use logging::SSELoggingComponents;
+use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use network_utils::enr_ext::EnrExt;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
-    publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
+    ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
+use std::collections::HashSet;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::{observe_nat, observe_system_health_bn};
@@ -77,38 +84,32 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
+    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
+use tracing::{debug, error, info, warn};
 use types::{
-    fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
+    ChainSpec, Checkpoint, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, SingleAttestation, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
-    add_consensus_version_header, add_ssz_content_type_header,
-    execution_optimistic_finalized_fork_versioned_response, inconsistent_fork_rejection,
-    unsupported_version_rejection, V1, V2, V3,
+    ResponseIncludesVersion, V1, V2, V3, add_consensus_version_header, add_ssz_content_type_header,
+    execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
+    unsupported_version_rejection,
 };
+use warp::Reply;
 use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
-use warp::Reply;
-use warp::{http::Response, Filter, Rejection};
+use warp::{Filter, Rejection, http::Response};
 use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
-
-/// If the node is within this many epochs from the head, we declare it to be synced regardless of
-/// the network sync state.
-///
-/// This helps prevent attacks where nodes can convince us that we're syncing some non-existent
-/// finalized head.
-const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
@@ -132,10 +133,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub beacon_processor_send: Option<BeaconProcessorSend<T::EthSpec>>,
-    pub beacon_processor_reprocess_send: Option<Sender<ReprocessQueueMessage>>,
-    pub eth1_service: Option<eth1::Service>,
     pub sse_logging_components: Option<SSELoggingComponents>,
-    pub log: Logger,
 }
 
 /// Configuration for the HTTP server.
@@ -151,7 +149,6 @@ pub struct Config {
     pub enable_beacon_processor: bool,
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
-    pub enable_light_client_server: bool,
     pub target_peers: usize,
 }
 
@@ -167,7 +164,6 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
-            enable_light_client_server: false,
             target_peers: 100,
         }
     }
@@ -189,40 +185,6 @@ impl From<String> for Error {
     fn from(e: String) -> Self {
         Error::Other(e)
     }
-}
-
-/// Creates a `warp` logging wrapper which we use to create `slog` logs.
-pub fn slog_logging(
-    log: Logger,
-) -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
-    warp::log::custom(move |info| {
-        match info.status() {
-            status
-                if status == StatusCode::OK
-                    || status == StatusCode::NOT_FOUND
-                    || status == StatusCode::PARTIAL_CONTENT =>
-            {
-                debug!(
-                    log,
-                    "Processed HTTP API request";
-                    "elapsed" => format!("{:?}", info.elapsed()),
-                    "status" => status.to_string(),
-                    "path" => info.path(),
-                    "method" => info.method().to_string(),
-                );
-            }
-            status => {
-                warn!(
-                    log,
-                    "Error processing HTTP API request";
-                    "elapsed" => format!("{:?}", info.elapsed()),
-                    "status" => status.to_string(),
-                    "path" => info.path(),
-                    "method" => info.method().to_string(),
-                );
-            }
-        };
-    })
 }
 
 /// Creates a `warp` logging wrapper which we use for Prometheus metrics (not necessarily logging,
@@ -251,35 +213,68 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 
             // First line covers `POST /v1/beacon/blocks` only
             equals("v1/beacon/blocks")
-                .or_else(|| starts_with("v1/validator/blocks"))
-                .or_else(|| starts_with("v2/validator/blocks"))
-                .or_else(|| starts_with("v1/validator/blinded_blocks"))
-                .or_else(|| starts_with("v1/validator/duties/attester"))
-                .or_else(|| starts_with("v1/validator/duties/proposer"))
-                .or_else(|| starts_with("v1/validator/duties/sync"))
-                .or_else(|| starts_with("v1/validator/attestation_data"))
-                .or_else(|| starts_with("v1/validator/aggregate_attestation"))
-                .or_else(|| starts_with("v2/validator/aggregate_attestation"))
-                .or_else(|| starts_with("v1/validator/aggregate_and_proofs"))
-                .or_else(|| starts_with("v2/validator/aggregate_and_proofs"))
-                .or_else(|| starts_with("v1/validator/sync_committee_contribution"))
-                .or_else(|| starts_with("v1/validator/contribution_and_proofs"))
-                .or_else(|| starts_with("v1/validator/beacon_committee_subscriptions"))
-                .or_else(|| starts_with("v1/validator/sync_committee_subscriptions"))
+                .or_else(|| starts_with("v2/beacon/blocks"))
+                .or_else(|| starts_with("v1/beacon/blob_sidecars"))
+                .or_else(|| starts_with("v1/beacon/blobs"))
+                .or_else(|| starts_with("v1/beacon/blocks/head/root"))
+                .or_else(|| starts_with("v1/beacon/blinded_blocks"))
+                .or_else(|| starts_with("v2/beacon/blinded_blocks"))
+                .or_else(|| starts_with("v1/beacon/headers"))
+                .or_else(|| starts_with("v1/beacon/light_client"))
                 .or_else(|| starts_with("v1/beacon/pool/attestations"))
                 .or_else(|| starts_with("v2/beacon/pool/attestations"))
+                .or_else(|| starts_with("v1/beacon/pool/attester_slashings"))
+                .or_else(|| starts_with("v1/beacon/pool/bls_to_execution_changes"))
+                .or_else(|| starts_with("v1/beacon/pool/proposer_slashings"))
                 .or_else(|| starts_with("v1/beacon/pool/sync_committees"))
-                .or_else(|| starts_with("v1/beacon/blocks/head/root"))
-                .or_else(|| starts_with("v1/validator/prepare_beacon_proposer"))
-                .or_else(|| starts_with("v1/validator/register_validator"))
+                .or_else(|| starts_with("v1/beacon/pool/voluntary_exits"))
+                .or_else(|| starts_with("v1/beacon/rewards/blocks"))
+                .or_else(|| starts_with("v1/beacon/rewards/attestations"))
+                .or_else(|| starts_with("v1/beacon/rewards/sync_committee"))
+                .or_else(|| starts_with("v1/beacon/rewards"))
+                .or_else(|| starts_with("v1/beacon/states"))
                 .or_else(|| starts_with("v1/beacon/"))
                 .or_else(|| starts_with("v2/beacon/"))
+                .or_else(|| starts_with("v1/builder/states"))
+                .or_else(|| starts_with("v1/config/deposit_contract"))
+                .or_else(|| starts_with("v1/config/fork_schedule"))
+                .or_else(|| starts_with("v1/config/spec"))
                 .or_else(|| starts_with("v1/config/"))
                 .or_else(|| starts_with("v1/debug/"))
                 .or_else(|| starts_with("v2/debug/"))
+                .or_else(|| starts_with("v1/events"))
                 .or_else(|| starts_with("v1/events/"))
-                .or_else(|| starts_with("v1/node/"))
+                .or_else(|| starts_with("v1/node/health"))
+                .or_else(|| starts_with("v1/node/identity"))
+                .or_else(|| starts_with("v1/node/peers"))
+                .or_else(|| starts_with("v1/node/peer_count"))
+                .or_else(|| starts_with("v1/node/syncing"))
+                .or_else(|| starts_with("v1/node/version"))
+                .or_else(|| starts_with("v1/node"))
+                .or_else(|| starts_with("v1/validator/aggregate_and_proofs"))
+                .or_else(|| starts_with("v2/validator/aggregate_and_proofs"))
+                .or_else(|| starts_with("v1/validator/aggregate_attestation"))
+                .or_else(|| starts_with("v2/validator/aggregate_attestation"))
+                .or_else(|| starts_with("v1/validator/attestation_data"))
+                .or_else(|| starts_with("v1/validator/beacon_committee_subscriptions"))
+                .or_else(|| starts_with("v1/validator/blinded_blocks"))
+                .or_else(|| starts_with("v2/validator/blinded_blocks"))
+                .or_else(|| starts_with("v1/validator/blocks"))
+                .or_else(|| starts_with("v2/validator/blocks"))
+                .or_else(|| starts_with("v3/validator/blocks"))
+                .or_else(|| starts_with("v1/validator/contribution_and_proofs"))
+                .or_else(|| starts_with("v1/validator/duties/attester"))
+                .or_else(|| starts_with("v1/validator/duties/proposer"))
+                .or_else(|| starts_with("v1/validator/duties/sync"))
+                .or_else(|| starts_with("v1/validator/liveness"))
+                .or_else(|| starts_with("v1/validator/prepare_beacon_proposer"))
+                .or_else(|| starts_with("v1/validator/register_validator"))
+                .or_else(|| starts_with("v1/validator/sync_committee_contribution"))
+                .or_else(|| starts_with("v1/validator/sync_committee_subscriptions"))
                 .or_else(|| starts_with("v1/validator/"))
+                .or_else(|| starts_with("v2/validator/"))
+                .or_else(|| starts_with("v3/validator/"))
+                .or_else(|| starts_with("lighthouse"))
                 .unwrap_or("other")
         };
 
@@ -292,16 +287,33 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
     })
 }
 
-fn enable(is_enabled: bool) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
-    warp::any()
-        .and_then(move || async move {
-            if is_enabled {
-                Ok(())
-            } else {
-                Err(warp::reject::not_found())
-            }
-        })
-        .untuple_one()
+/// Creates a `warp` logging wrapper which we use to create `tracing` logs.
+pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
+    warp::log::custom(move |info| {
+        let status = info.status();
+        // Ensure elapsed time is in milliseconds.
+        let elapsed = info.elapsed().as_secs_f64() * 1000.0;
+        let path = info.path();
+        let method = info.method().to_string();
+
+        if status.is_success() {
+            debug!(
+                elapsed_ms = %elapsed,
+                status = %status,
+                path = %path,
+                method = %method,
+                "Processed HTTP API request"
+            );
+        } else {
+            warn!(
+                elapsed_ms = %elapsed,
+                status = %status,
+                path = %path,
+                method = %method,
+                "Error processing HTTP API request"
+            );
+        }
+    })
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
@@ -324,7 +336,6 @@ pub fn serve<T: BeaconChainTypes>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<HttpServer, Error> {
     let config = ctx.config.clone();
-    let log = ctx.log.clone();
 
     // Configure CORS.
     let cors_builder = {
@@ -341,7 +352,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Sanity check.
     if !config.enabled {
-        crit!(log, "Cannot start disabled HTTP server");
+        crit!("Cannot start disabled HTTP server");
         return Err(Error::Other(
             "A disabled server should not be started".to_string(),
         ));
@@ -437,19 +448,6 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
-    // Create a `warp` filter that provides access to the Eth1 service.
-    let inner_ctx = ctx.clone();
-    let eth1_service_filter = warp::any()
-        .map(move || inner_ctx.eth1_service.clone())
-        .and_then(|eth1_service| async move {
-            match eth1_service {
-                Some(eth1_service) => Ok(eth1_service),
-                None => Err(warp_utils::reject::custom_not_found(
-                    "The Eth1 service is not started. Use --eth1 on the CLI.".to_string(),
-                )),
-            }
-        });
-
     // Create a `warp` filter that rejects requests whilst the node is syncing.
     let not_while_syncing_filter =
         warp::any()
@@ -459,7 +457,7 @@ pub fn serve<T: BeaconChainTypes>(
                 move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
-                        SyncState::SyncingFinalized { .. } => {
+                        SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } => {
                             let head_slot = chain.canonical_head.cached_head().head_slot();
 
                             let current_slot =
@@ -469,7 +467,8 @@ pub fn serve<T: BeaconChainTypes>(
                                     )
                                 })?;
 
-                            let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
+                            let tolerance =
+                                chain.config.sync_tolerance_epochs * T::EthSpec::slots_per_epoch();
 
                             if head_slot + tolerance >= current_slot {
                                 Ok(())
@@ -480,18 +479,26 @@ pub fn serve<T: BeaconChainTypes>(
                                 )))
                             }
                         }
-                        SyncState::SyncingHead { .. }
-                        | SyncState::SyncTransition
-                        | SyncState::BackFillSyncing { .. } => Ok(()),
+                        SyncState::SyncTransition
+                        | SyncState::BackFillSyncing { .. }
+                        | SyncState::CustodyBackFillSyncing { .. } => Ok(()),
                         SyncState::Synced => Ok(()),
                         SyncState::Stalled => Ok(()),
                     }
                 },
             );
 
-    // Create a `warp` filter that provides access to the logger.
-    let inner_ctx = ctx.clone();
-    let log_filter = warp::any().map(move || inner_ctx.log.clone());
+    // Create a `warp` filter that returns 404s if the light client server is disabled.
+    let light_client_server_filter =
+        warp::any()
+            .and(chain_filter.clone())
+            .then(|chain: Arc<BeaconChain<T>>| async move {
+                if chain.config.enable_light_client_server {
+                    Ok(())
+                } else {
+                    Err(warp::reject::not_found())
+                }
+            });
 
     let inner_components = ctx.sse_logging_components.clone();
     let sse_component_filter = warp::any().map(move || inner_components.clone());
@@ -534,11 +541,6 @@ pub fn serve<T: BeaconChainTypes>(
         .filter(|_| config.enable_beacon_processor);
     let task_spawner_filter =
         warp::any().map(move || TaskSpawner::new(beacon_processor_send.clone()));
-    let beacon_processor_reprocess_send = ctx
-        .beacon_processor_reprocess_send
-        .clone()
-        .filter(|_| config.enable_beacon_processor);
-    let reprocess_send_filter = warp::any().map(move || beacon_processor_reprocess_send.clone());
 
     let duplicate_block_status_code = ctx.config.duplicate_block_status_code;
 
@@ -687,7 +689,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp_utils::json::json_no_body())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -695,6 +697,34 @@ pub fn serve<T: BeaconChainTypes>(
              query: ValidatorBalancesRequestBody| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     crate::validators::get_beacon_state_validator_balances(
+                        state_id,
+                        chain,
+                        Some(&query.ids),
+                    )
+                })
+            },
+        );
+
+    // POST beacon/states/{state_id}/validator_identities
+    let post_beacon_state_validator_identities = beacon_states_path
+        .clone()
+        .and(warp::path("validator_identities"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json_no_body())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: ValidatorIdentitiesRequestBody| {
+                // Prioritise requests for validators at the head. These should be fast to service
+                // and could be required by the validator client.
+                let priority = if let StateId(eth2::types::StateId::Head) = state_id {
+                    Priority::P0
+                } else {
+                    Priority::P1
+                };
+                task_spawner.blocking_json_task(priority, move || {
+                    crate::validators::get_beacon_state_validator_identities(
                         state_id,
                         chain,
                         Some(&query.ids),
@@ -890,79 +920,76 @@ pub fn serve<T: BeaconChainTypes>(
                                     None
                                 };
 
-                                let committee_cache = if let Some(shuffling) =
-                                    maybe_cached_shuffling
-                                {
-                                    shuffling
-                                } else {
-                                    let possibly_built_cache =
-                                        match RelativeEpoch::from_epoch(current_epoch, epoch) {
-                                            Ok(relative_epoch)
-                                                if state.committee_cache_is_initialized(
-                                                    relative_epoch,
-                                                ) =>
-                                            {
-                                                state.committee_cache(relative_epoch).cloned()
+                                let committee_cache =
+                                    if let Some(shuffling) = maybe_cached_shuffling {
+                                        shuffling
+                                    } else {
+                                        let possibly_built_cache =
+                                            match RelativeEpoch::from_epoch(current_epoch, epoch) {
+                                                Ok(relative_epoch)
+                                                    if state.committee_cache_is_initialized(
+                                                        relative_epoch,
+                                                    ) =>
+                                                {
+                                                    state.committee_cache(relative_epoch).cloned()
+                                                }
+                                                _ => CommitteeCache::initialized(
+                                                    state,
+                                                    epoch,
+                                                    &chain.spec,
+                                                ),
                                             }
-                                            _ => CommitteeCache::initialized(
-                                                state,
-                                                epoch,
-                                                &chain.spec,
-                                            ),
-                                        }
-                                        .map_err(|e| {
-                                            match e {
-                                                BeaconStateError::EpochOutOfBounds => {
-                                                    let max_sprp =
-                                                        T::EthSpec::slots_per_historical_root()
-                                                            as u64;
-                                                    let first_subsequent_restore_point_slot =
-                                                        ((epoch.start_slot(
-                                                            T::EthSpec::slots_per_epoch(),
-                                                        ) / max_sprp)
-                                                            + 1)
-                                                            * max_sprp;
-                                                    if epoch < current_epoch {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            format!(
+                                            .map_err(
+                                                |e| match e {
+                                                    BeaconStateError::EpochOutOfBounds => {
+                                                        let max_sprp =
+                                                            T::EthSpec::slots_per_historical_root()
+                                                                as u64;
+                                                        let first_subsequent_restore_point_slot =
+                                                            ((epoch.start_slot(
+                                                                T::EthSpec::slots_per_epoch(),
+                                                            ) / max_sprp)
+                                                                + 1)
+                                                                * max_sprp;
+                                                        if epoch < current_epoch {
+                                                            warp_utils::reject::custom_bad_request(
+                                                                format!(
                                                                 "epoch out of bounds, \
                                                                  try state at slot {}",
                                                                 first_subsequent_restore_point_slot,
                                                             ),
-                                                        )
-                                                    } else {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            "epoch out of bounds, \
+                                                            )
+                                                        } else {
+                                                            warp_utils::reject::custom_bad_request(
+                                                                "epoch out of bounds, \
                                                              too far in future"
-                                                                .into(),
-                                                        )
+                                                                    .into(),
+                                                            )
+                                                        }
                                                     }
-                                                }
-                                                _ => {
-                                                    warp_utils::reject::beacon_chain_error(e.into())
-                                                }
-                                            }
-                                        })?;
+                                                    _ => warp_utils::reject::unhandled_error(
+                                                        BeaconChainError::from(e),
+                                                    ),
+                                                },
+                                            )?;
 
-                                    // Attempt to write to the beacon cache (only if the cache
-                                    // size is not the default value).
-                                    if chain.config.shuffling_cache_size
-                                        != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
-                                    {
-                                        if let Some(shuffling_id) = shuffling_id {
-                                            if let Some(mut cache_write) = chain
+                                        // Attempt to write to the beacon cache (only if the cache
+                                        // size is not the default value).
+                                        if chain.config.shuffling_cache_size
+                                            != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
+                                            && let Some(shuffling_id) = shuffling_id
+                                            && let Some(mut cache_write) = chain
                                                 .shuffling_cache
                                                 .try_write_for(std::time::Duration::from_secs(1))
-                                            {
-                                                cache_write.insert_committee_cache(
-                                                    shuffling_id,
-                                                    &possibly_built_cache,
-                                                );
-                                            }
+                                        {
+                                            cache_write.insert_committee_cache(
+                                                shuffling_id,
+                                                &possibly_built_cache,
+                                            );
                                         }
-                                    }
-                                    possibly_built_cache
-                                };
+
+                                        possibly_built_cache
+                                    };
 
                                 // Use either the supplied slot or all slots in the epoch.
                                 let slots =
@@ -1067,7 +1094,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let validators = chain
                         .validator_indices(sync_committee.pubkeys.iter())
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(warp_utils::reject::unhandled_error)?;
 
                     let validator_aggregates = validators
                         .chunks_exact(T::EthSpec::sync_subcommittee_size())
@@ -1121,6 +1148,129 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/states/{state_id}/pending_deposits
+    let get_beacon_state_pending_deposits = beacon_states_path
+        .clone()
+        .and(warp::path("pending_deposits"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(deposits) = state.pending_deposits() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending deposits not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    deposits.clone(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+
+                    execution_optimistic_finalized_beacon_response(
+                        ResponseIncludesVersion::Yes(fork_name),
+                        execution_optimistic,
+                        finalized,
+                        data,
+                    )
+                    .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_partial_withdrawals
+    let get_beacon_state_pending_partial_withdrawals = beacon_states_path
+        .clone()
+        .and(warp::path("pending_partial_withdrawals"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(withdrawals) = state.pending_partial_withdrawals() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending withdrawals not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    withdrawals.clone(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+
+                    execution_optimistic_finalized_beacon_response(
+                        ResponseIncludesVersion::Yes(fork_name),
+                        execution_optimistic,
+                        finalized,
+                        data,
+                    )
+                    .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_consolidations
+    let get_beacon_state_pending_consolidations = beacon_states_path
+        .clone()
+        .and(warp::path("pending_consolidations"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(consolidations) = state.pending_consolidations() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending consolidations not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    consolidations.clone(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+
+                    execution_optimistic_finalized_beacon_response(
+                        ResponseIncludesVersion::Yes(fork_name),
+                        execution_optimistic,
+                        finalized,
+                        data,
+                    )
+                    .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -1147,7 +1297,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 let (cached_head, execution_status) = chain
                                     .canonical_head
                                     .head_and_execution_status()
-                                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                                    .map_err(warp_utils::reject::unhandled_error)?;
                                 (
                                     cached_head.head_block_root(),
                                     cached_head.snapshot.beacon_block.clone_as_blinded(),
@@ -1161,13 +1311,13 @@ pub fn serve<T: BeaconChainTypes>(
                                     BlockId::from_root(parent_root).blinded_block(&chain)?;
                                 let (root, _slot) = chain
                                     .forwards_iter_block_roots(parent.slot())
-                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .map_err(warp_utils::reject::unhandled_error)?
                                     // Ignore any skip-slots immediately following the parent.
                                     .find(|res| {
-                                        res.as_ref().map_or(false, |(root, _)| *root != parent_root)
+                                        res.as_ref().is_ok_and(|(root, _)| *root != parent_root)
                                     })
                                     .transpose()
-                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .map_err(warp_utils::reject::unhandled_error)?
                                     .ok_or_else(|| {
                                         warp_utils::reject::custom_not_found(format!(
                                             "child of block with root {}",
@@ -1195,13 +1345,13 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // If the parent root was supplied, check that it matches the block
                                 // obtained via a slot lookup.
-                                if let Some(parent_root) = parent_root_opt {
-                                    if block.parent_root() != parent_root {
-                                        return Err(warp_utils::reject::custom_not_found(format!(
-                                            "no canonical block at slot {} with parent root {}",
-                                            slot, parent_root
-                                        )));
-                                    }
+                                if let Some(parent_root) = parent_root_opt
+                                    && block.parent_root() != parent_root
+                                {
+                                    return Err(warp_utils::reject::custom_not_found(format!(
+                                        "no canonical block at slot {} with parent root {}",
+                                        slot, parent_root
+                                    )));
                                 }
 
                                 (root, block, execution_optimistic, finalized)
@@ -1248,8 +1398,8 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let canonical = chain
                         .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
-                        .map_err(warp_utils::reject::beacon_chain_error)?
-                        .map_or(false, |canonical| root == canonical);
+                        .map_err(warp_utils::reject::unhandled_error)?
+                        .is_some_and(|canonical| root == canonical);
 
                     let data = api_types::BlockHeaderData {
                         root,
@@ -1275,34 +1425,40 @@ pub fn serve<T: BeaconChainTypes>(
     let consensus_version_header_filter =
         warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER);
 
+    let optional_consensus_version_header_filter =
+        warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER);
+
     // POST beacon/blocks
     let post_beacon_blocks = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp::body::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
-            move |block_contents: PublishBlockRequest<T::EthSpec>,
+            move |value: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
+                        &value,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                    })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local_from_publish_request(block_contents),
+                        ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1318,16 +1474,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1341,10 +1493,8 @@ pub fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1356,30 +1506,34 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp::body::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block_contents: PublishBlockRequest<T::EthSpec>,
+                  value: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
+                        &value,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                    })?;
+
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local_from_publish_request(block_contents),
+                        ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1396,17 +1550,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1420,10 +1570,8 @@ pub fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1443,24 +1591,18 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
             move |block_contents: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         block_contents,
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1476,15 +1618,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1498,10 +1636,8 @@ pub fn serve<T: BeaconChainTypes>(
                         block,
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1514,28 +1650,33 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
+                  blinded_block_json: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let blinded_block =
+                        SignedBlindedBeaconBlock::<T::EthSpec>::context_deserialize(
+                            &blinded_block_json,
+                            consensus_version,
+                        )
+                        .map(Arc::new)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         blinded_block,
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1551,16 +1692,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
-        .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-                  log: Logger| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1574,10 +1711,8 @@ pub fn serve<T: BeaconChainTypes>(
                         block,
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1622,6 +1757,12 @@ pub fn serve<T: BeaconChainTypes>(
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
 
+                    let require_version = match endpoint_version {
+                        V1 => ResponseIncludesVersion::No,
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
+                        _ => return Err(unsupported_version_rejection(endpoint_version)),
+                    };
+
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -1633,9 +1774,8 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => execution_optimistic_finalized_fork_versioned_response(
-                            endpoint_version,
-                            fork_name,
+                        _ => execution_optimistic_finalized_beacon_response(
+                            require_version,
                             execution_optimistic,
                             finalized,
                             block,
@@ -1695,9 +1835,15 @@ pub fn serve<T: BeaconChainTypes>(
                         .attestations()
                         .map(|att| att.clone_as_attestation())
                         .collect::<Vec<_>>();
-                    let res = execution_optimistic_finalized_fork_versioned_response(
-                        endpoint_version,
-                        fork_name,
+
+                    let require_version = match endpoint_version {
+                        V1 => ResponseIncludesVersion::No,
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
+                        _ => return Err(unsupported_version_rejection(endpoint_version)),
+                    };
+
+                    let res = execution_optimistic_finalized_beacon_response(
+                        require_version,
                         execution_optimistic,
                         finalized,
                         &atts,
@@ -1744,9 +1890,8 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => {
                             // Post as a V2 endpoint so we return the fork version.
-                            execution_optimistic_finalized_fork_versioned_response(
-                                V2,
-                                fork_name,
+                            execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
                                 execution_optimistic,
                                 finalized,
                                 block,
@@ -1764,7 +1909,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // GET beacon/blob_sidecars/{block_id}
-    let get_blobs = eth_v1
+    let get_blob_sidecars = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
@@ -1800,9 +1945,8 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => {
                             // Post as a V2 endpoint so we return the fork version.
-                            let res = execution_optimistic_finalized_fork_versioned_response(
-                                V2,
-                                fork_name,
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
                                 execution_optimistic,
                                 finalized,
                                 &blob_sidecar_list_filtered,
@@ -1811,6 +1955,52 @@ pub fn serve<T: BeaconChainTypes>(
                         }
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/blobs/{block_id}
+    let get_blobs = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blobs"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(multi_key_query::<api_types::BlobsVersionedHashesQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |block_id: BlockId,
+             version_hashes_res: Result<api_types::BlobsVersionedHashesQuery, warp::Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let versioned_hashes = version_hashes_res?;
+                    let response =
+                        block_id.get_blobs_by_versioned_hashes(versioned_hashes, &chain)?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .body(response.data.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::No,
+                                response.metadata.execution_optimistic.unwrap_or(false),
+                                response.metadata.finalized.unwrap_or(false),
+                                response.data,
+                            )?;
+                            Ok(warp::reply::json(&res).into_response())
+                        }
+                    }
                 })
             },
         );
@@ -1825,39 +2015,37 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
+    let beacon_pool_path_v2 = eth_v2
+        .and(warp::path("beacon"))
+        .and(warp::path("pool"))
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone());
+
     let beacon_pool_path_any = any_version
         .and(warp::path("beacon"))
         .and(warp::path("pool"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
-    // POST beacon/pool/attestations
-    let post_beacon_pool_attestations = beacon_pool_path_any
+    let post_beacon_pool_attestations_v2 = beacon_pool_path_v2
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp_utils::json::json::<Vec<SingleAttestation>>())
+        .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
-        .and(reprocess_send_filter)
-        .and(log_filter.clone())
         .then(
-            // V1 and V2 are identical except V2 has a consensus version header in the request.
-            // We only require this header for SSZ deserialization, which isn't supported for
-            // this endpoint presently.
-            |_endpoint_version: EndpointVersion,
-             task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             attestations: Vec<Attestation<T::EthSpec>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
-             log: Logger| async move {
+             attestations: Vec<SingleAttestation>,
+             _fork_name: Option<ForkName>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| async move {
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
                     attestations,
                     network_tx,
-                    reprocess_tx,
-                    log,
+                    true,
                 )
                 .await
                 .map(|()| warp::reply::json(&()));
@@ -1877,11 +2065,11 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              query: api_types::AttestationPoolQuery| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let query_filter = |data: &AttestationData| {
-                        query.slot.map_or(true, |slot| slot == data.slot)
+                    let query_filter = |data: &AttestationData, committee_indices: HashSet<u64>| {
+                        query.slot.is_none_or(|slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .map_or(true, |index| index == data.index)
+                                .is_none_or(|index| committee_indices.contains(&index))
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -1890,7 +2078,9 @@ pub fn serve<T: BeaconChainTypes>(
                             .naive_aggregation_pool
                             .read()
                             .iter()
-                            .filter(|&att| query_filter(att.data()))
+                            .filter(|&att| {
+                                query_filter(att.data(), att.get_committee_indices_map())
+                            })
                             .cloned(),
                     );
                     // Use the current slot to find the fork version, and convert all messages to the
@@ -1913,7 +2103,13 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Vec<_>>();
 
-                    let res = fork_versioned_response(endpoint_version, fork_name, &attestations)?;
+                    let require_version = match endpoint_version {
+                        V1 => ResponseIncludesVersion::No,
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
+                        _ => return Err(unsupported_version_rejection(endpoint_version)),
+                    };
+
+                    let res = beacon_response(require_version, &attestations);
                     Ok(add_consensus_version_header(
                         warp::reply::json(&res).into_response(),
                         fork_name,
@@ -2002,7 +2198,13 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                             .collect::<Vec<_>>();
 
-                        let res = fork_versioned_response(endpoint_version, fork_name, &slashings)?;
+                        let require_version = match endpoint_version {
+                            V1 => ResponseIncludesVersion::No,
+                            V2 => ResponseIncludesVersion::Yes(fork_name),
+                            _ => return Err(unsupported_version_rejection(endpoint_version)),
+                        };
+
+                        let res = beacon_response(require_version, &slashings);
                         Ok(add_consensus_version_header(
                             warp::reply::json(&res).into_response(),
                             fork_name,
@@ -2132,16 +2334,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              signatures: Vec<SyncCommitteeMessage>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     sync_committees::process_sync_committee_signatures(
-                        signatures, network_tx, &chain, log,
+                        signatures, network_tx, &chain,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
                 })
@@ -2169,13 +2369,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              address_changes: Vec<SignedBlsToExecutionChange>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let mut failures = vec![];
 
@@ -2192,11 +2390,12 @@ pub fn serve<T: BeaconChainTypes>(
                                     .to_execution_address;
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
-                                let received_pre_capella = if chain.current_slot_is_post_capella().unwrap_or(false) {
-                                    ReceivedPreCapella::No
-                                } else {
-                                    ReceivedPreCapella::Yes
-                                };
+                                let received_pre_capella =
+                                    if chain.current_slot_is_post_capella().unwrap_or(false) {
+                                        ReceivedPreCapella::No
+                                    } else {
+                                        ReceivedPreCapella::Yes
+                                    };
                                 if matches!(received_pre_capella, ReceivedPreCapella::No) {
                                     publish_pubsub_message(
                                         &network_tx,
@@ -2207,32 +2406,29 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
 
                                 // Import to op pool (may return `false` if there's a race).
-                                let imported =
-                                    chain.import_bls_to_execution_change(verified_address_change, received_pre_capella);
+                                let imported = chain.import_bls_to_execution_change(
+                                    verified_address_change,
+                                    received_pre_capella,
+                                );
 
                                 info!(
-                                    log,
-                                    "Processed BLS to execution change";
-                                    "validator_index" => validator_index,
-                                    "address" => ?address,
-                                    "published" => matches!(received_pre_capella, ReceivedPreCapella::No),
-                                    "imported" => imported,
+                                    %validator_index,
+                                    ?address,
+                                    published =
+                                        matches!(received_pre_capella, ReceivedPreCapella::No),
+                                    imported,
+                                    "Processed BLS to execution change"
                                 );
                             }
                             Ok(ObservationOutcome::AlreadyKnown) => {
-                                debug!(
-                                    log,
-                                    "BLS to execution change already known";
-                                    "validator_index" => validator_index,
-                                );
+                                debug!(%validator_index, "BLS to execution change already known");
                             }
                             Err(e) => {
                                 warn!(
-                                    log,
-                                    "Invalid BLS to execution change";
-                                    "validator_index" => validator_index,
-                                    "reason" => ?e,
-                                    "source" => "HTTP",
+                                    validator_index,
+                                    reason = ?e,
+                                    source = "HTTP",
+                                    "Invalid BLS to execution change"
                                 );
                                 failures.push(api_types::Failure::new(
                                     index,
@@ -2249,56 +2445,6 @@ pub fn serve<T: BeaconChainTypes>(
                             "some BLS to execution changes failed to verify".into(),
                             failures,
                         ))
-                    }
-                })
-            },
-        );
-
-    // GET beacon/deposit_snapshot
-    let get_beacon_deposit_snapshot = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("deposit_snapshot"))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter.clone())
-        .then(
-            |accept_header: Option<api_types::Accept>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             eth1_service: eth1::Service| {
-                task_spawner.blocking_response_task(Priority::P1, move || match accept_header {
-                    Some(api_types::Accept::Ssz) => eth1_service
-                        .get_deposit_snapshot()
-                        .map(|snapshot| {
-                            Response::builder()
-                                .status(200)
-                                .body(snapshot.as_ssz_bytes().into())
-                                .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                                .map_err(|e| {
-                                    warp_utils::reject::custom_server_error(format!(
-                                        "failed to create response: {}",
-                                        e
-                                    ))
-                                })
-                        })
-                        .unwrap_or_else(|| {
-                            Response::builder()
-                                .status(503)
-                                .body(Vec::new().into())
-                                .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                                .map_err(|e| {
-                                    warp_utils::reject::custom_server_error(format!(
-                                        "failed to create response: {}",
-                                        e
-                                    ))
-                                })
-                        }),
-                    _ => {
-                        let snapshot = eth1_service.get_deposit_snapshot();
-                        Ok(
-                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
-                                .into_response(),
-                        )
                     }
                 })
             },
@@ -2391,6 +2537,7 @@ pub fn serve<T: BeaconChainTypes>(
     let beacon_light_client_path = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("light_client"))
+        .and(light_client_server_filter)
         .and(chain_filter.clone());
 
     // GET beacon/light_client/bootstrap/{block_root}
@@ -2406,11 +2553,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              block_root: Hash256,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     get_light_client_bootstrap::<T>(chain, &block_root, accept_header)
                 })
             },
@@ -2424,10 +2573,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     let update = chain
                         .light_client_server_cache
                         .get_latest_optimistic_update()
@@ -2439,7 +2590,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let fork_name = chain
                         .spec
-                        .fork_name_at_slot::<T::EthSpec>(*update.signature_slot());
+                        .fork_name_at_slot::<T::EthSpec>(update.get_slot());
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -2451,11 +2602,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
-                            version: Some(fork_name),
-                            metadata: EmptyMetadata {},
-                            data: update,
-                        })
+                        _ => Ok(warp::reply::json(&beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            update,
+                        ))
                         .into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
@@ -2471,10 +2621,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     let update = chain
                         .light_client_server_cache
                         .get_latest_finality_update()
@@ -2486,7 +2638,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let fork_name = chain
                         .spec
-                        .fork_name_at_slot::<T::EthSpec>(*update.signature_slot());
+                        .fork_name_at_slot::<T::EthSpec>(update.signature_slot());
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -2498,11 +2650,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
-                            version: Some(fork_name),
-                            metadata: EmptyMetadata {},
-                            data: update,
-                        })
+                        _ => Ok(warp::reply::json(&beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            update,
+                        ))
                         .into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
@@ -2519,11 +2670,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::LightClientUpdatesQuery>())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              query: LightClientUpdatesQuery,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     get_light_client_updates::<T>(chain, query, accept_header)
                 })
             },
@@ -2596,17 +2749,15 @@ pub fn serve<T: BeaconChainTypes>(
         .and(block_id_or_err)
         .and(warp::path::end())
         .and(warp_utils::json::json())
-        .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              block_id: BlockId,
-             validators: Vec<ValidatorId>,
-             log: Logger| {
+             validators: Vec<ValidatorId>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let (rewards, execution_optimistic, finalized) =
                         sync_committee_rewards::compute_sync_committee_rewards(
-                            chain, block_id, validators, log,
+                            chain, block_id, validators,
                         )?;
 
                     Ok(api_types::GenericResponse::from(rewards)).map(|resp| {
@@ -2650,7 +2801,7 @@ pub fn serve<T: BeaconChainTypes>(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let config_and_preset =
-                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, None);
+                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
                     Ok(api_types::GenericResponse::from(config_and_preset))
                 })
             },
@@ -2679,6 +2830,55 @@ pub fn serve<T: BeaconChainTypes>(
      * debug
      */
 
+    // GET debug/beacon/data_column_sidecars/{block_id}
+    let get_debug_data_column_sidecars = eth_v1
+        .and(warp::path("debug"))
+        .and(warp::path("beacon"))
+        .and(warp::path("data_column_sidecars"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(multi_key_query::<api_types::DataColumnIndicesQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |block_id: BlockId,
+             indices_res: Result<api_types::DataColumnIndicesQuery, warp::Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let indices = indices_res?;
+                    let (data_columns, fork_name, execution_optimistic, finalized) =
+                        block_id.get_data_columns(indices, &chain)?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .body(data_columns.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            // Post as a V2 endpoint so we return the fork version.
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
+                                execution_optimistic,
+                                finalized,
+                                &data_columns,
+                            )?;
+                            Ok(warp::reply::json(&res).into_response())
+                        }
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
     // GET debug/beacon/states/{state_id}
     let get_debug_beacon_states = any_version
         .and(warp::path("debug"))
@@ -2693,14 +2893,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
         .then(
-            |endpoint_version: EndpointVersion,
+            |_endpoint_version: EndpointVersion,
              state_id: StateId,
              accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_response_task(Priority::P1, move || match accept_header {
                     Some(api_types::Accept::Ssz) => {
                         // We can ignore the optimistic status for the "fork" since it's a
@@ -2715,10 +2913,9 @@ pub fn serve<T: BeaconChainTypes>(
                         let response_bytes = state.as_ssz_bytes();
                         drop(timer);
                         debug!(
-                            log,
-                            "HTTP state load";
-                            "total_time_ms" => t.elapsed().as_millis(),
-                            "target_slot" => state.slot()
+                            total_time_ms = t.elapsed().as_millis(),
+                            target_slot = %state.slot(),
+                            "HTTP state load"
                         );
 
                         Response::builder()
@@ -2741,9 +2938,8 @@ pub fn serve<T: BeaconChainTypes>(
                             let fork_name = state
                                 .fork_name(&chain.spec)
                                 .map_err(inconsistent_fork_rejection)?;
-                            let res = execution_optimistic_finalized_fork_versioned_response(
-                                endpoint_version,
-                                fork_name,
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
                                 execution_optimistic,
                                 finalized,
                                 &state,
@@ -2860,36 +3056,24 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(network_globals.clone())
+        .and(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
-             network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let enr = network_globals.local_enr();
                     let p2p_addresses = enr.multiaddr_p2p_tcp();
                     let discovery_addresses = enr.multiaddr_p2p_udp();
-                    let meta_data = network_globals.local_metadata.read();
                     Ok(api_types::GenericResponse::from(api_types::IdentityData {
                         peer_id: network_globals.local_peer_id().to_base58(),
                         enr,
                         p2p_addresses,
                         discovery_addresses,
-                        metadata: api_types::MetaData {
-                            seq_number: *meta_data.seq_number(),
-                            attnets: format!(
-                                "0x{}",
-                                hex::encode(meta_data.attnets().clone().into_bytes()),
-                            ),
-                            syncnets: format!(
-                                "0x{}",
-                                hex::encode(
-                                    meta_data
-                                        .syncnets()
-                                        .cloned()
-                                        .unwrap_or_default()
-                                        .into_bytes()
-                                )
-                            ),
-                        },
+                        metadata: from_meta_data::<T::EthSpec>(
+                            &network_globals.local_metadata,
+                            &chain.spec,
+                        ),
                     }))
                 })
             },
@@ -2932,7 +3116,7 @@ pub fn serve<T: BeaconChainTypes>(
                             let (head, head_execution_status) = chain
                                 .canonical_head
                                 .head_and_execution_status()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                                .map_err(warp_utils::reject::unhandled_error)?;
                             let head_slot = head.head_slot();
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
@@ -2992,7 +3176,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .blocking_response_task(Priority::P0, move || {
                             let is_optimistic = chain
                                 .is_optimistic_or_invalid_head()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                                .map_err(warp_utils::reject::unhandled_error)?;
 
                             let is_syncing = !network_globals.sync_state.read().is_synced();
 
@@ -3054,15 +3238,13 @@ pub fn serve<T: BeaconChainTypes>(
                         };
 
                         // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                        if let Some(dir) = peer_info.connection_direction().as_ref() {
+                        if let Some(&dir) = peer_info.connection_direction() {
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
-                                direction: api_types::PeerDirection::from_connection_direction(dir),
-                                state: api_types::PeerState::from_peer_connection_status(
-                                    peer_info.connection_status(),
-                                ),
+                                direction: dir.into(),
+                                state: peer_info.connection_status().clone().into(),
                             }));
                         }
                     }
@@ -3103,20 +3285,18 @@ pub fn serve<T: BeaconChainTypes>(
                                 };
 
                             // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                            if let Some(dir) = peer_info.connection_direction() {
-                                let direction =
-                                    api_types::PeerDirection::from_connection_direction(dir);
-                                let state = api_types::PeerState::from_peer_connection_status(
-                                    peer_info.connection_status(),
-                                );
+                            if let Some(&dir) = peer_info.connection_direction() {
+                                let direction = dir.into();
+                                let state = peer_info.connection_status().clone().into();
 
-                                let state_matches = query.state.as_ref().map_or(true, |states| {
-                                    states.iter().any(|state_param| *state_param == state)
-                                });
-                                let direction_matches =
-                                    query.direction.as_ref().map_or(true, |directions| {
-                                        directions.iter().any(|dir_param| *dir_param == direction)
-                                    });
+                                let state_matches = query
+                                    .state
+                                    .as_ref()
+                                    .is_none_or(|states| states.contains(&state));
+                                let direction_matches = query
+                                    .direction
+                                    .as_ref()
+                                    .is_none_or(|directions| directions.contains(&direction));
 
                                 if state_matches && direction_matches {
                                     peers.push(api_types::PeerData {
@@ -3160,9 +3340,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .read()
                         .peers()
                         .for_each(|(_, peer_info)| {
-                            let state = api_types::PeerState::from_peer_connection_status(
-                                peer_info.connection_status(),
-                            );
+                            let state =
+                                api_types::PeerState::from(peer_info.connection_status().clone());
                             match state {
                                 api_types::PeerState::Connected => connected += 1,
                                 api_types::PeerState::Connecting => connecting += 1,
@@ -3198,16 +3377,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
         .then(
             |epoch: Epoch,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
-                    proposer_duties::proposer_duties(epoch, &chain, &log)
+                    proposer_duties::proposer_duties(epoch, &chain)
                 })
             },
         );
@@ -3227,7 +3404,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
         .then(
             |endpoint_version: EndpointVersion,
              slot: Slot,
@@ -3235,21 +3411,16 @@ pub fn serve<T: BeaconChainTypes>(
              not_synced_filter: Result<(), Rejection>,
              query: api_types::ValidatorBlocksQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    debug!(
-                        log,
-                        "Block production request from HTTP API";
-                        "slot" => slot
-                    );
+                    debug!(?slot, "Block production request from HTTP API");
 
                     not_synced_filter?;
 
                     if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
                     } else {
-                        produce_block_v2(endpoint_version, accept_header, chain, slot, query).await
+                        produce_block_v2(accept_header, chain, slot, query).await
                     }
                 })
             },
@@ -3279,8 +3450,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
-                    produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query)
-                        .await
+                    produce_blinded_block_v2(accept_header, chain, slot, query).await
                 })
             },
         );
@@ -3302,9 +3472,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
 
-                    let current_slot = chain
-                        .slot()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_slot = chain.slot().map_err(warp_utils::reject::unhandled_error)?;
 
                     // allow a tolerance of one slot to account for clock skew
                     if query.slot > current_slot + 1 {
@@ -3318,7 +3486,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .produce_unaggregated_attestation(query.slot, query.committee_index)
                         .map(|attestation| attestation.data().clone())
                         .map(api_types::GenericResponse::from)
-                        .map_err(warp_utils::reject::beacon_chain_error)
+                        .map_err(warp_utils::reject::unhandled_error)
                 })
             },
         );
@@ -3338,40 +3506,15 @@ pub fn serve<T: BeaconChainTypes>(
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
-                    let res = if endpoint_version == V2 {
-                        let Some(committee_index) = query.committee_index else {
-                            return Err(warp_utils::reject::custom_bad_request(
-                                "missing committee index".to_string(),
-                            ));
-                        };
-                        chain.get_aggregated_attestation_electra(
-                            query.slot,
-                            &query.attestation_data_root,
-                            committee_index,
-                        )
-                    } else if endpoint_version == V1 {
-                        // Do nothing
-                        chain.get_pre_electra_aggregated_attestation_by_slot_and_root(
-                            query.slot,
-                            &query.attestation_data_root,
-                        )
-                    } else {
-                        return Err(unsupported_version_rejection(endpoint_version));
-                    };
-                    res.map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "unable to fetch aggregate: {:?}",
-                            e
-                        ))
-                    })?
-                    .map(api_types::GenericResponse::from)
-                    .ok_or_else(|| {
-                        warp_utils::reject::custom_not_found(
-                            "no matching aggregate found".to_string(),
-                        )
-                    })
+                    crate::aggregate_attestation::get_aggregate_attestation(
+                        query.slot,
+                        &query.attestation_data_root,
+                        query.committee_index,
+                        endpoint_version,
+                        chain,
+                    )
                 })
             },
         );
@@ -3476,7 +3619,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        .and(log_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
             // We only require this header for SSZ deserialization, which isn't supported for
@@ -3486,7 +3628,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>, log: Logger| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
                     let seen_timestamp = timestamp_now();
@@ -3533,13 +3675,13 @@ pub fn serve<T: BeaconChainTypes>(
                             // aggregate has been successfully published by some other node.
                             Err(AttnError::AggregatorAlreadyKnown(_)) => continue,
                             Err(e) => {
-                                error!(log,
-                                    "Failure verifying aggregate and proofs";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                    "aggregator_index" => aggregate.message().aggregator_index(),
-                                    "attestation_index" => aggregate.message().aggregate().committee_index(),
-                                    "attestation_slot" => aggregate.message().aggregate().data().slot,
+                                error!(
+                                    error = ?e,
+                                    request_index = index,
+                                    aggregator_index = aggregate.message().aggregator_index(),
+                                    attestation_index = aggregate.message().aggregate().committee_index(),
+                                    attestation_slot = %aggregate.message().aggregate().data().slot,
+                                    "Failure verifying aggregate and proofs"
                                 );
                                 failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
                             }
@@ -3554,22 +3696,21 @@ pub fn serve<T: BeaconChainTypes>(
                     // Import aggregate attestations
                     for (index, verified_aggregate) in verified_aggregates {
                         if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
-                            error!(log,
-                                    "Failure applying verified aggregate attestation to fork choice";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                    "aggregator_index" => verified_aggregate.aggregate().message().aggregator_index(),
-                                    "attestation_index" => verified_aggregate.attestation().committee_index(),
-                                    "attestation_slot" => verified_aggregate.attestation().data().slot,
+                            error!(
+                                error = ?e,
+                                request_index = index,
+                                aggregator_index = verified_aggregate.aggregate().message().aggregator_index(),
+                                attestation_index = verified_aggregate.attestation().committee_index(),
+                                attestation_slot = %verified_aggregate.attestation().data().slot,
+                                    "Failure applying verified aggregate attestation to fork choice"
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
                         if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
                             warn!(
-                                log,
-                                "Could not add verified aggregate attestation to the inclusion pool";
-                                "error" => ?e,
-                                "request_index" => index,
+                                error = ?e,
+                                request_index = index,
+                                "Could not add verified aggregate attestation to the inclusion pool"
                             );
                             failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
                         }
@@ -3594,22 +3735,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
-        .and(network_tx_filter)
-        .and(log_filter.clone())
+        .and(network_tx_filter.clone())
         .then(
             |not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              contributions: Vec<SignedContributionAndProof<T::EthSpec>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
                     sync_committees::process_signed_contribution_and_proofs(
                         contributions,
                         network_tx,
                         &chain,
-                        log,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
                 })
@@ -3625,15 +3763,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(validator_subscription_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
         .then(
-            |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
+            |committee_subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             log: Logger| {
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let subscriptions: std::collections::BTreeSet<_> = subscriptions
+                    let subscriptions: std::collections::BTreeSet<_> = committee_subscriptions
                         .iter()
                         .map(|subscription| {
                             chain
@@ -3648,21 +3784,20 @@ pub fn serve<T: BeaconChainTypes>(
                             }
                         })
                         .collect();
+
                     let message =
                         ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
                     if let Err(e) = validator_subscription_tx.try_send(message) {
                         warn!(
-                            log,
-                            "Unable to process committee subscriptions";
-                            "info" => "the host may be overloaded or resource-constrained",
-                            "error" => ?e,
+                            info = "the host may be overloaded or resource-constrained",
+                            error = ?e,
+                            "Unable to process committee subscriptions"
                         );
                         return Err(warp_utils::reject::custom_server_error(
                             "unable to queue subscription, host may be overloaded or shutting down"
                                 .to_string(),
                         ));
                     }
-
                     Ok(())
                 })
             },
@@ -3674,15 +3809,15 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("prepare_beacon_proposer"))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(network_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
         .and(warp_utils::json::json())
         .then(
             |not_synced_filter: Result<(), Rejection>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             log: Logger,
              preparation_data: Vec<ProposerPreparationData>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
@@ -3690,17 +3825,18 @@ pub fn serve<T: BeaconChainTypes>(
                         .execution_layer
                         .as_ref()
                         .ok_or(BeaconChainError::ExecutionLayerMissing)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(warp_utils::reject::unhandled_error)?;
 
                     let current_slot = chain
-                        .slot()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .slot_clock
+                        .now_or_genesis()
+                        .ok_or(BeaconChainError::UnableToReadSlot)
+                        .map_err(warp_utils::reject::unhandled_error)?;
                     let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                     debug!(
-                        log,
-                        "Received proposer preparation data";
-                        "count" => preparation_data.len(),
+                        count = preparation_data.len(),
+                        "Received proposer preparation data"
                     );
 
                     execution_layer
@@ -3720,6 +3856,45 @@ pub fn serve<T: BeaconChainTypes>(
                             ))
                         })?;
 
+                    if chain.spec.is_peer_das_scheduled() {
+                        let (finalized_beacon_state, _, _) =
+                            StateId(CoreStateId::Finalized).state(&chain)?;
+                        let validators_and_balances = preparation_data
+                            .iter()
+                            .filter_map(|preparation| {
+                                if let Ok(effective_balance) = finalized_beacon_state
+                                    .get_effective_balance(preparation.validator_index as usize)
+                                {
+                                    Some((preparation.validator_index as usize, effective_balance))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+
+                        let current_slot =
+                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
+                        if let Some(cgc_change) = chain
+                            .data_availability_checker
+                            .custody_context()
+                            .register_validators(validators_and_balances, current_slot, &chain.spec)
+                        {
+                            chain.update_data_column_custody_info(Some(
+                                cgc_change
+                                    .effective_epoch
+                                    .start_slot(T::EthSpec::slots_per_epoch()),
+                            ));
+
+                            network_tx.send(NetworkMessage::CustodyCountChanged {
+                                new_custody_group_count: cgc_change.new_custody_group_count,
+                                sampling_count: cgc_change.sampling_count,
+                            }).unwrap_or_else(|e| {
+                                debug!(error = %e, "Could not send message to the network service. \
+                                Likely shutdown")
+                            });
+                        }
+                    }
+
                     Ok::<_, warp::reject::Rejection>(warp::reply::json(&()).into_response())
                 })
             },
@@ -3732,12 +3907,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
         .and(warp_utils::json::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             log: Logger,
              register_val_data: Vec<SignedValidatorRegistrationData>| async {
                 let (tx, rx) = oneshot::channel();
 
@@ -3747,18 +3920,17 @@ pub fn serve<T: BeaconChainTypes>(
                             .execution_layer
                             .as_ref()
                             .ok_or(BeaconChainError::ExecutionLayerMissing)
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                            .map_err(warp_utils::reject::unhandled_error)?;
                         let current_slot = chain
                             .slot_clock
                             .now_or_genesis()
                             .ok_or(BeaconChainError::UnableToReadSlot)
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                            .map_err(warp_utils::reject::unhandled_error)?;
                         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                         debug!(
-                            log,
-                            "Received register validator request";
-                            "count" => register_val_data.len(),
+                            count = register_val_data.len(),
+                            "Received register validator request"
                         );
 
                         let head_snapshot = chain.head_snapshot();
@@ -3833,9 +4005,8 @@ pub fn serve<T: BeaconChainTypes>(
                             })?;
 
                         info!(
-                            log,
-                            "Forwarding register validator request to connected builder";
-                            "count" => filtered_registration_data.len(),
+                            count = filtered_registration_data.len(),
+                            "Forwarding register validator request to connected builder"
                         );
 
                         // It's a waste of a `BeaconProcessor` worker to just
@@ -3848,22 +4019,21 @@ pub fn serve<T: BeaconChainTypes>(
                                 .execution_layer
                                 .as_ref()
                                 .ok_or(BeaconChainError::ExecutionLayerMissing)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .map_err(warp_utils::reject::unhandled_error)?
                                 .builder();
                             let builder = arc_builder
                                 .as_ref()
                                 .ok_or(BeaconChainError::BuilderMissing)
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                                .map_err(warp_utils::reject::unhandled_error)?;
                             builder
                                 .post_builder_validators(&filtered_registration_data)
                                 .await
                                 .map(|resp| warp::reply::json(&resp).into_response())
                                 .map_err(|e| {
                                     warn!(
-                                        log,
-                                        "Relay error when registering validator(s)";
-                                        "num_registrations" => filtered_registration_data.len(),
-                                        "error" => ?e
+                                        num_registrations = filtered_registration_data.len(),
+                                        error = ?e,
+                                        "Relay error when registering validator(s)"
                                     );
                                     // Forward the HTTP status code if we are able to, otherwise fall back
                                     // to a server error.
@@ -3917,13 +4087,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(validator_subscription_tx_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
         .then(
             |subscriptions: Vec<types::SyncCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             log: Logger
              | {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     for subscription in subscriptions {
@@ -3937,10 +4105,9 @@ pub fn serve<T: BeaconChainTypes>(
                             };
                         if let Err(e) = validator_subscription_tx.try_send(message) {
                             warn!(
-                                log,
-                                "Unable to process sync subscriptions";
-                                "info" => "the host may be overloaded or resource-constrained",
-                                "error" => ?e
+                                info = "the host may be overloaded or resource-constrained",
+                                error = ?e,
+                                "Unable to process sync subscriptions"
                             );
                             return Err(warp_utils::reject::custom_server_error(
                                 "unable to queue subscription, host may be overloaded or shutting down".to_string(),
@@ -3969,9 +4136,8 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     // Ensure the request is for either the current, previous or next epoch.
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch =
+                        chain.epoch().map_err(warp_utils::reject::unhandled_error)?;
                     let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
                     let next_epoch = current_epoch.saturating_add(Epoch::new(1));
 
@@ -3997,6 +4163,117 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/finalize
+    let post_lighthouse_finalize = warp::path("lighthouse")
+        .and(warp::path("finalize"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |request_data: api_types::ManualFinalizationRequestData,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let checkpoint = Checkpoint {
+                        epoch: request_data.epoch,
+                        root: request_data.block_root,
+                    };
+
+                    chain
+                        .manually_finalize_state(request_data.state_root, checkpoint)
+                        .map(|_| api_types::GenericResponse::from(request_data))
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "Failed to finalize state due to error: {e:?}"
+                            ))
+                        })
+                })
+            },
+        );
+
+    // POST lighthouse/compaction
+    let post_lighthouse_compaction = warp::path("lighthouse")
+        .and(warp::path("compaction"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    chain.manually_compact_database();
+                    Ok(api_types::GenericResponse::from(String::from(
+                        "Triggered manual compaction",
+                    )))
+                })
+            },
+        );
+
+    // POST lighthouse/add_peer
+    let post_lighthouse_add_peer = warp::path("lighthouse")
+        .and(warp::path("add_peer"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(network_globals.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |request_data: api_types::AdminPeer,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let enr = Enr::from_str(&request_data.enr).map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid enr error {}", e))
+                    })?;
+                    info!(
+                        peer_id = %enr.peer_id(),
+                        multiaddr = ?enr.multiaddr(),
+                        "Adding trusted peer"
+                    );
+                    network_globals.add_trusted_peer(enr.clone());
+
+                    publish_network_message(&network_tx, NetworkMessage::ConnectTrustedPeer(enr))?;
+
+                    Ok(())
+                })
+            },
+        );
+
+    // POST lighthouse/remove_peer
+    let post_lighthouse_remove_peer = warp::path("lighthouse")
+        .and(warp::path("remove_peer"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(network_globals.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |request_data: api_types::AdminPeer,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let enr = Enr::from_str(&request_data.enr).map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid enr error {}", e))
+                    })?;
+                    info!(
+                        peer_id = %enr.peer_id(),
+                        multiaddr = ?enr.multiaddr(),
+                        "Removing trusted peer"
+                    );
+                    network_globals.remove_trusted_peer(enr.clone());
+
+                    publish_network_message(
+                        &network_tx,
+                        NetworkMessage::DisconnectTrustedPeer(enr),
+                    )?;
+
+                    Ok(())
+                })
+            },
+        );
+
     // POST lighthouse/liveness
     let post_lighthouse_liveness = warp::path("lighthouse")
         .and(warp::path("liveness"))
@@ -4010,9 +4287,8 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     // Ensure the request is for either the current, previous or next epoch.
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch =
+                        chain.epoch().map_err(warp_utils::reject::unhandled_error)?;
                     let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
                     let next_epoch = current_epoch.saturating_add(Epoch::new(1));
 
@@ -4179,7 +4455,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .peers
                         .read()
                         .peers()
-                        .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
+                        .map(|(peer_id, peer_info)| peer::Peer {
                             peer_id: peer_id.to_string(),
                             peer_info: peer_info.clone(),
                         })
@@ -4199,15 +4475,14 @@ pub fn serve<T: BeaconChainTypes>(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(network_globals
-                        .peers
-                        .read()
-                        .connected_peers()
-                        .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
+                    let mut peers = vec![];
+                    for (peer_id, peer_info) in network_globals.peers.read().connected_peers() {
+                        peers.push(peer::Peer {
                             peer_id: peer_id.to_string(),
                             peer_info: peer_info.clone(),
-                        })
-                        .collect::<Vec<_>>())
+                        });
+                    }
+                    Ok(peers)
                 })
             },
         );
@@ -4271,105 +4546,17 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/eth1/syncing
-    let get_lighthouse_eth1_syncing = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("syncing"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let current_slot_opt = chain.slot().ok();
-
-                    chain
-                        .eth1_chain
-                        .as_ref()
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(
-                                "Eth1 sync is disabled. See the --eth1 CLI flag.".to_string(),
-                            )
-                        })
-                        .and_then(|eth1| {
-                            eth1.sync_status(chain.genesis_time, current_slot_opt, &chain.spec)
-                                .ok_or_else(|| {
-                                    warp_utils::reject::custom_server_error(
-                                        "Unable to determine Eth1 sync status".to_string(),
-                                    )
-                                })
-                        })
-                        .map(api_types::GenericResponse::from)
-                })
-            },
-        );
-
-    // GET lighthouse/eth1/block_cache
-    let get_lighthouse_eth1_block_cache = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("block_cache"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, eth1_service: eth1::Service| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(api_types::GenericResponse::from(
-                        eth1_service
-                            .blocks()
-                            .read()
-                            .iter()
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    ))
-                })
-            },
-        );
-
-    // GET lighthouse/eth1/deposit_cache
-    let get_lighthouse_eth1_deposit_cache = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("deposit_cache"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter)
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, eth1_service: eth1::Service| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(api_types::GenericResponse::from(
-                        eth1_service
-                            .deposits()
-                            .read()
-                            .cache
-                            .iter()
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    ))
-                })
-            },
-        );
-
     // GET lighthouse/staking
     let get_lighthouse_staking = warp::path("lighthouse")
         .and(warp::path("staking"))
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    if chain.eth1_chain.is_some() {
-                        Ok(())
-                    } else {
-                        Err(warp_utils::reject::custom_not_found(
-                            "staking is not enabled, \
-                        see the --staking CLI flag"
-                                .to_string(),
-                        ))
-                    }
-                })
-            },
-        );
+        .then(|task_spawner: TaskSpawner<T::EthSpec>| {
+            // This API is fairly useless since we abolished the distinction between staking and
+            // non-staking nodes. We keep it for backwards-compatibility with LH v7.0.0, and in case
+            // we want to reintroduce the distinction in future.
+            task_spawner.blocking_json_task(Priority::P1, move || Ok(()))
+        });
 
     let database_path = warp::path("lighthouse").and(warp::path("database"));
 
@@ -4404,6 +4591,19 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/custody/info
+    let get_lighthouse_custody_info = warp::path("lighthouse")
+        .and(warp::path("custody"))
+        .and(warp::path("info"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || custody::info(chain))
+            },
+        );
+
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4412,10 +4612,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .then(|query, task_spawner: TaskSpawner<T::EthSpec>, chain, log| {
+        .then(|query, task_spawner: TaskSpawner<T::EthSpec>, chain| {
             task_spawner.blocking_json_task(Priority::P1, move || {
-                block_rewards::get_block_rewards(query, chain, log)
+                block_rewards::get_block_rewards(query, chain)
             })
         });
 
@@ -4427,14 +4626,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(log_filter.clone())
-        .then(
-            |blocks, task_spawner: TaskSpawner<T::EthSpec>, chain, log| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    block_rewards::compute_block_rewards(blocks, chain, log)
-                })
-            },
-        );
+        .then(|blocks, task_spawner: TaskSpawner<T::EthSpec>, chain| {
+            task_spawner.blocking_json_task(Priority::P1, move || {
+                block_rewards::compute_block_rewards(blocks, chain)
+            })
+        });
 
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
@@ -4511,8 +4707,14 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::BlobSidecar => {
                                     event_handler.subscribe_blob_sidecar()
                                 }
+                                api_types::EventTopic::DataColumnSidecar => {
+                                    event_handler.subscribe_data_column_sidecar()
+                                }
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()
+                                }
+                                api_types::EventTopic::SingleAttestation => {
+                                    event_handler.subscribe_single_attestation()
                                 }
                                 api_types::EventTopic::VoluntaryExit => {
                                     event_handler.subscribe_exit()
@@ -4609,7 +4811,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 match msg {
                                     Ok(data) => {
                                         // Serialize to json
-                                        match data.to_json_string() {
+                                        match serde_json::to_string(&data)
+                                            .map_err(|e| format!("{:?}", e))
+                                        {
                                             // Send the json as a Server Side Event
                                             Ok(json) => Ok(Event::default().data(json)),
                                             Err(e) => {
@@ -4652,24 +4856,28 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_committees)
                 .uor(get_beacon_state_sync_committees)
                 .uor(get_beacon_state_randao)
+                .uor(get_beacon_state_pending_deposits)
+                .uor(get_beacon_state_pending_partial_withdrawals)
+                .uor(get_beacon_state_pending_consolidations)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
                 .uor(get_beacon_block_attestations)
                 .uor(get_beacon_blinded_block)
                 .uor(get_beacon_block_root)
+                .uor(get_blob_sidecars)
                 .uor(get_blobs)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
                 .uor(get_beacon_pool_voluntary_exits)
                 .uor(get_beacon_pool_bls_to_execution_changes)
-                .uor(get_beacon_deposit_snapshot)
                 .uor(get_beacon_rewards_blocks)
                 .uor(get_config_fork_schedule)
                 .uor(get_config_spec)
                 .uor(get_config_deposit_contract)
                 .uor(get_debug_beacon_states)
+                .uor(get_debug_data_column_sidecars)
                 .uor(get_debug_beacon_heads)
                 .uor(get_debug_fork_choice)
                 .uor(get_node_identity)
@@ -4695,29 +4903,15 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_proto_array)
                 .uor(get_lighthouse_validator_inclusion_global)
                 .uor(get_lighthouse_validator_inclusion)
-                .uor(get_lighthouse_eth1_syncing)
-                .uor(get_lighthouse_eth1_block_cache)
-                .uor(get_lighthouse_eth1_deposit_cache)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
+                .uor(get_lighthouse_custody_info)
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_optimistic_update),
-                )
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_finality_update),
-                )
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_bootstrap),
-                )
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_updates),
-                )
+                .uor(get_beacon_light_client_optimistic_update)
+                .uor(get_beacon_light_client_finality_update)
+                .uor(get_beacon_light_client_bootstrap)
+                .uor(get_beacon_light_client_updates)
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
@@ -4740,7 +4934,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
-                    .uor(post_beacon_pool_attestations)
+                    .uor(post_beacon_pool_attestations_v2)
                     .uor(post_beacon_pool_attester_slashings)
                     .uor(post_beacon_pool_proposer_slashings)
                     .uor(post_beacon_pool_voluntary_exits)
@@ -4748,6 +4942,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_beacon_state_validators)
                     .uor(post_beacon_state_validator_balances)
+                    .uor(post_beacon_state_validator_identities)
                     .uor(post_beacon_rewards_attestations)
                     .uor(post_beacon_rewards_sync_committee)
                     .uor(post_validator_duties_attester)
@@ -4764,11 +4959,15 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
+                    .uor(post_lighthouse_finalize)
+                    .uor(post_lighthouse_compaction)
+                    .uor(post_lighthouse_add_peer)
+                    .uor(post_lighthouse_remove_peer)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )
         .recover(warp_utils::reject::handle_rejection)
-        .with(slog_logging(log.clone()))
+        .with(tracing_logging())
         .with(prometheus_metrics())
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
@@ -4786,7 +4985,7 @@ pub fn serve<T: BeaconChainTypes>(
                     shutdown.await;
                 })?;
 
-            info!(log, "HTTP API is being served over TLS";);
+            info!("HTTP API is being served over TLS");
 
             (socket, Box::pin(server))
         }
@@ -4800,12 +4999,44 @@ pub fn serve<T: BeaconChainTypes>(
     };
 
     info!(
-        log,
-        "HTTP API started";
-        "listen_address" => %http_server.0,
+        listen_address = %http_server.0,
+        "HTTP API started"
     );
 
     Ok(http_server)
+}
+
+fn from_meta_data<E: EthSpec>(
+    meta_data: &RwLock<MetaData<E>>,
+    spec: &ChainSpec,
+) -> api_types::MetaData {
+    let meta_data = meta_data.read();
+    let format_hex = |bytes: &[u8]| format!("0x{}", hex::encode(bytes));
+
+    let seq_number = *meta_data.seq_number();
+    let attnets = format_hex(&meta_data.attnets().clone().into_bytes());
+    let syncnets = format_hex(
+        &meta_data
+            .syncnets()
+            .cloned()
+            .unwrap_or_default()
+            .into_bytes(),
+    );
+
+    if spec.is_peer_das_scheduled() {
+        api_types::MetaData::V3(api_types::MetaDataV3 {
+            seq_number,
+            attnets,
+            syncnets,
+            custody_group_count: meta_data.custody_group_count().cloned().unwrap_or_default(),
+        })
+    } else {
+        api_types::MetaData::V2(api_types::MetaDataV2 {
+            seq_number,
+            attnets,
+            syncnets,
+        })
+    }
 }
 
 /// Publish a message to the libp2p pubsub network.

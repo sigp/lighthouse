@@ -1,30 +1,31 @@
 use account_manager::{
+    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG,
     validator::{
+        CMD as VALIDATOR_CMD,
         create::*,
         import::{self, CMD as IMPORT_CMD},
         modify::{ALL, CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG},
-        CMD as VALIDATOR_CMD,
     },
     wallet::{
+        CMD as WALLET_CMD,
         create::{CMD as CREATE_CMD, *},
         list::CMD as LIST_CMD,
-        CMD as WALLET_CMD,
     },
-    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG, *,
+    *,
 };
 use account_utils::{
+    STDIN_INPUTS_FLAG,
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
-    STDIN_INPUTS_FLAG,
 };
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::str::from_utf8;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
 use zeroize::Zeroizing;
@@ -115,7 +116,7 @@ fn create_wallet<P: AsRef<Path>>(
             .arg(base_dir.as_ref().as_os_str())
             .arg(CREATE_CMD)
             .arg(format!("--{}", NAME_FLAG))
-            .arg(&name)
+            .arg(name)
             .arg(format!("--{}", PASSWORD_FLAG))
             .arg(password.as_ref().as_os_str())
             .arg(format!("--{}", MNEMONIC_FLAG))
@@ -273,16 +274,16 @@ impl TestValidator {
             .expect("stdout is not utf8")
             .to_string();
 
-        if stdout == "" {
+        if stdout.is_empty() {
             return Ok(vec![]);
         }
 
         let pubkeys = stdout[..stdout.len() - 1]
             .split("\n")
-            .filter_map(|line| {
+            .map(|line| {
                 let tab = line.find("\t").expect("line must have tab");
                 let (_, pubkey) = line.split_at(tab + 1);
-                Some(pubkey.to_string())
+                pubkey.to_string()
             })
             .collect::<Vec<_>>();
 
@@ -446,7 +447,9 @@ fn validator_import_launchpad() {
         }
     }
 
-    stdin.write(format!("{}\n", PASSWORD).as_bytes()).unwrap();
+    stdin
+        .write_all(format!("{}\n", PASSWORD).as_bytes())
+        .unwrap();
 
     child.wait().unwrap();
 
@@ -504,7 +507,7 @@ fn validator_import_launchpad() {
     };
 
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 
@@ -525,7 +528,7 @@ fn validator_import_launchpad() {
     expected_def.enabled = true;
 
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 }
@@ -582,7 +585,7 @@ fn validator_import_launchpad_no_password_then_add_password() {
     let mut child = validator_import_key_cmd();
     wait_for_password_prompt(&mut child);
     let stdin = child.stdin.as_mut().unwrap();
-    stdin.write("\n".as_bytes()).unwrap();
+    stdin.write_all("\n".as_bytes()).unwrap();
     child.wait().unwrap();
 
     assert!(
@@ -628,14 +631,16 @@ fn validator_import_launchpad_no_password_then_add_password() {
     };
 
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 
     let mut child = validator_import_key_cmd();
     wait_for_password_prompt(&mut child);
     let stdin = child.stdin.as_mut().unwrap();
-    stdin.write(format!("{}\n", PASSWORD).as_bytes()).unwrap();
+    stdin
+        .write_all(format!("{}\n", PASSWORD).as_bytes())
+        .unwrap();
     child.wait().unwrap();
 
     let expected_def = ValidatorDefinition {
@@ -657,7 +662,7 @@ fn validator_import_launchpad_no_password_then_add_password() {
 
     let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 }
@@ -759,7 +764,7 @@ fn validator_import_launchpad_password_file() {
     };
 
     assert!(
-        defs.as_slice() == &[expected_def],
+        defs.as_slice() == [expected_def],
         "validator defs file should be accurate"
     );
 }

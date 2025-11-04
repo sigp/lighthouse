@@ -13,26 +13,25 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
+    Error as ApiError,
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
-    Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
-use logging::test_logger;
+use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::graffiti::GraffitiString;
-use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -43,9 +42,10 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
-    validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
+    spec: Arc<ChainSpec>,
     _validator_dir: TempDir,
     _secrets_dir: TempDir,
     _test_runtime: TestRuntime,
@@ -53,14 +53,14 @@ struct ApiTester {
 
 impl ApiTester {
     pub async fn new() -> Self {
-        let mut config = ValidatorStoreConfig::default();
-        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
+        let config = ValidatorStoreConfig {
+            fee_recipient: Some(TEST_DEFAULT_FEE_RECIPIENT),
+            ..Default::default()
+        };
         Self::new_with_config(config).await
     }
 
     pub async fn new_with_config(config: ValidatorStoreConfig) -> Self {
-        let log = test_logger();
-
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join("api-token.txt");
@@ -71,7 +71,6 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             InitializedValidatorsConfig::default(),
-            log.clone(),
         )
         .await
         .unwrap();
@@ -93,16 +92,15 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
             spec.clone(),
-            Some(Arc::new(DoppelgangerService::new(log.clone()))),
+            Some(Arc::new(DoppelgangerService::default())),
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            log.clone(),
         ));
 
         validator_store
@@ -120,7 +118,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec: E::default_spec().into(),
+            spec: spec.clone(),
             config: HttpConfig {
                 enabled: true,
                 listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -129,17 +127,16 @@ impl ApiTester {
                 allow_keystore_export: true,
                 store_passwords_in_secrets_dir: false,
                 http_token_path: token_path,
+                bn_long_timeouts: false,
             },
             sse_logging_components: None,
-            log,
             slot_clock: slot_clock.clone(),
-            _phantom: PhantomData,
         });
         let ctx = context.clone();
         let (listening_socket, server) =
-            super::serve(ctx, test_runtime.task_executor.exit()).unwrap();
+            super::serve::<_, E>(ctx, test_runtime.task_executor.exit()).unwrap();
 
-        tokio::spawn(async { server.await });
+        tokio::spawn(server);
 
         let url = SensitiveUrl::parse(&format!(
             "http://{}:{}",
@@ -156,6 +153,7 @@ impl ApiTester {
             validator_store,
             url,
             slot_clock,
+            spec,
             _validator_dir: validator_dir,
             _secrets_dir: secrets_dir,
             _test_runtime: test_runtime,
@@ -210,13 +208,24 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = self
-            .client
-            .get_lighthouse_spec::<ConfigAndPresetElectra>()
-            .await
-            .map(|res| ConfigAndPreset::Electra(res.data))
-            .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
+        let result = if self.spec.is_gloas_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        } else if self.spec.is_fulu_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetFulu>()
+                .await
+                .map(|res| ConfigAndPreset::Fulu(res.data))
+        } else {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetElectra>()
+                .await
+                .map(|res| ConfigAndPreset::Electra(res.data))
+        }
+        .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
 
         assert_eq!(result, expected);
 
@@ -326,9 +335,11 @@ impl ApiTester {
 
         // Ensure the server lists all of these newly created validators.
         for validator in &response {
-            assert!(server_vals
-                .iter()
-                .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey));
+            assert!(
+                server_vals
+                    .iter()
+                    .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey)
+            );
         }
 
         /*
@@ -345,22 +356,21 @@ impl ApiTester {
             .set_nextaccount(s.key_derivation_path_offset)
             .unwrap();
 
-        for i in 0..s.count {
+        for validator in response.iter().take(s.count) {
             let keypairs = wallet
                 .next_validator(PASSWORD_BYTES, PASSWORD_BYTES, PASSWORD_BYTES)
                 .unwrap();
             let voting_keypair = keypairs.voting.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
             assert_eq!(
-                response[i].voting_pubkey,
+                validator.voting_pubkey,
                 voting_keypair.pk.clone().into(),
                 "the locally generated voting pk should match the server response"
             );
 
             let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
-            let deposit_bytes =
-                serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
+            let deposit_bytes = serde_utils::hex::decode(&validator.eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
                 decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
@@ -553,16 +563,17 @@ impl ApiTester {
             enabled
         );
 
-        assert!(self
-            .client
-            .get_lighthouse_validators()
-            .await
-            .unwrap()
-            .data
-            .into_iter()
-            .find(|v| v.voting_pubkey == validator.voting_pubkey)
-            .map(|v| v.enabled == enabled)
-            .unwrap());
+        assert!(
+            self.client
+                .get_lighthouse_validators()
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|v| v.voting_pubkey == validator.voting_pubkey)
+                .map(|v| v.enabled == enabled)
+                .unwrap()
+        );
 
         // Check the server via an individual request.
         assert_eq!(
@@ -675,7 +686,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_proposals(&validator.voting_pubkey),
+                .get_builder_proposals_testing_only(&validator.voting_pubkey),
             builder_proposals
         );
 
@@ -691,7 +702,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_boost_factor(&validator.voting_pubkey),
+                .get_builder_boost_factor_testing_only(&validator.voting_pubkey),
             builder_boost_factor
         );
 
@@ -707,7 +718,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .determine_validator_builder_boost_factor(&validator.voting_pubkey),
+                .determine_builder_boost_factor(&validator.voting_pubkey),
             builder_boost_factor
         );
 
@@ -717,7 +728,7 @@ impl ApiTester {
     pub fn assert_default_builder_boost_factor(self, builder_boost_factor: Option<u64>) -> Self {
         assert_eq!(
             self.validator_store
-                .determine_default_builder_boost_factor(),
+                .determine_builder_boost_factor(&PublicKeyBytes::empty()),
             builder_boost_factor
         );
 
@@ -733,7 +744,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_prefer_builder_proposals(&validator.voting_pubkey),
+                .get_prefer_builder_proposals_testing_only(&validator.voting_pubkey),
             prefer_builder_proposals
         );
 
@@ -1164,7 +1175,7 @@ async fn validator_derived_builder_boost_factor_with_process_defaults() {
         })
         .await
         .assert_default_builder_boost_factor(Some(80))
-        .assert_validator_derived_builder_boost_factor(0, None)
+        .assert_validator_derived_builder_boost_factor(0, Some(80))
         .await
         .set_builder_proposals(0, false)
         .await

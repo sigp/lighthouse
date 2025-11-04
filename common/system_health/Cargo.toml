@@ -5,7 +5,9 @@ edition = { workspace = true }
 
 [dependencies]
 lighthouse_network = { workspace = true }
-types = { workspace = true }
-sysinfo = { workspace = true }
-serde = { workspace = true }
+metrics = { workspace = true }
+network_utils = { workspace = true }
 parking_lot = { workspace = true }
+serde = { workspace = true }
+sysinfo = { workspace = true }
+types = { workspace = true }

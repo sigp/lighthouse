@@ -1,7 +1,6 @@
 mod attestation_tests;
 mod block_tests;
 mod extra_interchange_tests;
-pub mod interchange;
 pub mod interchange_test;
 mod parallel_tests;
 mod registration_tests;
@@ -10,11 +9,15 @@ mod signed_block;
 mod slashing_database;
 pub mod test_utils;
 
+pub mod interchange {
+    pub use eip_3076::{Interchange, InterchangeMetadata};
+}
+
 pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
 pub use crate::signed_block::{InvalidBlock, SignedBlock};
 pub use crate::slashing_database::{
-    InterchangeError, InterchangeImportOutcome, SlashingDatabase,
-    SUPPORTED_INTERCHANGE_FORMAT_VERSION,
+    InterchangeError, InterchangeImportOutcome, SUPPORTED_INTERCHANGE_FORMAT_VERSION,
+    SlashingDatabase,
 };
 use rusqlite::Error as SQLError;
 use std::fmt::Display;
@@ -27,7 +30,7 @@ pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 /// The attestation or block is not safe to sign.
 ///
 /// This could be because it's slashable, or because an error occurred.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum NotSafe {
     UnregisteredValidator(PublicKeyBytes),
     DisabledValidator(PublicKeyBytes),
@@ -89,7 +92,7 @@ impl SigningRoot {
 
 /// Safely parse a `SigningRoot` from the given `column` of an SQLite `row`.
 fn signing_root_from_row(column: usize, row: &rusqlite::Row) -> rusqlite::Result<SigningRoot> {
-    use rusqlite::{types::Type, Error};
+    use rusqlite::{Error, types::Type};
 
     let bytes: Vec<u8> = row.get(column)?;
     if bytes.len() == 32 {

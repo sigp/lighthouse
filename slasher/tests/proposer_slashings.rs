@@ -1,9 +1,8 @@
 #![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
-use logging::test_logger;
 use slasher::{
-    test_utils::{block as test_block, chain_spec, E},
     Config, Slasher,
+    test_utils::{E, block as test_block, chain_spec},
 };
 use tempfile::tempdir;
 use types::{Epoch, EthSpec};
@@ -13,7 +12,7 @@ fn empty_pruning() {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
     let spec = chain_spec();
-    let slasher = Slasher::<E>::open(config, spec, test_logger()).unwrap();
+    let slasher = Slasher::<E>::open(config, spec).unwrap();
     slasher.prune_database(Epoch::new(0)).unwrap();
 }
 
@@ -27,7 +26,7 @@ fn block_pruning() {
     config.history_length = 2;
     let spec = chain_spec();
 
-    let slasher = Slasher::<E>::open(config.clone(), spec, test_logger()).unwrap();
+    let slasher = Slasher::<E>::open(config.clone(), spec).unwrap();
     let current_epoch = Epoch::from(2 * config.history_length);
 
     // Pruning the empty database should be safe.
@@ -57,10 +56,8 @@ fn block_pruning() {
         (config.history_length - 1) * slots_per_epoch as usize + 1
     );
     // Check epochs of all slashings are from within range.
-    assert!(proposer_slashings.iter().all(|slashing| slashing
-        .signed_header_1
-        .message
-        .slot
-        .epoch(slots_per_epoch)
-        > current_epoch - config.history_length as u64));
+    assert!(proposer_slashings.iter().all(|slashing| {
+        slashing.signed_header_1.message.slot.epoch(slots_per_epoch)
+            > current_epoch - config.history_length as u64
+    }));
 }

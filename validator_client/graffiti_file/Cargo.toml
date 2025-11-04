@@ -9,11 +9,11 @@ name = "graffiti_file"
 path = "src/lib.rs"
 
 [dependencies]
-serde = { workspace = true }
 bls = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
-slog = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 hex = { workspace = true }
+tempfile = { workspace = true }
