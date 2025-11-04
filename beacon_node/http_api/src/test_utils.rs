@@ -1,7 +1,7 @@
 use crate::{Config, Context};
 use beacon_chain::{
-    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
 };
 use beacon_processor::{
     BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
@@ -10,14 +10,14 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::rpc::methods::MetaDataV3;
 use lighthouse_network::{
+    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
     discv5::enr::CombinedKey,
     libp2p::swarm::{
-        behaviour::{ConnectionEstablished, FromSwarm},
         ConnectionId, NetworkBehaviour,
+        behaviour::{ConnectionEstablished, FromSwarm},
     },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
@@ -60,8 +60,15 @@ type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        Self::new_with_initializer_and_mutator(spec, validator_count, None, None, Config::default())
-            .await
+        Self::new_with_initializer_and_mutator(
+            spec,
+            validator_count,
+            None,
+            None,
+            Config::default(),
+            true,
+        )
+        .await
     }
 
     pub async fn new_with_initializer_and_mutator(
@@ -70,6 +77,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         initializer: Option<Initializer<E>>,
         mutator: Option<Mutator<E>>,
         config: Config,
+        use_mock_builder: bool,
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec.map(Arc::new))
@@ -91,7 +99,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             harness_builder = harness_builder.initial_mutator(mutator);
         }
 
-        let harness = harness_builder.build();
+        let mut harness = harness_builder.build();
 
         let ApiServer {
             ctx,
@@ -103,22 +111,47 @@ impl<E: EthSpec> InteractiveTester<E> {
 
         tokio::spawn(server);
 
-        // Override the default timeout to 2s to timeouts on CI, as CI seems to require longer
-        // to process. The 1s timeouts for other tasks have been working for a long time, so we'll
-        // keep it as it is, as it may help identify a performance regression.
+        // Late-initalize the mock builder now that the mock execution node and beacon API ports
+        // have been allocated.
+        let beacon_api_ip = listening_socket.ip();
+        let beacon_api_port = listening_socket.port();
+        let beacon_url =
+            SensitiveUrl::parse(format!("http://{beacon_api_ip}:{beacon_api_port}").as_str())
+                .unwrap();
+
+        // We disable apply_operations because it breaks the mock builder's ability to return
+        // payloads.
+        let apply_operations = false;
+
+        // We disable strict registration checks too, because it makes HTTP tests less fiddly to
+        // write.
+        let strict_registrations = false;
+
+        // Broadcast to the BN only if Fulu is scheduled. In the broadcast validation tests we want
+        // to infer things from the builder return code, and pre-Fulu it's simpler to let the BN
+        // handle broadcast and return detailed codes. Post-Fulu the builder doesn't return the
+        // block at all, so we *need* the builder to do the broadcast and return a 400 if the block
+        // is invalid.
+        let broadcast_to_bn = ctx.chain.as_ref().unwrap().spec.is_fulu_scheduled();
+
+        if use_mock_builder {
+            let mock_builder_server = harness.set_mock_builder(
+                beacon_url.clone(),
+                strict_registrations,
+                apply_operations,
+                broadcast_to_bn,
+            );
+
+            tokio::spawn(mock_builder_server);
+        }
+
+        // Use 5s timeouts on CI, as there are several sources of artifical slowness, including
+        // mock-builder.
         let timeouts = Timeouts {
-            default: Duration::from_secs(2),
-            ..Timeouts::set_all(Duration::from_secs(1))
+            default: Duration::from_secs(5),
+            ..Timeouts::set_all(Duration::from_secs(5))
         };
-        let client = BeaconNodeHttpClient::new(
-            SensitiveUrl::parse(&format!(
-                "http://{}:{}",
-                listening_socket.ip(),
-                listening_socket.port()
-            ))
-            .unwrap(),
-            timeouts,
-        );
+        let client = BeaconNodeHttpClient::new(beacon_url.clone(), timeouts);
 
         Self {
             ctx,
@@ -132,7 +165,7 @@ impl<E: EthSpec> InteractiveTester<E> {
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     test_runtime: &TestRuntime,
-) -> ApiServer<T, impl Future<Output = ()>> {
+) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
     create_api_server_with_config(chain, Config::default(), test_runtime).await
 }
 
@@ -140,7 +173,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     http_config: Config,
     test_runtime: &TestRuntime,
-) -> ApiServer<T, impl Future<Output = ()>> {
+) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
     // Use port 0 to allocate a new unused port.
     let port = 0;
 

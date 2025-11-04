@@ -581,9 +581,9 @@ mod tests {
     use store::BitVector;
     use tree_hash::TreeHash;
     use types::{
-        test_utils::{generate_deterministic_keypair, test_random_instance},
         Attestation, AttestationBase, AttestationElectra, FixedBytesExtended, Fork, Hash256,
         SyncCommitteeMessage,
+        test_utils::{generate_deterministic_keypair, test_random_instance},
     };
 
     type E = types::MainnetEthSpec;
@@ -647,11 +647,11 @@ mod tests {
 
     fn unset_attestation_bit(a: &mut Attestation<E>, i: usize) {
         match a {
-            Attestation::Base(ref mut att) => att
+            Attestation::Base(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),
-            Attestation::Electra(ref mut att) => att
+            Attestation::Electra(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),

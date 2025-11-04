@@ -1,8 +1,8 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use environment::Environment;
 use slashing_protection::{
-    interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
-    SLASHING_PROTECTION_FILENAME,
+    InterchangeError, InterchangeImportOutcome, SLASHING_PROTECTION_FILENAME, SlashingDatabase,
+    interchange::Interchange,
 };
 use std::fs::File;
 use std::path::PathBuf;

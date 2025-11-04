@@ -5,8 +5,8 @@ use eth2_keystore::json_keystore::{
     Sha256Checksum,
 };
 use eth2_keystore::{
-    decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, PlainText, Uuid,
-    ZeroizeHash, IV_SIZE, SALT_SIZE,
+    Error as KeystoreError, IV_SIZE, PlainText, SALT_SIZE, Uuid, ZeroizeHash, decrypt, default_kdf,
+    encrypt, keypair_from_secret,
 };
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -65,8 +65,8 @@ impl KeyCache {
     }
 
     pub fn init_crypto() -> Crypto {
-        let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
-        let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
+        let salt = rand::rng().random::<[u8; SALT_SIZE]>();
+        let iv = rand::rng().random::<[u8; IV_SIZE]>().to_vec().into();
 
         let kdf = default_kdf(salt.to_vec());
         let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv });
@@ -268,15 +268,7 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eth2_keystore::json_keystore::{HexBytes, Kdf};
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct KeyCacheTest {
-        pub params: Kdf,
-        //pub checksum: ChecksumModule,
-        //pub cipher: CipherModule,
-        uuids: Vec<Uuid>,
-    }
+    use eth2_keystore::json_keystore::HexBytes;
 
     #[tokio::test]
     async fn test_serialization() {
@@ -299,7 +291,7 @@ mod tests {
     #[tokio::test]
     async fn test_encryption() {
         let mut key_cache = KeyCache::new();
-        let keypairs = vec![Keypair::random(), Keypair::random()];
+        let keypairs = [Keypair::random(), Keypair::random()];
         let uuids = vec![Uuid::from_u128(1), Uuid::from_u128(2)];
         let passwords = vec![
             PlainText::from(vec![1, 2, 3, 4, 5, 6]),

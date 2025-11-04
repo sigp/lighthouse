@@ -8,11 +8,11 @@ use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{self, create_dir_all, File};
+use std::fs::{self, File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
 use tracing::error;
-use types::{graffiti::GraffitiString, Address, PublicKey};
+use types::{Address, PublicKey, graffiti::GraffitiString};
 use validator_dir::VOTING_KEYSTORE_FILE;
 use zeroize::Zeroizing;
 

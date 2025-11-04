@@ -1,4 +1,4 @@
-use types::{milhouse, BeaconStateError, EpochCacheError, InconsistentFork};
+use types::{BeaconStateError, EpochCacheError, InconsistentFork, milhouse};
 
 #[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {

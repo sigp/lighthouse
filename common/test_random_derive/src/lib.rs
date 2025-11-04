@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{DeriveInput, parse_macro_input};
 
 /// Returns true if some field has an attribute declaring it should be generated from default (not
 /// randomized).
@@ -27,7 +27,7 @@ pub fn test_random_derive(input: TokenStream) -> TokenStream {
     let mut quotes = vec![];
     for field in &struct_data.fields {
         match &field.ident {
-            Some(ref ident) => {
+            Some(ident) => {
                 if should_use_default(field) {
                     quotes.push(quote! {
                         #ident: <_>::default(),

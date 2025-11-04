@@ -1,8 +1,8 @@
 use crate::{
-    interchange::{Interchange, SignedAttestation, SignedBlock},
-    test_utils::{pubkey, DEFAULT_GENESIS_VALIDATORS_ROOT},
     SigningRoot, SlashingDatabase,
+    test_utils::{DEFAULT_GENESIS_VALIDATORS_ROOT, pubkey},
 };
+use eip_3076::{Interchange, SignedAttestation, SignedBlock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
@@ -270,9 +270,11 @@ pub fn check_minification_invariants(interchange: &Interchange, minified: &Inter
             assert_eq!(mini_block.signing_root, None);
 
             // All original blocks should have slots <= the mini block.
-            assert!(original_blocks
-                .iter()
-                .all(|block| block.slot <= mini_block.slot));
+            assert!(
+                original_blocks
+                    .iter()
+                    .all(|block| block.slot <= mini_block.slot)
+            );
         }
 
         // Minified data should contain 1 attestation per validator, unless the validator never
@@ -289,10 +291,12 @@ pub fn check_minification_invariants(interchange: &Interchange, minified: &Inter
             let mini_attestation = minified_attestations.first().unwrap();
             assert_eq!(mini_attestation.signing_root, None);
 
-            assert!(original_attestations
-                .iter()
-                .all(|att| att.source_epoch <= mini_attestation.source_epoch
-                    && att.target_epoch <= mini_attestation.target_epoch));
+            assert!(
+                original_attestations
+                    .iter()
+                    .all(|att| att.source_epoch <= mini_attestation.source_epoch
+                        && att.target_epoch <= mini_attestation.target_epoch)
+            );
         }
     }
 }

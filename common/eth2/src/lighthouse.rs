@@ -3,12 +3,13 @@
 mod attestation_performance;
 mod block_packing_efficiency;
 mod block_rewards;
+mod custody;
 pub mod sync_state;
 
 use crate::{
+    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
     lighthouse::sync_state::SyncState,
     types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
-    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
+pub use custody::CustodyInfo;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
 // selector.
@@ -189,6 +191,19 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
             .push("syncing");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/custody/info`
+    pub async fn get_lighthouse_custody_info(&self) -> Result<CustodyInfo, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("custody")
+            .push("info");
 
         self.get(path).await
     }

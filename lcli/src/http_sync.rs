@@ -2,8 +2,8 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
-    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
     BeaconNodeHttpClient, Error, SensitiveUrl, Timeouts,
+    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
 };
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
@@ -64,11 +64,11 @@ pub async fn run_async<T: EthSpec>(
         next_block_id = BlockId::Root(block.parent_root());
         blocks.push((block.slot(), publish_block_req));
 
-        if let Some(ref common_ancestor_block) = maybe_common_ancestor_block {
-            if common_ancestor_block == &next_block_id {
-                println!("reached known common ancestor: {next_block_id:?}");
-                break;
-            }
+        if let Some(ref common_ancestor_block) = maybe_common_ancestor_block
+            && common_ancestor_block == &next_block_id
+        {
+            println!("reached known common ancestor: {next_block_id:?}");
+            break;
         }
 
         let block_exists_in_target = target
@@ -86,12 +86,13 @@ pub async fn run_async<T: EthSpec>(
     for (slot, block) in blocks.iter().rev() {
         println!("posting block at slot {slot}");
         if let Err(e) = target.post_beacon_blocks(block).await {
-            if let Error::ServerMessage(ref e) = e {
-                if e.code == 202 {
-                    println!("duplicate block detected while posting block at slot {slot}");
-                    continue;
-                }
+            if let Error::ServerMessage(ref e) = e
+                && e.code == 202
+            {
+                println!("duplicate block detected while posting block at slot {slot}");
+                continue;
             }
+
             return Err(format!("error posting {slot}: {e:?}"));
         } else {
             println!("success");
@@ -123,7 +124,7 @@ async fn get_block_from_source<T: EthSpec>(
             .unwrap()
             .unwrap();
         let blobs_from_source = source
-            .get_blobs::<T>(block_id, None, spec)
+            .get_blob_sidecars::<T>(block_id, None, spec)
             .await
             .unwrap()
             .unwrap()
@@ -138,8 +139,8 @@ async fn get_block_from_source<T: EthSpec>(
         let block_root = block_from_source.canonical_root();
         let block_contents = SignedBlockContents {
             signed_block: Arc::new(block_from_source),
-            kzg_proofs: kzg_proofs.into(),
-            blobs: blobs.into(),
+            kzg_proofs: kzg_proofs.try_into().unwrap(),
+            blobs: blobs.try_into().unwrap(),
         };
         let publish_block_req = PublishBlockRequest::BlockContents(block_contents);
 

@@ -13,7 +13,7 @@ macro_rules! ssz_tests {
     ($type: ty) => {
         #[test]
         pub fn test_ssz_round_trip() {
-            use ssz::{ssz_encode, Decode};
+            use ssz::{Decode, ssz_encode};
             use $crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
             let mut rng = XorShiftRng::from_seed([42; 16]);

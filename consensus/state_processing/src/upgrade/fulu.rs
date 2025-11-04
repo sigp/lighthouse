@@ -33,9 +33,7 @@ fn initialize_proposer_lookahead<E: EthSpec>(
         );
     }
 
-    Vector::new(lookahead).map_err(|e| {
-        Error::PleaseNotifyTheDevs(format!("Failed to initialize proposer lookahead: {:?}", e))
-    })
+    Vector::new(lookahead).map_err(|e| e.into())
 }
 
 pub fn upgrade_state_to_fulu<E: EthSpec>(
