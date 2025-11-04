@@ -197,7 +197,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET lighthouse/custody/info`
     pub async fn get_lighthouse_custody_info(&self) -> Result<CustodyInfo, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -210,7 +210,7 @@ impl BeaconNodeHttpClient {
 
     /// `POST lighthouse/custody/backfill`
     pub async fn post_lighthouse_custody_backfill(&self) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
