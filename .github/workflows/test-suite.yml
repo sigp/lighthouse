@@ -76,8 +76,7 @@ jobs:
     name: release-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Moved to warpbuild runner
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v5
     # Set Java version to 21. (required since Web3Signer 24.12.0).
@@ -103,7 +102,7 @@ jobs:
     name: release-tests-windows
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: warp-windows-latest-x64-8x
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-windows-latest-x64-16x' || 'windows-latest' }}
     steps:
     - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
@@ -128,8 +127,7 @@ jobs:
     name: beacon-chain-tests
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Moved to warpbuild runner
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -146,8 +144,7 @@ jobs:
     name: http-api-tests
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Moved to warpbuild runner
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -227,8 +224,7 @@ jobs:
     name: debug-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Moved to warpbuild runner
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -262,8 +258,7 @@ jobs:
     name: ef-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    # Moved to warpbuild runner
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -324,7 +319,7 @@ jobs:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
