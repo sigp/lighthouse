@@ -7,11 +7,11 @@ use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
     mock_execution_layer_from_parts, test_spec,
 };
+use beacon_chain::test_utils::{SyncCommitteeStrategy, fork_name_from_env};
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
@@ -3211,11 +3211,12 @@ async fn test_import_historical_data_columns_batch() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             data_columns_list.push(data_column);
         }
     }
+
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3255,8 +3256,18 @@ async fn test_import_historical_data_columns_batch() {
 
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some())
+        if !harness
+            .get_block(block_root.into())
+            .unwrap()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .is_empty()
+        {
+            let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+            assert!(data_columns.is_some())
+        };
     }
 }
 
@@ -3290,9 +3301,8 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
 
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
             if data_column.index % 2 == 0 {
                 data_column.signed_block_header.message.body_root = Hash256::ZERO;
@@ -3301,6 +3311,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
             data_columns_list.push(Arc::new(data_column));
         }
     }
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3347,7 +3358,11 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 // be imported.
 #[tokio::test]
 async fn test_import_historical_data_columns_batch_no_block_found() {
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = test_spec::<E>();
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
     let start_slot = Slot::new(1);
@@ -3374,14 +3389,15 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
 
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
             data_column.signed_block_header.message.body_root = Hash256::ZERO;
             data_columns_list.push(Arc::new(data_column));
         }
     }
+
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -4108,6 +4124,12 @@ async fn deneb_prune_blobs_no_finalization() {
 /// Check that blob pruning does not fail trying to prune across the fork boundary.
 #[tokio::test]
 async fn prune_blobs_across_fork_boundary() {
+    // This test covers earlier forks and only need to be executed once.
+    // Note: this test is quite expensive (building a chain to epoch 15) and we should revisit this
+    if fork_name_from_env() != Some(ForkName::latest_stable()) {
+        return;
+    }
+
     let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
     let deneb_fork_epoch = Epoch::new(4);
@@ -4124,6 +4146,7 @@ async fn prune_blobs_across_fork_boundary() {
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness.execution_block_generator().set_min_blob_count(1);
 
     let blocks_to_deneb_finalization = E::slots_per_epoch() * 7;
     let blocks_to_electra_finalization = E::slots_per_epoch() * 4;
@@ -4279,7 +4302,7 @@ async fn prune_blobs_across_fork_boundary() {
             // Fulu fork epochs
             // Pruning should have been triggered
             assert!(store.get_blob_info().oldest_blob_slot <= Some(oldest_slot));
-            // Oldest blost slot should never be greater than the first fulu slot
+            // Oldest blob slot should never be greater than the first fulu slot
             let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
             assert!(store.get_blob_info().oldest_blob_slot <= Some(fulu_first_slot));
             // Blobs should not exist post-Fulu
@@ -4764,7 +4787,7 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
     check_data_column_existence(&harness, oldest_data_column_slot, harness.head_slot(), true);
 }
 
-/// Check tat there are data column sidecars (or not) at every slot in the range.
+/// Check that there are data column sidecars (or not) at every slot in the range.
 fn check_data_column_existence(
     harness: &TestHarness,
     start_slot: Slot,
