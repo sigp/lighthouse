@@ -19,13 +19,14 @@ use tracing::{Span, debug, debug_span};
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
-    Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList,
+    SignedBeaconBlock,
 };
 
 #[derive(Clone)]
 pub enum CachedBlock<E: EthSpec> {
-    PreExecution(Arc<SignedBeaconBlock<E>>),
+    PreExecution(Arc<SignedBeaconBlock<E>>, BlockImportSource),
     Executed(Box<DietAvailabilityPendingExecutedBlock<E>>),
 }
 
@@ -42,7 +43,7 @@ impl<E: EthSpec> CachedBlock<E> {
 
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match self {
-            CachedBlock::PreExecution(b) => b,
+            CachedBlock::PreExecution(b, _) => b,
             CachedBlock::Executed(b) => b.as_block(),
         }
     }
@@ -135,9 +136,13 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Inserts a pre-execution block into the cache.
     /// This does NOT override an existing executed block.
-    pub fn insert_pre_execution_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+    pub fn insert_pre_execution_block(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+        source: BlockImportSource,
+    ) {
         if self.block.is_none() {
-            self.block = Some(CachedBlock::PreExecution(block))
+            self.block = Some(CachedBlock::PreExecution(block, source))
         }
     }
 
@@ -433,7 +438,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .peek(block_root)
             .and_then(|pending_components| {
                 pending_components.block.as_ref().map(|block| match block {
-                    CachedBlock::PreExecution(b) => BlockProcessStatus::NotValidated(b.clone()),
+                    CachedBlock::PreExecution(b, source) => {
+                        BlockProcessStatus::NotValidated(b.clone(), *source)
+                    }
                     CachedBlock::Executed(b) => {
                         BlockProcessStatus::ExecutionValidated(b.block_cloned())
                     }
@@ -693,11 +700,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        source: BlockImportSource,
     ) -> Result<(), AvailabilityCheckError> {
         let epoch = block.epoch();
         let pending_components =
             self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
-                pending_components.insert_pre_execution_block(block);
+                pending_components.insert_pre_execution_block(block, source);
                 Ok(())
             })?;
 
@@ -718,7 +726,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     /// This does NOT remove an existing executed block.
     pub fn remove_pre_execution_block(&self, block_root: &Hash256) {
         // The read lock is immediately dropped so we can safely remove the block from the cache.
-        if let Some(BlockProcessStatus::NotValidated(_)) = self.get_cached_block(block_root) {
+        if let Some(BlockProcessStatus::NotValidated(_, _)) = self.get_cached_block(block_root) {
             self.critical.write().pop(block_root);
         }
     }
@@ -819,7 +827,8 @@ mod test {
         blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
-        data_availability_checker::STATE_LRU_CAPACITY,
+        custody_context::NodeCustodyType,
+        data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
@@ -833,6 +842,7 @@ mod test {
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
+    const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
@@ -1013,7 +1023,7 @@ mod test {
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
-        let custody_context = Arc::new(CustodyContext::new(false));
+        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode, &spec));
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(
                 capacity_non_zero,
@@ -1269,7 +1279,7 @@ mod pending_components_tests {
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let spec = test_spec::<E>();
         let (block, blobs_vec) =
-            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng, &spec);
+            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
         let max_len = spec.max_blobs_per_block(block.epoch()) as usize;
         let mut blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
             RuntimeFixedVector::default(max_len);
@@ -1459,9 +1469,13 @@ mod pending_components_tests {
         let mut pending_component = <PendingComponents<E>>::empty(block_root, max_len);
 
         let pre_execution_block = Arc::new(pre_execution_block);
-        pending_component.insert_pre_execution_block(pre_execution_block.clone());
+        pending_component
+            .insert_pre_execution_block(pre_execution_block.clone(), BlockImportSource::Gossip);
         assert!(
-            matches!(pending_component.block, Some(CachedBlock::PreExecution(_))),
+            matches!(
+                pending_component.block,
+                Some(CachedBlock::PreExecution(_, _))
+            ),
             "pre execution block inserted"
         );
 
@@ -1471,7 +1485,8 @@ mod pending_components_tests {
             "executed block inserted"
         );
 
-        pending_component.insert_pre_execution_block(pre_execution_block);
+        pending_component
+            .insert_pre_execution_block(pre_execution_block, BlockImportSource::Gossip);
         assert!(
             matches!(pending_component.block, Some(CachedBlock::Executed(_))),
             "executed block should remain"

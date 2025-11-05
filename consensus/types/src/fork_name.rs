@@ -51,7 +51,7 @@ impl ForkName {
     /// This fork serves as the baseline for many tests, and the goal
     /// is to ensure features are passing on this fork.
     pub fn latest_stable() -> ForkName {
-        ForkName::Electra
+        ForkName::Fulu
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
@@ -144,7 +144,7 @@ impl ForkName {
 
     /// Return the name of the fork immediately prior to the current one.
     ///
-    /// If `self` is `ForkName::Base` then `Base` is returned.
+    /// If `self` is `ForkName::Base` then `None` is returned.
     pub fn previous_fork(self) -> Option<ForkName> {
         match self {
             ForkName::Base => None,
@@ -200,6 +200,46 @@ impl ForkName {
 
     pub fn gloas_enabled(self) -> bool {
         self >= ForkName::Gloas
+    }
+
+    pub fn fork_ascii(self) {
+        if self == ForkName::Fulu {
+            println!(
+                r#"
+                                  ╔═══════════════════════════════════════╗
+                                  ║                                       ║
+                                  ║    TO FULU, MOAR BLOBS TO ETHEREUM    ║
+                                  ║                                       ║
+                                  ║          III DECEMBER MMXXV           ║
+                                  ║                                       ║
+                                  ╚═══════════════════════════════════════╝
+            
+                =============================================================================
+                ||||                                                                     ||||
+                |---------------------------------------------------------------------------|
+                |___-----___-----___-----___-----___-----___-----___-----___-----___-----___|
+                / _ \===/ _ \   / _ \===/ _ \                   / _ \===/ _ \   / _ \===/ _ \
+               ( (.\ oOo /.) ) ( (.\ oOo /.) )                 ( (.\ oOo /.) ) ( (.\ oOo /.) )
+                \__/=====\__/   \__/=====\__/                   \__/=====\__/   \__/=====\__/
+                   |||||||         |||||||                         |||||||         |||||||
+                   |||||||         |||||||     \\/),               |||||||         |||||||
+                   |||||||         |||||||    ,'.' /,              |||||||         |||||||
+                   |||||||         |||||||   (_)- / /,             |||||||         |||||||
+                   |||||||         |||||||      /\_/ |__..--,  *   |||||||         |||||||
+                   |||||||         |||||||     (\___/\ \ \ / ).'   |||||||         |||||||
+                   |||||||         |||||||      \____/ / (_ //     |||||||         |||||||
+                   |||||||         |||||||       \\_ ,'--'\_(      |||||||         |||||||
+                   (oOoOo)         (oOoOo)       )_)_/ )_/ )_)     (oOoOo)         (oOoOo)
+                   J%%%%%L         J%%%%%L      (_(_.'(_.'(_.'     J%%%%%L         J%%%%%L
+                  ZZZZZZZZZ       ZZZZZZZZZ                       ZZZZZZZZZ       ZZZZZZZZZ
+                ===========================================================================
+                |_________________________________________________________________________|
+               |___________________________________________________________________________|
+              |_____________________________________________________________________________|
+             |_______________________________________________________________________________|
+            "#
+            );
+        }
     }
 }
 

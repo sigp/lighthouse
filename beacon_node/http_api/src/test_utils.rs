@@ -1,11 +1,11 @@
 use crate::{Config, Context};
 use beacon_chain::{
     BeaconChain, BeaconChainTypes,
+    custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
 };
 use beacon_processor::{
     BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
-    rayon_manager::RayonManager,
 };
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
@@ -68,6 +68,20 @@ impl<E: EthSpec> InteractiveTester<E> {
             None,
             Config::default(),
             true,
+            NodeCustodyType::Fullnode,
+        )
+        .await
+    }
+
+    pub async fn new_supernode(spec: Option<ChainSpec>, validator_count: usize) -> Self {
+        Self::new_with_initializer_and_mutator(
+            spec,
+            validator_count,
+            None,
+            None,
+            Config::default(),
+            true,
+            NodeCustodyType::Supernode,
         )
         .await
     }
@@ -79,6 +93,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         mutator: Option<Mutator<E>>,
         config: Config,
         use_mock_builder: bool,
+        node_custody_type: NodeCustodyType,
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec.map(Arc::new))
@@ -93,6 +108,8 @@ impl<E: EthSpec> InteractiveTester<E> {
                 .deterministic_keypairs(validator_count)
                 .fresh_ephemeral_store()
         };
+
+        harness_builder = harness_builder.node_custody_type(node_custody_type);
 
         // Add a mutator for the beacon chain builder which will be called in
         // `HarnessBuilder::build`.
@@ -248,7 +265,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         executor: test_runtime.task_executor.clone(),
         current_workers: 0,
         config: beacon_processor_config,
-        rayon_manager: RayonManager::default(),
     }
     .spawn_manager(
         beacon_processor_rx,

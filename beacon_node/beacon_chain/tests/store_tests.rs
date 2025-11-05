@@ -3,17 +3,24 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
+use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
     mock_execution_layer_from_parts, test_spec,
 };
+use beacon_chain::test_utils::{SyncCommitteeStrategy, fork_name_from_env};
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
-    data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
+    beacon_proposer_cache::{
+        compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
+    },
+    custody_context::NodeCustodyType,
+    data_availability_checker::MaybeAvailableBlock,
+    historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
 use logging::create_test_tracing_subscriber;
@@ -92,7 +99,12 @@ fn get_harness(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config, false)
+    get_harness_generic(
+        store,
+        validator_count,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    )
 }
 
 fn get_harness_import_all_data_columns(
@@ -104,14 +116,19 @@ fn get_harness_import_all_data_columns(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config, true)
+    get_harness_generic(
+        store,
+        validator_count,
+        chain_config,
+        NodeCustodyType::Supernode,
+    )
 }
 
 fn get_harness_generic(
     store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
     validator_count: usize,
     chain_config: ChainConfig,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
 ) -> TestHarness {
     let harness = TestHarness::builder(MinimalEthSpec)
         .spec(store.get_chain_spec().clone())
@@ -119,7 +136,7 @@ fn get_harness_generic(
         .fresh_disk_store(store)
         .mock_execution_layer()
         .chain_config(chain_config)
-        .import_all_data_columns(import_all_data_columns)
+        .node_custody_type(node_custody_type)
         .build();
     harness.advance_slot();
     harness
@@ -1189,6 +1206,448 @@ fn check_shuffling_compatible(
             ));
         }
     }
+}
+
+/// These tests check the consistency of:
+///
+/// - ProtoBlock::proposer_shuffling_root_for_child_block, and
+/// - BeaconState::proposer_shuffling_decision_root{_at_epoch}
+async fn proposer_shuffling_root_consistency_test(
+    spec: ChainSpec,
+    parent_slot: u64,
+    child_slot: u64,
+) {
+    let child_slot = Slot::new(child_slot);
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=parent_slot).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, parent_root, _) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+
+    // Add the child block.
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, child_root, child_block_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &[child_slot], &all_validators)
+        .await;
+
+    let child_block_epoch = child_slot.epoch(E::slots_per_epoch());
+
+    // Load parent block from fork choice.
+    let fc_parent = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&parent_root.into())
+        .unwrap();
+
+    // The proposer shuffling decision root computed using fork choice should equal the root
+    // computed from the child state.
+    let decision_root = fc_parent.proposer_shuffling_root_for_child_block(child_block_epoch, spec);
+
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root(child_root.into(), spec)
+            .unwrap()
+    );
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root_at_epoch(child_block_epoch, child_root.into(), spec)
+            .unwrap()
+    );
+
+    // The passed block root argument should be irrelevant for all blocks except the genesis block.
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root(Hash256::ZERO, spec)
+            .unwrap()
+    );
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root_at_epoch(child_block_epoch, Hash256::ZERO, spec)
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_same_epoch() {
+    let spec = test_spec::<E>();
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        5 * E::slots_per_epoch() - 1,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_next_epoch() {
+    let spec = test_spec::<E>();
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        6 * E::slots_per_epoch() - 1,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_two_epochs() {
+    let spec = test_spec::<E>();
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        7 * E::slots_per_epoch() - 1,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_at_fork_boundary() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    spec.fulu_fork_epoch = Some(Epoch::new(4));
+
+    // Parent block in epoch prior to Fulu fork epoch, child block in Fulu fork epoch.
+    proposer_shuffling_root_consistency_test(
+        spec.clone(),
+        3 * E::slots_per_epoch(),
+        4 * E::slots_per_epoch(),
+    )
+    .await;
+
+    // Parent block and child block in Fulu fork epoch.
+    proposer_shuffling_root_consistency_test(
+        spec.clone(),
+        4 * E::slots_per_epoch(),
+        4 * E::slots_per_epoch() + 1,
+    )
+    .await;
+
+    // Parent block in Fulu fork epoch and child block in epoch after.
+    proposer_shuffling_root_consistency_test(
+        spec.clone(),
+        4 * E::slots_per_epoch(),
+        5 * E::slots_per_epoch(),
+    )
+    .await;
+
+    // Parent block in epoch prior and child block in epoch after.
+    proposer_shuffling_root_consistency_test(
+        spec,
+        3 * E::slots_per_epoch(),
+        5 * E::slots_per_epoch(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_changing_with_lookahead() {
+    let initial_blocks = E::slots_per_epoch() * 4 - 1;
+
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    // Start with some blocks, finishing with one slot before a new epoch.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            initial_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let pre_deposit_state = harness.get_current_state();
+    assert_eq!(pre_deposit_state.slot(), initial_blocks);
+    let topup_block_slot = Slot::new(initial_blocks + 1);
+    let validator_to_topup_index = 1;
+    let validator_to_topup = pre_deposit_state
+        .get_validator(validator_to_topup_index)
+        .unwrap()
+        .clone();
+
+    // Craft a block with a deposit request and consolidation.
+    // XXX: This is a really nasty way to do this, but we need better test facilities in
+    // MockExecutionLayer to address this.
+    let deposit_request: DepositRequest = DepositRequest {
+        index: pre_deposit_state.eth1_deposit_index(),
+        pubkey: validator_to_topup.pubkey,
+        withdrawal_credentials: validator_to_topup.withdrawal_credentials,
+        amount: 63_000_000_000,
+        signature: SignatureBytes::empty(),
+    };
+
+    let consolidation_request: ConsolidationRequest = ConsolidationRequest {
+        source_address: validator_to_topup
+            .get_execution_withdrawal_address(spec)
+            .unwrap(),
+        source_pubkey: validator_to_topup.pubkey,
+        target_pubkey: validator_to_topup.pubkey,
+    };
+
+    let execution_requests = ExecutionRequests::<E> {
+        deposits: VariableList::new(vec![deposit_request]).unwrap(),
+        withdrawals: vec![].try_into().unwrap(),
+        consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
+    };
+
+    let mut block = Box::pin(harness.make_block_with_modifier(
+        pre_deposit_state.clone(),
+        topup_block_slot,
+        |block| *block.body_mut().execution_requests_mut().unwrap() = execution_requests,
+    ))
+    .await
+    .0;
+
+    let Err(BlockError::StateRootMismatch {
+        local: true_state_root,
+        ..
+    }) = harness
+        .process_block(topup_block_slot, block.0.canonical_root(), block.clone())
+        .await
+    else {
+        panic!("state root should not match due to pending deposits changes/etc");
+    };
+    let mut new_block = block.0.message_fulu().unwrap().clone();
+    new_block.state_root = true_state_root;
+    block.0 = Arc::new(harness.sign_beacon_block(new_block.into(), &pre_deposit_state));
+
+    harness
+        .process_block(topup_block_slot, block.0.canonical_root(), block.clone())
+        .await
+        .unwrap();
+
+    // Advance two epochs to finalize the deposit and process it.
+    // Start with just a single epoch advance so we can grab the state one epoch prior to where
+    // we end up.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Grab the epoch start state. This is the state from which the proposers at the next epoch were
+    // computed.
+    let prev_epoch_state = harness.get_current_state();
+    assert_eq!(prev_epoch_state.slot() % E::slots_per_epoch(), 0);
+
+    // The deposit should be pending.
+    let pending_deposits = prev_epoch_state.pending_deposits().unwrap();
+    assert_eq!(pending_deposits.len(), 1, "{pending_deposits:?}");
+
+    // Advance the 2nd epoch to finalize the deposit and process it.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let current_epoch_state = harness.get_current_state();
+    assert_eq!(current_epoch_state.slot() % E::slots_per_epoch(), 0);
+
+    // Deposit is processed!
+    let pending_deposits = current_epoch_state.pending_deposits().unwrap();
+    assert_eq!(pending_deposits.len(), 0, "{pending_deposits:?}");
+
+    let validator = current_epoch_state
+        .get_validator(validator_to_topup_index)
+        .unwrap();
+    assert!(validator.has_compounding_withdrawal_credential(spec));
+    assert_eq!(validator.effective_balance, 95_000_000_000);
+
+    // The shuffling for the current epoch from `prev_epoch_state` should match the shuffling
+    // for the current epoch from `current_epoch_state` because we should be correctly using the
+    // stored lookahead.
+    let current_epoch = current_epoch_state.current_epoch();
+    let proposer_shuffling = prev_epoch_state
+        .get_beacon_proposer_indices(current_epoch, spec)
+        .unwrap();
+
+    assert_eq!(
+        proposer_shuffling,
+        current_epoch_state
+            .get_beacon_proposer_indices(current_epoch, spec)
+            .unwrap()
+    );
+
+    // If we bypass the safety checks in `get_proposer_indices`, we should see that the shuffling
+    // differs due to the effective balance change.
+    let unsafe_get_proposer_indices = |state: &BeaconState<E>, epoch| -> Vec<usize> {
+        let indices = state.get_active_validator_indices(epoch, spec).unwrap();
+        let preimage = state.get_seed(epoch, Domain::BeaconProposer, spec).unwrap();
+        epoch
+            .slot_iter(E::slots_per_epoch())
+            .map(|slot| {
+                let mut preimage = preimage.to_vec();
+                preimage.append(&mut int_to_bytes::int_to_bytes8(slot.as_u64()));
+                let seed = ethereum_hashing::hash(&preimage);
+                state.compute_proposer_index(&indices, &seed, spec).unwrap()
+            })
+            .collect()
+    };
+
+    // The unsafe function is correct when used with lookahead.
+    assert_eq!(
+        unsafe_get_proposer_indices(&prev_epoch_state, current_epoch),
+        proposer_shuffling
+    );
+
+    // Computing the shuffling for current epoch without lookahead is WRONG.
+    assert_ne!(
+        unsafe_get_proposer_indices(&current_epoch_state, current_epoch),
+        proposer_shuffling,
+    );
+}
+
+#[tokio::test]
+async fn proposer_duties_from_head_fulu() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    let initial_blocks = E::slots_per_epoch() * 3;
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, head_block_root, head_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+
+    // Compute the proposer duties at the next epoch from the head
+    let next_epoch = head_state.next_epoch().unwrap();
+    let (_indices, dependent_root, legacy_dependent_root, _, fork) =
+        compute_proposer_duties_from_head(next_epoch, &harness.chain).unwrap();
+
+    assert_eq!(
+        dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(next_epoch, head_block_root.into(), spec)
+            .unwrap()
+    );
+    assert_ne!(dependent_root, legacy_dependent_root);
+    assert_eq!(legacy_dependent_root, Hash256::from(head_block_root));
+    assert_eq!(fork, head_state.fork());
+}
+
+/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead!
+#[tokio::test]
+async fn proposer_lookahead_gloas_fork_epoch() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(E::default())
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    let initial_blocks = (gloas_fork_epoch - 1)
+        .start_slot(E::slots_per_epoch())
+        .as_u64();
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, head_block_root, mut head_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+    let head_state_root = head_state.canonical_root().unwrap();
+
+    // Check that we have access to the next epoch shuffling according to
+    // `ensure_state_can_determine_proposers_for_epoch`.
+    ensure_state_can_determine_proposers_for_epoch(
+        &mut head_state,
+        head_state_root,
+        gloas_fork_epoch,
+        spec,
+    )
+    .unwrap();
+    assert_eq!(head_state.current_epoch(), gloas_fork_epoch - 1);
+
+    // Compute the proposer duties at the fork epoch from the head.
+    let (indices, dependent_root, legacy_dependent_root, _, fork) =
+        compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
+
+    assert_eq!(
+        dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                gloas_fork_epoch,
+                head_block_root.into(),
+                spec
+            )
+            .unwrap()
+    );
+    assert_ne!(dependent_root, legacy_dependent_root);
+    assert_ne!(fork, head_state.fork());
+    assert_eq!(fork, spec.fork_at_epoch(gloas_fork_epoch));
+
+    // Build a block in the Gloas fork epoch and assert that the shuffling does not change.
+    let gloas_slots = vec![gloas_fork_epoch.start_slot(E::slots_per_epoch())];
+    let (_, _, _, _) = harness
+        .add_attested_blocks_at_slots(head_state, head_state_root, &gloas_slots, &all_validators)
+        .await;
+
+    let (no_lookahead_indices, no_lookahead_dependent_root, _, _, no_lookahead_fork) =
+        compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
+
+    assert_eq!(no_lookahead_indices, indices);
+    assert_eq!(no_lookahead_dependent_root, dependent_root);
+    assert_eq!(no_lookahead_fork, fork);
 }
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB
@@ -2425,6 +2884,14 @@ async fn weak_subjectivity_sync_test(
         .rng(Box::new(StdRng::seed_from_u64(42)))
         .build()
         .expect("should build");
+    beacon_chain
+        .data_availability_checker
+        .custody_context()
+        .init_ordered_data_columns_from_custody_groups(
+            (0..spec.number_of_custody_groups).collect(),
+            &spec,
+        )
+        .unwrap();
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
@@ -2718,6 +3185,279 @@ async fn weak_subjectivity_sync_test(
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
 }
 
+// This test prunes data columns from epoch 0 and then tries to re-import them via
+// the same code paths that custody backfill sync imports data columns
+#[tokio::test]
+async fn test_import_historical_data_columns_batch() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Epoch::new(0).start_slot(E::slots_per_epoch()) + 1;
+    let end_slot = Epoch::new(0).end_slot(E::slots_per_epoch());
+    let cgc = 128;
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    // Get all data columns for epoch 0
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        for data_column in data_columns.unwrap_or_default() {
+            data_columns_list.push(data_column);
+        }
+    }
+
+    assert!(!data_columns_list.is_empty());
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    // Prune data columns
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    // Assert that data columns no longer exist for epoch 0
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    // Re-import deleted data columns
+    harness
+        .chain
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    // Assert that data columns now exist for epoch 0
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        if !harness
+            .get_block(block_root.into())
+            .unwrap()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .is_empty()
+        {
+            let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+            assert!(data_columns.is_some())
+        };
+    }
+}
+
+// This should verify that a data column sidecar containing mismatched block roots should fail to be imported.
+// This also covers any test cases related to data columns with incorrect/invalid/mismatched block roots.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_mismatched_block_root() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+    let cgc = 128;
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    // Get all data columns from start_slot to end_slot
+    // and mutate the data columns with an invalid block root
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+
+        for data_column in data_columns.unwrap_or_default() {
+            let mut data_column = (*data_column).clone();
+            if data_column.index % 2 == 0 {
+                data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            }
+
+            data_columns_list.push(Arc::new(data_column));
+        }
+    }
+    assert!(!data_columns_list.is_empty());
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    // Prune blobs
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    // Assert there are no columns between start_slot and end_slot
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    // Attempt to import data columns with invalid block roots and expect a failure
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(
+            start_slot.epoch(E::slots_per_epoch()),
+            data_columns_list,
+            cgc,
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::NoBlockFound { .. }
+    ));
+}
+
+// This should verify that a data column sidecar associated to a block root that doesn't exist in the store cannot
+// be imported.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_no_block_found() {
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = test_spec::<E>();
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+    let cgc = 128;
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+
+        for data_column in data_columns.unwrap_or_default() {
+            let mut data_column = (*data_column).clone();
+            data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            data_columns_list.push(Arc::new(data_column));
+        }
+    }
+
+    assert!(!data_columns_list.is_empty());
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::NoBlockFound { .. }
+    ));
+}
+
 /// Test that blocks and attestations that refer to states around an unaligned split state are
 /// processed correctly.
 #[tokio::test]
@@ -2728,7 +3468,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let harness = get_harness_generic(store.clone(), LOW_VALIDATOR_COUNT, chain_config, false);
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    );
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
@@ -3147,14 +3892,13 @@ async fn schema_downgrade_to_min_version(
         reconstruct_historic_states,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config.clone(),
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     harness
@@ -3288,9 +4032,10 @@ async fn deneb_prune_blobs_happy_case() {
     let store = get_store(&db_path);
 
     if store.get_chain_spec().is_peer_das_scheduled() {
-        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        // Blob pruning no longer needed since Fulu / PeerDAS
         return;
     }
+
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3339,9 +4084,10 @@ async fn deneb_prune_blobs_no_finalization() {
     let store = get_store(&db_path);
 
     if store.get_chain_spec().is_peer_das_scheduled() {
-        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        // Blob pruning no longer needed since Fulu / PeerDAS
         return;
     }
+
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3398,29 +4144,46 @@ async fn deneb_prune_blobs_no_finalization() {
 
 /// Check that blob pruning does not fail trying to prune across the fork boundary.
 #[tokio::test]
-async fn deneb_prune_blobs_fork_boundary() {
-    let deneb_fork_epoch = Epoch::new(4);
+async fn prune_blobs_across_fork_boundary() {
+    // This test covers earlier forks and only need to be executed once.
+    // Note: this test is quite expensive (building a chain to epoch 15) and we should revisit this
+    if fork_name_from_env() != Some(ForkName::latest_stable()) {
+        return;
+    }
+
     let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+
+    let deneb_fork_epoch = Epoch::new(4);
     spec.deneb_fork_epoch = Some(deneb_fork_epoch);
     let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let electra_fork_epoch = Epoch::new(8);
+    spec.electra_fork_epoch = Some(electra_fork_epoch);
+
+    let fulu_fork_epoch = Epoch::new(12);
+    spec.fulu_fork_epoch = Some(fulu_fork_epoch);
 
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness.execution_block_generator().set_min_blob_count(1);
 
-    let num_blocks = E::slots_per_epoch() * 7;
+    let blocks_to_deneb_finalization = E::slots_per_epoch() * 7;
+    let blocks_to_electra_finalization = E::slots_per_epoch() * 4;
+    let blocks_to_fulu_finalization = E::slots_per_epoch() * 4;
 
-    // Finalize to epoch 5.
+    // Extend the chain to epoch 7
+    // Finalize to epoch 5 (Deneb).
     harness
         .extend_chain(
-            num_blocks as usize,
+            blocks_to_deneb_finalization as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    // Finalization should be at epoch 5.
+    // Finalization should be at epoch 5 (Deneb).
     let finalized_epoch = Epoch::new(5);
     let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
     assert_eq!(
@@ -3459,6 +4222,116 @@ async fn deneb_prune_blobs_fork_boundary() {
     assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
+
+    // Extend the chain to epoch 11
+    // Finalize to epoch 9 (Electra)
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            blocks_to_electra_finalization as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Finalization should be at epoch 9 (Electra).
+    let finalized_epoch = Epoch::new(9);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    assert_eq!(
+        harness.get_current_state().finalized_checkpoint().epoch,
+        finalized_epoch
+    );
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All blobs since last pruning during Deneb should still be available.
+    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+
+    let electra_first_slot = electra_fork_epoch.start_slot(E::slots_per_epoch());
+    // Check that blobs exist from the pruned slot to electra
+    check_blob_existence(&harness, pruned_slot, electra_first_slot - 1, true);
+
+    // Trigger pruning on Electra
+    let pruned_slot = (electra_fork_epoch + 1).start_slot(E::slots_per_epoch());
+
+    store.try_prune_blobs(true, finalized_epoch).unwrap();
+    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(finalized_slot));
+    check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
+
+    // Check that blobs have been pruned up to the pruned slot
+    check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    // Check that blobs exist from electra to the current head
+    check_blob_existence(&harness, electra_first_slot, harness.head_slot(), true);
+
+    // Extend the chain to epoch 15
+    // Finalize to epoch 13 (Fulu)
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            blocks_to_fulu_finalization as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Finalization should be at epoch 13 (Fulu).
+    let finalized_epoch = Epoch::new(13);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    assert_eq!(
+        harness.get_current_state().finalized_checkpoint().epoch,
+        finalized_epoch
+    );
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All blobs since last pruning during Electra should still be available.
+    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+
+    let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+    // Check that blobs have been pruned up to the pruned slot
+    check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    // Check that blobs exist from the pruned slot to Fulu
+    check_blob_existence(&harness, pruned_slot, fulu_first_slot - 1, true);
+    // Check that blobs do not exist from Fulu to the current head
+    check_blob_existence(&harness, fulu_first_slot, harness.head_slot(), false);
+
+    // Attempt pruning with at different epochs. No pruning should occur for epochs
+    // preceding Fulu, as we have already triggered pruning pre-Fulu. Pruning should occur
+    // for epochs after Fulu.
+    assert!(fulu_fork_epoch < finalized_epoch);
+    for data_availability_boundary in [
+        Epoch::new(7),
+        electra_fork_epoch,
+        Epoch::new(9),
+        Epoch::new(11),
+        fulu_fork_epoch,
+        Epoch::new(15),
+    ] {
+        store
+            .try_prune_blobs(true, data_availability_boundary)
+            .unwrap();
+
+        let oldest_slot = data_availability_boundary.start_slot(E::slots_per_epoch());
+
+        if data_availability_boundary < fulu_fork_epoch {
+            // Pre Fulu fork epochs
+            // Check oldest blob slot is not updated.
+            assert!(store.get_blob_info().oldest_blob_slot >= Some(oldest_slot));
+            check_blob_existence(&harness, Slot::new(0), oldest_slot - 1, false);
+            // Blobs should exist
+            check_blob_existence(&harness, oldest_slot, harness.head_slot(), true);
+        } else {
+            // Fulu fork epochs
+            // Pruning should have been triggered
+            assert!(store.get_blob_info().oldest_blob_slot <= Some(oldest_slot));
+            // Oldest blob slot should never be greater than the first fulu slot
+            let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+            assert!(store.get_blob_info().oldest_blob_slot <= Some(fulu_first_slot));
+            // Blobs should not exist post-Fulu
+            check_blob_existence(&harness, oldest_slot, harness.head_slot(), false);
+            // Data columns should exist post-Fulu
+            check_data_column_existence(&harness, oldest_slot, harness.head_slot(), true);
+        };
+    }
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary with margin
@@ -3487,9 +4360,10 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     let store = get_store_generic(&db_path, config, test_spec::<E>());
 
     if store.get_chain_spec().is_peer_das_scheduled() {
-        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        // Blob pruning no longer needed since Fulu / PeerDAS
         return;
     }
+
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3599,6 +4473,368 @@ fn check_blob_existence(
     }
 }
 
+/// Check that blob pruning prunes data columns older than the data availability boundary.
+#[tokio::test]
+async fn fulu_prune_data_columns_happy_case() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        return;
+    }
+    let Some(fulu_fork_epoch) = store.get_chain_spec().fulu_fork_epoch else {
+        // No-op prior to Fulu.
+        return;
+    };
+    let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let num_blocks_produced = E::slots_per_epoch() * 8;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Prior to manual pruning with an artifically low data availability boundary all data columns
+    // should be stored.
+    assert_eq!(
+        store.get_data_column_info().oldest_data_column_slot,
+        Some(fulu_fork_slot)
+    );
+    check_data_column_existence(&harness, Slot::new(1), harness.head_slot(), true);
+
+    // Trigger pruning of data columns older than epoch 2.
+    let data_availability_boundary = Epoch::new(2);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest data column slot is updated accordingly and prior data columns have been
+    // deleted.
+    let oldest_data_column_slot = store
+        .get_data_column_info()
+        .oldest_data_column_slot
+        .unwrap();
+    assert_eq!(
+        oldest_data_column_slot,
+        data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    check_data_column_existence(&harness, Slot::new(0), oldest_data_column_slot - 1, false);
+    check_data_column_existence(&harness, oldest_data_column_slot, harness.head_slot(), true);
+}
+
+/// Check that blob pruning does not prune data columns without finalization.
+#[tokio::test]
+async fn fulu_prune_data_columns_no_finalization() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        return;
+    }
+    let Some(fulu_fork_epoch) = store.get_chain_spec().fulu_fork_epoch else {
+        // No-op prior to Fulu.
+        return;
+    };
+    let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let initial_num_blocks = E::slots_per_epoch() * 5;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Finalize to epoch 3.
+    harness
+        .extend_chain(
+            initial_num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Extend the chain for another few epochs without attestations.
+    let unfinalized_num_blocks = E::slots_per_epoch() * 3;
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            unfinalized_num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    // Finalization should be at epoch 3.
+    let finalized_slot = Slot::new(E::slots_per_epoch() * 3);
+    assert_eq!(harness.get_current_state().finalized_checkpoint().epoch, 3);
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All data columns should still be available.
+    assert_eq!(
+        store.get_data_column_info().oldest_data_column_slot,
+        Some(fulu_fork_slot)
+    );
+    check_data_column_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Attempt pruning of data columns older than epoch 4, which is newer than finalization.
+    let data_availability_boundary = Epoch::new(4);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest data column slot is only updated to finalization, and NOT to the DAB.
+    let oldest_data_column_slot = store
+        .get_data_column_info()
+        .oldest_data_column_slot
+        .unwrap();
+    assert_eq!(oldest_data_column_slot, finalized_slot);
+    check_data_column_existence(&harness, Slot::new(0), finalized_slot - 1, false);
+    check_data_column_existence(&harness, finalized_slot, harness.head_slot(), true);
+}
+
+/// Check that data column pruning does not fail trying to prune across the fork boundary.
+#[tokio::test]
+async fn fulu_prune_data_columns_fork_boundary() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let fulu_fork_epoch = Epoch::new(4);
+    spec.fulu_fork_epoch = Some(fulu_fork_epoch);
+    let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        panic!("PeerDAS not scheduled");
+        //return;
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let num_blocks = E::slots_per_epoch() * 7;
+
+    // Finalize to epoch 5.
+    harness
+        .extend_chain(
+            num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Finalization should be at epoch 5.
+    let finalized_epoch = Epoch::new(5);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    assert_eq!(
+        harness.get_current_state().finalized_checkpoint().epoch,
+        finalized_epoch
+    );
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All data columns should still be available.
+    assert_eq!(
+        store.get_data_column_info().oldest_data_column_slot,
+        Some(fulu_fork_slot)
+    );
+    check_data_column_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Attempt pruning with data availability epochs that precede the fork epoch.
+    // No pruning should occur.
+    assert!(fulu_fork_epoch < finalized_epoch);
+    for data_availability_boundary in [Epoch::new(0), Epoch::new(3), fulu_fork_epoch] {
+        store
+            .try_prune_blobs(true, data_availability_boundary)
+            .unwrap();
+
+        // Check oldest data column slot is not updated.
+        assert_eq!(
+            store.get_data_column_info().oldest_data_column_slot,
+            Some(fulu_fork_slot)
+        );
+    }
+    // All data columns should still be available.
+    check_data_column_existence(&harness, Slot::new(0), harness.head_slot(), true);
+
+    // Prune one epoch past the fork.
+    let pruned_slot = (fulu_fork_epoch + 1).start_slot(E::slots_per_epoch());
+    store.try_prune_blobs(true, fulu_fork_epoch + 1).unwrap();
+    assert_eq!(
+        store.get_data_column_info().oldest_data_column_slot,
+        Some(pruned_slot)
+    );
+    check_data_column_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    check_data_column_existence(&harness, pruned_slot, harness.head_slot(), true);
+}
+
+#[tokio::test]
+async fn test_column_da_boundary() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let fulu_fork_epoch = Epoch::new(4);
+    spec.fulu_fork_epoch = Some(fulu_fork_epoch);
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        panic!("PeerDAS not scheduled");
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // The column da boundary should be the fulu fork epoch
+    assert_eq!(
+        harness.chain.column_data_availability_boundary(),
+        Some(fulu_fork_epoch)
+    );
+}
+
+#[tokio::test]
+async fn test_earliest_custodied_data_column_epoch() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let custody_info_epoch = Epoch::new(4);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        panic!("PeerDAS not scheduled");
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // earliest custody info is set to the last slot in `custody_info_epoch`
+    harness
+        .chain
+        .update_data_column_custody_info(Some(custody_info_epoch.end_slot(E::slots_per_epoch())));
+
+    // earliest custodied data column epoch should be `custody_info_epoch` + 1
+    assert_eq!(
+        harness.chain.earliest_custodied_data_column_epoch(),
+        Some(custody_info_epoch + 1)
+    );
+
+    // earliest custody info is set to the first slot in `custody_info_epoch`
+    harness
+        .chain
+        .update_data_column_custody_info(Some(custody_info_epoch.start_slot(E::slots_per_epoch())));
+
+    // earliest custodied data column epoch should be `custody_info_epoch`
+    assert_eq!(
+        harness.chain.earliest_custodied_data_column_epoch(),
+        Some(custody_info_epoch)
+    );
+}
+
+/// Check that blob pruning prunes data columns older than the data availability boundary with
+/// margin applied.
+#[tokio::test]
+async fn fulu_prune_data_columns_margin1() {
+    fulu_prune_data_columns_margin_test(1).await;
+}
+
+#[tokio::test]
+async fn fulu_prune_data_columns_margin3() {
+    fulu_prune_data_columns_margin_test(3).await;
+}
+
+#[tokio::test]
+async fn fulu_prune_data_columns_margin4() {
+    fulu_prune_data_columns_margin_test(4).await;
+}
+
+async fn fulu_prune_data_columns_margin_test(margin: u64) {
+    let config = StoreConfig {
+        blob_prune_margin_epochs: margin,
+        ..StoreConfig::default()
+    };
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, config, test_spec::<E>());
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        return;
+    }
+    let Some(fulu_fork_epoch) = store.get_chain_spec().fulu_fork_epoch else {
+        // No-op prior to Fulu.
+        return;
+    };
+    let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let num_blocks_produced = E::slots_per_epoch() * 8;
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Prior to manual pruning with an artifically low data availability boundary all blobs should
+    // be stored.
+    assert_eq!(
+        store.get_data_column_info().oldest_data_column_slot,
+        Some(fulu_fork_slot)
+    );
+    check_data_column_existence(&harness, Slot::new(1), harness.head_slot(), true);
+
+    // Trigger blob pruning of blobs older than epoch 6 - margin (6 is the minimum, due to
+    // finalization).
+    let data_availability_boundary = Epoch::new(6);
+    let effective_data_availability_boundary =
+        data_availability_boundary - store.get_config().blob_prune_margin_epochs;
+    assert!(
+        effective_data_availability_boundary > 0,
+        "must be > 0 because epoch 0 won't get pruned alone"
+    );
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
+    let oldest_data_column_slot = store
+        .get_data_column_info()
+        .oldest_data_column_slot
+        .unwrap();
+    assert_eq!(
+        oldest_data_column_slot,
+        effective_data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    check_data_column_existence(&harness, Slot::new(0), oldest_data_column_slot - 1, false);
+    check_data_column_existence(&harness, oldest_data_column_slot, harness.head_slot(), true);
+}
+
+/// Check that there are data column sidecars (or not) at every slot in the range.
+fn check_data_column_existence(
+    harness: &TestHarness,
+    start_slot: Slot,
+    end_slot: Slot,
+    should_exist: bool,
+) {
+    let mut columns_seen = 0;
+    for (block_root, slot) in harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        if let Some(columns) = harness.chain.store.get_data_columns(&block_root).unwrap() {
+            assert!(should_exist, "columns at slot {slot} exist but should not");
+            columns_seen += columns.len();
+        } else {
+            // We don't actually store empty columns, so unfortunately we can't assert anything
+            // meaningful here (like asserting that the column should not exist).
+        }
+    }
+    if should_exist {
+        assert_ne!(columns_seen, 0, "expected non-zero number of columns");
+    }
+}
+
 #[tokio::test]
 async fn prune_historic_states() {
     let num_blocks_produced = E::slots_per_epoch() * 5;
@@ -3685,14 +4921,13 @@ async fn ancestor_state_root_prior_to_split() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config, spec);
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we have passed through two full snapshot periods. This period length is
@@ -3779,14 +5014,13 @@ async fn replay_from_split_state() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we finalize epoch 3 which will not be stored as a snapshot.
@@ -3825,6 +5059,248 @@ async fn replay_from_split_state() {
         .unwrap()
         .expect("split state should be present");
     assert_eq!(state.slot(), split.slot);
+}
+
+/// Test that regular nodes filter and store only custody columns when processing blocks with data columns.
+#[tokio::test]
+async fn test_custody_column_filtering_regular_node() {
+    // Skip test if PeerDAS is not scheduled
+    if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Generate a block with data columns
+    harness.execution_block_generator().set_min_blob_count(1);
+    let current_slot = harness.get_current_slot();
+    let block_root = harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Get custody columns for this epoch - regular nodes only store a subset
+    let expected_custody_columns: HashSet<_> = harness
+        .chain
+        .custody_columns_for_epoch(Some(current_slot.epoch(E::slots_per_epoch())))
+        .iter()
+        .copied()
+        .collect();
+
+    // Check what actually got stored in the database
+    let stored_column_indices: HashSet<_> = store
+        .get_data_column_keys(block_root)
+        .expect("should get stored column keys")
+        .into_iter()
+        .collect();
+
+    assert_eq!(
+        stored_column_indices, expected_custody_columns,
+        "Regular node should only store custody columns"
+    );
+}
+
+/// Test that supernodes store all data columns when processing blocks with data columns.
+#[tokio::test]
+async fn test_custody_column_filtering_supernode() {
+    // Skip test if PeerDAS is not scheduled
+    if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Generate a block with data columns
+    harness.execution_block_generator().set_min_blob_count(1);
+    let block_root = harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Supernodes are expected to store all data columns
+    let expected_custody_columns: HashSet<_> = (0..E::number_of_columns() as u64).collect();
+
+    // Check what actually got stored in the database
+    let stored_column_indices: HashSet<_> = store
+        .get_data_column_keys(block_root)
+        .expect("should get stored column keys")
+        .into_iter()
+        .collect();
+
+    assert_eq!(
+        stored_column_indices, expected_custody_columns,
+        "Supernode should store all custody columns"
+    );
+}
+
+#[tokio::test]
+async fn test_missing_columns_after_cgc_change() {
+    let spec = test_spec::<E>();
+
+    let num_validators = 8;
+
+    let num_epochs_before_increase = 4;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone().into())
+        .deterministic_keypairs(num_validators)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let state = harness.chain.head_beacon_state_cloned();
+
+    if !state.fork_name_unchecked().fulu_enabled() {
+        return;
+    }
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * num_epochs_before_increase) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let epoch_before_increase = Epoch::new(num_epochs_before_increase);
+
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_before_increase);
+
+    // We should have no missing columns
+    assert_eq!(missing_columns.len(), 0);
+
+    let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
+
+    let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
+    custody_context.register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot, &spec);
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 5) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // We should have missing columns from before the cgc increase
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_before_increase);
+
+    assert!(!missing_columns.is_empty());
+
+    // We should have no missing columns after the cgc increase
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_after_increase);
+
+    assert!(missing_columns.is_empty());
+}
+
+#[tokio::test]
+async fn test_safely_backfill_data_column_custody_info() {
+    let spec = test_spec::<E>();
+
+    let num_validators = 8;
+
+    let start_epochs = 4;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone().into())
+        .deterministic_keypairs(num_validators)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let state = harness.chain.head_beacon_state_cloned();
+
+    if !state.fork_name_unchecked().fulu_enabled() {
+        return;
+    }
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * start_epochs) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let epoch_before_increase = Epoch::new(start_epochs);
+    let effective_delay_slots =
+        CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / harness.chain.spec.seconds_per_slot;
+
+    let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
+
+    custody_context.register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot, &spec);
+
+    let epoch_after_increase =
+        (cgc_change_slot + effective_delay_slots).epoch(E::slots_per_epoch());
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 5) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let head_slot = harness.chain.head().snapshot.beacon_block.slot();
+
+    harness
+        .chain
+        .update_data_column_custody_info(Some(head_slot));
+
+    // We can only safely update custody column info 1 epoch at a time
+    // Skipping an epoch should return an error
+    harness
+        .chain
+        .safely_backfill_data_column_custody_info(head_slot.epoch(E::slots_per_epoch()) - 2)
+        .unwrap_err();
+
+    // Iterate from the head epoch back to 0 and try to backfill data column custody info
+    for epoch in (0..head_slot.epoch(E::slots_per_epoch()).into()).rev() {
+        // This is an epoch before the cgc change took into effect, we shouldnt be able to update
+        // without performing custody backfill sync
+        if epoch <= epoch_after_increase.into() {
+            harness
+                .chain
+                .safely_backfill_data_column_custody_info(Epoch::new(epoch))
+                .unwrap_err();
+        } else {
+            // This is an epoch after the cgc change took into effect, we should be able to update
+            // as long as we iterate epoch by epoch
+            harness
+                .chain
+                .safely_backfill_data_column_custody_info(Epoch::new(epoch))
+                .unwrap();
+            let earliest_available_epoch = harness
+                .chain
+                .earliest_custodied_data_column_epoch()
+                .unwrap();
+            assert_eq!(Epoch::new(epoch), earliest_available_epoch);
+        }
+    }
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.

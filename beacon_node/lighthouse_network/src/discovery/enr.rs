@@ -159,7 +159,7 @@ pub fn build_or_load_enr<E: EthSpec>(
     local_key: Keypair,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
-    custody_group_count: Option<u64>,
+    custody_group_count: u64,
     next_fork_digest: [u8; 4],
     spec: &ChainSpec,
 ) -> Result<Enr, String> {
@@ -185,7 +185,7 @@ pub fn build_enr<E: EthSpec>(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
-    custody_group_count: Option<u64>,
+    custody_group_count: u64,
     next_fork_digest: [u8; 4],
     spec: &ChainSpec,
 ) -> Result<Enr, String> {
@@ -280,15 +280,6 @@ pub fn build_enr<E: EthSpec>(
 
     // only set `cgc` and `nfd` if PeerDAS fork (Fulu) epoch has been scheduled
     if spec.is_peer_das_scheduled() {
-        let custody_group_count = if let Some(cgc) = custody_group_count {
-            cgc
-        } else if let Some(false_cgc) = config.advertise_false_custody_group_count {
-            false_cgc
-        } else if config.subscribe_all_data_column_subnets {
-            spec.number_of_custody_groups
-        } else {
-            spec.custody_requirement
-        };
         builder.add_value(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY, &custody_group_count);
         builder.add_value(NEXT_FORK_DIGEST_ENR_KEY, &next_fork_digest);
     }
@@ -373,7 +364,7 @@ mod test {
 
     fn build_enr_with_config(
         config: NetworkConfig,
-        cgc: Option<u64>,
+        cgc: u64,
         spec: &ChainSpec,
     ) -> (Enr, CombinedKey) {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
@@ -386,56 +377,23 @@ mod test {
     #[test]
     fn test_nfd_enr_encoding() {
         let spec = make_fulu_spec();
-        let enr = build_enr_with_config(NetworkConfig::default(), None, &spec).0;
+        let enr =
+            build_enr_with_config(NetworkConfig::default(), spec.custody_requirement, &spec).0;
         assert_eq!(enr.next_fork_digest().unwrap(), TEST_NFD);
     }
 
     #[test]
-    fn custody_group_count_default() {
-        let config = NetworkConfig {
-            subscribe_all_data_column_subnets: false,
-            ..NetworkConfig::default()
-        };
-        let spec = make_fulu_spec();
-
-        let enr = build_enr_with_config(config, None, &spec).0;
-
-        assert_eq!(
-            enr.custody_group_count::<E>(&spec).unwrap(),
-            spec.custody_requirement,
-        );
-    }
-
-    #[test]
-    fn custody_group_count_all() {
-        let config = NetworkConfig {
-            subscribe_all_data_column_subnets: true,
-            ..NetworkConfig::default()
-        };
-        let spec = make_fulu_spec();
-        let enr = build_enr_with_config(config, None, &spec).0;
-
-        assert_eq!(
-            enr.custody_group_count::<E>(&spec).unwrap(),
-            spec.number_of_custody_groups,
-        );
-    }
-
-    #[test]
     fn custody_group_value() {
-        let config = NetworkConfig {
-            subscribe_all_data_column_subnets: true,
-            ..NetworkConfig::default()
-        };
+        let config = NetworkConfig::default();
         let spec = make_fulu_spec();
-        let enr = build_enr_with_config(config, Some(42), &spec).0;
+        let enr = build_enr_with_config(config, 42, &spec).0;
 
         assert_eq!(enr.custody_group_count::<E>(&spec).unwrap(), 42);
     }
 
     #[test]
     fn test_encode_decode_eth2_enr() {
-        let (enr, _key) = build_enr_with_config(NetworkConfig::default(), None, &E::default_spec());
+        let (enr, _key) = build_enr_with_config(NetworkConfig::default(), 4, &E::default_spec());
         // Check all Eth2 Mappings are decodeable
         enr.eth2().unwrap();
         enr.attestation_bitfield::<MainnetEthSpec>().unwrap();

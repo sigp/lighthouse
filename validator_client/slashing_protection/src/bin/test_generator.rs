@@ -1,7 +1,5 @@
+use eip_3076::{Interchange, InterchangeData, InterchangeMetadata, SignedAttestation, SignedBlock};
 use slashing_protection::SUPPORTED_INTERCHANGE_FORMAT_VERSION;
-use slashing_protection::interchange::{
-    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation, SignedBlock,
-};
 use slashing_protection::interchange_test::{MultiTestCase, TestCase};
 use slashing_protection::test_utils::{DEFAULT_GENESIS_VALIDATORS_ROOT, pubkey};
 use std::fs::{self, File};

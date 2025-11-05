@@ -17,7 +17,6 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, StoreConfig},
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
-use beacon_processor::rayon_manager::RayonManager;
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
@@ -203,7 +202,7 @@ where
             .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
+            .node_custody_type(config.chain.node_custody_type)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
@@ -413,7 +412,7 @@ where
                 let blobs = if block.message().body().has_blobs() {
                     debug!("Downloading finalized blobs");
                     if let Some(response) = remote
-                        .get_blobs::<E>(BlockId::Root(block_root), None, &spec)
+                        .get_blob_sidecars::<E>(BlockId::Root(block_root), None, &spec)
                         .await
                         .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
                     {
@@ -681,7 +680,6 @@ where
                     executor: beacon_processor_context.executor.clone(),
                     current_workers: 0,
                     config: beacon_processor_config,
-                    rayon_manager: RayonManager::default(),
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,

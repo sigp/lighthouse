@@ -70,13 +70,15 @@ pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
 
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
-    VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
+    VariableList::<u8, MaxErrorLen>::try_from(Vec::<u8>::new())
+        .expect("MaxErrorLen should not exceed MAX_ERROR_LEN")
         .as_ssz_bytes()
         .len()
 });
 
 pub static ERROR_TYPE_MAX: LazyLock<usize> = LazyLock::new(|| {
-    VariableList::<u8, MaxErrorLen>::from(vec![0u8; MAX_ERROR_LEN as usize])
+    VariableList::<u8, MaxErrorLen>::try_from(vec![0u8; MAX_ERROR_LEN as usize])
+        .expect("MaxErrorLen should not exceed MAX_ERROR_LEN")
         .as_ssz_bytes()
         .len()
 });
