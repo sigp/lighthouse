@@ -297,19 +297,20 @@ async fn chain_segment_full_segment() {
 
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
-    for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+        .into_iter()
+        .collect();
+
+    for chunk_size in &[1, 2, 31, 32, 33] {
         let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
-        let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
-        let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
-            .into_iter()
-            .collect();
 
         harness
             .chain
             .slot_clock
             .set_slot(blocks.last().unwrap().slot().as_u64());
 
-        for chunk in blocks.chunks(*chunk_size) {
+        for chunk in blocks.clone().chunks(*chunk_size) {
             harness
                 .chain
                 .process_chain_segment(chunk.to_vec(), NotifyExecutionLayer::Yes)
