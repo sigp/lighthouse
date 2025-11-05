@@ -31,13 +31,13 @@ fn main() {
 
 fn test_geth() {
     let test_dir = build_utils::prepare_dir();
-    geth::build(&test_dir);
+    geth::download_or_build(&test_dir);
     TestRig::new(GethEngine, true).perform_tests_blocking();
     geth::clean(&test_dir);
 }
 
 fn test_nethermind() {
     let test_dir = build_utils::prepare_dir();
-    nethermind::build(&test_dir);
+    nethermind::download_or_build(&test_dir);
     TestRig::new(NethermindEngine, false).perform_tests_blocking();
 }

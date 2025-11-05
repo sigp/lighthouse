@@ -35,7 +35,7 @@ pub fn build(execution_clients_dir: &Path) {
 
     // Get the latest tag
     let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
-    build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
+    build_utils::checkout(&repo_dir, &last_release).unwrap();
 
     // Build nethermind
     build_utils::check_command_output(build_result(&repo_dir), || {
@@ -52,6 +52,81 @@ pub fn build(execution_clients_dir: &Path) {
     let tests_dir = execution_clients_dir.join("nethermind/src/tests");
     if let Err(e) = fs::remove_dir_all(tests_dir) {
         eprintln!("Error while deleting folder: {}", e);
+    }
+}
+
+fn try_download_binary(execution_clients_dir: &Path) -> Result<(), String> {
+    let (os, arch) = build_utils::get_platform_arch()?;
+
+    let platform = match (os, arch) {
+        ("linux", "amd64") => "linux-x64",
+        ("linux", "arm64") => "linux-arm64",
+        _ => {
+            return Err(format!(
+                "Pre-built Nethermind binaries not available for {os}-{arch}"
+            ));
+        }
+    };
+
+    let nethermind_binary = NethermindEngine::binary_path();
+    let nethermind_dir = nethermind_binary.parent().unwrap();
+    fs::create_dir_all(nethermind_dir).map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    println!("Downloading latest Nethermind binary for {platform}");
+
+    let asset_pattern = format!("{}.zip", platform);
+    let archive_path = execution_clients_dir.join("nethermind-latest.zip");
+    build_utils::download_github_release_asset(
+        "NethermindEth",
+        "nethermind",
+        &asset_pattern,
+        &archive_path,
+    )?;
+
+    let temp_extract_dir = execution_clients_dir.join("nethermind-temp");
+    let _ = fs::remove_dir_all(&temp_extract_dir);
+    fs::create_dir_all(&temp_extract_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+    build_utils::extract_zip(&archive_path, &temp_extract_dir)?;
+
+    let extracted_binary = temp_extract_dir.join("nethermind");
+    if !extracted_binary.exists() {
+        return Err(format!(
+            "Nethermind binary not found in extracted archive at {}",
+            extracted_binary.display()
+        ));
+    }
+
+    fs::copy(&extracted_binary, &nethermind_binary)
+        .map_err(|e| format!("Failed to copy nethermind binary: {}", e))?;
+    build_utils::make_executable(&nethermind_binary)?;
+
+    fs::remove_file(&archive_path).unwrap_or_default();
+    fs::remove_dir_all(&temp_extract_dir).unwrap_or_default();
+
+    println!("Nethermind downloaded and installed successfully");
+
+    Ok(())
+}
+
+pub fn download_or_build(execution_clients_dir: &Path) {
+    let nethermind_binary = NethermindEngine::binary_path();
+    if nethermind_binary.exists() {
+        println!("Nethermind binary already exists, skipping");
+        return;
+    }
+
+    println!("Attempting to download Nethermind binary...");
+
+    if let Err(e) = try_download_binary(execution_clients_dir) {
+        println!("Failed to download Nethermind binary: {}", e);
+        println!("Falling back to building from source...");
+
+        // Clean up any partial download directories that might conflict with git clone
+        let nethermind_dir = nethermind_binary.parent().unwrap();
+        let _ = fs::remove_dir_all(nethermind_dir);
+
+        build(execution_clients_dir);
     }
 }
 
