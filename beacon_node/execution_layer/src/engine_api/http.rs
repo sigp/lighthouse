@@ -652,7 +652,7 @@ impl HttpJsonRpc {
 
         let mut request = self
             .client
-            .post(self.url.full.clone())
+            .post(self.url.expose_full().clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
             .json(&body);
