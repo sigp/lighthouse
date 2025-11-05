@@ -100,7 +100,7 @@ jobs:
 
   doppelganger-protection-success-test:
     needs: dockerfile-ubuntu
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -136,7 +136,7 @@ jobs:
 
   doppelganger-protection-failure-test:
     needs: dockerfile-ubuntu
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
