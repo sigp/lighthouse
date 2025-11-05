@@ -564,9 +564,15 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
     }
     let pubsub_messages = data_column_sidecars
         .into_iter()
-        .map(|data_col| {
+        .flat_map(|data_col| {
             let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
-            PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col)))
+            [
+                PubsubMessage::PartialDataColumnSidecar(Box::new((
+                    subnet,
+                    (*data_col).clone().into_partial().column.into(),
+                ))),
+                PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
+            ]
         })
         .collect::<Vec<_>>();
     crate::publish_pubsub_messages(sender_clone, pubsub_messages)
