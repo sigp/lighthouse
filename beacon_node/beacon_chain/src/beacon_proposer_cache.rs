@@ -166,10 +166,17 @@ impl BeaconProposerCache {
 }
 
 /// Compute the proposer duties using the head state without cache.
+///
+/// Return:
+/// - Proposer indices.
+/// - True dependent root.
+/// - Legacy dependent root (last block of epoch `N - 1`).
+/// - Head execution status.
+/// - Fork at `request_epoch`.
 pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<(Vec<usize>, Hash256, ExecutionStatus, Fork), BeaconChainError> {
+) -> Result<(Vec<usize>, Hash256, Hash256, ExecutionStatus, Fork), BeaconChainError> {
     // Atomically collect information about the head whilst holding the canonical head `Arc` as
     // short as possible.
     let (mut state, head_state_root, head_block_root) = {
@@ -203,11 +210,23 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root, &chain.spec)
         .map_err(BeaconChainError::from)?;
 
+    // This is only required because the V1 proposer duties endpoint spec wasn't updated for Fulu. We
+    // can delete this once the V1 endpoint is deprecated at the Glamsterdam fork.
+    let legacy_dependent_root = state
+        .legacy_proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root)
+        .map_err(BeaconChainError::from)?;
+
     // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have advanced
     // the state completely into the new epoch.
     let fork = chain.spec.fork_at_epoch(request_epoch);
 
-    Ok((indices, dependent_root, execution_status, fork))
+    Ok((
+        indices,
+        dependent_root,
+        legacy_dependent_root,
+        execution_status,
+        fork,
+    ))
 }
 
 /// If required, advance `state` to the epoch required to determine proposer indices in `target_epoch`.
