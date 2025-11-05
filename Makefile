@@ -99,9 +99,6 @@ LOCALE_VAL = C
 # Set UTC timezone for consistent time handling across builds
 TZ_VAL = UTC
 
-# Default features for lighthouse
-FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc
-
 # Default profile 
 PROFILE ?= release
 
@@ -119,7 +116,7 @@ build-reproducible: ## Build the lighthouse binary into `target` directory with 
 	CARGO_INCREMENTAL=${CARGO_INCREMENTAL_VAL} \
 	LC_ALL=${LOCALE_VAL} \
 	TZ=${TZ_VAL} \
-	cargo build --bin lighthouse --features "$(FEATURES)" --profile "$(PROFILE)" --locked --target $(RUST_TARGET)
+	cargo build --bin lighthouse --features "$(CROSS_FEATURES)" --profile "$(PROFILE)" --locked --target $(RUST_TARGET)
 
 .PHONY: build-reproducible-x86_64
 build-reproducible-x86_64: ## Build reproducible x86_64 Docker image

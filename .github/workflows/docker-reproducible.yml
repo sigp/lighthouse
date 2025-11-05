@@ -1,4 +1,4 @@
-name: release-reproducible
+name: docker-reproducible
 
 on:
   push:
@@ -21,7 +21,7 @@ env:
 jobs:
   extract-version:
     name: extract version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Extract version
         run: >-
@@ -42,13 +42,13 @@ jobs:
             rust_image: >-
               rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
           - arch: arm64
             rust_target: aarch64-unknown-linux-gnu
             rust_image: >-
               rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
 
       - name: Verify reproducible builds (${{ matrix.arch }})
         run: |
-          echo "🔄 Verifying reproducible builds for ${{ matrix.arch }}..."
+          echo "Verifying reproducible builds for ${{ matrix.arch }}..."
 
           # Build first image
           echo "=== Building first verification image ==="
@@ -98,10 +98,10 @@ jobs:
           echo "Build 2 SHA256: $(sha256sum lighthouse-2-${{ matrix.arch }})"
 
           if cmp lighthouse-1-${{ matrix.arch }} lighthouse-2-${{ matrix.arch }}; then
-            echo "✅ Reproducible build verified for ${{ matrix.arch }}"
+            echo "Reproducible build verified for ${{ matrix.arch }}"
           else
-            echo "❌ Reproducible build FAILED for ${{ matrix.arch }}"
-            echo "🚨 BLOCKING RELEASE: Builds are not reproducible!"
+            echo "Reproducible build FAILED for ${{ matrix.arch }}"
+            echo "BLOCKING RELEASE: Builds are not reproducible!"
             echo "First 10 differences:"
             cmp -l lighthouse-1-${{ matrix.arch }} lighthouse-2-${{ matrix.arch }} | head -10
             exit 1
@@ -116,7 +116,7 @@ jobs:
           FINAL_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
           docker tag lighthouse-verify-2-${{ matrix.arch }} "$FINAL_TAG"
 
-          echo "✅ Image ready for publishing: $FINAL_TAG"
+          echo "Image ready for publishing: $FINAL_TAG"
 
       - name: Log in to Docker Hub
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -131,9 +131,9 @@ jobs:
           VERSION=${{ needs.extract-version.outputs.VERSION }}
           IMAGE_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
 
-          echo "📤 Pushing verified reproducible image: $IMAGE_TAG"
+          echo "Pushing verified reproducible image: $IMAGE_TAG"
           docker push "$IMAGE_TAG"
-          echo "✅ Successfully pushed $IMAGE_TAG"
+          echo "Successfully pushed $IMAGE_TAG"
 
       - name: Clean up local images
         run: |
@@ -151,7 +151,7 @@ jobs:
 
   create-manifest:
     name: create multi-arch manifest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [extract-version, verify-and-build]
     if: ${{ github.event.inputs.dry_run != 'true' }}
     steps:
@@ -166,7 +166,7 @@ jobs:
           IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
           VERSION=${{ needs.extract-version.outputs.VERSION }}
 
-          echo "🔗 Creating multi-arch manifest for $IMAGE_NAME:$VERSION"
+          echo "Creating multi-arch manifest for $IMAGE_NAME:$VERSION"
 
           # Create manifest for version tag
           docker manifest create \
@@ -184,13 +184,13 @@ jobs:
 
           docker manifest push ${IMAGE_NAME}:latest
 
-          echo "✅ Multi-arch manifests published:"
+          echo "Multi-arch manifests published:"
           echo "  - ${IMAGE_NAME}:${VERSION}"
           echo "  - ${IMAGE_NAME}:latest"
 
   release-summary:
     name: release summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [extract-version, verify-and-build, create-manifest]
     if: always()
     steps:
@@ -199,55 +199,55 @@ jobs:
           VERSION=${{ needs.extract-version.outputs.VERSION }}
           IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
 
-          echo "## 🚀 Reproducible Release Summary for ${VERSION}"
+          echo "## Reproducible Release Summary for ${VERSION}"
           echo ""
 
           if [[ "${{ needs.verify-and-build.result }}" == "success" ]]; then
-            echo "✅ **Reproducibility Verification & Build**: SUCCESS"
+            echo "**Reproducibility Verification & Build**: SUCCESS"
             echo "- All architectures produce identical binaries"
             echo "- Images built and ready for publishing"
           else
-            echo "❌ **Reproducibility Verification & Build**: FAILED"
+            echo "**Reproducibility Verification & Build**: FAILED"
             echo "- Builds are not reproducible OR build failed"
             echo "- Release was blocked"
           fi
 
           echo ""
           if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
-            echo "🧪 **Mode**: DRY RUN"
+            echo "**Mode**: DRY RUN"
             echo "- Images were built and verified but NOT pushed"
             echo "- Ready for real release"
           elif [[ "${{ needs.create-manifest.result }}" == "success" ]]; then
-            echo "✅ **Publication**: SUCCESS"
+            echo "**Publication**: SUCCESS"
             echo "- Images published to Docker Hub"
             echo "- Multi-arch manifests created"
             echo ""
-            echo "### 📦 Published Images"
+            echo "### Published Images"
             echo "- \`${IMAGE_NAME}:${VERSION}\`"
             echo "- \`${IMAGE_NAME}:latest\`"
             echo ""
-            echo "### 🏗️ Architectures"
+            echo "### Architectures"
             echo "- linux/amd64 (\`${IMAGE_NAME}:${VERSION}-amd64\`)"
             echo "- linux/arm64 (\`${IMAGE_NAME}:${VERSION}-arm64\`)"
           else
-            echo "❌ **Publication**: FAILED"
+            echo "**Publication**: FAILED"
             echo "- Images were verified but failed to publish"
           fi
 
           echo ""
           if [[ "${{ needs.verify-and-build.result }}" == "success" ]] && [[ "${{ needs.create-manifest.result }}" == "success" ]] && [[ "${{ github.event.inputs.dry_run }}" != "true" ]]; then
-            echo "🎉 **Overall**: Secure release completed successfully!"
+            echo "**Overall**: Secure release completed successfully!"
             echo ""
-            echo "### 🔒 Security Guarantees"
-            echo "- ✅ Reproducible builds verified"
-            echo "- ✅ Identical binaries across architectures"
-            echo "- ✅ No build artifacts tampering"
-            echo "- ✅ Deterministic build process"
+            echo "### Security Guarantees"
+            echo "- Reproducible builds verified"
+            echo "- Identical binaries across architectures"
+            echo "- No build artifacts tampering"
+            echo "- Deterministic build process"
           elif [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
-            echo "🧪 **Overall**: Dry run completed successfully!"
-            echo "- Reproducibility verified ✅"
-            echo "- Ready for real release ✅"
+            echo " **Overall**: Dry run completed successfully!"
+            echo "- Reproducibility verified"
+            echo "- Ready for real release"
           else
-            echo "🚨 **Overall**: Release failed or incomplete"
+            echo "**Overall**: Release failed or incomplete"
             echo "- Check logs above for details"
           fi

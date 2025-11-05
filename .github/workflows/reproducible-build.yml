@@ -16,7 +16,7 @@ on:
 jobs:
   build-x86_64:
     name: test reproducible builds (x86_64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     # Run on schedule, workflow_dispatch, or PRs with the 'test-reproducible' label
     if: >
       github.event_name == 'schedule' ||
@@ -96,10 +96,10 @@ jobs:
 
           echo "=== Binary comparison ==="
           if cmp lighthouse-build-1 lighthouse-build-2; then
-            echo "✅ SUCCESS: Docker-built binaries are identical!"
-            echo "✅ Reproducible Docker build PASSED for x86_64"
+            echo "SUCCESS: Docker-built binaries are identical!"
+            echo "Reproducible Docker build PASSED for x86_64"
           else
-            echo "❌ FAILED: Docker-built binaries differ"
+            echo "FAILED: Docker-built binaries differ"
             echo "First 10 differences:"
             cmp -l lighthouse-build-1 lighthouse-build-2 | head -10
             exit 1
@@ -107,7 +107,7 @@ jobs:
 
   build-aarch64:
     name: test reproducible builds (aarch64)
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-22.04-arm
     # Run on schedule, workflow_dispatch, or PRs with the 'test-reproducible' label
     if: >
       github.event_name == 'schedule' ||
@@ -184,62 +184,11 @@ jobs:
 
           echo "=== Binary comparison ==="
           if cmp lighthouse-build-1-arm64 lighthouse-build-2-arm64; then
-            echo "✅ SUCCESS: Docker-built binaries are identical!"
-            echo "✅ Reproducible Docker build PASSED for aarch64"
+            echo "SUCCESS: Docker-built binaries are identical!"
+            echo "Reproducible Docker build PASSED for aarch64"
           else
-            echo "❌ FAILED: Docker-built binaries differ"
+            echo "FAILED: Docker-built binaries differ"
             echo "First 10 differences:"
             cmp -l lighthouse-build-1-arm64 lighthouse-build-2-arm64 | head -10
-            exit 1
-          fi
-
-  summary:
-    name: reproducible build summary
-    runs-on: ubuntu-latest
-    needs: [build-x86_64, build-aarch64]
-    if: always()
-    steps:
-      - name: Report results
-        run: |
-          echo "## 🔄 Reproducible Build Test Results"
-          echo ""
-
-          # Show trigger reason
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            echo "**Trigger**: Scheduled check (every 2 days)"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "**Trigger**: Manual run"
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "**Trigger**: PR with 'test-reproducible' label"
-          fi
-          echo ""
-
-          if [[ "${{ needs.build-x86_64.result }}" == "success" ]]; then
-            echo "✅ **x86_64**: Reproducible builds PASSED"
-          elif [[ "${{ needs.build-x86_64.result }}" == "skipped" ]]; then
-            echo "⏭️ **x86_64**: Skipped (no label or wrong trigger)"
-          else
-            echo "❌ **x86_64**: Reproducible builds FAILED"
-          fi
-
-          if [[ "${{ needs.build-aarch64.result }}" == "success" ]]; then
-            echo "✅ **aarch64**: Reproducible builds PASSED"
-          elif [[ "${{ needs.build-aarch64.result }}" == "skipped" ]]; then
-            echo "⏭️ **aarch64**: Skipped (no label or wrong trigger)"
-          else
-            echo "❌ **aarch64**: Reproducible builds FAILED"
-          fi
-
-          echo ""
-          if [[ "${{ needs.build-x86_64.result }}" == "success" ]] \
-            && [[ "${{ needs.build-aarch64.result }}" == "success" ]]; then
-            echo "🎉 **Overall**: All reproducible builds are working correctly!"
-            echo "Docker containers are reproducible."
-          elif [[ "${{ needs.build-x86_64.result }}" == "skipped" ]] \
-            && [[ "${{ needs.build-aarch64.result }}" == "skipped" ]]; then
-            echo "⏭️ **Overall**: Tests were skipped (add 'test-reproducible' label to run on PRs)"
-          else
-            echo "⚠️ **Overall**: Some reproducible builds failed"
-            echo "Check the logs above for details"
             exit 1
           fi
