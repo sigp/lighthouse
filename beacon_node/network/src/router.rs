@@ -385,12 +385,12 @@ impl<T: BeaconChainTypes> Router<T> {
                 )
             }
             PubsubMessage::PartialDataColumnSidecar(data) => {
-                let (_, column_sidecar) = *data;
+                let (_, column_sidecar, _) = *data;
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor
                         .send_gossip_partial_data_column_sidecar(
                             peer_id,
-                            column_sidecar.partial_column,
+                            column_sidecar,
                             timestamp_now(),
                         ),
                 )

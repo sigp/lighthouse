@@ -823,7 +823,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                             c.index(),
                                             &self_cloned.chain.spec,
                                         ),
-                                        c.into_partial().into_inner().column.clone().into(),
+                                        c.into_partial().into_inner().column.clone(),
+                                        None,
                                     )))
                                 })
                                 .collect(),

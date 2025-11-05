@@ -1307,7 +1307,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             partial.index(),
                             &cloned_self.chain.spec,
                         ),
-                        partial.column.clone().into(),
+                        partial.column.clone(),
+                        None,
                     )))
                 })
                 .chain(merged_data.completed_columns.into_iter().flat_map(|full| {
@@ -1316,7 +1317,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     [
                         PubsubMessage::PartialDataColumnSidecar(Box::new((
                             subnet,
-                            (*full).clone().into_partial().column.clone().into(),
+                            (*full).clone().into_partial().column.clone(),
+                            None,
                         ))),
                         PubsubMessage::DataColumnSidecar(Box::new((subnet, full))),
                     ]

@@ -8,7 +8,9 @@ use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use types::partial_data_column_sidecar::{DanglingPartialDataColumn, PartialDataColumnSidecar};
+use types::partial_data_column_sidecar::{
+    CellBitmap, DanglingPartialDataColumn, PartialDataColumnSidecar,
+};
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
@@ -21,6 +23,12 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
+type PartialDataColumnSidecarTuple<E> = (
+    DataColumnSubnetId,
+    Arc<DanglingPartialDataColumn<E>>,
+    Option<CellBitmap<E>>,
+);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a new block.
@@ -30,7 +38,8 @@ pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
     DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
     /// Gossipsub message providing notification of a [`PartialDataColumnSidecar`] along with the subnet id where it was received.
-    PartialDataColumnSidecar(Box<(DataColumnSubnetId, PartialDataColumnSidecarMessage<E>)>), // TODO(dknopik): review `Arc` situation
+    /// TODO(dknopik) - it is time for this to move into its own enum.
+    PartialDataColumnSidecar(Box<PartialDataColumnSidecarTuple<E>>), // TODO(dknopik): review `Arc` situation
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
     /// Gossipsub message providing notification of a `SingleAttestation` with its subnet id.
@@ -417,7 +426,8 @@ impl<E: EthSpec> PubsubMessage<E> {
                     };
                     Ok(Self::PartialDataColumnSidecar(Box::new((
                         *id,
-                        data_column.into(),
+                        Arc::new(data_column),
+                        None,
                     ))))
                 }
                 other => Err(format!("Partial message unsupported for topic: {other}")),
@@ -436,7 +446,13 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::PartialDataColumnSidecar(data) => {
-                return EncodedPubsubMessage::PartialDataColumnSidecarMessage(data.1.clone());
+                let sidecar = &data.1;
+                let eager_cells = &data.2;
+                let mut message = PartialDataColumnSidecarMessage::new(sidecar.clone());
+                if let Some(eager_cells) = eager_cells {
+                    message.eagerly_send(eager_cells);
+                }
+                return EncodedPubsubMessage::PartialDataColumnSidecarMessage(message);
             }
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
@@ -481,15 +497,9 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             PubsubMessage::PartialDataColumnSidecar(data) => write!(
                 f,
                 "PartialDataColumnSidecar: group: {}, column index: {}, cells: {}",
-                data.1.partial_column.block_root,
-                data.1.partial_column.index,
-                hex::encode(
-                    data.1
-                        .partial_column
-                        .sidecar
-                        .cells_present_bitmap
-                        .as_slice()
-                ),
+                data.1.block_root,
+                data.1.index,
+                hex::encode(data.1.sidecar.cells_present_bitmap.as_slice()),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

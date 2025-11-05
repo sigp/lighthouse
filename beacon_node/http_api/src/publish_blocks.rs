@@ -209,7 +209,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         debug!(
             partial = merged_data.updated_partials.len(),
             full = merged_data.completed_columns.len(),
-            "Sending merged data after block availability"
+            "Sending merged data after block publish (should not happen?)"
         );
         let messages: Vec<_> = merged_data
             .updated_partials
@@ -217,7 +217,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             .map(|partial| {
                 PubsubMessage::PartialDataColumnSidecar(Box::new((
                     DataColumnSubnetId::from_column_index(partial.index(), &spec),
-                    partial.column.clone().into(),
+                    partial.column.clone(),
+                    None,
                 )))
             })
             .chain(merged_data.completed_columns.into_iter().flat_map(|full| {
@@ -225,7 +226,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 [
                     PubsubMessage::PartialDataColumnSidecar(Box::new((
                         subnet,
-                        (*full).clone().into_partial().column.clone().into(),
+                        (*full).clone().into_partial().column.clone(),
+                        None,
                     ))),
                     PubsubMessage::DataColumnSidecar(Box::new((subnet, full))),
                 ]
@@ -234,7 +236,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         if !messages.is_empty()
             && let Err(err) = crate::publish_pubsub_messages(&sender_clone, messages)
         {
-            warn!(?err, "Publishing data after block availability failed")
+            warn!(?err, "Publishing data after block publish")
         }
     };
 
@@ -566,10 +568,13 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         .into_iter()
         .flat_map(|data_col| {
             let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
+            let column = (*data_col).clone().into_partial().column;
+            let all_cells = column.sidecar.cells_present_bitmap.clone();
             [
                 PubsubMessage::PartialDataColumnSidecar(Box::new((
                     subnet,
-                    (*data_col).clone().into_partial().column.into(),
+                    column,
+                    Some(all_cells),
                 ))),
                 PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
             ]

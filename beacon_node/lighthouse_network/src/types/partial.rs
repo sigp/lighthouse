@@ -9,29 +9,35 @@ use types::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartialDataColumnSidecarMessage<E: EthSpec> {
     pub partial_column: Arc<DanglingPartialDataColumn<E>>,
-    pub send_eager: Option<SendEager<E>>,
+    send_eager: Option<SendEager<E>>,
 }
 
-impl<E: EthSpec> From<DanglingPartialDataColumn<E>> for PartialDataColumnSidecarMessage<E> {
-    fn from(value: DanglingPartialDataColumn<E>) -> Self {
-        Self {
-            partial_column: Arc::new(value),
+impl<E: EthSpec> PartialDataColumnSidecarMessage<E> {
+    pub fn new(partial_column: Arc<DanglingPartialDataColumn<E>>) -> Self {
+        PartialDataColumnSidecarMessage {
+            partial_column,
             send_eager: None,
         }
     }
-}
 
-impl<E: EthSpec> From<Arc<DanglingPartialDataColumn<E>>> for PartialDataColumnSidecarMessage<E> {
-    fn from(value: Arc<DanglingPartialDataColumn<E>>) -> Self {
-        Self {
-            partial_column: value,
-            send_eager: None,
-        }
+    pub fn eagerly_send(&mut self, cells: &CellBitmap<E>) {
+        let Some(eager) = self
+            .partial_column
+            .sidecar
+            .clone_filter(|idx| cells.get(idx).unwrap_or(false))
+        else {
+            return;
+        };
+
+        self.send_eager = Some(SendEager {
+            data: eager.as_ssz_bytes(),
+            metadata: eager.cells_present_bitmap.into(),
+        })
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SendEager<E: EthSpec> {
+struct SendEager<E: EthSpec> {
     /// The encoded message to send eagerly, i.e. when we have no metadata for that peer.
     data: Vec<u8>,
     /// The metadata to associate with a peer after sending it the eager message.
