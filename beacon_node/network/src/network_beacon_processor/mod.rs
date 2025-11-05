@@ -865,7 +865,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Err(BlockError::DuplicateFullyImported(_)) => {
-                debug!("Block has already been imported");
+                debug!("Block already imported in parallel with reconstruction");
             }
             Err(e) => {
                 error!(
