@@ -74,6 +74,7 @@ pub trait DasColumn<E: EthSpec>: Clone {
     }
 }
 
+#[derive(Debug)]
 pub enum ColumnComparison {
     DifferentColumns,
     DataConflict,

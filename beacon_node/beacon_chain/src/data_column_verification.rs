@@ -655,22 +655,26 @@ pub fn validate_partial_data_column_sidecar_for_gossip<
 > {
     // TODO(dknopik): This is kinda underspecified, just slap everything in here that *could* apply
     let column_slot = data_column.slot();
+    let block_root = data_column.block_root();
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
 
-    let missing_cells = chain
+    let filtered_column = if let Some(missing_cells) = chain
         .data_availability_checker
-        .determine_missing_cells(&data_column.block_root(), data_column.as_ref())
-        .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?;
-    if missing_cells.is_empty() {
-        return Err(GossipDataColumnError::PriorKnownUnpublished);
-    }
+        .determine_missing_cells(&block_root, data_column.as_ref())
+    {
+        if missing_cells.is_empty() {
+            return Err(GossipDataColumnError::PriorKnownUnpublished);
+        }
 
-    let filtered_column = Arc::new(
+        Arc::new(
+            data_column
+                .clone_filter(|idx| missing_cells.contains(&idx))
+                .ok_or_else(|| GossipDataColumnError::PriorKnownUnpublished)?,
+        )
+    } else {
         data_column
-            .clone_filter(|idx| missing_cells.contains(&idx))
-            .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?,
-    );
+    };
 
     // We do not have to check block related data here, as we create the verifiable column from
     // gossip accepted block
@@ -680,7 +684,7 @@ pub fn validate_partial_data_column_sidecar_for_gossip<
         .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
     Ok(GossipVerifiedDataColumn {
-        block_root: data_column.block_root(),
+        block_root,
         data_column: kzg_verified_data_column,
         _phantom: PhantomData,
     })

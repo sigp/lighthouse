@@ -195,7 +195,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             match cached.compare(data_column) {
                 ColumnComparison::Equal => Some(vec![]),
                 ColumnComparison::MissingCells { missing_in_lhs, .. } => Some(missing_in_lhs),
-                _ => None,
+                comparison => {
+                    debug!(?comparison, "Unexpected columns comparison");
+                    None
+                }
             }
         }
 
