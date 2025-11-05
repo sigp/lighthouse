@@ -96,6 +96,12 @@ impl<E: EthSpec> GossipCacheBuilder<E> {
         self
     }
 
+    /// Timeout for data column sidecars.
+    pub fn data_column_sidecar(mut self, timeout: Duration) -> Self {
+        self.data_column_sidecar = Some(timeout);
+        self
+    }
+
     /// Timeout for aggregate attestations.
     pub fn aggregates_timeout(mut self, timeout: Duration) -> Self {
         self.aggregates = Some(timeout);

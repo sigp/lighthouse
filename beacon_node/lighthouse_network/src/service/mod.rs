@@ -259,6 +259,7 @@ impl<E: EthSpec> Network<E> {
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
                 .bls_to_execution_change_timeout(half_epoch * 2)
+                .data_column_sidecar(slot_duration)
                 .build()
         };
 
@@ -901,6 +902,11 @@ impl<E: EthSpec> Network<E> {
                     &message_data
                 {
                     let id = partial.group_id().as_ref().to_vec();
+                    debug!(
+                        kind = %topic.kind(),
+                        group_id = hex::encode(&id),
+                        "Adding partial message to cache"
+                    );
                     self.gossip_cache.insert(topic, id, message_data);
                 }
             }
@@ -1318,18 +1324,6 @@ impl<E: EthSpec> Network<E> {
                 message,
                 metadata,
             } => {
-                // TODO(dknopik): this currently hardcodes the data column metadata format
-                if let Some(metadata) = metadata {
-                    if let Ok(metadata) = CellBitmap::<E>::from_ssz_bytes(&metadata) {
-                        let metadata = hex::encode(metadata.as_slice());
-                        debug!(%metadata, "Got metadata")
-                    } else {
-                        warn!(?metadata, "Got weird metadata");
-                    }
-                } else {
-                    debug!("Got no metadata")
-                }
-
                 let hex_group_id = hex::encode(&group_id);
                 let topic = GossipTopic::decode(topic_id.as_str())
                     .inspect_err(|error| {
@@ -1341,29 +1335,55 @@ impl<E: EthSpec> Network<E> {
                     })
                     .ok()?;
 
+                // TODO(dknopik): this currently hardcodes the data column metadata format
+                if let Some(metadata) = metadata {
+                    if let Ok(metadata) = CellBitmap::<E>::from_ssz_bytes(&metadata) {
+                        let mut metadata_string = String::with_capacity(metadata.len());
+                        for bit in metadata.iter() {
+                            if bit {
+                                metadata_string.push('1');
+                            } else {
+                                metadata_string.push('0');
+                            }
+                        }
+                        debug!(metadata = metadata_string, %topic, %propagation_source, "Got metadata")
+                    } else {
+                        warn!(?metadata, %topic, %propagation_source, "Got weird metadata");
+                    }
+                } else {
+                    debug!(%propagation_source, "Got no metadata")
+                }
+
                 // TODO(dknopik): maybe do this after validation?
                 if let Some(cached_partial) = self.gossip_cache.retrieve_one(&topic, &group_id) {
                     // We do not bother checking here if that cached msg contains relevant data,
                     // as gossipsub will do that anyway.
-                    let result = cached_partial
-                        .do_publish(&mut self.swarm.behaviour_mut().gossipsub, topic.into());
+                    let result = cached_partial.do_publish(
+                        &mut self.swarm.behaviour_mut().gossipsub,
+                        topic.clone().into(),
+                    );
                     match result {
                         Ok(_) => {
                             debug!(
                                 group_id = hex_group_id,
-                                "Replied with cached partial message"
+                                %topic, %propagation_source, "Replied with cached partial message"
                             )
                         }
                         Err(err) => {
                             warn!(
                                 group_id = hex_group_id,
+                                %topic,
+                                %propagation_source,
                                 ?err,
                                 "Failed to reply with cached partial message"
                             );
                         }
                     }
                 } else {
-                    debug!(group_id = hex_group_id, "Did not reply to partial message");
+                    debug!(
+                        group_id = hex_group_id,
+                        %topic, %propagation_source, "Did not reply to partial message"
+                    );
                 }
 
                 if let Some(message) = message {
