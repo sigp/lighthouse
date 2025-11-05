@@ -735,12 +735,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // Data column is available via either the EL or reconstruction.
                         // Do not penalise the peer.
                         // Gossip filter should filter any duplicates received after this.
-                        debug!(
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Received already available column sidecar. Ignoring the column sidecar"
-                        )
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
                     }
                     GossipDataColumnError::FutureSlot { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
