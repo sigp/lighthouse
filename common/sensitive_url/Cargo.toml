@@ -5,6 +5,12 @@ authors = ["Mac L <mjladson@pm.me>"]
 edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+serde = ["dep:serde"]
+
 [dependencies]
-serde = { workspace = true }
+serde = { workspace = true, optional = true }
 url = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
