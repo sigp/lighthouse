@@ -1,4 +1,3 @@
-use crate::partial_data_column_cache::PartialDataColumnCache;
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
@@ -22,7 +21,6 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
-use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -58,7 +56,6 @@ pub enum InvalidBlockStorage {
 pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
     pub duplicate_cache: DuplicateCache,
-    pub partial_data_column_cache: Mutex<PartialDataColumnCache<T::EthSpec>>,
     pub chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
@@ -257,7 +254,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_gossip_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
@@ -266,9 +262,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor
                 .process_gossip_dangling_partial_data_column_sidecar(
                     peer_id,
-                    subnet_id,
                     column_sidecar,
                     seen_timestamp,
+                    true,
                 )
                 .await
         };
@@ -1123,7 +1119,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
             duplicate_cache: DuplicateCache::default(),
-            partial_data_column_cache: Mutex::new(PartialDataColumnCache::new()),
             chain,
             network_tx,
             sync_tx,

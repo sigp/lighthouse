@@ -39,7 +39,8 @@
 //! task.
 
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedPartialColumn,
+    ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -493,6 +494,10 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     work: Work::ColumnReconstruction(process_fn),
                 }
             }
+            ReadyWork::PartialColumn(QueuedPartialColumn { process_fn, .. }) => Self {
+                drop_during_sync: true,
+                work: Work::GossipPartialDataColumnSidecar(process_fn),
+            },
         }
     }
 }

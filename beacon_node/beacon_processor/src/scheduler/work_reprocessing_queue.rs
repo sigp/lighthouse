@@ -30,7 +30,7 @@ use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use types::{EthSpec, Hash256, Slot};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
@@ -60,6 +60,9 @@ pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue delayed column reconstruction.
 pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
 
+/// For how long to queue partial columns.
+pub const QUEUED_PARTIAL_COLUMN_DELAY: Duration = Duration::from_secs(4);
+
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
@@ -70,6 +73,9 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
+
+/// How many partial column messages we keep before new ones get dropped.
+const MAXIMUM_QUEUED_PARTIAL_COLUMNS: usize = 256;
 
 // Process backfill batch 50%, 60%, 80% through each slot.
 //
@@ -115,6 +121,10 @@ pub enum ReprocessQueueMessage {
     BackfillSync(QueuedBackfillBatch),
     /// A delayed column reconstruction that needs checking
     DelayColumnReconstruction(QueuedColumnReconstruction),
+    /// A block with pending data availability was added.
+    BlockPending { block_root: Hash256 },
+    /// A partial data column that references an unknown block.
+    UnknownPartialColumn(QueuedPartialColumn),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -127,6 +137,7 @@ pub enum ReadyWork {
     LightClientUpdate(QueuedLightClientUpdate),
     BackfillSync(QueuedBackfillBatch),
     ColumnReconstruction(QueuedColumnReconstruction),
+    PartialColumn(QueuedPartialColumn),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -182,6 +193,11 @@ pub struct QueuedColumnReconstruction {
     pub process_fn: AsyncFn,
 }
 
+pub struct QueuedPartialColumn {
+    pub beacon_block_root: Hash256,
+    pub process_fn: AsyncFn,
+}
+
 impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
     type Error = WorkEvent<E>;
 
@@ -220,6 +236,8 @@ enum InboundEvent {
     ReadyBackfillSync(QueuedBackfillBatch),
     /// A column reconstruction that was queued is ready for processing.
     ReadyColumnReconstruction(QueuedColumnReconstruction),
+    /// A partial column that was queued has timed out.
+    ReadyPartialColumn((DelayKey, QueuedPartialColumn)),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -242,6 +260,8 @@ struct ReprocessQueue<S> {
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
     /// Queue to manage scheduled column reconstructions.
     column_reconstructions_delay_queue: DelayQueue<QueuedColumnReconstruction>,
+    /// Queue to manage scheduled partial columns.
+    partial_columns_delay_queue: DelayQueue<QueuedPartialColumn>,
 
     /* Queued items */
     /// Queued blocks.
@@ -260,6 +280,8 @@ struct ReprocessQueue<S> {
     queued_column_reconstructions: HashMap<Hash256, DelayKey>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
+    /// Partial columns per root.
+    awaiting_partial_columns_per_root: HashMap<Hash256, Vec<DelayKey>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -355,6 +377,16 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
+        match self.partial_columns_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(partial_column)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyPartialColumn((
+                    partial_column.key(),
+                    partial_column.into_inner(),
+                ))));
+            }
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
         if let Some(next_backfill_batch_event) = self.next_backfill_batch_event.as_mut() {
             match next_backfill_batch_event.as_mut().poll(cx) {
                 Poll::Ready(_) => {
@@ -422,6 +454,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
             column_reconstructions_delay_queue: DelayQueue::new(),
+            partial_columns_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
@@ -430,6 +463,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
+            awaiting_partial_columns_per_root: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
@@ -702,6 +736,15 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
                 }
+
+                // Remove waiting partial columns - as the block is imported they will not be needed
+                if let Some(queued_partials) =
+                    self.awaiting_partial_columns_per_root.remove(&block_root)
+                {
+                    for key in queued_partials {
+                        self.partial_columns_delay_queue.remove(&key);
+                    }
+                }
             }
             InboundEvent::Msg(NewLightClientOptimisticUpdate { parent_root }) => {
                 // Unqueue the light client optimistic updates we have for this root, if any.
@@ -783,6 +826,62 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         vacant.insert(delay_key);
                     }
                 }
+            }
+            InboundEvent::Msg(BlockPending { block_root }) => {
+                if let Some(queued_partials) =
+                    self.awaiting_partial_columns_per_root.remove(&block_root)
+                {
+                    let mut sent_count = 0;
+                    let mut failed_count = 0;
+                    for key in queued_partials {
+                        let partial_column = self.partial_columns_delay_queue.remove(&key);
+
+                        if self
+                            .ready_work_tx
+                            .try_send(ReadyWork::PartialColumn(partial_column.into_inner()))
+                            .is_ok()
+                        {
+                            sent_count += 1;
+                        } else {
+                            failed_count += 1;
+                        }
+                    }
+
+                    if failed_count > 0 {
+                        error!(
+                            hint = "system may be overloaded",
+                            ?block_root,
+                            failed_count,
+                            sent_count,
+                            "Ignored scheduled partial column(s) for block"
+                        );
+                    } else {
+                        info!(?block_root, sent_count, "Sent partial column(s) for block")
+                    }
+                }
+            }
+            InboundEvent::Msg(UnknownPartialColumn(queued_partial_column)) => {
+                if self.partial_columns_delay_queue.len() >= MAXIMUM_QUEUED_PARTIAL_COLUMNS {
+                    error!(
+                        queue_size = MAXIMUM_QUEUED_PARTIAL_COLUMNS,
+                        msg = "system resources may be saturated",
+                        "Partial columns delay queue is full"
+                    );
+                    return;
+                }
+
+                let block_root = queued_partial_column.beacon_block_root;
+
+                // Register the delay.
+                let delay_key = self
+                    .partial_columns_delay_queue
+                    .insert(queued_partial_column, QUEUED_ATTESTATION_DELAY);
+
+                // Register this attestation for the corresponding root.
+                self.awaiting_partial_columns_per_root
+                    .entry(block_root)
+                    .or_default()
+                    .push(delay_key);
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
@@ -933,6 +1032,22 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         "Ignored scheduled column reconstruction"
                     );
                 }
+            }
+            InboundEvent::ReadyPartialColumn((key, partial_column)) => {
+                if let Entry::Occupied(mut queued_cols) = self
+                    .awaiting_partial_columns_per_root
+                    .entry(partial_column.beacon_block_root)
+                    && let Some(index) = queued_cols.get().iter().position(|&k| k == key)
+                {
+                    let queued_atts_mut = queued_cols.get_mut();
+                    queued_atts_mut.swap_remove(index);
+
+                    if queued_atts_mut.is_empty() {
+                        queued_cols.remove_entry();
+                    }
+                }
+
+                // Do not send partial column, we timed out already.
             }
         }
 

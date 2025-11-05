@@ -11,8 +11,7 @@ use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifi
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
-    BlockProcessStatus, ForkChoiceError, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    NotifyExecutionLayer,
+    BlockProcessStatus, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -48,7 +47,7 @@ use types::{
     Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
 };
 
-use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
+use beacon_processor::work_reprocessing_queue::{QueuedColumnReconstruction, QueuedPartialColumn};
 use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
@@ -785,9 +784,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_gossip_dangling_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        _subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
         seen_duration: Duration,
+        allow_reprocess: bool,
     ) {
         let partial_column = match self
             .chain
@@ -817,17 +816,65 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Some(Err(err)) => {
                 warn!(?err, "Error creating verifiable partial data column");
             }
-            None => {
-                debug!("Received partial while not having block");
-                metrics::inc_counter(
-                    &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_CACHED_TOTAL,
-                );
-                self.partial_data_column_cache.lock().insert(
-                    column_sidecar,
-                    peer_id,
-                    seen_duration,
-                );
-            }
+            None => self.handle_dangling_partial_data_column_sidecar_missing_block(
+                peer_id,
+                column_sidecar,
+                seen_duration,
+                allow_reprocess,
+            ),
+        }
+    }
+
+    fn handle_dangling_partial_data_column_sidecar_missing_block(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
+        seen_duration: Duration,
+        allow_reprocess: bool,
+    ) {
+        // TODO(dknopik): is this method of checking adequate?...
+        if self
+            .chain
+            .store
+            .block_exists(&column_sidecar.block_root)
+            .unwrap_or(false)
+        {
+            debug!("Received partial for already imported block");
+            return;
+        }
+        if !allow_reprocess {
+            debug!("Not reprocessing");
+            return;
+        }
+        debug!("Received partial while not having block");
+        metrics::inc_counter(
+            &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_CACHED_TOTAL,
+        );
+        // TODO(dknopik): self.send_sync_message() ?
+        let cloned_self = self.clone();
+        if self
+            .beacon_processor_send
+            .try_send(WorkEvent {
+                drop_during_sync: false,
+                work: Work::Reprocess(ReprocessQueueMessage::UnknownPartialColumn(
+                    QueuedPartialColumn {
+                        beacon_block_root: column_sidecar.block_root,
+                        process_fn: Box::pin(async move {
+                            cloned_self
+                                .process_gossip_dangling_partial_data_column_sidecar(
+                                    peer_id,
+                                    column_sidecar,
+                                    seen_duration,
+                                    false,
+                                )
+                                .await;
+                        }),
+                    },
+                )),
+            })
+            .is_err()
+        {
+            error!("Failed to send attestation for re-processing")
         }
     }
 
@@ -1421,35 +1468,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Span::current().record("block_root", block_root.to_string());
 
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
-                // First, get the partial columns that have been waiting. Do this first in order to gossip them quickly (i guess?) TODO(dknopik): check if good
-                let partials = {
-                    let mut partial_cache = self.partial_data_column_cache.lock();
-                    let partials = partial_cache.get_for_block(block_root);
-                    // Opportunistically clean the cache as we are holding the lock anyway. TODO(dknopik): do somewhere else
-                    partial_cache.clean();
-                    partials
-                };
-
-                for cached_partial in partials {
-                    // TODO(dknopik): Do this in parallel (queueing it maybe)
-                    match VerifiablePartialDataColumn::from_dangling_and_block(
-                        cached_partial.sidecar,
-                        gossip_verified_block.block(),
-                    ) {
-                        Ok(partial_data_column) => {
-                            self.process_gossip_verifiable_partial_data_column_sidecar(
-                                cached_partial.peer_id,
-                                Arc::new(partial_data_column),
-                                cached_partial.seen_duration,
-                            )
-                            .await;
-                        }
-                        Err(err) => {
-                            warn!(?err, "Unable to process cached partial column")
-                        }
-                    }
-                }
-
                 self.process_gossip_verified_block(
                     peer_id,
                     gossip_verified_block,
@@ -1835,6 +1853,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %block_root,
                     "Processed block, waiting for other components"
                 );
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::BlockPending {
+                            block_root: *block_root,
+                        }),
+                    })
+                    .is_err()
+                {
+                    error!(
+                        source = "gossip",
+                        ?block_root,
+                        "Failed to inform block pending"
+                    )
+                };
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // This should not occur. It should be checked by `should_forward_block`.

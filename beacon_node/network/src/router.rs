@@ -6,7 +6,6 @@
 #![allow(clippy::unit_arg)]
 
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
-use crate::partial_data_column_cache::PartialDataColumnCache;
 use crate::service::NetworkMessage;
 use crate::status::status_message;
 use crate::sync::SyncMessage;
@@ -20,7 +19,6 @@ use lighthouse_network::{
 };
 use logging::TimeLatch;
 use logging::crit;
-use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -99,7 +97,6 @@ impl<T: BeaconChainTypes> Router<T> {
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
             duplicate_cache: DuplicateCache::default(),
-            partial_data_column_cache: Mutex::new(PartialDataColumnCache::new()),
             chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
@@ -388,12 +385,11 @@ impl<T: BeaconChainTypes> Router<T> {
                 )
             }
             PubsubMessage::PartialDataColumnSidecar(data) => {
-                let (subnet_id, column_sidecar) = *data;
+                let (_, column_sidecar) = *data;
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor
                         .send_gossip_partial_data_column_sidecar(
                             peer_id,
-                            subnet_id,
                             column_sidecar.partial_column,
                             timestamp_now(),
                         ),
