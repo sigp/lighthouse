@@ -1072,15 +1072,17 @@ impl<S: SlotClock> ReprocessQueue<S> {
             &[ATTESTATIONS],
             self.attestations_delay_queue.len() as i64,
         );
-        metrics::set_gauge_vec(
-            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
-            &[DELAYED_BATCHED_ATTESTATIONS],
-            self.queued_batch_attestations
-                .get(&self.current_attestation_batch)
-                .expect("Unable read to attestation batch queue")
-                .0
-                .len() as i64,
-        );
+
+        if let Some(current_batch) = self
+            .queued_batch_attestations
+            .get(&self.current_attestation_batch)
+        {
+            metrics::set_gauge_vec(
+                &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+                &[DELAYED_BATCHED_ATTESTATIONS],
+                current_batch.0.len() as i64,
+            );
+        }
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[ATTESTATIONS_PER_ROOT],
