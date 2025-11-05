@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{Span, debug, debug_span, error, info, instrument, warn};
+use tracing::{Span, debug, debug_span, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
@@ -80,7 +80,7 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
     name = SPAN_PUBLISH_BLOCK,
     level = "info",
     skip_all,
-    fields(?block_root, ?validation_level, provenance = tracing::field::Empty)
+    fields(block_root = field::Empty, ?validation_level, block_slot = field::Empty, provenance = field::Empty)
 )]
 pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     block_root: Option<Hash256>,
@@ -103,13 +103,16 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     } else {
         "builder"
     };
-    let current_span = Span::current();
-    current_span.record("provenance", provenance);
 
     let block = unverified_block.inner_block();
-    let block_root = block.canonical_root();
+    let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
-    debug!(slot = %block.slot(), ?block_root, "Signed block received in HTTP API");
+    let current_span = Span::current();
+    current_span.record("provenance", provenance);
+    current_span.record("block_root", field::display(block_root));
+    current_span.record("block_slot", field::display(block.slot()));
+
+    debug!("Signed block received in HTTP API");
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -129,7 +132,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
         info!(
             slot = %block.slot(),
-            ?block_root,
             publish_delay_ms = publish_delay.as_millis(),
             "Signed block published to network via HTTP API"
         );
@@ -160,7 +162,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         if let Some(block_publishing_delay) = block_publishing_delay_for_testing {
             debug!(
                 ?block_publishing_delay,
-                ?block_root,
                 "Publishing block with artificial delay"
             );
             tokio::time::sleep(block_publishing_delay).await;
@@ -207,11 +208,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             return if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(msg))
             } else {
-                error!(
-                    reason = &msg,
-                    ?block_root,
-                    "Invalid blob provided to HTTP API"
-                );
+                error!(reason = &msg, "Invalid blob provided to HTTP API");
                 Err(warp_utils::reject::custom_bad_request(msg))
             };
         }
@@ -229,7 +226,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             if !delay.is_zero() {
                 debug!(
                     ?data_column_publishing_delay,
-                    ?block_root,
                     "Publishing data columns with artificial delay"
                 );
                 tokio::time::sleep(delay).await;
@@ -257,7 +253,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 } else {
                     error!(
                         reason = &msg,
-                        ?block_root,
                         "Invalid data column during block publication"
                     );
                     Err(warp_utils::reject::custom_bad_request(msg))
@@ -312,9 +307,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 .into_response())
             }
         }
-        Err(BlockError::DuplicateImportStatusUnknown(root)) => {
+        Err(BlockError::DuplicateImportStatusUnknown(_)) => {
             debug!(
-                block_root = ?root,
                 slot = %block.slot(),
                 "Block previously seen"
             );
@@ -339,7 +333,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(e) => {
             warn!(
                 %slot,
-                ?block_root,
                 error = %e,
                 "Not publishing block - not gossip verified"
             );
