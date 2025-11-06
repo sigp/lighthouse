@@ -234,12 +234,12 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
 /// information about the attestation.
-#[derive(Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct QueuedAttestation {
-    slot: Slot,
-    attesting_indices: Vec<u64>,
-    block_root: Hash256,
-    target_epoch: Epoch,
+    pub slot: Slot,
+    pub attesting_indices: Vec<u64>,
+    pub block_root: Hash256,
+    pub target_epoch: Epoch,
 }
 
 impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
@@ -255,7 +255,7 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
 
 /// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
 /// current slot. Also removes those values from `self.queued_attestations`.
-fn dequeue_attestations(
+pub fn dequeue_attestations(
     current_slot: Slot,
     queued_attestations: &mut VecDeque<QueuedAttestation>,
 ) -> VecDeque<QueuedAttestation> {
