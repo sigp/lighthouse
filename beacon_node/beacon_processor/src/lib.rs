@@ -70,8 +70,8 @@ use types::{
 };
 use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
-    QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
-    spawn_reprocess_scheduler,
+    MAXIMUM_BATCHED_ATTESTATIONS, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
+    QueuedUnaggregate, ReadyWork, spawn_reprocess_scheduler,
 };
 
 mod metrics;
@@ -122,6 +122,7 @@ pub struct BeaconProcessorQueueLengths {
     gossip_block_queue: usize,
     gossip_blob_queue: usize,
     gossip_data_column_queue: usize,
+    batched_attestation: usize,
     delayed_block_queue: usize,
     status_queue: usize,
     bbrange_queue: usize,
@@ -168,7 +169,7 @@ impl BeaconProcessorQueueLengths {
             ),
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
             unknown_block_attestation_queue: std::cmp::max(
-                active_validator_count / slots_per_epoch,
+                (active_validator_count / slots_per_epoch) / MAXIMUM_BATCHED_ATTESTATIONS,
                 MIN_QUEUE_LEN,
             ),
             sync_message_queue: 2048,
@@ -176,6 +177,10 @@ impl BeaconProcessorQueueLengths {
             gossip_voluntary_exit_queue: 4096,
             gossip_proposer_slashing_queue: 4096,
             gossip_attester_slashing_queue: 4096,
+            batched_attestation: std::cmp::max(
+                active_validator_count / slots_per_epoch,
+                MIN_QUEUE_LEN,
+            ),
             unknown_light_client_update_queue: 128,
             rpc_block_queue: 1024,
             rpc_blob_queue: 1024,
@@ -891,6 +896,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
         let mut gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
         let mut delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
+        let mut batched_attestation_queue = FifoQueue::new(queue_lengths.batched_attestation);
 
         let mut status_queue = FifoQueue::new(queue_lengths.status_queue);
         let mut bbrange_queue = FifoQueue::new(queue_lengths.bbrange_queue);
@@ -1067,6 +1073,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // Check gossip blocks before gossip attestations, since a block might be
                             // required to verify some attestations.
                             } else if let Some(item) = gossip_block_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = batched_attestation_queue.pop() {
                                 Some(item)
                             } else if let Some(item) = gossip_blob_queue.pop() {
                                 Some(item)
@@ -1338,7 +1346,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     "Unsupported inbound event"
                                 )
                             }
-                            Work::DelayedAttestationBatch { .. } => {}
+                            Work::DelayedAttestationBatch { .. } => {
+                                batched_attestation_queue.push(work, work_id)
+                            }
+
                             Work::GossipBlock { .. } => gossip_block_queue.push(work, work_id),
                             Work::GossipBlobSidecar { .. } => gossip_blob_queue.push(work, work_id),
                             Work::GossipDataColumnSidecar { .. } => {
