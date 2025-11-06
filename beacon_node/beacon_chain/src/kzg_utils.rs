@@ -468,7 +468,7 @@ mod test {
 
     #[track_caller]
     fn test_validate_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
         let blob_refs = blobs.iter().collect::<Vec<_>>();
@@ -494,7 +494,8 @@ mod test {
 
     #[track_caller]
     fn test_build_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
 
@@ -534,6 +535,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_data_columns(kzg: &Kzg, spec: &ChainSpec) {
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
         let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -557,6 +559,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_data_columns_unordered(kzg: &Kzg, spec: &ChainSpec) {
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
         let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -578,7 +581,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_blobs_from_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        let num_of_blobs = 3;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
         let blob_refs = blobs.iter().collect::<Vec<_>>();
@@ -588,7 +591,8 @@ mod test {
 
         // Now reconstruct
         let signed_blinded_block = signed_block.into();
-        let blob_indices = vec![3, 4, 5];
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
+        let blob_indices = vec![1, 2];
         let reconstructed_blobs = reconstruct_blobs(
             kzg,
             &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],

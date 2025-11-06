@@ -13,6 +13,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_types::VariableList;
+use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -157,7 +158,6 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<E>>,
     pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
-    spec: Arc<ChainSpec>,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -177,7 +177,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
-        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let mut generator = Self {
@@ -200,7 +199,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             blobs_bundles: <_>::default(),
             kzg,
             rng: make_rng(),
-            spec,
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -732,11 +730,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         let fork_name = execution_payload.fork_name();
         if fork_name.deneb_enabled() {
-            // get random number between 0 and Max Blobs
+            // get random number between 0 and 1 blobs by default
+            // For tests that need higher blob count, consider adding a `set_max_blob_count` method
             let mut rng = self.rng.lock();
-            // TODO(EIP-7892): see FIXME below
-            // FIXME: this will break with BPO forks. This function needs to calculate the epoch based on block timestamp..
-            let max_blobs = self.spec.max_blobs_per_block_within_fork(fork_name) as usize;
+            let max_blobs = max(1, self.min_blobs_count);
             let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
             let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
             for tx in Vec::from(transactions) {
@@ -978,7 +975,6 @@ mod test {
         const TERMINAL_DIFFICULTY: u64 = 10;
         const TERMINAL_BLOCK: u64 = 10;
         const DIFFICULTY_INCREMENT: u64 = 1;
-        let spec = Arc::new(MainnetEthSpec::default_spec());
 
         let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
             Uint256::from(TERMINAL_DIFFICULTY),
@@ -989,7 +985,6 @@ mod test {
             None,
             None,
             None,
-            spec,
             None,
         );
 

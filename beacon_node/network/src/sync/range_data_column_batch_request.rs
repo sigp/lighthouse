@@ -70,16 +70,17 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             HashMap::new();
         let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
 
-        for column in self
-            .requests
-            .values()
-            .filter_map(|req| req.to_finished())
-            .flatten()
-        {
-            received_columns_for_slot
-                .entry(column.slot())
-                .or_default()
-                .push(column.clone());
+        for req in self.requests.values() {
+            let Some(columns) = req.to_finished() else {
+                return None;
+            };
+
+            for column in columns {
+                received_columns_for_slot
+                    .entry(column.slot())
+                    .or_default()
+                    .push(column.clone());
+            }
         }
 
         // Note: this assumes that only 1 peer is responsible for a column

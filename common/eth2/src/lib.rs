@@ -19,7 +19,7 @@ pub use self::error::{Error, ok_or_error, success_or_error};
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
 use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
-use derivative::Derivative;
+use educe::Educe;
 use futures::Stream;
 use futures_util::StreamExt;
 use libp2p_identity::PeerId;
@@ -30,7 +30,7 @@ use reqwest::{
 };
 pub use reqwest::{StatusCode, Url};
 use reqwest_eventsource::{Event, EventSource};
-pub use sensitive_url::{SensitiveError, SensitiveUrl};
+pub use sensitive_url::SensitiveUrl;
 use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
@@ -135,10 +135,10 @@ impl Timeouts {
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
-#[derive(Clone, Debug, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Clone, Debug, Educe)]
+#[educe(PartialEq)]
 pub struct BeaconNodeHttpClient {
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,
@@ -149,12 +149,6 @@ impl Eq for BeaconNodeHttpClient {}
 impl fmt::Display for BeaconNodeHttpClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.server.fmt(f)
-    }
-}
-
-impl AsRef<str> for BeaconNodeHttpClient {
-    fn as_ref(&self) -> &str {
-        self.server.as_ref()
     }
 }
 
@@ -178,10 +172,14 @@ impl BeaconNodeHttpClient {
             timeouts,
         }
     }
+    // Returns a reference to the `SensitiveUrl` of the server.
+    pub fn server(&self) -> &SensitiveUrl {
+        &self.server
+    }
 
     /// Return the path with the standard `/eth/vX` prefix applied.
     fn eth_path(&self, version: EndpointVersion) -> Result<Url, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -2613,7 +2611,7 @@ impl BeaconNodeHttpClient {
         ids: &[u64],
         epoch: Epoch,
     ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

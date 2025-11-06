@@ -30,7 +30,7 @@ arbitrary = { workspace = true, features = ["derive"], optional = true }
 bls = { workspace = true }
 compare_fields = { workspace = true }
 context_deserialize = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }

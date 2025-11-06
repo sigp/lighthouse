@@ -14,7 +14,7 @@ portable = ["types/portable"]
 [dependencies]
 bincode = { workspace = true }
 byteorder = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 filesystem = { workspace = true }

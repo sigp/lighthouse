@@ -426,6 +426,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         batch_id: CustodyBackfillBatchId,
         downloaded_columns: DataColumnSidecarList<T::EthSpec>,
+        expected_cgc: u64,
     ) {
         let _guard = debug_span!(
             SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS,
@@ -435,10 +436,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         .entered();
 
         let sent_columns = downloaded_columns.len();
-        let result = match self
-            .chain
-            .import_historical_data_column_batch(batch_id.epoch, downloaded_columns)
-        {
+        let result = match self.chain.import_historical_data_column_batch(
+            batch_id.epoch,
+            downloaded_columns,
+            expected_cgc,
+        ) {
             Ok(imported_columns) => {
                 metrics::inc_counter_by(
                     &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL,
