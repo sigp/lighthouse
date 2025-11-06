@@ -2,6 +2,9 @@ name: docker-reproducible
 
 on:
   push:
+    branches:
+      - unstable
+      - stable
     tags:
       - v*
   workflow_dispatch:
@@ -24,11 +27,25 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Extract version
-        run: >-
-          echo "VERSION=$(echo ${GITHUB_REF#refs/tags/})" >> $GITHUB_OUTPUT
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # It's a tag (e.g., v1.2.3)
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "IS_TAG=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/heads/stable ]]; then
+            # stable branch -> latest
+            echo "VERSION=latest" >> $GITHUB_OUTPUT
+            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/heads/unstable ]]; then
+            # unstable branch -> latest-unstable
+            echo "VERSION=latest-unstable" >> $GITHUB_OUTPUT
+            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+          fi
         id: extract_version
     outputs:
       VERSION: ${{ steps.extract_version.outputs.VERSION }}
+      IS_TAG: ${{ steps.extract_version.outputs.IS_TAG }}
 
   verify-and-build:
     name: verify reproducibility and build
@@ -165,10 +182,11 @@ jobs:
         run: |
           IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
           VERSION=${{ needs.extract-version.outputs.VERSION }}
+          IS_TAG=${{ needs.extract-version.outputs.IS_TAG }}
 
           echo "Creating multi-arch manifest for $IMAGE_NAME:$VERSION"
 
-          # Create manifest for version tag
+          # Create manifest for the version tag
           docker manifest create \
             ${IMAGE_NAME}:${VERSION} \
             ${IMAGE_NAME}:${VERSION}-amd64 \
@@ -176,14 +194,16 @@ jobs:
 
           docker manifest push ${IMAGE_NAME}:${VERSION}
 
-          # Create manifest for latest tag
-          docker manifest create \
-            ${IMAGE_NAME}:latest \
-            ${IMAGE_NAME}:${VERSION}-amd64 \
-            ${IMAGE_NAME}:${VERSION}-arm64
+          echo "Published: ${IMAGE_NAME}:${VERSION}"
 
-          docker manifest push ${IMAGE_NAME}:latest
+          # For tagged releases, also update 'latest'
+          if [[ "$IS_TAG" == "true" ]]; then
+            echo "Creating 'latest' manifest for tagged release"
+            docker manifest create \
+              ${IMAGE_NAME}:latest \
+              ${IMAGE_NAME}:${VERSION}-amd64 \
+              ${IMAGE_NAME}:${VERSION}-arm64
 
-          echo "Multi-arch manifests published:"
-          echo "  - ${IMAGE_NAME}:${VERSION}"
-          echo "  - ${IMAGE_NAME}:latest"
+            docker manifest push ${IMAGE_NAME}:latest
+            echo "Published: ${IMAGE_NAME}:latest"
+          fi
