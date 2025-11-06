@@ -31,21 +31,17 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             # It's a tag (e.g., v1.2.3)
             VERSION="${GITHUB_REF#refs/tags/}"
-            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-            echo "IS_TAG=true" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == refs/heads/stable ]]; then
             # stable branch -> latest
-            echo "VERSION=latest" >> $GITHUB_OUTPUT
-            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+            VERSION="latest"
           elif [[ "${{ github.ref }}" == refs/heads/unstable ]]; then
             # unstable branch -> latest-unstable
-            echo "VERSION=latest-unstable" >> $GITHUB_OUTPUT
-            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+            VERSION="latest-unstable"
           fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         id: extract_version
     outputs:
       VERSION: ${{ steps.extract_version.outputs.VERSION }}
-      IS_TAG: ${{ steps.extract_version.outputs.IS_TAG }}
 
   verify-and-build:
     name: verify reproducibility and build
@@ -182,7 +178,6 @@ jobs:
         run: |
           IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
           VERSION=${{ needs.extract-version.outputs.VERSION }}
-          IS_TAG=${{ needs.extract-version.outputs.IS_TAG }}
 
           echo "Creating multi-arch manifest for $IMAGE_NAME:$VERSION"
 
@@ -195,15 +190,3 @@ jobs:
           docker manifest push ${IMAGE_NAME}:${VERSION}
 
           echo "Published: ${IMAGE_NAME}:${VERSION}"
-
-          # For tagged releases, also update 'latest'
-          if [[ "$IS_TAG" == "true" ]]; then
-            echo "Creating 'latest' manifest for tagged release"
-            docker manifest create \
-              ${IMAGE_NAME}:latest \
-              ${IMAGE_NAME}:${VERSION}-amd64 \
-              ${IMAGE_NAME}:${VERSION}-arm64
-
-            docker manifest push ${IMAGE_NAME}:latest
-            echo "Published: ${IMAGE_NAME}:latest"
-          fi
