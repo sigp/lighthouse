@@ -11,7 +11,7 @@ use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::marker::PhantomData;
 use std::time::Duration;
 use superstruct::superstruct;
@@ -257,21 +257,35 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
 /// current slot. Also removes those values from `self.queued_attestations`.
 fn dequeue_attestations(
     current_slot: Slot,
-    queued_attestations: &mut Vec<QueuedAttestation>,
-) -> Vec<QueuedAttestation> {
-    let remaining = queued_attestations.split_off(
-        queued_attestations
-            .iter()
-            .position(|a| a.slot >= current_slot)
-            .unwrap_or(queued_attestations.len()),
-    );
+    queued_attestations: &mut VecDeque<QueuedAttestation>,
+) -> VecDeque<QueuedAttestation> {
+    // Find the position of the first attestation to keep in the queue.
+    let to_pop = queued_attestations
+        .iter()
+        .position(|a| a.slot >= current_slot)
+        .unwrap_or(queued_attestations.len());
+
+    if to_pop == 0 {
+        return VecDeque::new();
+    }
+
+    // Rotate the entries to remove into the *end* of the vec dequeue.
+    queued_attestations.rotate_left(to_pop);
+
+    // Use split_off to keep the attestations we don't want to pop, while keeping the same
+    // allocation for `queued_attestations` (preserving the capacity so we don't need to reallocate
+    // on future pushes).
+    // TODO: try drain or pop_front approach instead
+    let to_keep = queued_attestations.len().saturating_sub(to_pop);
+
+    let popped = queued_attestations.split_off(to_keep);
 
     metrics::inc_counter_by(
         &metrics::FORK_CHOICE_DEQUEUED_ATTESTATIONS,
-        queued_attestations.len() as u64,
+        popped.len() as u64,
     );
 
-    std::mem::replace(queued_attestations, remaining)
+    popped
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
@@ -317,7 +331,7 @@ pub struct ForkChoice<T, E> {
     /// The underlying representation of the block DAG.
     proto_array: ProtoArrayForkChoice,
     /// Attestations that arrived at the current slot and must be queued for later processing.
-    queued_attestations: Vec<QueuedAttestation>,
+    queued_attestations: VecDeque<QueuedAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
     _phantom: PhantomData<E>,
@@ -399,7 +413,7 @@ where
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: vec![],
+            queued_attestations: VecDeque::new(),
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1113,7 +1127,7 @@ where
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
             self.queued_attestations
-                .push(QueuedAttestation::from(attestation));
+                .push_back(QueuedAttestation::from(attestation));
         }
 
         Ok(())
@@ -1382,7 +1396,7 @@ where
     }
 
     /// Returns a reference to the currently queued attestations.
-    pub fn queued_attestations(&self) -> &[QueuedAttestation] {
+    pub fn queued_attestations(&self) -> &VecDeque<QueuedAttestation> {
         &self.queued_attestations
     }
 
@@ -1469,7 +1483,7 @@ where
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: persisted.queued_attestations,
+            queued_attestations: persisted.queued_attestations.into(),
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1509,7 +1523,7 @@ where
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
             proto_array: self.proto_array().as_ssz_container(),
-            queued_attestations: self.queued_attestations().to_vec(),
+            queued_attestations: self.queued_attestations().iter().cloned().collect(),
         }
     }
 
@@ -1592,7 +1606,7 @@ mod tests {
         }
     }
 
-    fn get_queued_attestations() -> Vec<QueuedAttestation> {
+    fn get_queued_attestations() -> VecDeque<QueuedAttestation> {
         (1..4)
             .map(|i| QueuedAttestation {
                 slot: Slot::new(i),
@@ -1603,7 +1617,7 @@ mod tests {
             .collect()
     }
 
-    fn get_slots(queued_attestations: &[QueuedAttestation]) -> Vec<u64> {
+    fn get_slots(queued_attestations: &VecDeque<QueuedAttestation>) -> Vec<u64> {
         queued_attestations.iter().map(|a| a.slot.into()).collect()
     }
 

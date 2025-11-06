@@ -11,6 +11,7 @@ use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
+use std::collections::VecDeque;
 use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -135,7 +136,7 @@ impl ForkChoiceTest {
     /// Inspect the queued attestations in fork choice.
     pub fn inspect_queued_attestations<F>(self, mut func: F) -> Self
     where
-        F: FnMut(&[QueuedAttestation]),
+        F: FnMut(&VecDeque<QueuedAttestation>),
     {
         self.harness
             .chain
