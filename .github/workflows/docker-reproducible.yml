@@ -7,13 +7,7 @@ on:
       - stable
     tags:
       - v*
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: >-
-          Enable dry run mode (builds images but skips push to registry)
-        type: boolean
-        default: false
+  workflow_dispatch: # allows manual triggering for testing purposes and skips publishing an image
 
 env:
   DOCKER_REPRODUCIBLE_IMAGE_NAME: >-
@@ -37,6 +31,9 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/heads/unstable ]]; then
             # unstable branch -> latest-unstable
             VERSION="latest-unstable"
+          else
+            # For manual triggers from other branches and will not publish any image
+            VERSION="test-build"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         id: extract_version
@@ -132,14 +129,14 @@ jobs:
           echo "Image ready for publishing: $FINAL_TAG"
 
       - name: Log in to Docker Hub
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
       - name: Push verified image (${{ matrix.arch }})
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
           VERSION=${{ needs.extract-version.outputs.VERSION }}
           IMAGE_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
@@ -166,7 +163,7 @@ jobs:
     name: create multi-arch manifest
     runs-on: ubuntu-22.04
     needs: [extract-version, verify-and-build]
-    if: ${{ github.event.inputs.dry_run != 'true' }}
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     steps:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
