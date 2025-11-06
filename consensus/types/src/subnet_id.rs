@@ -1,9 +1,11 @@
 //! Identifies each shard by an integer identifier.
+
 use crate::SingleAttestation;
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use alloy_primitives::{U256, bytes::Buf};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::LazyLock;
 
@@ -120,6 +122,25 @@ impl SubnetId {
         (0..subnets_per_node)
             .map(move |idx| SubnetId::new((node_id_prefix + idx as u64) % attestation_subnet_count))
     }
+
+    pub fn compute_attestation_subnet_prefix_mapping(
+        spec: &ChainSpec,
+    ) -> HashMap<SubnetId, Vec<i32>> {
+        let prefix_bits = spec.attestation_subnet_prefix_bits as u32;
+        let mut mapping: HashMap<SubnetId, Vec<i32>> = HashMap::new();
+
+        for prefix in 0..2_i32.pow(prefix_bits) {
+            let prefixed_node_id = U256::from(prefix) << (256 - prefix_bits);
+            let node_id_bytes = prefixed_node_id.to_be_bytes::<32>();
+            let subnets = Self::compute_attestation_subnets(node_id_bytes, spec);
+
+            for subnet in subnets {
+                mapping.entry(subnet).or_insert_with(Vec::new).push(prefix);
+            }
+        }
+
+        mapping
+    }
 }
 
 impl Deref for SubnetId {
@@ -163,6 +184,7 @@ impl AsRef<str> for SubnetId {
 #[cfg(test)]
 mod tests {
     use crate::Uint256;
+    use itertools::Itertools;
 
     use super::*;
 
@@ -205,6 +227,24 @@ mod tests {
                 expected_subnets[x],
                 computed_subnets.map(SubnetId::into).collect::<Vec<u64>>()
             );
+        }
+    }
+
+    #[test]
+    fn compute_attestation_subnet_prefix_mapping_test() {
+        let spec = ChainSpec::mainnet();
+        let prefix_bits = spec.attestation_subnet_prefix_bits as u32;
+
+        let mapping = SubnetId::compute_attestation_subnet_prefix_mapping(&spec);
+
+        for (subnet_id, prefixes) in mapping {
+            // Check whether the prefixes are mapped to the correct subnet_id.
+            for prefix in prefixes {
+                let prefixed_node_id = U256::from(prefix) << (256 - prefix_bits);
+                let mut computed_subnets =
+                    SubnetId::compute_attestation_subnets(prefixed_node_id.to_be_bytes(), &spec);
+                assert!(computed_subnets.contains(&subnet_id));
+            }
         }
     }
 }
