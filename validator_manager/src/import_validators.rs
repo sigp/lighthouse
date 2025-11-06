@@ -3,7 +3,7 @@ use crate::DumpConfig;
 use account_utils::eth2_keystore::Keystore;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use derivative::Derivative;
+use educe::Educe;
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
 use eth2::{SensitiveUrl, lighthouse_vc::std_types::ImportKeystoreStatus};
 use serde::{Deserialize, Serialize};
@@ -159,15 +159,15 @@ pub fn cli_app() -> Command {
         )
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct ImportConfig {
     pub validators_file_path: Option<PathBuf>,
     pub keystore_file_path: Option<PathBuf>,
     pub vc_url: SensitiveUrl,
     pub vc_token_path: PathBuf,
     pub ignore_duplicates: bool,
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub password: Option<Zeroizing<String>>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,

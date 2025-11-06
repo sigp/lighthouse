@@ -17,7 +17,7 @@ beacon_chain = { workspace = true }
 bls = { workspace = true }
 compare_fields = { workspace = true }
 context_deserialize = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
