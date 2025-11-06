@@ -102,6 +102,13 @@ TZ_VAL = UTC
 # Default profile 
 PROFILE ?= release
 
+# Features for reproducible builds
+FEATURES_REPRODUCIBLE = $(CROSS_FEATURES),jemalloc-unprefixed
+
+# Derive the architecture-specific library path from RUST_TARGET
+JEMALLOC_LIB_ARCH = $(word 1,$(subst -, ,$(RUST_TARGET)))
+JEMALLOC_OVERRIDE = /usr/lib/$(JEMALLOC_LIB_ARCH)-linux-gnu/libjemalloc.a
+
 # Default target architecture
 RUST_TARGET ?= x86_64-unknown-linux-gnu
 
@@ -116,7 +123,8 @@ build-reproducible: ## Build the lighthouse binary into `target` directory with 
 	CARGO_INCREMENTAL=${CARGO_INCREMENTAL_VAL} \
 	LC_ALL=${LOCALE_VAL} \
 	TZ=${TZ_VAL} \
-	cargo build --bin lighthouse --features "$(CROSS_FEATURES)" --profile "$(PROFILE)" --locked --target $(RUST_TARGET)
+	JEMALLOC_OVERRIDE=${JEMALLOC_OVERRIDE} \
+	cargo build --bin lighthouse --features "$(FEATURES_REPRODUCIBLE)" --profile "$(PROFILE)" --locked --target $(RUST_TARGET)
 
 .PHONY: build-reproducible-x86_64
 build-reproducible-x86_64: ## Build reproducible x86_64 Docker image

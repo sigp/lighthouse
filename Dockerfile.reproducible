@@ -3,7 +3,7 @@ ARG RUST_IMAGE="rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9
 FROM ${RUST_IMAGE} AS builder
 
 # Install specific version of the build dependencies
-RUN apt-get update && apt-get install -y libclang-dev=1:11.0-51+nmu5 cmake=3.18.4-2+deb11u1
+RUN apt-get update && apt-get install -y libclang-dev=1:11.0-51+nmu5 cmake=3.18.4-2+deb11u1 libjemalloc-dev=5.2.1-3
 
 ARG RUST_TARGET="x86_64-unknown-linux-gnu"
 
