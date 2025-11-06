@@ -40,6 +40,7 @@ Exercism
 Extractable
 FFG
 Fulu
+Fusaka
 Geth
 GiB
 Gitcoin
@@ -70,6 +71,7 @@ NodeJS
 NullLogger
 PathBuf
 Pectra
+PeerDAS
 PowerShell
 PPA
 Pre
@@ -78,8 +80,9 @@ PRs
 Prysm
 QUIC
 QuickNode
-RasPi
 README
+RasPi
+Reown
 RESTful
 Reth
 RHEL
@@ -107,6 +110,7 @@ Validator
 VC
 VCs
 VPN
+WalletConnect
 Withdrawable
 WSL
 XFS
@@ -222,6 +226,7 @@ src
 stakers
 subnet
 subnets
+supernode
 systemd
 testnet
 testnets

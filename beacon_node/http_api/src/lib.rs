@@ -13,6 +13,7 @@ mod block_packing_efficiency;
 mod block_rewards;
 mod build_block_contents;
 mod builder_states;
+mod custody;
 mod database;
 mod light_client;
 mod metrics;
@@ -4590,6 +4591,50 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/custody/info
+    let get_lighthouse_custody_info = warp::path("lighthouse")
+        .and(warp::path("custody"))
+        .and(warp::path("info"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || custody::info(chain))
+            },
+        );
+
+    // POST lighthouse/custody/backfill
+    let post_lighthouse_custody_backfill = warp::path("lighthouse")
+        .and(warp::path("custody"))
+        .and(warp::path("backfill"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    // Calling this endpoint will trigger custody backfill once `effective_epoch``
+                    // is finalized.
+                    let effective_epoch = chain
+                        .canonical_head
+                        .cached_head()
+                        .head_slot()
+                        .epoch(T::EthSpec::slots_per_epoch())
+                        + 1;
+                    let custody_context = chain.data_availability_checker.custody_context();
+                    // Reset validator custody requirements to `effective_epoch` with the latest
+                    // cgc requiremnets.
+                    custody_context.reset_validator_custody_requirements(effective_epoch);
+                    // Update `DataColumnCustodyInfo` to reflect the custody change.
+                    chain.update_data_column_custody_info(Some(
+                        effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    ));
+                    Ok(())
+                })
+            },
+        );
+
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4891,6 +4936,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_validator_inclusion)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
+                .uor(get_lighthouse_custody_info)
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
@@ -4948,6 +4994,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_compaction)
                     .uor(post_lighthouse_add_peer)
                     .uor(post_lighthouse_remove_peer)
+                    .uor(post_lighthouse_custody_backfill)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )

@@ -8,7 +8,7 @@ use lighthouse_network::{
     },
 };
 use std::{collections::HashMap, sync::Arc};
-use tracing::Span;
+use tracing::{Span, debug};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock,
@@ -323,10 +323,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // if accumulated sidecars is not empty, log an error but return the responses
         // as we can still make progress.
         if blob_iter.next().is_some() {
-            tracing::debug!(
-                remaining_blobs=?blob_iter.collect::<Vec<_>>(),
-                "Received sidecars that don't pair well",
-            );
+            let remaining_blobs = blob_iter
+                .map(|b| (b.index, b.block_root()))
+                .collect::<Vec<_>>();
+            debug!(?remaining_blobs, "Received sidecars that don't pair well",);
         }
 
         Ok(responses)
@@ -517,11 +517,10 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
-        let spec = test_spec::<E>();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
-                generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng, &spec)
+                generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng)
                     .0
                     .into()
             })
@@ -540,19 +539,13 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let spec = test_spec::<E>();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
                 // Always generate some blobs.
-                generate_rand_block_and_blobs::<E>(
-                    ForkName::Deneb,
-                    NumBlobs::Number(3),
-                    &mut rng,
-                    &spec,
-                )
-                .0
-                .into()
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng)
+                    .0
+                    .into()
             })
             .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
 

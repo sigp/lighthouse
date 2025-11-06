@@ -628,7 +628,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         (signed_aggregate.message.contribution.slot + 1).epoch(T::EthSpec::slots_per_epoch());
     let fork = chain.spec.fork_at_epoch(next_slot_epoch);
 
-    let signature_sets = vec![
+    let signature_sets = [
         signed_sync_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             signed_aggregate,
