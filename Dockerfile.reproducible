@@ -21,5 +21,4 @@ RUN mv /app/target/${RUST_TARGET}/release/lighthouse /lighthouse
 FROM gcr.io/distroless/cc-debian12:nonroot-6755e21ccd99ddead6edc8106ba03888cbeed41a
 COPY --from=builder /lighthouse /lighthouse
 
-EXPOSE 8551 9000
 ENTRYPOINT [ "/lighthouse" ]
