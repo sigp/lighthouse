@@ -87,7 +87,7 @@ impl ForkChoiceTest {
     /// Assert the epochs match.
     pub fn assert_finalized_epoch(self, epoch: u64) -> Self {
         assert_eq!(
-            self.get(|fc_store| fc_store.finalized_checkpoint().epoch),
+            self.get(|fc_store| fc_store.finalized_checkpoint().on_chain().epoch),
             Epoch::new(epoch),
             "finalized_epoch"
         );
@@ -97,7 +97,7 @@ impl ForkChoiceTest {
     /// Assert the epochs match.
     pub fn assert_justified_epoch(self, epoch: u64) -> Self {
         assert_eq!(
-            self.get(|fc_store| fc_store.justified_checkpoint().epoch),
+            self.get(|fc_store| fc_store.justified_checkpoint().on_chain().epoch),
             Epoch::new(epoch),
             "justified_epoch"
         );
@@ -369,7 +369,7 @@ impl ForkChoiceTest {
         let state_root = harness
             .chain
             .store
-            .get_blinded_block(&fc.fc_store().justified_checkpoint().root)
+            .get_blinded_block(&fc.fc_store().justified_checkpoint().local().root)
             .unwrap()
             .unwrap()
             .message()

@@ -1141,12 +1141,7 @@ async fn payload_preparation_before_transition_block() {
         .prepare_beacon_proposer(current_slot)
         .await
         .unwrap();
-    let forkchoice_update_params = rig
-        .harness
-        .chain
-        .head()
-        .canonical_head
-        .forkchoice_update_parameters();
+    let forkchoice_update_params = rig.harness.chain.head().forkchoice_update_parameters();
     rig.harness
         .chain
         .update_execution_engine_forkchoice(

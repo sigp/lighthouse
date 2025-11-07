@@ -1080,9 +1080,10 @@ mod test_compute_deltas {
     fn finalized_descendant() {
         let genesis_slot = Slot::new(0);
         let genesis_epoch = Epoch::new(0);
+        let genesis_block_root = Hash256::from_low_u64_be(1);
 
         let state_root = Hash256::from_low_u64_be(0);
-        let finalized_root = Hash256::from_low_u64_be(1);
+        let finalized_root = genesis_block_root;
         let finalized_desc = Hash256::from_low_u64_be(2);
         let not_finalized_desc = Hash256::from_low_u64_be(3);
         let unknown = Hash256::from_low_u64_be(4);
@@ -1102,6 +1103,7 @@ mod test_compute_deltas {
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
             genesis_slot,
+            genesis_block_root,
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,
@@ -1220,6 +1222,7 @@ mod test_compute_deltas {
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let execution_status = ExecutionStatus::irrelevant();
+        let genesis_block_root = get_block_root(0);
 
         let genesis_checkpoint = Checkpoint {
             epoch: Epoch::new(0),
@@ -1229,6 +1232,7 @@ mod test_compute_deltas {
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
             genesis_slot,
+            genesis_block_root,
             junk_state_root,
             genesis_checkpoint,
             genesis_checkpoint,
