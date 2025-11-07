@@ -1,5 +1,5 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
+use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
