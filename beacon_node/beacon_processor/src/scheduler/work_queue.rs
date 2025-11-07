@@ -29,6 +29,17 @@ impl<T> FifoQueue<T> {
         }
     }
 
+    pub fn pop_if<F>(&mut self, predicate: F) -> Option<T>
+    where
+        F: FnOnce(&T) -> bool,
+    {
+        if self.queue.front().is_some_and(predicate) {
+            self.queue.pop_front()
+        } else {
+            None
+        }
+    }
+
     /// Add a new item to the queue.
     ///
     /// Drops `item` if the queue is full.
@@ -75,6 +86,18 @@ impl<T> LifoQueue<T> {
         }
     }
 
+    /// Pop if predicate evaluates to true
+    pub fn pop_if<F>(&mut self, predicate: F) -> Option<T>
+    where
+        F: FnOnce(&T) -> bool,
+    {
+        if self.queue.front().is_some_and(predicate) {
+            self.queue.pop_front()
+        } else {
+            None
+        }
+    }
+
     /// Add a new item to the front of the queue.
     ///
     /// If the queue is full, the item at the back of the queue is dropped.
@@ -85,7 +108,7 @@ impl<T> LifoQueue<T> {
         self.queue.push_front(item);
     }
 
-    /// Remove the next item from the queue.
+    /// Remove at the next item in the queue.
     pub fn pop(&mut self) -> Option<T> {
         self.queue.pop_front()
     }
@@ -253,6 +276,10 @@ pub struct WorkQueues<E: EthSpec> {
     pub lc_update_range_queue: FifoQueue<Work<E>>,
     pub api_request_p0_queue: FifoQueue<Work<E>>,
     pub api_request_p1_queue: FifoQueue<Work<E>>,
+}
+
+impl<E: EthSpec> WorkQueues<E> {
+    pub fn get_next_work(&mut self) {}
 }
 
 impl<E: EthSpec> WorkQueues<E> {

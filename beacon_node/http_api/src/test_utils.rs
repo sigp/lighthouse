@@ -263,7 +263,8 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
-        current_workers: 0,
+        current_cpu_bound_workers: 0,
+        current_io_bound_workers: 0,
         config: beacon_processor_config,
     }
     .spawn_manager(

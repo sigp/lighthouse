@@ -678,7 +678,8 @@ where
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
-                    current_workers: 0,
+                    current_cpu_bound_workers: 0,
+                    current_io_bound_workers: 0,
                     config: beacon_processor_config,
                 }
                 .spawn_manager(
