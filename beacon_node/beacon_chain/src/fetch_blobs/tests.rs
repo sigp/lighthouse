@@ -576,7 +576,7 @@ fn create_test_block_and_blobs(
             .map(|(blob, proofs)| {
                 BlobAndProof::V2(BlobAndProofV2 {
                     blob,
-                    proofs: proofs.to_vec().into(),
+                    proofs: proofs.to_vec().try_into().unwrap(),
                 })
             })
             .collect()

@@ -7,7 +7,7 @@ use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX,
 };
 use bls::Signature;
-use derivative::Derivative;
+use educe::Educe;
 use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Blob as KzgBlob, Kzg, KzgCommitment, KzgProof};
 use merkle_proof::{MerkleTreeError, merkle_root_from_branch, verify_merkle_proof};
 use rand::Rng;
@@ -49,12 +49,10 @@ impl Ord for BlobIdentifier {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 pub struct BlobSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,

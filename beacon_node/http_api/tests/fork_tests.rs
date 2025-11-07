@@ -1,4 +1,5 @@
 //! Tests for API behaviour across fork boundaries.
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     StateSkipConfig,
     test_utils::{DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, RelativeSyncCommittee},
@@ -426,6 +427,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         None,
         Default::default(),
         true,
+        NodeCustodyType::Fullnode,
     )
     .await;
     let harness = &tester.harness;
