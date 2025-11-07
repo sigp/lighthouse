@@ -276,6 +276,8 @@ impl TestRig {
 
         let beacon_processor = BeaconProcessor {
             network_globals: network_globals.clone(),
+            current_cpu_bound_workers: 0,
+            current_io_bound_workers: 0,
             executor,
             config: beacon_processor_config,
         }
