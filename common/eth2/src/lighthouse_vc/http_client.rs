@@ -1,5 +1,5 @@
 use super::types::*;
-use crate::Error;
+use crate::{Error, success_or_error};
 use reqwest::{
     IntoUrl,
     header::{HeaderMap, HeaderValue},
@@ -145,7 +145,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Perform a HTTP DELETE request, returning the `Response` for further processing.
@@ -157,7 +157,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
@@ -218,7 +218,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn post<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
@@ -250,7 +250,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await?;
+        success_or_error(response).await?;
         Ok(())
     }
 
@@ -268,7 +268,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Perform a HTTP DELETE request.
@@ -283,7 +283,7 @@ impl ValidatorClientHttpClient {
 
     /// `GET lighthouse/version`
     pub async fn get_lighthouse_version(&self) -> Result<GenericResponse<VersionData>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -295,7 +295,7 @@ impl ValidatorClientHttpClient {
 
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -309,7 +309,7 @@ impl ValidatorClientHttpClient {
     pub async fn get_lighthouse_spec<T: Serialize + DeserializeOwned>(
         &self,
     ) -> Result<GenericResponse<T>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -323,7 +323,7 @@ impl ValidatorClientHttpClient {
     pub async fn get_lighthouse_validators(
         &self,
     ) -> Result<GenericResponse<Vec<ValidatorData>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -338,7 +338,7 @@ impl ValidatorClientHttpClient {
         &self,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<Option<GenericResponse<ValidatorData>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -354,7 +354,7 @@ impl ValidatorClientHttpClient {
         &self,
         validators: Vec<ValidatorRequest>,
     ) -> Result<GenericResponse<PostValidatorsResponseData>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -369,7 +369,7 @@ impl ValidatorClientHttpClient {
         &self,
         request: &CreateValidatorsMnemonicRequest,
     ) -> Result<GenericResponse<Vec<CreatedValidator>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -385,7 +385,7 @@ impl ValidatorClientHttpClient {
         &self,
         request: &KeystoreValidatorsPostRequest,
     ) -> Result<GenericResponse<ValidatorData>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -401,7 +401,7 @@ impl ValidatorClientHttpClient {
         &self,
         request: &[Web3SignerValidatorRequest],
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -424,7 +424,7 @@ impl ValidatorClientHttpClient {
         prefer_builder_proposals: Option<bool>,
         graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -451,7 +451,7 @@ impl ValidatorClientHttpClient {
         &self,
         req: &DeleteKeystoresRequest,
     ) -> Result<ExportKeystoresResponse, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -462,7 +462,7 @@ impl ValidatorClientHttpClient {
     }
 
     fn make_keystores_url(&self) -> Result<Url, Error> {
-        let mut url = self.server.full.clone();
+        let mut url = self.server.expose_full().clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")
@@ -472,7 +472,7 @@ impl ValidatorClientHttpClient {
     }
 
     fn make_remotekeys_url(&self) -> Result<Url, Error> {
-        let mut url = self.server.full.clone();
+        let mut url = self.server.expose_full().clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")
@@ -482,7 +482,7 @@ impl ValidatorClientHttpClient {
     }
 
     fn make_fee_recipient_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
-        let mut url = self.server.full.clone();
+        let mut url = self.server.expose_full().clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")
@@ -494,7 +494,7 @@ impl ValidatorClientHttpClient {
     }
 
     fn make_graffiti_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
-        let mut url = self.server.full.clone();
+        let mut url = self.server.expose_full().clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")
@@ -506,7 +506,7 @@ impl ValidatorClientHttpClient {
     }
 
     fn make_gas_limit_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
-        let mut url = self.server.full.clone();
+        let mut url = self.server.expose_full().clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")
@@ -519,7 +519,7 @@ impl ValidatorClientHttpClient {
 
     /// `GET lighthouse/auth`
     pub async fn get_auth(&self) -> Result<AuthResponse, Error> {
-        let mut url = self.server.full.clone();
+        let mut url = self.server.expose_full().clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
@@ -635,7 +635,7 @@ impl ValidatorClientHttpClient {
         pubkey: &PublicKeyBytes,
         epoch: Option<Epoch>,
     ) -> Result<GenericResponse<SignedVoluntaryExit>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -679,22 +679,5 @@ impl ValidatorClientHttpClient {
     pub async fn delete_graffiti(&self, pubkey: &PublicKeyBytes) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
         self.delete(url).await
-    }
-}
-
-/// Returns `Ok(response)` if the response is a `200 OK` response or a
-/// `202 Accepted` response. Otherwise, creates an appropriate error message.
-async fn ok_or_error(response: Response) -> Result<Response, Error> {
-    let status = response.status();
-
-    if status == StatusCode::OK
-        || status == StatusCode::ACCEPTED
-        || status == StatusCode::NO_CONTENT
-    {
-        Ok(response)
-    } else if let Ok(message) = response.json().await {
-        Err(Error::ServerMessage(message))
-    } else {
-        Err(Error::StatusCode(status))
     }
 }

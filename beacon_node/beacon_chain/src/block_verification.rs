@@ -66,7 +66,7 @@ use crate::{
     beacon_chain::{BeaconForkChoice, ForkChoiceError},
     metrics,
 };
-use derivative::Derivative;
+use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
@@ -689,8 +689,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Derivative)]
-#[derivative(Debug(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Debug(bound(T: BeaconChainTypes)))]
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     pub block_root: Hash256,
@@ -950,8 +950,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let proposer_shuffling_decision_block =
             parent_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
 
-        // We assign to a variable instead of using `if let Some` directly to ensure we drop the
-        // write lock before trying to acquire it again in the `else` clause.
         let block_slot = block.slot();
         let mut opt_parent = None;
         let proposer = chain.with_proposer_cache::<_, BlockError>(

@@ -247,23 +247,16 @@ impl<E: EthSpec> PeerDB<E> {
             .map(|(peer_id, _)| peer_id)
     }
 
-    /// Returns all the synced peers from the list of allowed peers that claim to have the block
+    /// Returns all the synced peers from the peer db that claim to have the block
     /// components for the given epoch based on `status.earliest_available_slot`.
     ///
     /// If `earliest_available_slot` info is not available, then return peer anyway assuming it has the
     /// required data.
-    ///
-    /// If `allowed_peers` is `Some`, then filters for the epoch only for those peers.
-    pub fn synced_peers_for_epoch<'a>(
-        &'a self,
-        epoch: Epoch,
-        allowed_peers: Option<&'a HashSet<PeerId>>,
-    ) -> impl Iterator<Item = &'a PeerId> {
+    pub fn synced_peers_for_epoch(&self, epoch: Epoch) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(move |(peer_id, info)| {
-                allowed_peers.is_none_or(|allowed| allowed.contains(peer_id))
-                    && info.is_connected()
+            .filter(move |(_, info)| {
+                info.is_connected()
                     && match info.sync_status() {
                         SyncStatus::Synced { info } => {
                             info.has_slot(epoch.end_slot(E::slots_per_epoch()))
