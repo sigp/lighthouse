@@ -965,9 +965,11 @@ impl ProtoArray {
     /// Notably, this function is checking ancestory of the finalized
     /// *checkpoint* not the finalized *block*.
     pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
-        let finalized_root = self.local_irreversible_checkpoint.root;
-        let finalized_slot = self
-            .local_irreversible_checkpoint
+        let local_finalized_checkpoint = self
+            .finalized_checkpoint
+            .clamp_min(self.local_irreversible_checkpoint);
+        let finalized_root = local_finalized_checkpoint.root;
+        let finalized_slot = local_finalized_checkpoint
             .epoch
             .start_slot(E::slots_per_epoch());
 

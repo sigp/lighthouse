@@ -31,6 +31,17 @@ pub struct Checkpoint {
     pub root: Hash256,
 }
 
+impl Checkpoint {
+    /// Returns `self` if its epoch is >= than the `other` checkpoint epoch
+    pub fn clamp_min(&self, other: Checkpoint) -> Checkpoint {
+        if self.epoch >= other.epoch {
+            *self
+        } else {
+            other
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -306,11 +306,7 @@ impl ForkChoiceCheckpoint {
     }
 
     pub fn local(&self) -> Checkpoint {
-        if self.on_chain.epoch >= self.local.epoch {
-            self.on_chain
-        } else {
-            self.local
-        }
+        self.on_chain.clamp_min(self.local)
     }
 }
 
@@ -319,6 +315,7 @@ impl std::fmt::Display for ForkChoiceCheckpoint {
         if self.on_chain.epoch >= self.local.epoch {
             write!(f, "{}/{}", self.on_chain.root, self.on_chain.epoch)
         } else {
+            // Only log local if local is ahead: only happens if explicitly set
             write!(
                 f,
                 "{}/{}/local/{}/{}",

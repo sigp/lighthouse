@@ -550,8 +550,11 @@ impl ProtoArrayForkChoice {
 
         *old_balances = new_balances.clone();
 
+        let local_justified_checkpoint =
+            justified_checkpoint.clamp_min(local_irreversible_checkpoint);
+
         self.proto_array
-            .find_head::<E>(&local_irreversible_checkpoint.root, current_slot)
+            .find_head::<E>(&local_justified_checkpoint.root, current_slot)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -1325,6 +1328,10 @@ mod test_compute_deltas {
         // Set the finalized checkpoint to finalize the first slot of epoch 1 on
         // the canonical chain.
         fc.proto_array.finalized_checkpoint = Checkpoint {
+            root: finalized_root,
+            epoch: Epoch::new(1),
+        };
+        fc.proto_array.local_irreversible_checkpoint = Checkpoint {
             root: finalized_root,
             epoch: Epoch::new(1),
         };
