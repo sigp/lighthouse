@@ -70,6 +70,8 @@ pub enum Error {
     InvalidFinalizedBlock,
     BeaconBlockBodyError,
     InconsistentFork,
+    // TODO(gloas): implement Gloas light client
+    GloasNotImplemented,
 }
 
 impl From<ssz_types::Error> for Error {
@@ -195,7 +197,8 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E>
             serde::de::Error::custom(format!("LightClientUpdate failed to deserialize: {:?}", e))
         };
         Ok(match context {
-            ForkName::Base => {
+            // TODO(gloas): implement Gloas light client
+            ForkName::Base | ForkName::Gloas => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientUpdate failed to deserialize: unsupported fork '{}'",
                     context
@@ -216,7 +219,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E>
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
         })
     }
 }
@@ -371,7 +373,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
             // To add a new fork, just append the new fork variant on the latest fork. Forks that
             // have a distinct execution header will need a new LightClientUpdate variant only
             // if you need to test or support lightclient usages
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            // TODO(gloas): implement Gloas light client
+            ForkName::Gloas => return Err(Error::GloasNotImplemented),
         };
 
         Ok(light_client_update)
@@ -386,9 +389,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Deneb => Self::Deneb(LightClientUpdateDeneb::from_ssz_bytes(bytes)?),
             ForkName::Electra => Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientUpdateFulu::from_ssz_bytes(bytes)?),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
-
-            ForkName::Base => {
+            // TODO(gloas): implement Gloas light client
+            ForkName::Base | ForkName::Gloas => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientUpdate decoding for {fork_name} not implemented"
                 )));
@@ -535,7 +537,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Deneb => <LightClientUpdateDeneb<E> as Encode>::ssz_fixed_len(),
             ForkName::Electra => <LightClientUpdateElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientUpdateFulu<E> as Encode>::ssz_fixed_len(),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            // TODO(gloas): implement Gloas light client
+            ForkName::Gloas => 0,
         };
         fixed_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }

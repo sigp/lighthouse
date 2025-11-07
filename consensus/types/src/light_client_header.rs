@@ -104,7 +104,8 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::block_to_light_client_header(block)?)
             }
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            // TODO(gloas): implement Gloas light client
+            ForkName::Gloas => return Err(Error::GloasNotImplemented),
         };
         Ok(header)
     }
@@ -126,8 +127,8 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::from_ssz_bytes(bytes)?)
             }
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
-            ForkName::Base => {
+            // TODO(gloas): implement Gloas light client
+            ForkName::Base | ForkName::Gloas => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientHeader decoding for {fork_name} not implemented"
                 )));
@@ -357,7 +358,8 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
             ))
         };
         Ok(match context {
-            ForkName::Base => {
+            // TODO(gloas): implement Gloas light client
+            ForkName::Base | ForkName::Gloas => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                     context
@@ -378,7 +380,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
         })
     }
 }

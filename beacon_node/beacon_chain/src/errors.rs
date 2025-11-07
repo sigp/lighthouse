@@ -319,6 +319,8 @@ pub enum BlockProductionError {
     FailedToBuildBlobSidecars(String),
     MissingExecutionRequests,
     SszTypesError(ssz_types::Error),
+    // TODO(gloas): Remove this once Gloas is implemented
+    GloasNotImplemented,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

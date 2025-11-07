@@ -119,7 +119,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            ForkName::Gloas => return Err(Error::GloasNotImplemented),
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
 
@@ -175,8 +175,8 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 Self::Electra(LightClientOptimisticUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => Self::Fulu(LightClientOptimisticUpdateFulu::from_ssz_bytes(bytes)?),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
-            ForkName::Base => {
+            // TODO(gloas): implement Gloas light client
+            ForkName::Base | ForkName::Gloas => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientOptimisticUpdate decoding for {fork_name} not implemented"
                 )));
@@ -197,7 +197,8 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
             ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientOptimisticUpdateFulu<E> as Encode>::ssz_fixed_len(),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            // TODO(gloas): implement Gloas light client
+            ForkName::Gloas => 0,
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }

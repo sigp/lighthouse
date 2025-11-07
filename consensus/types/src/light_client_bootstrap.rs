@@ -107,8 +107,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu::from_ssz_bytes(bytes)?),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
-            ForkName::Base => {
+            // TODO(gloas): implement Gloas light client
+            ForkName::Base | ForkName::Gloas => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
                 )));
@@ -129,7 +129,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Deneb => <LightClientBootstrapDeneb<E> as Encode>::ssz_fixed_len(),
             ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            // TODO(gloas): implement Gloas light client
+            ForkName::Gloas => <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len(),
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -180,7 +181,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .try_into()
                     .map_err(Error::SszTypesError)?,
             }),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            // TODO(gloas): implement Gloas light client
+            ForkName::Gloas => return Err(Error::GloasNotImplemented),
         };
 
         Ok(light_client_bootstrap)
@@ -234,7 +236,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .try_into()
                     .map_err(Error::SszTypesError)?,
             }),
-            ForkName::Gloas => todo!("Gloas light client not implemented"),
+            // TODO(gloas): implement Gloas light client
+            ForkName::Gloas => return Err(Error::GloasNotImplemented),
         };
 
         Ok(light_client_bootstrap)
