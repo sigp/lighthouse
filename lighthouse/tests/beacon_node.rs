@@ -2671,6 +2671,8 @@ fn beacon_processor() {
         .with_config(|config| assert_eq!(config.beacon_processor, <_>::default()));
 
     CommandLineTest::new()
+        // TODO add separate max worker flag for cpu bound and io bound tasks
+        // Deprecate max-workers
         .flag("beacon-processor-max-workers", Some("1"))
         .flag("beacon-processor-work-queue-len", Some("2"))
         .flag("beacon-processor-reprocess-queue-len", Some("3"))
@@ -2683,6 +2685,8 @@ fn beacon_processor() {
                 config.beacon_processor,
                 BeaconProcessorConfig {
                     max_workers: 1,
+                    max_cpu_bound_workers: 0,
+                    max_io_bound_workers: 0,
                     max_work_event_queue_len: 2,
                     max_scheduled_work_queue_len: 3,
                     max_gossip_attestation_batch_size: 4,
