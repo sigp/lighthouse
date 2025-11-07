@@ -106,15 +106,17 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .spec
             .is_focil_enabled_for_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()))
         {
+            // Inclusion lists are those submitted for the prior slot.
+            let il_slot = block.slot().saturating_sub(1_u64);
             let inclusion_list_transactions = chain
                 .inclusion_list_cache
                 .read()
-                .get_inclusion_list_transactions(block.slot())
+                .get_inclusion_list_transactions(il_slot)
                 .unwrap_or(vec![].into());
 
             info!(
-                tx_count =  inclusion_list_transactions.len(),
-                slot = ?block.slot(),
+                tx_count = inclusion_list_transactions.len(),
+                slot = ?il_slot,
                 "Adding inclusion list transactions in the Payload Notifier"
             );
             inclusion_list_transactions
