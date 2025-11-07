@@ -291,39 +291,39 @@ pub struct ForkchoiceUpdateParameters {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ForkChoiceCheckpoint {
-    Local {
-        local: Checkpoint,
-        on_chain: Checkpoint,
-    },
-    OnChain(Checkpoint),
+pub struct ForkChoiceCheckpoint {
+    local: Checkpoint,
+    on_chain: Checkpoint,
 }
 
 impl ForkChoiceCheckpoint {
+    pub fn new(local: Checkpoint, on_chain: Checkpoint) -> Self {
+        Self { local, on_chain }
+    }
+
     pub fn on_chain(&self) -> Checkpoint {
-        match self {
-            Self::Local { on_chain, .. } => *on_chain,
-            Self::OnChain(cp) => *cp,
-        }
+        self.on_chain
     }
 
     pub fn local(&self) -> Checkpoint {
-        match self {
-            Self::Local { local, .. } => *local,
-            Self::OnChain(cp) => *cp,
+        if self.on_chain.epoch >= self.local.epoch {
+            self.on_chain
+        } else {
+            self.local
         }
     }
 }
 
 impl std::fmt::Display for ForkChoiceCheckpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Local { local, on_chain } => write!(
+        if self.on_chain.epoch >= self.local.epoch {
+            write!(f, "{}/{}", self.on_chain.root, self.on_chain.epoch)
+        } else {
+            write!(
                 f,
                 "{}/{}/local/{}/{}",
-                on_chain.root, on_chain.epoch, local.root, local.epoch,
-            ),
-            Self::OnChain(cp) => write!(f, "{}/{}", cp.root, cp.epoch),
+                self.on_chain.root, self.on_chain.epoch, self.local.root, self.local.epoch,
+            )
         }
     }
 }
@@ -375,7 +375,6 @@ where
     /// Instantiates `Self` from an anchor (genesis or another finalized checkpoint).
     pub fn from_anchor(
         fc_store: T,
-        anchor_block_root: Hash256,
         anchor_block: &SignedBeaconBlock<E>,
         anchor_state: &BeaconState<E>,
         current_slot: Option<Slot>,
@@ -389,6 +388,7 @@ where
             });
         }
 
+        let anchor_block_root = anchor_block.canonical_root();
         let anchor_block_slot = anchor_block.slot();
         let anchor_block_state_root = anchor_block.state_root();
         let current_epoch_shuffling_id =

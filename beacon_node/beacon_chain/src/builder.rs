@@ -401,7 +401,6 @@ where
 
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
-            genesis.beacon_block_root,
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
@@ -622,7 +621,6 @@ where
 
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
-            snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             Some(weak_subj_slot),

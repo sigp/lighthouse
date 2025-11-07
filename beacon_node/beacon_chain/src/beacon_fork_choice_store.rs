@@ -168,9 +168,7 @@ where
         store: Arc<HotColdDB<E, Hot, Cold>>,
         anchor: BeaconSnapshot<E>,
     ) -> Result<Self, Error> {
-        let unadvanced_state_root = anchor.beacon_state_root();
         let mut anchor_state = anchor.beacon_state;
-        let mut anchor_block_header = anchor_state.latest_block_header().clone();
 
         // The anchor state MUST be on an epoch boundary (it should be advanced by the caller).
         if !anchor_state
@@ -179,20 +177,15 @@ where
             .is_multiple_of(E::slots_per_epoch())
         {
             return Err(Error::UnalignedCheckpoint {
-                block_slot: anchor_block_header.slot,
+                block_slot: anchor_state.latest_block_header().slot,
                 state_slot: anchor_state.slot(),
             });
         }
 
-        // Compute the accurate block root for the checkpoint block.
-        if anchor_block_header.state_root.is_zero() {
-            anchor_block_header.state_root = unadvanced_state_root;
-        }
-        let anchor_block_root = anchor_block_header.canonical_root();
         let anchor_epoch = anchor_state.current_epoch();
         let anchor_block_checkpoint = Checkpoint {
             epoch: anchor_epoch,
-            root: anchor_block_root,
+            root: anchor.beacon_block_root,
         };
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
         let anchor_state_root = anchor_state.canonical_root()?;
@@ -361,14 +354,10 @@ where
     }
 
     fn justified_checkpoint(&self) -> ForkChoiceCheckpoint {
-        if self.local_irreversible_checkpoint.epoch > self.justified_checkpoint.epoch {
-            ForkChoiceCheckpoint::Local {
-                local: self.local_irreversible_checkpoint,
-                on_chain: self.justified_checkpoint,
-            }
-        } else {
-            ForkChoiceCheckpoint::OnChain(self.justified_checkpoint)
-        }
+        ForkChoiceCheckpoint::new(
+            self.local_irreversible_checkpoint,
+            self.justified_checkpoint,
+        )
     }
 
     fn justified_state_root(&self) -> Hash256 {
@@ -380,14 +369,10 @@ where
     }
 
     fn finalized_checkpoint(&self) -> ForkChoiceCheckpoint {
-        if self.local_irreversible_checkpoint.epoch > self.finalized_checkpoint.epoch {
-            ForkChoiceCheckpoint::Local {
-                local: self.local_irreversible_checkpoint,
-                on_chain: self.finalized_checkpoint,
-            }
-        } else {
-            ForkChoiceCheckpoint::OnChain(self.finalized_checkpoint)
-        }
+        ForkChoiceCheckpoint::new(
+            self.local_irreversible_checkpoint,
+            self.finalized_checkpoint,
+        )
     }
 
     fn unrealized_justified_checkpoint(&self) -> &Checkpoint {

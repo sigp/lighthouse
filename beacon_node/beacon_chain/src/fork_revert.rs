@@ -1,5 +1,5 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::{ForkChoice, PayloadVerificationStatus};
+use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use itertools::process_results;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
@@ -137,7 +137,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         )
     })?;
     let finalized_snapshot = BeaconSnapshot {
-        beacon_block_root: finalized_block_root,
+        beacon_block_root: finalized_block.canonical_root(),
         beacon_block: Arc::new(finalized_block),
         beacon_state: finalized_state,
     };
@@ -148,7 +148,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
 
     let mut fork_choice = ForkChoice::from_anchor(
         fc_store,
-        finalized_block_root,
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
         current_slot,
