@@ -773,8 +773,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.rpc_custody_column_queue.pop() {
                             Some(item)
-                        } else if let Some(item) = work_queues.rpc_custody_column_queue.pop() {
-                            Some(item)
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = work_queues.delayed_block_queue.pop() {
