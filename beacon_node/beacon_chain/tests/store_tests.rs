@@ -2701,23 +2701,31 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
 
 #[tokio::test]
 async fn weak_subjectivity_sync_easy() {
-    let num_initial_slots = E::slots_per_epoch() * 11;
+    let num_initial_slots = E::slots_per_epoch() * 13;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig::finality(
+        slots,
+        checkpoint_slot,
+    ))
+    .await
 }
 
 #[tokio::test]
 async fn weak_subjectivity_sync_single_block_batches() {
-    let num_initial_slots = E::slots_per_epoch() * 11;
+    let num_initial_slots = E::slots_per_epoch() * 13;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, Some(1)).await
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig::finality(
+        slots,
+        checkpoint_slot,
+    ))
+    .await
 }
 
 #[tokio::test]
 async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
-    let num_initial_slots = E::slots_per_epoch() * 11;
+    let num_initial_slots = E::slots_per_epoch() * 13;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots)
         .map(Slot::new)
@@ -2726,12 +2734,16 @@ async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
             slot <= checkpoint_slot - 3 || slot > checkpoint_slot
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig::finality(
+        slots,
+        checkpoint_slot,
+    ))
+    .await
 }
 
 #[tokio::test]
 async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
-    let num_initial_slots = E::slots_per_epoch() * 11;
+    let num_initial_slots = E::slots_per_epoch() * 13;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9 - 3);
     let slots = (1..num_initial_slots)
         .map(Slot::new)
@@ -2740,7 +2752,11 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
             slot <= checkpoint_slot || slot > checkpoint_slot + 3
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig::finality(
+        slots,
+        checkpoint_slot,
+    ))
+    .await
 }
 
 // Regression test for https://github.com/sigp/lighthouse/issues/4817
@@ -2749,10 +2765,14 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
 #[tokio::test]
 async fn weak_subjectivity_sync_skips_at_genesis() {
     let start_slot = 4;
-    let end_slot = E::slots_per_epoch() * 4;
+    let end_slot = E::slots_per_epoch() * 6;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig::finality(
+        slots,
+        checkpoint_slot,
+    ))
+    .await
 }
 
 // Checkpoint sync from the genesis state.
@@ -2762,20 +2782,59 @@ async fn weak_subjectivity_sync_skips_at_genesis() {
 #[tokio::test]
 async fn weak_subjectivity_sync_from_genesis() {
     let start_slot = 1;
-    let end_slot = E::slots_per_epoch() * 2;
+    let end_slot = E::slots_per_epoch() * 4;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(0);
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig::finality(
+        slots,
+        checkpoint_slot,
+    ))
+    .await
 }
 
-async fn weak_subjectivity_sync_test(
-    slots: Vec<Slot>,
+// Checkpoint sync from the genesis state.
+//
+// This is a regression test for a bug we had involving the storage of the genesis state in the hot
+// DB.
+#[tokio::test]
+async fn weak_subjectivity_sync_non_finality() {
+    let end_slot = E::slots_per_epoch() * 8;
+    let checkpoint_slot = E::slots_per_epoch() * 4;
+    let slots_with_blocks = (1..=checkpoint_slot).map(Slot::new).collect();
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig {
+        slots_with_blocks,
+        slots_with_not_attested_blocks: end_slot - checkpoint_slot,
+        checkpoint_slot: Slot::new(checkpoint_slot),
+        backfill_batch_size: None,
+    })
+    .await
+}
+
+struct WeakSubjectivitySyncTestConfig {
+    slots_with_blocks: Vec<Slot>,
+    slots_with_not_attested_blocks: u64,
     checkpoint_slot: Slot,
     backfill_batch_size: Option<usize>,
-) {
-    // Build an initial chain on one harness, representing a synced node with full history.
-    let num_final_blocks = E::slots_per_epoch() * 2;
+}
 
+impl WeakSubjectivitySyncTestConfig {
+    fn finality(slots: Vec<Slot>, checkpoint_slot: Slot) -> Self {
+        Self {
+            slots_with_blocks: slots,
+            slots_with_not_attested_blocks: 0,
+            checkpoint_slot,
+            backfill_batch_size: None,
+        }
+    }
+}
+
+async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
+    let WeakSubjectivitySyncTestConfig {
+        slots_with_blocks,
+        slots_with_not_attested_blocks,
+        checkpoint_slot,
+        backfill_batch_size,
+    } = config;
     let temp1 = tempdir().unwrap();
     let full_store = get_store(&temp1);
 
@@ -2787,12 +2846,16 @@ async fn weak_subjectivity_sync_test(
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
+    info!(
+        max_slot = ?slots_with_blocks.iter().max(),
+        "Producing blocks with attestations"
+    );
     let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
     harness
         .add_attested_blocks_at_slots(
             genesis_state.clone(),
             genesis_state_root,
-            &slots,
+            &slots_with_blocks,
             &all_validators,
         )
         .await;
@@ -2801,7 +2864,7 @@ async fn weak_subjectivity_sync_test(
         .chain
         .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
         .unwrap()
-        .unwrap();
+        .unwrap_or_else(|| panic!("Block not found {checkpoint_slot}"));
     let wss_state_root = harness
         .chain
         .state_root_at_slot(checkpoint_slot)
@@ -2825,15 +2888,21 @@ async fn weak_subjectivity_sync_test(
     let wss_state_slot = wss_state.slot();
     let wss_block_slot = wss_block.slot();
 
-    // Add more blocks that advance finalization further.
-    harness.advance_slot();
-    harness
-        .extend_chain(
-            num_final_blocks as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
+    if slots_with_not_attested_blocks > 0 {
+        info!(
+            count = slots_with_not_attested_blocks,
+            "Producing blocks without attestations"
+        );
+        harness.advance_slot();
+        harness
+            .extend_chain(
+                slots_with_not_attested_blocks as usize,
+                BlockStrategy::OnCanonicalHead,
+                // No validators attest to this blocks
+                AttestationStrategy::SomeValidators(vec![]),
+            )
+            .await;
+    }
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
 
@@ -2917,7 +2986,12 @@ async fn weak_subjectivity_sync_test(
     let chain_dump = harness.chain.chain_dump().unwrap();
     let new_blocks = chain_dump
         .iter()
-        .filter(|snapshot| snapshot.beacon_block.slot() > checkpoint_slot);
+        .filter(|snapshot| snapshot.beacon_block.slot() > checkpoint_slot)
+        .collect::<Vec<_>>();
+    info!(
+        block_count = new_blocks.len(),
+        "Importing blocks to new node"
+    );
 
     for snapshot in new_blocks {
         let block_root = snapshot.beacon_block_root;
