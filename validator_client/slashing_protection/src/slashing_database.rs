@@ -1,10 +1,10 @@
-use crate::interchange::{
-    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation as InterchangeAttestation,
-    SignedBlock as InterchangeBlock,
-};
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot, signing_root_from_row};
+use eip_3076::{
+    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation as InterchangeAttestation,
+    SignedBlock as InterchangeBlock,
+};
 use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
@@ -1219,7 +1219,7 @@ pub enum InterchangeError {
         interchange_file: Hash256,
         client: Hash256,
     },
-    MaxInconsistent,
+    Eip3076(eip_3076::Error),
     SummaryInconsistent,
     SQLError(String),
     SQLPoolError(r2d2::Error),

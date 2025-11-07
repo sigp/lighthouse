@@ -26,46 +26,8 @@ pub use types::*;
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
 
-/// An API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Error {
-    Indexed(IndexedErrorMessage),
-    Message(ErrorMessage),
-}
-
-/// An API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ErrorMessage {
-    pub code: u16,
-    pub message: String,
-    #[serde(default)]
-    pub stacktraces: Vec<String>,
-}
-
-/// An indexed API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct IndexedErrorMessage {
-    pub code: u16,
-    pub message: String,
-    pub failures: Vec<Failure>,
-}
-
-/// A single failure in an index of API errors, serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Failure {
-    pub index: u64,
-    pub message: String,
-}
-
-impl Failure {
-    pub fn new(index: usize, message: String) -> Self {
-        Self {
-            index: index as u64,
-            message,
-        }
-    }
-}
+// Re-export error types from the unified error module
+pub use crate::error::{ErrorMessage, Failure, IndexedErrorMessage, ResponseError as Error};
 
 /// The version of a single API endpoint, e.g. the `v1` in `/eth/v1/beacon/blocks`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1560,18 +1522,13 @@ pub struct ForkChoiceNode {
     pub execution_block_hash: Option<Hash256>,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BroadcastValidation {
+    #[default]
     Gossip,
     Consensus,
     ConsensusAndEquivocation,
-}
-
-impl Default for BroadcastValidation {
-    fn default() -> Self {
-        Self::Gossip
-    }
 }
 
 impl Display for BroadcastValidation {
@@ -1690,8 +1647,8 @@ mod tests {
             BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
             Signature::empty(),
         );
-        let blobs = BlobsList::<E>::from(vec![Blob::<E>::default()]);
-        let kzg_proofs = KzgProofs::<E>::from(vec![KzgProof::empty()]);
+        let blobs = BlobsList::<E>::try_from(vec![Blob::<E>::default()]).unwrap();
+        let kzg_proofs = KzgProofs::<E>::try_from(vec![KzgProof::empty()]).unwrap();
         let signed_block_contents =
             PublishBlockRequest::new(Arc::new(block), Some((kzg_proofs, blobs)));
 

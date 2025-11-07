@@ -244,6 +244,7 @@ pub enum BeaconChainError {
         cache_epoch: Epoch,
     },
     SkipProposerPreparation,
+    FailedColumnCustodyInfoUpdate,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -314,6 +315,7 @@ pub enum BlockProductionError {
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),
     MissingExecutionRequests,
+    SszTypesError(ssz_types::Error),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
