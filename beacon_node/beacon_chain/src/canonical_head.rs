@@ -1005,19 +1005,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_local_finalized_slot = new_local_finalized_checkpoint
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-        let new_local_finalized_state_root = process_results(
-            StateRootsIterator::new(&self.store, &new_snapshot.beacon_state),
-            |mut iter| {
-                iter.find_map(|(state_root, slot)| {
-                    if slot == new_local_finalized_slot {
-                        Some(state_root)
-                    } else {
-                        None
-                    }
-                })
-            },
-        )?
-        .ok_or(Error::MissingFinalizedStateRoot(new_local_finalized_slot))?;
+        let new_local_finalized_state_root =
+            if new_local_finalized_slot == new_snapshot.beacon_state.slot() {
+                new_snapshot.beacon_block.state_root()
+            } else {
+                process_results(
+                    StateRootsIterator::new(&self.store, &new_snapshot.beacon_state),
+                    |mut iter| {
+                        iter.find_map(|(state_root, slot)| {
+                            if slot == new_local_finalized_slot {
+                                Some(state_root)
+                            } else {
+                                None
+                            }
+                        })
+                    },
+                )?
+                .ok_or(Error::MissingFinalizedStateRoot {
+                    state_slot: new_snapshot.beacon_state.slot(),
+                    target_slot: new_local_finalized_slot,
+                })?
+            };
 
         let update_cache = true;
         let new_finalized_state = self

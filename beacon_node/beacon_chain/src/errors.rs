@@ -75,7 +75,10 @@ pub enum BeaconChainError {
     ProposerSlashingValidationError(ProposerSlashingValidationError),
     AttesterSlashingValidationError(AttesterSlashingValidationError),
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
-    MissingFinalizedStateRoot(Slot),
+    MissingFinalizedStateRoot {
+        state_slot: Slot,
+        target_slot: Slot,
+    },
     SszTypesError(SszTypesError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
