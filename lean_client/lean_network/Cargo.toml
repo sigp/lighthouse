@@ -1,0 +1,29 @@
+[package]
+name = "lean-network"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+gossipsub = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+lean-consensus = { path = "../consensus" }
+task_executor = { workspace = true }
+
+[dependencies.libp2p]
+version = "0.56"
+default-features = false
+features = [
+    "identify",
+    "yamux",
+    "noise",
+    "tcp",
+    "tokio",
+    "secp256k1",
+    "macros",
+    "ecdsa",
+    "quic",
+    "mdns"
+]
+

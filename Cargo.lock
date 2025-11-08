@@ -5083,6 +5083,70 @@ dependencies = [
 ]
 
 [[package]]
+name = "lean-consensus"
+version = "0.1.0"
+dependencies = [
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
+ "fixed_bytes",
+ "int_to_bytes",
+ "lean-crypto",
+ "milhouse",
+ "serde",
+ "tree_hash",
+ "tree_hash_derive",
+ "types",
+]
+
+[[package]]
+name = "lean-crypto"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
+ "tree_hash",
+]
+
+[[package]]
+name = "lean-forkchoice"
+version = "0.1.0"
+
+[[package]]
+name = "lean-network"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "lean-consensus",
+ "libp2p",
+ "libp2p-gossipsub",
+ "task_executor",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "lean_client"
+version = "0.1.0"
+dependencies = [
+ "async-channel 1.9.0",
+ "clap",
+ "clap_utils",
+ "environment",
+ "futures",
+ "lean-consensus",
+ "lean-network",
+ "libp2p",
+ "libp2p-gossipsub",
+ "serde",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "tracing",
+ "types",
+]
+
+[[package]]
 name = "leveldb"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5577,6 +5641,7 @@ dependencies = [
  "ethereum_hashing",
  "futures",
  "initialized_validators",
+ "lean_client",
  "lighthouse_network",
  "lighthouse_tracing",
  "lighthouse_version",

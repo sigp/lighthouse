@@ -1,0 +1,12 @@
+[package]
+name = "lean-crypto"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = "2024"
+
+[dependencies]
+alloy-primitives = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+tree_hash = { workspace = true }
+

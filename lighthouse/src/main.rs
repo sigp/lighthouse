@@ -10,13 +10,17 @@ use clap_utils::{
     FLAG_HEADER, flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config,
 };
 use cli::LighthouseSubcommands;
-use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
+use directory::{
+    DEFAULT_BEACON_NODE_DIR, DEFAULT_LEAN_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default,
+};
 use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
+use lean_client::ProductionLeanClient;
 use lighthouse_version::VERSION;
+
 use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
 use opentelemetry::trace::TracerProvider;
@@ -568,6 +572,11 @@ fn run<E: EthSpec>(
 
                 Some(base_path.join("logs"))
             }
+            Some(("lean_node", _)) => Some(
+                parse_path_or_default(matches, "datadir")?
+                    .join(DEFAULT_LEAN_NODE_DIR)
+                    .join("logs"),
+            ),
             _ => None,
         };
     }
@@ -672,6 +681,7 @@ fn run<E: EthSpec>(
                 .unwrap_or_else(|| match matches.subcommand() {
                     Some(("beacon_node", _)) => "lighthouse-bn".to_string(),
                     Some(("validator_client", _)) => "lighthouse-vc".to_string(),
+                    Some(("lean_node", _)) => "lighthouse-ln".to_string(),
                     _ => "lighthouse".to_string(),
                 });
 
@@ -811,6 +821,27 @@ fn run<E: EthSpec>(
                 "validator_client",
             );
         }
+        Ok(LighthouseSubcommands::LeanNode(_)) => {
+            let context = environment.core_context();
+            let executor = context.executor.clone();
+            let temp_executor = executor.clone();
+            executor.clone().spawn(
+                async move {
+                    if let Err(e) = ProductionLeanClient::new(context, temp_executor)
+                        .and_then(|mut ln| async move { ln.start_service().await })
+                        .await
+                    {
+                        crit!(reason = e, "Failed to start lean node");
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send(ShutdownReason::Failure("Failed to start lean node"));
+                    }
+                },
+                "lean_node",
+            );
+        }
         Err(_) => (),
     };
 
@@ -849,6 +880,8 @@ fn run<E: EthSpec>(
         // TODO(clap-derive) delete this once we've fully migrated to clap derive.
         // Qt the moment this needs to exist so that we dont trigger a crit.
         Some(("validator_client", _)) => (),
+        Some(("lean_node", _)) => (),
+
         _ => {
             crit!("No subcommand supplied. See --help .");
             return Err("No subcommand supplied.".into());

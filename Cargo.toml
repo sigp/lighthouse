@@ -65,6 +65,11 @@ members = [
     "crypto/kzg",
     "database_manager",
     "lcli",
+    "lean_client",
+    "lean_client/consensus",
+    "lean_client/lean_network",
+    "lean_client/forkchoice",
+    "lean_client/crypto",
     "lighthouse",
     "lighthouse/environment",
     "slasher",
@@ -282,6 +287,14 @@ xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9feb
 zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
 zip = "0.6"
 zstd = "0.13"
+
+# lean chain crates
+lean_client = { path = "lean_client" }
+lean-consensus = { path = "lean_client/consensus" }
+lean-network = { path = "lean_client/lean_network" }
+lean-forkchoice = { path = "lean_client/forkchoice" }
+lean-crypto = { path = "lean_client/crypto"}
+
 
 [profile.maxperf]
 inherits = "release"

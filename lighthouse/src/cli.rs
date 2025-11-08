@@ -1,5 +1,6 @@
 use clap::Parser;
 use database_manager::cli::DatabaseManager;
+use lean_client::cli::LeanNode;
 use serde::{Deserialize, Serialize};
 use validator_client::cli::ValidatorClient;
 
@@ -9,4 +10,6 @@ pub enum LighthouseSubcommands {
     DatabaseManager(Box<DatabaseManager>),
     #[clap(name = "validator_client")]
     ValidatorClient(Box<ValidatorClient>),
+    #[clap(name = "lean_node")]
+    LeanNode(Box<LeanNode>),
 }

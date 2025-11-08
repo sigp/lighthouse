@@ -1,0 +1,38 @@
+[package]
+name = "lean_client"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+clap_utils = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+gossipsub = { workspace = true }
+futures = { workspace = true }
+lean-network = { workspace = true }
+lean-consensus = { workspace = true }
+task_executor = { workspace = true }
+async-channel = { workspace = true }
+serde = { workspace = true }
+slot_clock = { workspace = true }
+environment = { workspace = true }
+types = { workspace = true }
+
+[dependencies.libp2p]
+version = "0.56"
+default-features = false
+features = [
+    "identify",
+    "yamux",
+    "noise",
+    "tcp",
+    "tokio",
+    "secp256k1",
+    "macros",
+    "ecdsa",
+    "quic",
+    "mdns"
+]
+

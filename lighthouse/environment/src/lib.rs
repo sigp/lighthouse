@@ -106,6 +106,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
     pub sse_logging_components: Option<SSELoggingComponents>,
+    pub lean_spec: Option<u64>,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
@@ -119,6 +120,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
             sse_logging_components: self.sse_logging_components.clone(),
+            lean_spec: None,
         }
     }
 
@@ -355,6 +357,7 @@ impl<E: EthSpec> Environment<E> {
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
             sse_logging_components: self.sse_logging_components.clone(),
+            lean_spec: None,
         }
     }
 
@@ -371,6 +374,7 @@ impl<E: EthSpec> Environment<E> {
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
             sse_logging_components: self.sse_logging_components.clone(),
+            lean_spec: None,
         }
     }
 
