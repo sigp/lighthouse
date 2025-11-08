@@ -1,6 +1,5 @@
 pub mod cli;
 use environment::RuntimeContext;
-use lean_consensus::config::LeanConfig;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, sleep};
@@ -10,7 +9,6 @@ use types::EthSpec;
 pub struct ProductionLeanClient<E: EthSpec> {
     context: RuntimeContext<E>,
     slot_clock: SystemTimeSlotClock,
-    config: LeanConfig,
     executor: TaskExecutor,
 }
 
@@ -26,7 +24,6 @@ impl<E: EthSpec> ProductionLeanClient<E> {
             context,
             slot_clock,
             executor,
-            config: LeanConfig::devnet(),
         })
     }
 
