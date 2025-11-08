@@ -2708,7 +2708,7 @@ async fn weak_subjectivity_sync_easy() {
         slots,
         checkpoint_slot,
     ))
-    .await
+    .await;
 }
 
 #[tokio::test]
@@ -2720,7 +2720,7 @@ async fn weak_subjectivity_sync_single_block_batches() {
         slots,
         checkpoint_slot,
     ))
-    .await
+    .await;
 }
 
 #[tokio::test]
@@ -2738,7 +2738,7 @@ async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
         slots,
         checkpoint_slot,
     ))
-    .await
+    .await;
 }
 
 #[tokio::test]
@@ -2756,7 +2756,7 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
         slots,
         checkpoint_slot,
     ))
-    .await
+    .await;
 }
 
 // Regression test for https://github.com/sigp/lighthouse/issues/4817
@@ -2772,7 +2772,7 @@ async fn weak_subjectivity_sync_skips_at_genesis() {
         slots,
         checkpoint_slot,
     ))
-    .await
+    .await;
 }
 
 // Checkpoint sync from the genesis state.
@@ -2789,7 +2789,7 @@ async fn weak_subjectivity_sync_from_genesis() {
         slots,
         checkpoint_slot,
     ))
-    .await
+    .await;
 }
 
 // Checkpoint sync from the genesis state.
@@ -2798,16 +2798,46 @@ async fn weak_subjectivity_sync_from_genesis() {
 // DB.
 #[tokio::test]
 async fn weak_subjectivity_sync_non_finality() {
-    let end_slot = E::slots_per_epoch() * 8;
-    let checkpoint_slot = E::slots_per_epoch() * 4;
+    let end_slot = E::slots_per_epoch() * 13;
+    let checkpoint_slot = E::slots_per_epoch() * 9;
     let slots_with_blocks = (1..=checkpoint_slot).map(Slot::new).collect();
-    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig {
+
+    let (harness, beacon_chain) = weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig {
         slots_with_blocks,
         slots_with_not_attested_blocks: end_slot - checkpoint_slot,
-        checkpoint_slot: Slot::new(checkpoint_slot),
+        checkpoint_slot: checkpoint_slot.into(),
         backfill_batch_size: None,
     })
-    .await
+    .await;
+
+    // Check that the checkpoint slot is not finalized
+    let finalized_slot = get_finalized_slot(&beacon_chain).as_u64();
+    assert!(
+        checkpoint_slot > finalized_slot,
+        "checkpoint_slot {checkpoint_slot} finalized_slot {finalized_slot}"
+    );
+
+    let slots_to_finalize = E::slots_per_epoch() * 3;
+    info!(
+        count = slots_to_finalize,
+        "Producing blocks with attestations"
+    );
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            slots_to_finalize as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    sync_blocks_from_harness_to_chain(&harness, &beacon_chain, end_slot.into()).await;
+
+    // Check that the checkpoint slot is finalized
+    let finalized_slot = get_finalized_slot(&beacon_chain).as_u64();
+    assert!(
+        checkpoint_slot < finalized_slot,
+        "checkpoint_slot {checkpoint_slot} finalized_slot {finalized_slot}"
+    );
 }
 
 struct WeakSubjectivitySyncTestConfig {
@@ -2828,7 +2858,18 @@ impl WeakSubjectivitySyncTestConfig {
     }
 }
 
-async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
+fn get_finalized_slot<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Slot {
+    chain
+        .head()
+        .finalized_checkpoint()
+        .on_chain()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch())
+}
+
+async fn weak_subjectivity_sync_test(
+    config: WeakSubjectivitySyncTestConfig,
+) -> (TestHarness, Arc<BeaconChain<DiskHarnessType<E>>>) {
     let WeakSubjectivitySyncTestConfig {
         slots_with_blocks,
         slots_with_not_attested_blocks,
@@ -2982,52 +3023,7 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
         assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
     }
 
-    // Apply blocks forward to reach head.
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let new_blocks = chain_dump
-        .iter()
-        .filter(|snapshot| snapshot.beacon_block.slot() > checkpoint_slot)
-        .collect::<Vec<_>>();
-    info!(
-        block_count = new_blocks.len(),
-        "Importing blocks to new node"
-    );
-
-    for snapshot in new_blocks {
-        let block_root = snapshot.beacon_block_root;
-        let full_block = harness
-            .chain
-            .get_block(&snapshot.beacon_block_root)
-            .await
-            .unwrap()
-            .unwrap();
-
-        let slot = full_block.slot();
-        let full_block_root = full_block.canonical_root();
-        let state_root = full_block.state_root();
-
-        info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
-        beacon_chain.slot_clock.set_slot(slot.as_u64());
-        beacon_chain
-            .process_block(
-                full_block_root,
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            )
-            .await
-            .unwrap();
-        beacon_chain.recompute_head_at_current_slot().await;
-
-        // Check that the new block's state can be loaded correctly.
-        let mut state = beacon_chain
-            .store
-            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
-            .unwrap()
-            .unwrap();
-        assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
-    }
+    sync_blocks_from_harness_to_chain(&harness, &beacon_chain, checkpoint_slot).await;
 
     if checkpoint_slot != 0 {
         // Forwards iterator from 0 should fail as we lack blocks (unless checkpoint slot is 0).
@@ -3065,6 +3061,7 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
         assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None);
 
         // Supply blocks backwards to reach genesis. Omit the genesis block to check genesis handling.
+        let chain_dump = harness.chain.chain_dump().unwrap();
         let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
             .iter()
             .filter(|s| s.beacon_block.slot() != 0)
@@ -3262,6 +3259,61 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
     store.clone().reconstruct_historic_states(None).unwrap();
     assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
+
+    (harness, beacon_chain)
+}
+
+async fn sync_blocks_from_harness_to_chain(
+    harness: &TestHarness,
+    beacon_chain: &Arc<BeaconChain<DiskHarnessType<E>>>,
+    from_slot: Slot,
+) {
+    // Apply blocks forward to reach head.
+    let chain_dump = harness.chain.chain_dump().unwrap();
+    let new_blocks = chain_dump
+        .iter()
+        .filter(|snapshot| snapshot.beacon_block.slot() > from_slot)
+        .collect::<Vec<_>>();
+    info!(
+        block_count = new_blocks.len(),
+        "Importing blocks to new node"
+    );
+
+    for snapshot in new_blocks {
+        let block_root = snapshot.beacon_block_root;
+        let full_block = harness
+            .chain
+            .get_block(&snapshot.beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let slot = full_block.slot();
+        let full_block_root = full_block.canonical_root();
+        let state_root = full_block.state_root();
+
+        info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
+        beacon_chain.slot_clock.set_slot(slot.as_u64());
+        beacon_chain
+            .process_block(
+                full_block_root,
+                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            )
+            .await
+            .unwrap();
+        beacon_chain.recompute_head_at_current_slot().await;
+
+        // Check that the new block's state can be loaded correctly.
+        let mut state = beacon_chain
+            .store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
+    }
 }
 
 // This test prunes data columns from epoch 0 and then tries to re-import them via
