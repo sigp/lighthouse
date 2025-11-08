@@ -48,7 +48,9 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 use types::{ChainSpec, EnrForkId, EthSpec};
 
+mod prefix_mapping;
 mod subnet_predicate;
+
 use crate::discovery::enr::{NEXT_FORK_DIGEST_ENR_KEY, PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY};
 pub use subnet_predicate::subnet_predicate;
 use types::non_zero_usize::new_non_zero_usize;
@@ -371,6 +373,7 @@ impl<E: EthSpec> Discovery<E> {
             subnets = ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>(),
             "Starting discovery query for subnets"
         );
+
         for subnet in subnets_to_discover {
             self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0);
         }
