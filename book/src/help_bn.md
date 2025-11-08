@@ -66,6 +66,10 @@ Options:
           Set a checkpoint state to start syncing from. Must be aligned and
           match --checkpoint-block. Using --checkpoint-sync-url instead is
           recommended.
+      --checkpoint-sync-state-id <CHECKPOINT_SYNC_STATE_ID>
+          Set the state ID to checkpoint sync to using a beacon node HTTP
+          endpoint. Possible values: 'finalized', 'justified', <slot>, <hex
+          encoded stateRoot with 0x prefix> [default: finalized]
       --checkpoint-sync-url <BEACON_NODE>
           Set the remote beacon node HTTP endpoint to use for checkpoint sync.
       --checkpoint-sync-url-timeout <SECONDS>

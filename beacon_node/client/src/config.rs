@@ -3,6 +3,7 @@ use beacon_chain::validator_monitor::ValidatorMonitorConfig;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
+use eth2::types::StateId;
 use kzg::trusted_setup::get_trusted_setup;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
@@ -17,7 +18,7 @@ const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 const DEFAULT_BLOBS_DB_DIR: &str = "blobs_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum ClientGenesis {
     /// Creates a genesis state as per the 2019 Canada interop specifications.
     Interop {
@@ -44,6 +45,7 @@ pub enum ClientGenesis {
     },
     CheckpointSyncUrl {
         url: SensitiveUrl,
+        state_id: StateId,
     },
 }
 

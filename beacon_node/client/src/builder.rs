@@ -20,10 +20,7 @@ use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
-use eth2::{
-    BeaconNodeHttpClient, Error as ApiError, Timeouts,
-    types::{BlockId, StateId},
-};
+use eth2::{BeaconNodeHttpClient, Error as ApiError, Timeouts, types::BlockId};
 use execution_layer::ExecutionLayer;
 use execution_layer::test_utils::generate_genesis_header;
 use futures::channel::mpsc::Receiver;
@@ -365,7 +362,7 @@ where
                     genesis_state,
                 )?
             }
-            ClientGenesis::CheckpointSyncUrl { url } => {
+            ClientGenesis::CheckpointSyncUrl { url, state_id } => {
                 info!(
                     remote_url = %url,
                     "Starting checkpoint sync"
@@ -381,20 +378,20 @@ where
                     )),
                 );
 
-                debug!("Downloading finalized state");
+                debug!("Downloading checkpoint state {state_id}");
                 let state = remote
-                    .get_debug_beacon_states_ssz::<E>(StateId::Finalized, &spec)
+                    .get_debug_beacon_states_ssz::<E>(state_id, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
 
-                debug!(slot = ?state.slot(), "Downloaded finalized state");
+                debug!(slot = ?state.slot(), "Downloaded checkpoint state {state_id}");
 
-                let finalized_block_slot = state.latest_block_header().slot;
+                let block_slot = state.latest_block_header().slot;
 
-                debug!(block_slot = ?finalized_block_slot,"Downloading finalized block");
+                debug!(?block_slot, "Downloading checkpoint block {state_id}");
                 let block = remote
-                    .get_beacon_blocks_ssz::<E>(BlockId::Slot(finalized_block_slot), &spec)
+                    .get_beacon_blocks_ssz::<E>(BlockId::Slot(block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -402,21 +399,23 @@ where
                             node for the correct network",
                             e
                         ),
-                        e => format!("Error fetching finalized block from remote: {:?}", e),
+                        e => format!("Error fetching checkpoint block remote: {:?}", e),
                     })?
-                    .ok_or("Finalized block missing from remote, it returned 404")?;
+                    .ok_or("Checkpoint block from remote, it returned 404")?;
                 let block_root = block.canonical_root();
 
-                debug!("Downloaded finalized block");
+                debug!("Downloaded checkpoint block {block_slot}");
 
                 let blobs = if block.message().body().has_blobs() {
-                    debug!("Downloading finalized blobs");
+                    debug!("Downloading checkpoint blobs {block_slot} {block_root}");
                     if let Some(response) = remote
                         .get_blob_sidecars::<E>(BlockId::Root(block_root), None, &spec)
                         .await
-                        .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
+                        .map_err(|e| {
+                            format!("Error fetching checkpoint blobs from remote: {e:?}")
+                        })?
                     {
-                        debug!("Downloaded finalized blobs");
+                        debug!("Downloaded checkpoint blobs");
                         Some(response.into_data())
                     } else {
                         warn!(

@@ -6,14 +6,16 @@ use beacon_node::beacon_chain::chain_config::{
 };
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
-    ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
+    ClientConfig as Config, ClientGenesis, beacon_chain::graffiti_calculator::GraffitiOrigin,
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
+use eth2::types::StateId;
 use lighthouse_network::PeerId;
 use network_utils::unused_port::{
     unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
 };
+use sensitive_url::SensitiveUrl;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -209,6 +211,42 @@ fn fork_choice_before_proposal_timeout_zero() {
         .flag("fork-choice-before-proposal-timeout", Some("0"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.fork_choice_before_proposal_timeout_ms, 0));
+}
+
+#[test]
+fn checkpoint_sync_state_id_default() {
+    CommandLineTest::new()
+        .flag("checkpoint-sync-url", Some("http://beacon.node"))
+        .run_with_zero_port_and_no_genesis_sync()
+        .with_config(|config| {
+            assert_eq!(
+                config.genesis,
+                ClientGenesis::CheckpointSyncUrl {
+                    url: SensitiveUrl::parse("http://beacon.node").unwrap(),
+                    state_id: StateId::Finalized
+                }
+            );
+        });
+}
+
+#[test]
+fn checkpoint_sync_state_id_root() {
+    CommandLineTest::new()
+        .flag("checkpoint-sync-url", Some("http://beacon.node"))
+        .flag(
+            "checkpoint-sync-state-id",
+            Some("0x0000000000000000000000000000000000000000000000000000000000000000"),
+        )
+        .run_with_zero_port_and_no_genesis_sync()
+        .with_config(|config| {
+            assert_eq!(
+                config.genesis,
+                ClientGenesis::CheckpointSyncUrl {
+                    url: SensitiveUrl::parse("http://beacon.node").unwrap(),
+                    state_id: StateId::Root(Hash256::ZERO)
+                }
+            );
+        });
 }
 
 #[test]

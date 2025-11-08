@@ -1225,6 +1225,17 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("checkpoint-sync-state-id")
+                .long("checkpoint-sync-state-id")
+                .help("Set the state ID to checkpoint sync to using a beacon node HTTP endpoint. \
+                    Possible values: 'finalized', 'justified', <slot>, <hex encoded stateRoot with 0x prefix>")
+                .value_name("CHECKPOINT_SYNC_STATE_ID")
+                .action(ArgAction::Set)
+                .conflicts_with("checkpoint-state")
+                .default_value("finalized")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("checkpoint-sync-url-timeout")
                 .long("checkpoint-sync-url-timeout")
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")

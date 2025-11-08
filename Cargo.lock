@@ -928,6 +928,7 @@ dependencies = [
  "directory",
  "dirs",
  "environment",
+ "eth2",
  "eth2_config",
  "execution_layer",
  "genesis",

@@ -12,6 +12,7 @@ use clap_utils::{parse_flag, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use eth2::types::StateId;
 use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
 use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
@@ -538,8 +539,15 @@ pub fn get_config<E: EthSpec>(
         } else if let Some(remote_bn_url) = cli_args.get_one::<String>("checkpoint-sync-url") {
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
+            let state_id = cli_args
+                .get_one::<String>("checkpoint-sync-state-id")
+                .ok_or("Missing --checkpoint-sync-state-id flag")?;
 
-            ClientGenesis::CheckpointSyncUrl { url }
+            ClientGenesis::CheckpointSyncUrl {
+                url,
+                state_id: StateId::from_str(state_id)
+                    .map_err(|e| format!("Invalid state-id {e:?}"))?,
+            }
         } else {
             ClientGenesis::GenesisState
         }
