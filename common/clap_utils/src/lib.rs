@@ -20,17 +20,22 @@ pub const FLAG_HEADER: &str = "Flags";
 /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
-    let optional_network_config = if cli_args.contains_id("network") {
-        parse_hardcoded_network(cli_args, "network")?
+    let eth2_network_config = if cli_args.contains_id("network") {
+        let network_name = parse_required::<String>(cli_args, "network")?;
+        Eth2NetworkConfig::constant(network_name.as_str())?.ok_or_else(|| {
+            format!(
+                "Invalid network name: '{}'. Use --testnet-dir to specify a custom network.",
+                network_name
+            )
+        })?
     } else if cli_args.contains_id("testnet-dir") {
         parse_testnet_dir(cli_args, "testnet-dir")?
+            .ok_or_else(|| "Failed to load testnet directory".to_string())?
     } else {
         // if neither is present, assume the default network
         Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
+            .ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?
     };
-
-    let eth2_network_config =
-        optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
 
     Ok(eth2_network_config)
 }
