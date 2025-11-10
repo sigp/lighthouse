@@ -1,5 +1,5 @@
 use crate::ContextDeserialize;
-use derivative::Derivative;
+use educe::Educe;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
@@ -44,8 +44,8 @@ use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 /// assert!(long.push(6).is_err());
 ///
 /// ```
-#[derive(Clone, Serialize, Deserialize, Derivative)]
-#[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
+#[derive(Clone, Serialize, Deserialize, Educe)]
+#[educe(PartialEq, Eq, Hash(bound(T: std::hash::Hash)))]
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,
