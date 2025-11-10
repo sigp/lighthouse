@@ -173,9 +173,13 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         };
 
         // Check if we have missing columns between the da boundary and `earliest_data_column_epoch`
-        let missing_columns = self
+        let Ok(missing_columns) = self
             .beacon_chain
-            .get_missing_columns_for_epoch(da_boundary_epoch);
+            .get_missing_columns_for_epoch(da_boundary_epoch)
+        else {
+            // If custody context has not been initialised, we cannot determine if backfill is required.
+            return false;
+        };
 
         if !missing_columns.is_empty() {
             let latest_finalized_epoch = self
@@ -384,7 +388,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
         // Skip all batches (Epochs) that don't have missing columns.
         for epoch in Epoch::range_inclusive_rev(self.to_be_downloaded, column_da_boundary) {
-            let missing_columns = self.beacon_chain.get_missing_columns_for_epoch(epoch);
+            let Ok(missing_columns) = self.beacon_chain.get_missing_columns_for_epoch(epoch) else {
+                return None;
+            };
 
             if !missing_columns.is_empty() {
                 self.to_be_downloaded = epoch;
@@ -443,7 +449,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 self.include_next_batch()
             }
             Entry::Vacant(entry) => {
-                let missing_columns = self.beacon_chain.get_missing_columns_for_epoch(batch_id);
+                let Ok(missing_columns) = self.beacon_chain.get_missing_columns_for_epoch(batch_id)
+                else {
+                    // This is unreachable as we have already called this function earlier, so custody context must be initialised.
+                    return None;
+                };
                 entry.insert(BatchInfo::new(
                     &batch_id,
                     CUSTODY_BACKFILL_EPOCHS_PER_BATCH,

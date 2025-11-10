@@ -5092,6 +5092,7 @@ async fn test_custody_column_filtering_regular_node() {
     let expected_custody_columns: HashSet<_> = harness
         .chain
         .custody_columns_for_epoch(Some(current_slot.epoch(E::slots_per_epoch())))
+        .unwrap()
         .iter()
         .copied()
         .collect();
@@ -5183,7 +5184,8 @@ async fn test_missing_columns_after_cgc_change() {
 
     let missing_columns = harness
         .chain
-        .get_missing_columns_for_epoch(epoch_before_increase);
+        .get_missing_columns_for_epoch(epoch_before_increase)
+        .unwrap();
 
     // We should have no missing columns
     assert_eq!(missing_columns.len(), 0);
@@ -5205,14 +5207,16 @@ async fn test_missing_columns_after_cgc_change() {
     // We should have missing columns from before the cgc increase
     let missing_columns = harness
         .chain
-        .get_missing_columns_for_epoch(epoch_before_increase);
+        .get_missing_columns_for_epoch(epoch_before_increase)
+        .unwrap();
 
     assert!(!missing_columns.is_empty());
 
     // We should have no missing columns after the cgc increase
     let missing_columns = harness
         .chain
-        .get_missing_columns_for_epoch(epoch_after_increase);
+        .get_missing_columns_for_epoch(epoch_after_increase)
+        .unwrap();
 
     assert!(missing_columns.is_empty());
 }

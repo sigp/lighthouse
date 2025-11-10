@@ -8,7 +8,7 @@ use mockall::automock;
 use std::collections::HashSet;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{ChainSpec, ColumnIndex, Hash256, Slot};
+use types::{ChainSpec, ColumnIndex, Epoch, Hash256, Slot};
 
 /// An adapter to the `BeaconChain` functionalities to remove `BeaconChain` from direct dependency to enable testing fetch blobs logic.
 pub(crate) struct FetchBlobsBeaconAdapter<T: BeaconChainTypes> {
@@ -120,5 +120,14 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .canonical_head
             .fork_choice_read_lock()
             .contains_block(block_root)
+    }
+
+    pub(crate) fn sampling_columns_for_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Vec<ColumnIndex>, String> {
+        self.chain
+            .sampling_columns_for_epoch(epoch)
+            .map(|column_indices| column_indices.to_vec())
     }
 }

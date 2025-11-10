@@ -2031,6 +2031,7 @@ fn get_custody_columns(tester: &InteractiveTester<E>, slot: Slot) -> HashSet<Col
         .as_ref()
         .unwrap()
         .sampling_columns_for_epoch(epoch)
+        .unwrap()
         .iter()
         .copied()
         .collect()

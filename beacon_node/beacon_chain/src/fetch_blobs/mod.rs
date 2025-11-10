@@ -36,7 +36,7 @@ use tracing::{Span, debug, instrument, warn};
 use types::blob_sidecar::BlobSidecarError;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconStateError, Blob, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, KzgProofs,
+    BeaconStateError, Blob, BlobSidecar, EthSpec, FullPayload, Hash256, KzgProofs,
     SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
 };
 
@@ -62,6 +62,7 @@ pub enum FetchEngineBlobError {
     GossipBlob(GossipBlobError),
     KzgError(kzg::Error),
     RequestFailed(ExecutionLayerError),
+    CustodyContextError(String),
     RuntimeShutdown,
     TokioJoin(tokio::task::JoinError),
 }
@@ -73,14 +74,12 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     fetch_and_process_engine_blobs_inner(
         FetchBlobsBeaconAdapter::new(chain),
         block_root,
         block,
-        custody_columns,
         publish_fn,
     )
     .await
@@ -92,7 +91,6 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let versioned_hashes = if let Some(kzg_commitments) = block
@@ -125,7 +123,6 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
             block_root,
             block,
             versioned_hashes,
-            custody_columns,
             publish_fn,
         )
         .await
@@ -240,7 +237,6 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     versioned_hashes: Vec<VersionedHash>,
-    custody_columns_indices: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
@@ -296,15 +292,9 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     }
 
     let chain_adapter = Arc::new(chain_adapter);
-    let custody_columns_to_import = compute_custody_columns_to_import(
-        &chain_adapter,
-        block_root,
-        block.clone(),
-        blobs,
-        proofs,
-        custody_columns_indices,
-    )
-    .await?;
+    let custody_columns_to_import =
+        compute_custody_columns_to_import(&chain_adapter, block_root, block.clone(), blobs, proofs)
+            .await?;
 
     if custody_columns_to_import.is_empty() {
         debug!(
@@ -339,12 +329,10 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: Vec<Blob<T::EthSpec>>,
     proofs: Vec<KzgProofs<T::EthSpec>>,
-    custody_columns_indices: &[ColumnIndex],
 ) -> Result<Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>, FetchEngineBlobError> {
     let kzg = chain_adapter.kzg().clone();
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
-    let custody_columns_indices = custody_columns_indices.to_vec();
     let current_span = Span::current();
     chain_adapter
         .executor()
@@ -366,11 +354,15 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 // This filtering ensures we only import and publish the custody columns.
                 // `DataAvailabilityChecker` requires a strict match on custody columns count to
                 // consider a block available.
+                let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+                let custody_column_indices = chain_adapter_cloned
+                    .sampling_columns_for_epoch(block_epoch)
+                    .map_err(FetchEngineBlobError::CustodyContextError)?;
                 let mut custody_columns = data_columns_result
                     .map(|data_columns| {
                         data_columns
                             .into_iter()
-                            .filter(|col| custody_columns_indices.contains(&col.index))
+                            .filter(|col| custody_column_indices.contains(&col.index))
                             .map(|col| {
                                 KzgVerifiedCustodyDataColumn::from_asserted_custody(
                                     KzgVerifiedDataColumn::from_execution_verified(col),

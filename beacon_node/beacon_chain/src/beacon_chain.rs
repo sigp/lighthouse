@@ -7137,25 +7137,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Compare columns custodied for `epoch` versus columns custodied for the head of the chain
     /// and return any column indices that are missing.
-    pub fn get_missing_columns_for_epoch(&self, epoch: Epoch) -> HashSet<ColumnIndex> {
+    pub fn get_missing_columns_for_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<HashSet<ColumnIndex>, String> {
         let custody_context = self.data_availability_checker.custody_context();
 
         let columns_required = custody_context
-            .custody_columns_for_epoch(None, &self.spec)
+            .custody_columns_for_epoch(None, &self.spec)?
             .iter()
             .cloned()
             .collect::<HashSet<_>>();
 
         let current_columns_at_epoch = custody_context
-            .custody_columns_for_epoch(Some(epoch), &self.spec)
+            .custody_columns_for_epoch(Some(epoch), &self.spec)?
             .iter()
             .cloned()
             .collect::<HashSet<_>>();
 
-        columns_required
+        let missing_columns = columns_required
             .difference(&current_columns_at_epoch)
             .cloned()
-            .collect::<HashSet<_>>()
+            .collect::<HashSet<_>>();
+
+        Ok(missing_columns)
     }
 
     /// The da boundary for custodying columns. It will just be the DA boundary unless we are near the Fulu fork epoch.
@@ -7442,7 +7447,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             AvailableBlockData::DataColumns(mut data_columns) => {
                 let columns_to_custody = self.custody_columns_for_epoch(Some(
                     block_slot.epoch(T::EthSpec::slots_per_epoch()),
-                ));
+                ))?;
                 // Supernodes need to persist all sampled custody columns
                 if columns_to_custody.len() != self.spec.number_of_custody_groups as usize {
                     data_columns
@@ -7485,7 +7490,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns a list of column indices that should be sampled for a given epoch.
     /// Used for data availability sampling in PeerDAS.
-    pub fn sampling_columns_for_epoch(&self, epoch: Epoch) -> &[ColumnIndex] {
+    pub fn sampling_columns_for_epoch(&self, epoch: Epoch) -> Result<&[ColumnIndex], String> {
         self.data_availability_checker
             .custody_context()
             .sampling_columns_for_epoch(epoch, &self.spec)
@@ -7496,7 +7501,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// serve them to peers.
     ///
     /// If epoch is `None`, this function computes the custody columns at head.
-    pub fn custody_columns_for_epoch(&self, epoch_opt: Option<Epoch>) -> &[ColumnIndex] {
+    pub fn custody_columns_for_epoch(
+        &self,
+        epoch_opt: Option<Epoch>,
+    ) -> Result<&[ColumnIndex], String> {
         self.data_availability_checker
             .custody_context()
             .custody_columns_for_epoch(epoch_opt, &self.spec)

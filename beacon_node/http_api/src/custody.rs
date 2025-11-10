@@ -41,6 +41,9 @@ pub fn info<T: BeaconChainTypes>(
     let custody_context = chain.data_availability_checker.custody_context();
     let custody_columns = custody_context
         .custody_columns_for_epoch(Some(earliest_custodied_data_column_epoch), &chain.spec)
+        .map_err(|e| {
+            custom_server_error(format!("custody context has not been initialised: {e:?}"))
+        })?
         .to_vec();
     let custody_group_count = custody_context
         .custody_group_count_at_epoch(earliest_custodied_data_column_epoch, &chain.spec);

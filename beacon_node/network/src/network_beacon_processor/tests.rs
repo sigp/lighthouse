@@ -298,7 +298,7 @@ impl TestRig {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
                 let epoch = block.slot().epoch(E::slots_per_epoch());
-                let sampling_indices = chain.sampling_columns_for_epoch(epoch);
+                let sampling_indices = chain.sampling_columns_for_epoch(epoch).unwrap();
                 let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
                     &blobs.iter().collect_vec(),
                     kzg_proofs.clone().into_iter().collect_vec(),
@@ -1936,7 +1936,8 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
 
     let all_custody_columns = rig
         .chain
-        .sampling_columns_for_epoch(rig.chain.epoch().unwrap());
+        .sampling_columns_for_epoch(rig.chain.epoch().unwrap())
+        .unwrap();
     let available_columns: Vec<u64> = all_custody_columns.to_vec();
 
     let requested_columns = vec![available_columns[0], available_columns[2]];

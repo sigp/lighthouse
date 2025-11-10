@@ -2455,7 +2455,7 @@ where
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let epoch = block.slot().epoch(E::slots_per_epoch());
-            let sampling_columns = self.chain.sampling_columns_for_epoch(epoch);
+            let sampling_columns = self.chain.sampling_columns_for_epoch(epoch).unwrap();
 
             if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -3196,6 +3196,7 @@ where
                 let epoch = block.slot().epoch(E::slots_per_epoch());
                 self.chain
                     .sampling_columns_for_epoch(epoch)
+                    .unwrap()
                     .iter()
                     .copied()
                     .collect()

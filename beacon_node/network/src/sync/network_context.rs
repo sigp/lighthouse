@@ -583,6 +583,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let column_indexes = self
                     .chain
                     .sampling_columns_for_epoch(epoch)
+                    .map_err(RpcRequestSendError::InternalError)?
                     .iter()
                     .cloned()
                     .collect();
@@ -659,15 +660,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .transpose()?;
 
         let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+        let sampling_columns = self
+            .chain
+            .sampling_columns_for_epoch(epoch)
+            .map_err(RpcRequestSendError::InternalError)?;
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
-            data_column_requests.map(|data_column_requests| {
-                (
-                    data_column_requests,
-                    self.chain.sampling_columns_for_epoch(epoch).to_vec(),
-                )
-            }),
+            data_column_requests
+                .map(|data_column_requests| (data_column_requests, sampling_columns.to_vec())),
             range_request_span,
         );
         self.components_by_range_requests.insert(id, info);
@@ -1096,6 +1097,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let custody_indexes_to_fetch = self
             .chain
             .sampling_columns_for_epoch(current_epoch)
+            .map_err(RpcRequestSendError::InternalError)?
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
@@ -1700,6 +1702,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             let column_indexes = self
                 .chain
                 .sampling_columns_for_epoch(batch_id.epoch)
+                .map_err(RpcRequestSendError::InternalError)?
                 .iter()
                 .cloned()
                 .collect();

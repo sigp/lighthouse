@@ -12,8 +12,8 @@ use maplit::hashset;
 use std::sync::{Arc, Mutex};
 use task_executor::test_utils::TestRuntime;
 use types::{
-    BeaconBlock, BeaconBlockFulu, EmptyBlock, EthSpec, ForkName, Hash256, MainnetEthSpec,
-    SignedBeaconBlock, SignedBeaconBlockFulu,
+    BeaconBlock, BeaconBlockFulu, ColumnIndex, EmptyBlock, EthSpec, ForkName, Hash256,
+    MainnetEthSpec, SignedBeaconBlock, SignedBeaconBlockFulu,
 };
 
 type E = MainnetEthSpec;
@@ -21,7 +21,6 @@ type T = EphemeralHarnessType<E>;
 
 mod get_blobs_v2 {
     use super::*;
-    use types::ColumnIndex;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_in_block() {
@@ -37,12 +36,10 @@ mod get_blobs_v2 {
         mock_adapter.expect_get_blobs_v2().times(0);
         mock_adapter.expect_process_engine_blobs().times(0);
 
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             Arc::new(block),
-            &custody_columns,
             publish_fn,
         )
         .await
@@ -62,16 +59,10 @@ mod get_blobs_v2 {
         mock_get_blobs_v2_response(&mut mock_adapter, None);
 
         // Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         assert_eq!(processing_status, None);
     }
@@ -90,16 +81,10 @@ mod get_blobs_v2 {
         mock_adapter.expect_process_engine_blobs().times(0);
 
         // Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         assert_eq!(processing_status, None);
         assert_eq!(
@@ -123,16 +108,10 @@ mod get_blobs_v2 {
         mock_adapter.expect_process_engine_blobs().times(0);
 
         // Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         assert_eq!(processing_status, None);
         assert_eq!(
@@ -162,16 +141,10 @@ mod get_blobs_v2 {
         mock_adapter.expect_process_engine_blobs().times(0);
 
         // **WHEN**: Trigger `fetch_blobs` on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         // **THEN**: Should NOT be processed and no columns should be published.
         assert_eq!(processing_status, None);
@@ -202,18 +175,14 @@ mod get_blobs_v2 {
             &mut mock_adapter,
             Ok(AvailabilityProcessingStatus::Imported(block_root)),
         );
+        let custody_columns = vec![0u64, 1, 2];
+        mock_sampling_columns_for_epoch(&mut mock_adapter, custody_columns.clone());
 
         // Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         assert_eq!(
             processing_status,
@@ -253,7 +222,6 @@ mod get_blobs_v1 {
     use super::*;
     use crate::block_verification_types::AsBlock;
     use std::collections::HashSet;
-    use types::ColumnIndex;
 
     const ELECTRA_FORK: ForkName = ForkName::Electra;
 
@@ -270,12 +238,10 @@ mod get_blobs_v1 {
         mock_adapter.expect_get_blobs_v1().times(0);
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             Arc::new(block_no_blobs),
-            &custody_columns,
             publish_fn,
         )
         .await
@@ -297,16 +263,10 @@ mod get_blobs_v1 {
         mock_get_blobs_v1_response(&mut mock_adapter, vec![None; expected_blob_count]);
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         // THEN: No blob is processed
         assert_eq!(processing_status, None);
@@ -343,16 +303,10 @@ mod get_blobs_v1 {
         );
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         // THEN: Returned blobs are processed and published
         assert_eq!(
@@ -383,16 +337,10 @@ mod get_blobs_v1 {
         mock_fork_choice_contains_block(&mut mock_adapter, vec![block.canonical_root()]);
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         // THEN: Returned blobs should NOT be processed or published.
         assert_eq!(processing_status, None);
@@ -431,16 +379,10 @@ mod get_blobs_v1 {
             .returning(move |_, _| Some(all_blob_indices.clone()));
 
         // **WHEN**: Trigger `fetch_blobs` on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         // **THEN**: Should NOT be processed and no blobs should be published.
         assert_eq!(processing_status, None);
@@ -475,16 +417,10 @@ mod get_blobs_v1 {
         );
 
         // Trigger fetch blobs on the block
-        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
-        let processing_status = fetch_and_process_engine_blobs_inner(
-            mock_adapter,
-            block_root,
-            block,
-            &custody_columns,
-            publish_fn,
-        )
-        .await
-        .expect("fetch blobs should succeed");
+        let processing_status =
+            fetch_and_process_engine_blobs_inner(mock_adapter, block_root, block, publish_fn)
+                .await
+                .expect("fetch blobs should succeed");
 
         // THEN all fetched blobs are processed and published
         assert_eq!(
@@ -537,6 +473,15 @@ fn mock_process_engine_blobs_result(
     mock_adapter
         .expect_process_engine_blobs()
         .return_once(move |_, _, _| result);
+}
+
+fn mock_sampling_columns_for_epoch(
+    mock_adapter: &mut MockFetchBlobsBeaconAdapter<T>,
+    sampling_indices: Vec<ColumnIndex>,
+) {
+    mock_adapter
+        .expect_sampling_columns_for_epoch()
+        .return_const(Ok(sampling_indices));
 }
 
 fn mock_fork_choice_contains_block(

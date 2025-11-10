@@ -438,14 +438,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
-        let available_columns = self.chain.custody_columns_for_epoch(None);
+        // Note: this may not be available during startup. This case is rare. We skip filtering to avoid getting penalised.
+        let available_columns_opt = self.chain.custody_columns_for_epoch(None).ok();
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
             let indices_to_retrieve = data_column_ids_by_root
                 .columns
                 .iter()
                 .copied()
-                .filter(|c| available_columns.contains(c))
+                .filter(|c| available_columns_opt.is_none_or(|columns| columns.contains(c)))
                 .collect::<Vec<_>>();
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
@@ -1258,15 +1259,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
         let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
-        let available_columns = self
+        // Note: this may not be available during startup. This case is rare. We skip filtering to avoid getting penalised.
+        let available_columns_opt = self
             .chain
-            .custody_columns_for_epoch(Some(request_start_epoch));
+            .custody_columns_for_epoch(Some(request_start_epoch))
+            .ok();
 
         let indices_to_retrieve = req
             .columns
             .iter()
             .copied()
-            .filter(|c| available_columns.contains(c))
+            .filter(|c| available_columns_opt.is_none_or(|columns| columns.contains(c)))
             .collect::<Vec<_>>();
 
         for root in block_roots {
@@ -1374,17 +1377,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         epoch_opt: Option<Epoch>,
         span: Span,
     ) {
-        let non_custody_indices = {
-            let custody_columns = self
-                .chain
-                .data_availability_checker
-                .custody_context()
-                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
-            requested_indices
-                .iter()
-                .filter(|subnet_id| !custody_columns.contains(subnet_id))
-                .collect::<Vec<_>>()
-        };
+        let non_custody_indices = self
+            .chain
+            .data_availability_checker
+            .custody_context()
+            .custody_columns_for_epoch(epoch_opt, &self.chain.spec)
+            .map(|custody_columns| {
+                requested_indices
+                    .iter()
+                    .filter(|subnet_id| !custody_columns.contains(subnet_id))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         // This field is used to identify if peers are sending requests on columns we don't custody.
         span.record("non_custody_indices", field::debug(non_custody_indices));
 

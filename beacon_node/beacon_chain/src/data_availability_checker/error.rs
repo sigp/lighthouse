@@ -10,6 +10,7 @@ pub enum Error {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
     },
+    CustodyContextError(String),
     Unexpected(String),
     SszTypes(ssz_types::Error),
     MissingBlobs,
@@ -44,6 +45,7 @@ impl Error {
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
+            | Error::CustodyContextError(_)
             | Error::SlotClockError => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
