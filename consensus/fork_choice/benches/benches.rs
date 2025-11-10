@@ -39,7 +39,7 @@ fn all_benches(c: &mut Criterion) {
                     .take(attestations_per_slot);
 
                     for attestation in new_attestations {
-                        attestations.push(attestation);
+                        attestations.push_back(attestation);
                     }
 
                     assert_eq!(attestations.len(), num_attestations);
