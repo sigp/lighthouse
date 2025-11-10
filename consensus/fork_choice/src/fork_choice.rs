@@ -253,8 +253,8 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     }
 }
 
-/// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
-/// current slot. Also removes those values from `self.queued_attestations`.
+/// Returns all values in `queued_attestations` that have a slot that is earlier than the
+/// current slot. Also removes those values from `queued_attestations`.
 pub fn dequeue_attestations(
     current_slot: Slot,
     queued_attestations: &mut VecDeque<QueuedAttestation>,
