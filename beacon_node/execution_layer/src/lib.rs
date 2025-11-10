@@ -18,7 +18,6 @@ use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
 use eth2::types::{ForkVersionedResponse, builder_bid::SignedBuilderBid};
-use ethers_core::types::Transaction as EthersTransaction;
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;

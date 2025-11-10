@@ -19,7 +19,7 @@ async-channel = { workspace = true }
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
 delay_map = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
 fnv = { workspace = true }
