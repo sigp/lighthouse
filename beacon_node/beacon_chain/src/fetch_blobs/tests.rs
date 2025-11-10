@@ -139,6 +139,7 @@ mod get_blobs_v2 {
             .returning(|_| Some(hashset![0, 1, 2]));
         // No blobs should be processed
         mock_adapter.expect_process_engine_blobs().times(0);
+        mock_sampling_columns_for_epoch(&mut mock_adapter, vec![0, 1, 2]);
 
         // **WHEN**: Trigger `fetch_blobs` on the block
         let processing_status =
