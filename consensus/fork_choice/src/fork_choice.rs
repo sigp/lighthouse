@@ -1510,7 +1510,9 @@ where
     /// be instantiated again later.
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
-            proto_array: self.proto_array().as_ssz_container(),
+            proto_array: self
+                .proto_array()
+                .as_ssz_container(self.justified_checkpoint(), self.finalized_checkpoint()),
             queued_attestations: self.queued_attestations().to_vec(),
         }
     }

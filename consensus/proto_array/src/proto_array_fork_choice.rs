@@ -933,12 +933,21 @@ impl ProtoArrayForkChoice {
         self.proto_array.iter_block_roots(block_root)
     }
 
-    pub fn as_ssz_container(&self) -> SszContainer {
-        SszContainer::from(self)
+    pub fn as_ssz_container(
+        &self,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+    ) -> SszContainer {
+        SszContainer::from_proto_array(self, justified_checkpoint, finalized_checkpoint)
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
-        SszContainer::from(self).as_ssz_bytes()
+    pub fn as_bytes(
+        &self,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+    ) -> Vec<u8> {
+        self.as_ssz_container(justified_checkpoint, finalized_checkpoint)
+            .as_ssz_bytes()
     }
 
     pub fn from_bytes(bytes: &[u8], balances: JustifiedBalances) -> Result<Self, String> {
