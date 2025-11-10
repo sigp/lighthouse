@@ -2,7 +2,7 @@ use crate::Client;
 use crate::compute_light_client_updates::{
     LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY, compute_light_client_updates,
 };
-use crate::config::{ClientGenesis, Config as ClientConfig};
+use crate::config::{ClientGenesis, Config as ClientConfig, Config};
 use crate::notifier::spawn_notifier;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
@@ -28,6 +28,8 @@ use execution_layer::ExecutionLayer;
 use execution_layer::test_utils::generate_genesis_header;
 use futures::channel::mpsc::Receiver;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
+use lighthouse_network::discv5::enr::NodeId;
+use lighthouse_network::identity::Keypair;
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
@@ -42,7 +44,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, warn};
-use types::data_column_custody_group::get_custody_groups_ordered;
+use types::data_column_custody_group::{CustodyIndex, get_custody_groups_ordered};
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
     SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
@@ -154,6 +156,7 @@ where
         mut self,
         client_genesis: ClientGenesis,
         config: ClientConfig,
+        local_keypair: Keypair,
     ) -> Result<Self, String> {
         let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
@@ -203,6 +206,7 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .node_custody_type(config.chain.node_custody_type)
+            .node_id(NodeId::from(local_keypair.public()).raw())
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
@@ -453,7 +457,11 @@ where
     }
 
     /// Starts the networking stack.
-    pub async fn network(mut self, config: Arc<NetworkConfig>) -> Result<Self, String> {
+    pub async fn network(
+        mut self,
+        config: Arc<NetworkConfig>,
+        local_keypair: Keypair,
+    ) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -481,11 +489,10 @@ where
             context.executor,
             libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
+            local_keypair,
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
-
-        init_custody_context(beacon_chain, &network_globals)?;
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
@@ -786,21 +793,6 @@ where
             http_metrics_listen_addr,
         })
     }
-}
-
-fn init_custody_context<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    network_globals: &NetworkGlobals<T::EthSpec>,
-) -> Result<(), String> {
-    let node_id = network_globals.local_enr().node_id().raw();
-    let spec = &chain.spec;
-    let custody_groups_ordered =
-        get_custody_groups_ordered(node_id, spec.number_of_custody_groups, spec)
-            .map_err(|e| format!("Failed to compute custody groups: {:?}", e))?;
-    chain
-        .data_availability_checker
-        .custody_context()
-        .init_ordered_data_columns_from_custody_groups(custody_groups_ordered, spec)
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>

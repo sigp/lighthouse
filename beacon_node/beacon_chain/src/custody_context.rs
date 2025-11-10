@@ -250,7 +250,7 @@ pub struct CustodyContext<E: EthSpec> {
     validator_registrations: RwLock<ValidatorRegistrations>,
     /// Stores an immutable, ordered list of all custody columns as determined by the node's NodeID
     /// on startup.
-    all_custody_columns_ordered: OnceLock<Box<[ColumnIndex]>>,
+    all_custody_columns_ordered: Vec<ColumnIndex>,
     _phantom_data: PhantomData<E>,
 }
 
@@ -259,15 +259,22 @@ impl<E: EthSpec> CustodyContext<E> {
     /// exists.
     ///
     /// The `node_custody_type` value is based on current cli parameters.
-    pub fn new(node_custody_type: NodeCustodyType, spec: &ChainSpec) -> Self {
+    pub fn new(
+        node_custody_type: NodeCustodyType,
+        all_custody_groups_ordered: Vec<CustodyIndex>,
+        spec: &ChainSpec,
+    ) -> Self {
         let cgc_override = node_custody_type.get_custody_count_override(spec);
         // If there's no override, we initialise `validator_custody_count` to 0. This has been the
         // existing behaviour and we maintain this for now to avoid a semantic schema change until
         // a later release.
+        // FIXME: remove unwrap
+        let all_custody_columns_ordered =
+            Self::compute_ordered_data_columns(all_custody_groups_ordered, spec).unwrap();
         Self {
             validator_custody_count: AtomicU64::new(cgc_override.unwrap_or(0)),
             validator_registrations: RwLock::new(ValidatorRegistrations::new(cgc_override)),
-            all_custody_columns_ordered: OnceLock::new(),
+            all_custody_columns_ordered,
             _phantom_data: PhantomData,
         }
     }
@@ -290,6 +297,7 @@ impl<E: EthSpec> CustodyContext<E> {
         ssz_context: CustodyContextSsz,
         node_custody_type: NodeCustodyType,
         head_epoch: Epoch,
+        all_custody_groups_ordered: Vec<CustodyIndex>,
         spec: &ChainSpec,
     ) -> (Self, Option<CustodyCountChanged>) {
         let CustodyContextSsz {
@@ -347,6 +355,10 @@ impl<E: EthSpec> CustodyContext<E> {
             }
         }
 
+        // FIXME: remove unwrap
+        let all_custody_columns_ordered =
+            Self::compute_ordered_data_columns(all_custody_groups_ordered, spec).unwrap();
+
         let custody_context = CustodyContext {
             validator_custody_count: AtomicU64::new(validator_custody_at_head),
             validator_registrations: RwLock::new(ValidatorRegistrations {
@@ -355,7 +367,7 @@ impl<E: EthSpec> CustodyContext<E> {
                     .into_iter()
                     .collect(),
             }),
-            all_custody_columns_ordered: OnceLock::new(),
+            all_custody_columns_ordered,
             _phantom_data: PhantomData,
         };
 
@@ -370,22 +382,17 @@ impl<E: EthSpec> CustodyContext<E> {
     ///
     /// # Returns
     /// Ok(()) if initialization succeeds, Err with description string if it fails
-    pub fn init_ordered_data_columns_from_custody_groups(
-        &self,
+    fn compute_ordered_data_columns(
         all_custody_groups_ordered: Vec<CustodyIndex>,
         spec: &ChainSpec,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<ColumnIndex>, String> {
         let mut ordered_custody_columns = vec![];
         for custody_index in all_custody_groups_ordered {
             let columns = compute_columns_for_custody_group::<E>(custody_index, spec)
                 .map_err(|e| format!("Failed to compute columns for custody group {e:?}"))?;
             ordered_custody_columns.extend(columns);
         }
-        self.all_custody_columns_ordered
-            .set(ordered_custody_columns.into_boxed_slice())
-            .map_err(|_| {
-                "Failed to initialise CustodyContext with computed custody columns".to_string()
-            })
+        Ok(ordered_custody_columns)
     }
 
     /// Register a new validator index and updates the list of validators if required.
@@ -497,11 +504,7 @@ impl<E: EthSpec> CustodyContext<E> {
     /// A slice of ordered column indices that should be sampled for this epoch based on the node's custody configuration
     pub fn sampling_columns_for_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> &[ColumnIndex] {
         let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch, spec);
-        let all_columns_ordered = self
-            .all_custody_columns_ordered
-            .get()
-            .expect("all_custody_columns_ordered should be initialized");
-        &all_columns_ordered[..num_of_columns_to_sample]
+        &self.all_custody_columns_ordered[..num_of_columns_to_sample]
     }
 
     /// Returns the ordered list of column indices that the node is assigned to custody
@@ -528,12 +531,7 @@ impl<E: EthSpec> CustodyContext<E> {
             self.custody_group_count_at_head(spec) as usize
         };
 
-        let all_columns_ordered = self
-            .all_custody_columns_ordered
-            .get()
-            .expect("all_custody_columns_ordered should be initialized");
-
-        &all_columns_ordered[..custody_group_count]
+        &self.all_custody_columns_ordered[..custody_group_count]
     }
 
     /// The node has completed backfill for this epoch. Update the internal records so the function
