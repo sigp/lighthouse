@@ -97,9 +97,10 @@ version = "8.0.0"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
-alloy-consensus = { version = "0.14.0", default-features = false }
-alloy-primitives = { version = "1.0", features = ["rlp", "getrandom"] }
-alloy-rlp = "0.3.4"
+alloy-consensus = { version = "=1.0.42", default-features = false }
+alloy-primitives = { version = "=1.4.1", default-features = false, features = ["rlp", "getrandom"] }
+alloy-rlp = { version = "=0.3.12", default-features = false }
+alloy-rpc-types-eth = { version = "=1.0.42", default-features = false, features = ["serde"] }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
