@@ -546,13 +546,13 @@ pub enum EncodedPubsubMessage<E: EthSpec> {
 
 impl<E: EthSpec> EncodedPubsubMessage<E> {
     pub fn do_publish(
-        &self,
+        self,
         gossipsub: &mut Gossipsub,
         topic: IdentTopic,
     ) -> Result<(), PublishError> {
         match self {
             EncodedPubsubMessage::Full(bytes) => {
-                gossipsub.publish(topic, bytes.clone()).map(|_| ())
+                gossipsub.publish(topic, bytes).map(|_| ())
             }
             EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => {
                 gossipsub.publish_partial(topic, partial)

@@ -1,6 +1,7 @@
-use gossipsub::partial::{Metadata, PublishAction};
+use gossipsub::partial::Metadata;
 use gossipsub::{Partial, PartialMessageError};
 use ssz::{Decode, Encode};
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::sync::Arc;
 use types::EthSpec;
@@ -9,12 +10,14 @@ use types::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartialDataColumnSidecarMessage<E: EthSpec> {
     pub partial_column: Arc<DanglingPartialDataColumn<E>>,
+    metadata: CellBitmapMetadata<E>,
     send_eager: Option<SendEager<E>>,
 }
 
 impl<E: EthSpec> PartialDataColumnSidecarMessage<E> {
     pub fn new(partial_column: Arc<DanglingPartialDataColumn<E>>) -> Self {
         PartialDataColumnSidecarMessage {
+            metadata: partial_column.sidecar.cells_present_bitmap.clone().into(),
             partial_column,
             send_eager: None,
         }
@@ -45,85 +48,77 @@ struct SendEager<E: EthSpec> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CellBitmapMetadata<E: EthSpec> {
+pub struct CellBitmapMetadata<E: EthSpec> {
     bitmap: CellBitmap<E>,
-    encoded: Vec<u8>,
 }
 
 impl<E: EthSpec> Metadata for CellBitmapMetadata<E> {
-    fn as_slice(&self) -> &[u8] {
-        &self.encoded
+    fn decode(bytes: &[u8]) -> Result<Self, PartialMessageError>
+    where
+        Self: Sized,
+    {
+        Ok(CellBitmapMetadata {
+            bitmap: CellBitmap::<E>::from_ssz_bytes(bytes)
+                .map_err(|_| PartialMessageError::InvalidFormat)?,
+        })
     }
 
-    fn update(&mut self, data: &[u8]) -> Result<bool, PartialMessageError> {
-        let data = CellBitmap::<E>::from_ssz_bytes(data)
-            .map_err(|_| PartialMessageError::InvalidFormat)?;
-        if data.len() != self.bitmap.len() {
-            return Err(PartialMessageError::OutOfRange);
+    fn compare(&self, other: &Self) -> Option<Ordering> {
+        let self_subset = self.bitmap.is_subset(&other.bitmap);
+        let other_subset = other.bitmap.is_subset(&self.bitmap);
+        match (self_subset, other_subset) {
+            (true, true) => Some(Ordering::Equal),
+            (true, false) => Some(Ordering::Less),
+            (false, true) => Some(Ordering::Greater),
+            (false, false) => None,
         }
-        let new_bitmap = self.bitmap.union(&data);
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        self.bitmap.as_ssz_bytes()
+    }
+
+    fn update(&mut self, data: &Self) -> Result<bool, PartialMessageError> {
+        let new_bitmap = self.bitmap.union(&data.bitmap);
         if self.bitmap == new_bitmap {
             return Ok(false);
         }
         self.bitmap = new_bitmap;
-        self.encoded = self.bitmap.as_ssz_bytes();
         Ok(true)
     }
 }
 
 impl<E: EthSpec> From<CellBitmap<E>> for CellBitmapMetadata<E> {
-    fn from(value: CellBitmap<E>) -> Self {
-        Self {
-            encoded: value.as_ssz_bytes(),
-            bitmap: value,
-        }
+    fn from(bitmap: CellBitmap<E>) -> Self {
+        Self { bitmap }
     }
 }
 
 impl<E: EthSpec> Partial for PartialDataColumnSidecarMessage<E> {
-    fn group_id(&self) -> impl AsRef<[u8]> {
-        &self.partial_column.block_root
+    type Metadata = CellBitmapMetadata<E>;
+
+    fn group_id(&self) -> Vec<u8> {
+        self.partial_column.block_root.to_vec()
     }
 
-    fn parts_metadata(&self) -> impl AsRef<[u8]> {
-        self.partial_column
-            .sidecar
-            .cells_present_bitmap
-            .as_ssz_bytes()
+    fn metadata(&self) -> &Self::Metadata {
+        &self.metadata
     }
 
     fn partial_message_bytes_from_metadata(
         &self,
-        metadata: Option<impl AsRef<[u8]>>,
-    ) -> Result<PublishAction, PartialMessageError> {
-        match metadata {
-            None => {
-                // Send the eager message if any
-                match &self.send_eager {
-                    None => Ok(PublishAction::NothingToSend),
-                    Some(send) => Ok(PublishAction::Send {
-                        message: send.data.clone(),
-                        metadata: Box::new(send.metadata.clone()),
-                    }),
-                }
-            }
-            Some(metadata) => {
-                let peer_has = CellBitmap::<E>::from_ssz_bytes(metadata.as_ref())
-                    .map_err(|_| PartialMessageError::InvalidFormat)?;
-                if peer_has == self.partial_column.sidecar.cells_present_bitmap {
-                    return Ok(PublishAction::SameMetadata);
-                }
+        metadata: &Self::Metadata,
+    ) -> Result<Option<Vec<u8>>, PartialMessageError> {
+        Ok(self
+            .partial_column
+            .sidecar
+            .with_missing_cells(&metadata.bitmap)
+            .map(|message| message.as_ssz_bytes()))
+    }
 
-                let Some(send) = self.partial_column.sidecar.with_missing_cells(&peer_has) else {
-                    return Ok(PublishAction::NothingToSend);
-                };
-
-                let new_metadata = peer_has.union(&send.cells_present_bitmap);
-                Ok(PublishAction::Send {
-                    message: send.as_ssz_bytes().to_vec(),
-                    metadata: Box::new(CellBitmapMetadata::<E>::from(new_metadata)),
-                })
-            }
-        }
+    fn data_for_eager_push(
+        &self,
+    ) -> Result<Option<(Vec<u8>, Self::Metadata)>, PartialMessageError> {
+        Ok(self.send_eager.clone().map(|eager| (eager.data, eager.metadata)))
     }
 }

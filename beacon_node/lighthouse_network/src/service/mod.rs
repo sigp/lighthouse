@@ -23,7 +23,7 @@ use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
-    Event, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, Partial,
+    Event, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
     PublishError, TopicScoreParams,
 };
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
@@ -34,7 +34,6 @@ use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use network_utils::enr_ext::EnrExt;
-use sha2::{Digest, Sha256};
 use ssz::Decode;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
@@ -164,7 +163,7 @@ pub struct Network<E: EthSpec> {
     score_settings: PeerScoreSettings<E>,
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
-    gossip_cache: GossipCache<E>,
+    gossip_cache: GossipCache,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
 }
@@ -259,7 +258,6 @@ impl<E: EthSpec> Network<E> {
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
                 .bls_to_execution_change_timeout(half_epoch * 2)
-                .data_column_sidecar(slot_duration)
                 .build()
         };
 
@@ -854,7 +852,17 @@ impl<E: EthSpec> Network<E> {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 let message_data = message.encode();
-                let result = message_data.do_publish(self.gossipsub_mut(), topic.clone().into());
+                let gossipsub = self.gossipsub_mut();
+                let publish_topic: Topic = topic.clone().into();
+                let (cache, result) = match message_data {
+                    EncodedPubsubMessage::Full(bytes) => (
+                        Some(bytes.clone()),
+                        gossipsub.publish(publish_topic, bytes).map(|_| ()),
+                    ),
+                    EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => {
+                        (None, gossipsub.publish_partial(publish_topic, partial))
+                    }
+                };
                 if let Err(e) = result {
                     match e {
                         PublishError::Duplicate => {
@@ -893,21 +901,10 @@ impl<E: EthSpec> Network<E> {
                     }
 
                     if let PublishError::NoPeersSubscribedToTopic = e
-                        && let EncodedPubsubMessage::Full(bytes) = &message_data
+                        && let Some(bytes) = cache
                     {
-                        let id = Sha256::digest(bytes)[..].to_vec();
-                        self.gossip_cache.insert(topic, id, message_data);
+                        self.gossip_cache.insert(topic, bytes);
                     }
-                } else if let EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) =
-                    &message_data
-                {
-                    let id = partial.group_id().as_ref().to_vec();
-                    debug!(
-                        kind = %topic.kind(),
-                        group_id = hex::encode(&id),
-                        "Adding partial message to cache"
-                    );
-                    self.gossip_cache.insert(topic, id, message_data);
                 }
             }
         }
@@ -1324,7 +1321,6 @@ impl<E: EthSpec> Network<E> {
                 message,
                 metadata,
             } => {
-                let hex_group_id = hex::encode(&group_id);
                 let topic = GossipTopic::decode(topic_id.as_str())
                     .inspect_err(|error| {
                         debug!(
@@ -1352,38 +1348,6 @@ impl<E: EthSpec> Network<E> {
                     }
                 } else {
                     debug!(%propagation_source, "Got no metadata")
-                }
-
-                // TODO(dknopik): maybe do this after validation?
-                if let Some(cached_partial) = self.gossip_cache.retrieve_one(&topic, &group_id) {
-                    // We do not bother checking here if that cached msg contains relevant data,
-                    // as gossipsub will do that anyway.
-                    let result = cached_partial.do_publish(
-                        &mut self.swarm.behaviour_mut().gossipsub,
-                        topic.clone().into(),
-                    );
-                    match result {
-                        Ok(_) => {
-                            debug!(
-                                group_id = hex_group_id,
-                                %topic, %propagation_source, "Replied with cached partial message"
-                            )
-                        }
-                        Err(err) => {
-                            warn!(
-                                group_id = hex_group_id,
-                                %topic,
-                                %propagation_source,
-                                ?err,
-                                "Failed to reply with cached partial message"
-                            );
-                        }
-                    }
-                } else {
-                    debug!(
-                        group_id = hex_group_id,
-                        %topic, %propagation_source, "Did not reply to partial message"
-                    );
                 }
 
                 if let Some(message) = message {
@@ -1428,13 +1392,15 @@ impl<E: EthSpec> Network<E> {
                             .add_subscription(&peer_id, subnet_id);
                     }
                     // Try to send the cached messages for this topic
-                    if let Some(msgs) = self.gossip_cache.retrieve_all(&topic) {
+                    if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
                         for data in msgs {
                             let topic_str: &str = topic.kind().as_ref();
-                            match data.do_publish(
-                                &mut self.swarm.behaviour_mut().gossipsub,
-                                topic.clone().into(),
-                            ) {
+                            match self
+                                .swarm
+                                .behaviour_mut()
+                                .gossipsub
+                                .publish(Topic::from(topic.clone()), data)
+                            {
                                 Ok(_) => {
                                     debug!(topic = topic_str, "Gossip message published on retry");
                                     metrics::inc_counter_vec(
