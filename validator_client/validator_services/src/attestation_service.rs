@@ -233,7 +233,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         slot_duration: Duration,
         beacon_node_index: Option<usize>,
     ) -> Result<(), String> {
-        info!(
+        debug!(
             ?beacon_node_index,
             "process attestation from beacon_node_index",
         );

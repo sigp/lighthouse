@@ -435,13 +435,13 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         self.slot_clock = Some(slot_clock);
     }
 
+    pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
+        self.head_monitor_send = Some(head_monitor_send);
+    }
+
     /// The count of candidates, regardless of their state.
     pub async fn num_total(&self) -> usize {
         self.candidates.read().await.len()
-    }
-
-    pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
-        self.head_monitor_send = Some(head_monitor_send);
     }
 
     /// The count of candidates that are online and compatible, but not necessarily synced.
@@ -692,10 +692,9 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
-        let candidates = self.candidates.read().await;
-
         // Try the preferred beacon node first if it exists
         if let Some(preferred_idx) = preferred_index
+            && let candidates = self.candidates.read().await
             && let Some(preferred_candidate) = candidates.iter().find(|c| c.index == preferred_idx)
         {
             let preferred_node = preferred_candidate.beacon_node.clone();
@@ -710,7 +709,6 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         }
 
         // Fall back to normal first_success behavior
-        drop(candidates);
         self.first_success(func).await
     }
 
