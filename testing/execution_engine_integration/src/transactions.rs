@@ -1,6 +1,6 @@
 use alloy_network::TransactionBuilder;
 use alloy_primitives::{Address, U256};
-use alloy_rpc_types::{AccessList, TransactionRequest};
+use alloy_rpc_types_eth::{AccessList, TransactionRequest};
 use deposit_contract::{BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS, encode_eth1_tx_data};
 use types::{DepositData, EthSpec, FixedBytesExtended, Hash256, Keypair, Signature};
 
