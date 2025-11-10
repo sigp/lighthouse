@@ -266,12 +266,12 @@ pub fn dequeue_attestations(
     // Benchmarks show that `partition_point` is substantially faster (-18%) than using `find`.
     let to_pop = queued_attestations.partition_point(|a| a.slot < current_slot);
 
-    // Rotate the entries to remove into the *end* of the vec dequeue.
+    // Rotate the entries to remove into the *end* of the vec deque.
     queued_attestations.rotate_left(to_pop);
 
-    // Use `split_off` to keep the attestations we don't want to pop, while keeping the same
-    // allocation for `queued_attestations` (preserving the capacity so we don't need to reallocate
-    // on future pushes).
+    // Use `split_off` to remove the attestations we want to pop from the end of the queue, while
+    // keeping the same allocation for `queued_attestations` (preserving the capacity so we don't
+    // need to reallocate on future pushes).
     let to_keep = queued_attestations.len().saturating_sub(to_pop);
 
     let popped = queued_attestations.split_off(to_keep);
