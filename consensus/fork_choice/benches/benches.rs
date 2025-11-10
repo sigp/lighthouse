@@ -29,6 +29,9 @@ fn all_benches(c: &mut Criterion) {
                     let dequeued = dequeue_attestations(Slot::from(i), &mut attestations);
                     assert_eq!(dequeued.len(), attestations_per_slot);
 
+                    // Capacity should be unchanged.
+                    assert_eq!(attestations.capacity(), num_attestations);
+
                     let next_slot = end_slot + i - 1;
                     let new_attestations = std::iter::repeat(QueuedAttestation {
                         slot: Slot::from(next_slot),

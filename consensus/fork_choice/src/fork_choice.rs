@@ -259,23 +259,19 @@ pub fn dequeue_attestations(
     current_slot: Slot,
     queued_attestations: &mut VecDeque<QueuedAttestation>,
 ) -> VecDeque<QueuedAttestation> {
-    // Find the position of the first attestation to keep in the queue.
-    let to_pop = queued_attestations
-        .iter()
-        .position(|a| a.slot >= current_slot)
-        .unwrap_or(queued_attestations.len());
-
-    if to_pop == 0 {
-        return VecDeque::new();
-    }
+    // Find the position of the first attestation to keep in the queue, or equivalently the number
+    // of attestations to pop from the front of the queue.
+    //
+    // We are safe to use `partition_point` as we know the queue is sorted by ascending slot.
+    // Benchmarks show that `partition_point` is substantially faster (-18%) than using `find`.
+    let to_pop = queued_attestations.partition_point(|a| a.slot < current_slot);
 
     // Rotate the entries to remove into the *end* of the vec dequeue.
     queued_attestations.rotate_left(to_pop);
 
-    // Use split_off to keep the attestations we don't want to pop, while keeping the same
+    // Use `split_off` to keep the attestations we don't want to pop, while keeping the same
     // allocation for `queued_attestations` (preserving the capacity so we don't need to reallocate
     // on future pushes).
-    // TODO: try drain or pop_front approach instead
     let to_keep = queued_attestations.len().saturating_sub(to_pop);
 
     let popped = queued_attestations.split_off(to_keep);
