@@ -33,13 +33,15 @@ fn all_benches(c: &mut Criterion) {
                     assert_eq!(attestations.capacity(), num_attestations);
 
                     let next_slot = end_slot + i - 1;
-                    let new_attestations = std::iter::repeat(QueuedAttestation {
-                        slot: Slot::from(next_slot),
-                        attesting_indices: vec![],
-                        block_root: Hash256::ZERO,
-                        target_epoch: Epoch::new(0),
-                    })
-                    .take(attestations_per_slot);
+                    let new_attestations = std::iter::repeat_n(
+                        QueuedAttestation {
+                            slot: Slot::from(next_slot),
+                            attesting_indices: vec![],
+                            block_root: Hash256::ZERO,
+                            target_epoch: Epoch::new(0),
+                        },
+                        attestations_per_slot,
+                    );
 
                     for attestation in new_attestations {
                         attestations.push_back(attestation);
