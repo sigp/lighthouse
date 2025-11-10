@@ -1,7 +1,6 @@
 mod attestation_tests;
 mod block_tests;
 mod extra_interchange_tests;
-pub mod interchange;
 pub mod interchange_test;
 mod parallel_tests;
 mod registration_tests;
@@ -9,6 +8,10 @@ mod signed_attestation;
 mod signed_block;
 mod slashing_database;
 pub mod test_utils;
+
+pub mod interchange {
+    pub use eip_3076::{Interchange, InterchangeMetadata};
+}
 
 pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
 pub use crate::signed_block::{InvalidBlock, SignedBlock};

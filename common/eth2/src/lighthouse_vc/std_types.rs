@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use types::{Address, Graffiti, PublicKeyBytes};
 use zeroize::Zeroizing;
 
-pub use slashing_protection::interchange::Interchange;
+pub use eip_3076::Interchange;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct GetFeeRecipientResponse {

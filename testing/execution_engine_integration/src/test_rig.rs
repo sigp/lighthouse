@@ -65,7 +65,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 
         let client = Client::builder().build().unwrap();
         let request = client
-            .post(http_url.full.clone())
+            .post(http_url.expose_full().clone())
             .header(CONTENT_TYPE, "application/json")
             .json(&body);
 
@@ -91,7 +91,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
         );
 
         let request = client
-            .post(http_url.full.clone())
+            .post(http_url.expose_full().clone())
             .header(CONTENT_TYPE, "application/json")
             .json(&body);
 
