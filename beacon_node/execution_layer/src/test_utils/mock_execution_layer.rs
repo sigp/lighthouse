@@ -63,7 +63,6 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
-            spec.clone(),
             kzg,
         );
 

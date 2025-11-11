@@ -5,7 +5,7 @@ use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;
-use derivative::Derivative;
+use educe::Educe;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{NumFields, metastruct};
@@ -245,7 +245,7 @@ impl From<BeaconStateHash> for Hash256 {
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
-            Derivative,
+            Educe,
             Debug,
             PartialEq,
             Serialize,
@@ -262,7 +262,7 @@ impl From<BeaconStateHash> for Hash256 {
             derive(arbitrary::Arbitrary),
             arbitrary(bound = "E: EthSpec")
         ),
-        derivative(Clone),
+        educe(Clone),
     ),
     specific_variant_attributes(
         Base(metastruct(
@@ -905,6 +905,22 @@ impl<E: EthSpec> BeaconState<E> {
         let decision_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
         if self.slot() <= decision_slot {
             Ok(block_root)
+        } else {
+            self.get_block_root(decision_slot).copied()
+        }
+    }
+
+    /// Returns the block root at the last slot of `epoch - 1`.
+    ///
+    /// This can be deleted after Glamsterdam and the removal of the v1 proposer duties endpoint.
+    pub fn legacy_proposer_shuffling_decision_root_at_epoch(
+        &self,
+        epoch: Epoch,
+        head_block_root: Hash256,
+    ) -> Result<Hash256, Error> {
+        let decision_slot = epoch.saturating_sub(1u64).end_slot(E::slots_per_epoch());
+        if self.slot() <= decision_slot {
+            Ok(head_block_root)
         } else {
             self.get_block_root(decision_slot).copied()
         }

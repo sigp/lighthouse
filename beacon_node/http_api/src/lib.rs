@@ -4604,6 +4604,37 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/custody/backfill
+    let post_lighthouse_custody_backfill = warp::path("lighthouse")
+        .and(warp::path("custody"))
+        .and(warp::path("backfill"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    // Calling this endpoint will trigger custody backfill once `effective_epoch``
+                    // is finalized.
+                    let effective_epoch = chain
+                        .canonical_head
+                        .cached_head()
+                        .head_slot()
+                        .epoch(T::EthSpec::slots_per_epoch())
+                        + 1;
+                    let custody_context = chain.data_availability_checker.custody_context();
+                    // Reset validator custody requirements to `effective_epoch` with the latest
+                    // cgc requiremnets.
+                    custody_context.reset_validator_custody_requirements(effective_epoch);
+                    // Update `DataColumnCustodyInfo` to reflect the custody change.
+                    chain.update_data_column_custody_info(Some(
+                        effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    ));
+                    Ok(())
+                })
+            },
+        );
+
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4963,6 +4994,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_compaction)
                     .uor(post_lighthouse_add_peer)
                     .uor(post_lighthouse_remove_peer)
+                    .uor(post_lighthouse_custody_backfill)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )

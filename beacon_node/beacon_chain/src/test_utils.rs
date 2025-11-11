@@ -81,6 +81,10 @@ pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
+// Minimum and maximum number of blobs to generate in each slot when using the `NumBlobs::Random` option (default).
+const DEFAULT_MIN_BLOBS: usize = 1;
+const DEFAULT_MAX_BLOBS: usize = 2;
+
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
     let kzg = Kzg::new_from_trusted_setup(&get_trusted_setup()).expect("should create kzg");
     Arc::new(kzg)
@@ -172,23 +176,28 @@ fn make_rng() -> Mutex<StdRng> {
     Mutex::new(StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64))
 }
 
-/// Return a `ChainSpec` suitable for test usage.
-///
-/// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
-/// variable. Otherwise use the default spec.
-pub fn test_spec<E: EthSpec>() -> ChainSpec {
-    let mut spec = if cfg!(feature = "fork_from_env") {
+pub fn fork_name_from_env() -> Option<ForkName> {
+    if cfg!(feature = "fork_from_env") {
         let fork_name = std::env::var(FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
             panic!(
                 "{} env var must be defined when using fork_from_env: {:?}",
                 FORK_NAME_ENV_VAR, e
             )
         });
-        let fork = ForkName::from_str(fork_name.as_str()).unwrap();
-        fork.make_genesis_spec(E::default_spec())
+        Some(ForkName::from_str(fork_name.as_str()).unwrap())
     } else {
-        E::default_spec()
-    };
+        None
+    }
+}
+
+/// Return a `ChainSpec` suitable for test usage.
+///
+/// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
+/// variable. Otherwise use the default spec.
+pub fn test_spec<E: EthSpec>() -> ChainSpec {
+    let mut spec = fork_name_from_env()
+        .map(|fork| fork.make_genesis_spec(E::default_spec()))
+        .unwrap_or_else(|| E::default_spec());
 
     // Set target aggregators to a high value by default.
     spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
@@ -3245,96 +3254,49 @@ pub enum NumBlobs {
     None,
 }
 
+macro_rules! add_blob_transactions {
+    ($message:expr, $payload_type:ty, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
+        let num_blobs = match $num_blobs {
+            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
+            NumBlobs::Number(n) => n,
+            NumBlobs::None => 0,
+        };
+        let (bundle, transactions) =
+            execution_layer::test_utils::generate_blobs::<E>(num_blobs, $fork_name).unwrap();
+
+        let payload: &mut $payload_type = &mut $message.body.execution_payload;
+        payload.execution_payload.transactions = <_>::default();
+        for tx in Vec::from(transactions) {
+            payload.execution_payload.transactions.push(tx).unwrap();
+        }
+        $message.body.blob_kzg_commitments = bundle.commitments.clone();
+        bundle
+    }};
+}
+
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
-    spec: &ChainSpec,
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
-    let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
         SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
             ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
+        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, rng, fork_name),
         SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
             ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
+        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, rng, fork_name),
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadFulu<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
+        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
         SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
             ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadGloas<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
+        }) => add_blob_transactions!(message, FullPayloadGloas<E>, num_blobs, rng, fork_name),
         _ => return (block, blob_sidecars),
     };
 
@@ -3375,7 +3337,7 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     SignedBeaconBlock<E, FullPayload<E>>,
     DataColumnSidecarList<E>,
 ) {
-    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
+    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
     let data_columns = generate_data_column_sidecars_from_block(&block, spec);
     (block, data_columns)
 }

@@ -64,7 +64,6 @@ features = [
     "plaintext",
     "secp256k1",
     "macros",
-    "ecdsa",
     "metrics",
     "quic",
     "upnp",
