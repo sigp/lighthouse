@@ -203,10 +203,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 }
 
                 match self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
-                    Ok(_) => {
-                        *last_slot = current_slot;
-                        trace!(?current_slot, "Spawned attestation tasks");
-                    }
+                    Ok(_) => *last_slot = current_slot,
                     Err(e) => {
                         crit!(error = e, "Failed to spawn attestation tasks")
                     }
