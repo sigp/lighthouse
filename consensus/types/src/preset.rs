@@ -208,6 +208,8 @@ pub struct DenebPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_blob_commitments_per_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
+    pub kzg_commitment_inclusion_proof_depth: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub field_elements_per_blob: u64,
 }
 
@@ -215,6 +217,7 @@ impl DenebPreset {
     pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
         Self {
             max_blob_commitments_per_block: E::max_blob_commitments_per_block() as u64,
+            kzg_commitment_inclusion_proof_depth: E::KzgCommitmentInclusionProofDepth::to_u64(),
             field_elements_per_blob: E::field_elements_per_blob() as u64,
         }
     }

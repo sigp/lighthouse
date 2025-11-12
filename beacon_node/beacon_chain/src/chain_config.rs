@@ -1,3 +1,4 @@
+use crate::custody_context::NodeCustodyType;
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -86,6 +87,8 @@ pub struct ChainConfig {
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
+    /// EXPERIMENTAL: backfill blobs and data columns beyond the data availability window.
+    pub complete_blob_backfill: bool,
     /// Whether to send payload attributes every slot, regardless of connected proposers.
     ///
     /// This is useful for block builders and testing.
@@ -116,6 +119,8 @@ pub struct ChainConfig {
     pub invalid_block_roots: HashSet<Hash256>,
     /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
     pub disable_get_blobs: bool,
+    /// The node's custody type, determining how many data columns to custody and sample.
+    pub node_custody_type: NodeCustodyType,
 }
 
 impl Default for ChainConfig {
@@ -144,6 +149,7 @@ impl Default for ChainConfig {
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
+            complete_blob_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: true,
@@ -155,6 +161,7 @@ impl Default for ChainConfig {
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
             disable_get_blobs: false,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }

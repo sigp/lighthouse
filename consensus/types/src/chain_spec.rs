@@ -2,7 +2,7 @@ use crate::application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
-use derivative::Derivative;
+use educe::Educe;
 use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
@@ -87,12 +87,18 @@ pub struct ChainSpec {
      */
     pub genesis_delay: u64,
     pub seconds_per_slot: u64,
+    pub slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
     pub min_epochs_to_inactivity_penalty: u64,
     pub min_validator_withdrawability_delay: Epoch,
     pub shard_committee_period: u64,
+    pub proposer_reorg_cutoff_bps: u64,
+    pub attestation_due_bps: u64,
+    pub aggregate_due_bps: u64,
+    pub sync_message_due_bps: u64,
+    pub contribution_due_bps: u64,
 
     /*
      * Reward and penalty quotients
@@ -227,7 +233,7 @@ pub struct ChainSpec {
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub attestation_propagation_slot_range: u64,
-    pub maximum_gossip_clock_disparity_millis: u64,
+    pub maximum_gossip_clock_disparity: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
     pub subnets_per_node: u8,
@@ -255,7 +261,7 @@ pub struct ChainSpec {
      * Networking Fulu
      */
     pub(crate) blob_schedule: BlobSchedule,
-    min_epochs_for_data_column_sidecars_requests: u64,
+    pub min_epochs_for_data_column_sidecars_requests: u64,
 
     /*
      * Networking Gloas
@@ -476,15 +482,23 @@ impl ChainSpec {
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
-        let previous_fork_name = current_fork_name.previous_fork().unwrap_or(ForkName::Base);
-        let epoch = self
+
+        let fork_epoch = self
             .fork_epoch(current_fork_name)
             .unwrap_or_else(|| Epoch::new(0));
+
+        // At genesis the Fork is initialised with two copies of the same value for both
+        // `previous_version` and `current_version` (see `initialize_beacon_state_from_eth1`).
+        let previous_fork_name = if fork_epoch == 0 {
+            current_fork_name
+        } else {
+            current_fork_name.previous_fork().unwrap_or(ForkName::Base)
+        };
 
         Fork {
             previous_version: self.fork_version_for_name(previous_fork_name),
             current_version: self.fork_version_for_name(current_fork_name),
-            epoch,
+            epoch: fork_epoch,
         }
     }
 
@@ -670,7 +684,7 @@ impl ChainSpec {
     }
 
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
-        Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
+        Duration::from_millis(self.maximum_gossip_clock_disparity)
     }
 
     pub fn ttfb_timeout(&self) -> Duration {
@@ -865,6 +879,34 @@ impl ChainSpec {
         )
     }
 
+    /// Returns the slot at which the proposer shuffling was decided.
+    ///
+    /// The block root at this slot can be used to key the proposer shuffling for the given epoch.
+    pub fn proposer_shuffling_decision_slot<E: EthSpec>(&self, epoch: Epoch) -> Slot {
+        // At the Fulu fork epoch itself, the shuffling is computed "the old way" with no lookahead.
+        // Therefore for `epoch == fulu_fork_epoch` we must take the `else` branch. Checking if Fulu
+        // is enabled at `epoch - 1` accomplishes this neatly.
+        if self
+            .fork_name_at_epoch(epoch.saturating_sub(1_u64))
+            .fulu_enabled()
+        {
+            // Post-Fulu the proposer shuffling decision slot for epoch N is the slot at the end
+            // of epoch N - 2 (note: min_seed_lookahead=1 in all current configs).
+            epoch
+                .saturating_sub(self.min_seed_lookahead)
+                .start_slot(E::slots_per_epoch())
+                .saturating_sub(1_u64)
+        } else {
+            // Pre-Fulu the proposer shuffling decision slot for epoch N is the slot at the end of
+            // epoch N - 1 (note: +1 -1 for min_seed_lookahead=1 in all current configs).
+            epoch
+                .saturating_add(Epoch::new(1))
+                .saturating_sub(self.min_seed_lookahead)
+                .start_slot(E::slots_per_epoch())
+                .saturating_sub(1_u64)
+        }
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -928,12 +970,18 @@ impl ChainSpec {
              */
             genesis_delay: 604800, // 7 days
             seconds_per_slot: 12,
+            slot_duration_ms: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             shard_committee_period: 256,
+            proposer_reorg_cutoff_bps: 1667,
+            attestation_due_bps: 3333,
+            aggregate_due_bps: 6667,
+            sync_message_due_bps: 3333,
+            contribution_due_bps: 6667,
 
             /*
              * Reward and penalty quotients
@@ -1062,7 +1110,7 @@ impl ChainSpec {
              * Fulu hard fork params
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x00],
-            fulu_fork_epoch: None,
+            fulu_fork_epoch: Some(Epoch::new(411392)),
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
@@ -1084,7 +1132,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 2,
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
@@ -1122,7 +1170,16 @@ impl ChainSpec {
             /*
              * Networking Fulu specific
              */
-            blob_schedule: BlobSchedule::default(),
+            blob_schedule: BlobSchedule::new(vec![
+                BlobParameters {
+                    epoch: Epoch::new(412672),
+                    max_blobs_per_block: 15,
+                },
+                BlobParameters {
+                    epoch: Epoch::new(419072),
+                    max_blobs_per_block: 21,
+                },
+            ]),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
@@ -1274,12 +1331,18 @@ impl ChainSpec {
              */
             genesis_delay: 6000, // 100 minutes
             seconds_per_slot: 5,
+            slot_duration_ms: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             shard_committee_period: 256,
+            proposer_reorg_cutoff_bps: 1667,
+            attestation_due_bps: 3333,
+            aggregate_due_bps: 6667,
+            sync_message_due_bps: 3333,
+            contribution_due_bps: 6667,
 
             /*
              * Reward and penalty quotients
@@ -1393,8 +1456,7 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             whistleblower_reward_quotient_electra: u64::checked_pow(2, 12)
                 .expect("pow does not overflow"),
-            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 3)
-                .expect("pow does not overflow"),
+            max_pending_partials_per_withdrawals_sweep: 6,
             min_per_epoch_churn_limit_electra: option_wrapper(|| {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
@@ -1430,7 +1492,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: 33024,
@@ -1504,15 +1566,15 @@ pub struct BlobParameters {
 // A wrapper around a vector of BlobParameters to ensure that the vector is reverse
 // sorted by epoch.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Derivative, Clone)]
-#[derivative(PartialEq)]
+#[derive(Debug, Educe, Clone)]
+#[educe(PartialEq)]
 pub struct BlobSchedule {
     schedule: Vec<BlobParameters>,
     // This is a hack to prevent the blob schedule being serialized on the /eth/v1/config/spec
     // endpoint prior to the Fulu fork being scheduled.
     //
     // We can remove this once Fulu is live on mainnet.
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     skip_serializing: bool,
 }
 
@@ -1751,9 +1813,9 @@ pub struct Config {
     #[serde(default = "default_attestation_propagation_slot_range")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_propagation_slot_range: u64,
-    #[serde(default = "default_maximum_gossip_clock_disparity_millis")]
+    #[serde(default = "default_maximum_gossip_clock_disparity")]
     #[serde(with = "serde_utils::quoted_u64")]
-    maximum_gossip_clock_disparity_millis: u64,
+    maximum_gossip_clock_disparity: u64,
     #[serde(default = "default_message_domain_invalid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_invalid_snappy: [u8; 4],
@@ -1967,7 +2029,7 @@ const fn default_attestation_propagation_slot_range() -> u64 {
     32
 }
 
-const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
+const fn default_maximum_gossip_clock_disparity() -> u64 {
     500
 }
 
@@ -2031,7 +2093,7 @@ fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) 
 
     let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        columns: VariableList::from(vec![0; E::number_of_columns()]),
+        columns: VariableList::repeat_full(0),
     };
 
     RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
@@ -2186,7 +2248,7 @@ impl Config {
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
             attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis: spec.maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity: spec.maximum_gossip_clock_disparity,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
@@ -2274,7 +2336,7 @@ impl Config {
             message_domain_valid_snappy,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
@@ -2350,7 +2412,7 @@ impl Config {
             attestation_subnet_prefix_bits,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
@@ -2976,5 +3038,35 @@ mod yaml_tests {
             Some(expected_data_column_retention_epoch),
             spec.min_epoch_data_availability_boundary(current_epoch)
         );
+    }
+
+    #[test]
+    fn proposer_shuffling_decision_root_around_epoch_boundary() {
+        type E = MainnetEthSpec;
+        let fulu_fork_epoch = 5;
+        let gloas_fork_epoch = 10;
+        let spec = {
+            let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+            spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch));
+            spec.gloas_fork_epoch = Some(Epoch::new(gloas_fork_epoch));
+            Arc::new(spec)
+        };
+
+        // For epochs prior to AND including the Fulu fork epoch, the decision slot is the end
+        // of the previous epoch (i.e. only 1 slot lookahead).
+        for epoch in (0..=fulu_fork_epoch).map(Epoch::new) {
+            assert_eq!(
+                spec.proposer_shuffling_decision_slot::<E>(epoch),
+                epoch.start_slot(E::slots_per_epoch()) - 1
+            );
+        }
+
+        // For epochs after Fulu, the decision slot is the end of the epoch two epochs prior.
+        for epoch in ((fulu_fork_epoch + 1)..=(gloas_fork_epoch + 1)).map(Epoch::new) {
+            assert_eq!(
+                spec.proposer_shuffling_decision_slot::<E>(epoch),
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1
+            );
+        }
     }
 }

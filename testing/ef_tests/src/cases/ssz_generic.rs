@@ -318,14 +318,13 @@ where
 {
     let s: String = serde::de::Deserialize::deserialize(deserializer)?;
     let decoded: Vec<u8> = hex::decode(&s.as_str()[2..]).map_err(D::Error::custom)?;
+    let decoded_len = decoded.len();
 
-    if decoded.len() > N::to_usize() {
-        Err(D::Error::custom(format!(
+    decoded.try_into().map_err(|_| {
+        D::Error::custom(format!(
             "Too many values for list, got: {}, limit: {}",
-            decoded.len(),
+            decoded_len,
             N::to_usize()
-        )))
-    } else {
-        Ok(decoded.into())
-    }
+        ))
+    })
 }

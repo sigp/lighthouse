@@ -13,7 +13,7 @@ Siren requires a connection to both a Lighthouse Validator Client and a Lighthou
 Both the Beacon node and the Validator client need to have their HTTP APIs enabled.
 These ports should be accessible from Siren. This means adding the flag `--http` on both beacon node and validator client.
 
-To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This action ensures that the HTTP API can be accessed by other software on the same machine.
+To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This action ensures that the HTTP API can be accessed by other software on the same machine. It also enables the validator monitoring.
 
 > The Beacon Node must be run with the `--gui` flag set.
 

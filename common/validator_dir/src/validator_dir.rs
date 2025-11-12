@@ -3,7 +3,7 @@ use crate::builder::{
     WITHDRAWAL_KEYSTORE_FILE, keystore_password_path,
 };
 use deposit_contract::decode_eth1_tx_data;
-use derivative::Derivative;
+use educe::Educe;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use lockfile::{Lockfile, LockfileError};
 use std::fs::{File, read, write};
@@ -32,7 +32,7 @@ pub enum Error {
     UnableToReadDepositAmount(io::Error),
     UnableToParseDepositAmount(std::num::ParseIntError),
     DepositAmountIsNotUtf8(std::string::FromUtf8Error),
-    UnableToParseDepositData(deposit_contract::DecodeError),
+    UnableToParseDepositData(deposit_contract::Error),
     Eth1TxHashExists(PathBuf),
     UnableToWriteEth1TxHash(io::Error),
     /// The deposit root in the deposit data file does not match the one generated locally. This is
@@ -56,11 +56,11 @@ pub struct Eth1DepositData {
 ///
 /// Holds a lockfile in `self.dir` to attempt to prevent concurrent access from multiple
 /// processes.
-#[derive(Debug, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Debug, Educe)]
+#[educe(PartialEq)]
 pub struct ValidatorDir {
     dir: PathBuf,
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     _lockfile: Lockfile,
 }
 

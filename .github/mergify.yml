@@ -105,6 +105,10 @@ queue_rules:
 
 
         {{ body | get_section("## Proposed Changes", "") }}
+      
+      {% for commit in commits | unique(attribute='email_author') %}
+      Co-Authored-By: {{ commit.author }} <{{ commit.email_author }}>
+      {% endfor %}
     queue_conditions:
       - "#approved-reviews-by >= 1"
       - "check-success=license/cla"
