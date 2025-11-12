@@ -916,36 +916,29 @@ async fn data_column_reconstruction_at_deadline() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain
-        .slot_clock
-        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
-
-    assert_eq!(
-        rig.chain.slot().unwrap(),
-        rig.next_block.slot() - 1,
-        "chain should be at the correct slot"
-    );
-
     // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
+    let slot_duration = rig.chain.slot_clock.slot_duration().as_millis() as u64;
+    let reconstruction_deadline_millis =
+        (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
     rig.chain
         .slot_clock
-        .set_current_time(slot_start + Duration::from_secs(3));
+        .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
-    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
-    for i in 0..num_data_columns {
+    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
         rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
             .await;
     }
 
     // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
-    if num_data_columns > 0 {
-        rig.assert_event_journal_completes_with_timeout(
-            &[WorkType::ColumnReconstruction],
-            Duration::from_millis(50),
-        )
-        .await;
-    }
+    rig.assert_event_journal_with_timeout(
+        &[WorkType::ColumnReconstruction.into()],
+        Duration::from_millis(50),
+        false,
+        false,
+    )
+    .await;
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.

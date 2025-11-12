@@ -31,7 +31,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, metrics, observed_aggregates::ObserveOutcome,
 };
 use bls::{PublicKeyBytes, verify_signature_sets};
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
@@ -261,8 +261,8 @@ impl From<ContributionError> for Error {
 }
 
 /// Wraps a `SignedContributionAndProof` that has been verified for propagation on the gossip network.\
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     signed_aggregate: SignedContributionAndProof<T::EthSpec>,
     participant_pubkeys: Vec<PublicKeyBytes>,

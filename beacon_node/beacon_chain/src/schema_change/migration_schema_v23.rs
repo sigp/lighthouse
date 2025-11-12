@@ -122,7 +122,7 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
 
     let heads = fork_choice
         .proto_array()
-        .heads_descended_from_finalization::<T::EthSpec>();
+        .heads_descended_from_finalization::<T::EthSpec>(fork_choice.finalized_checkpoint());
 
     let head_roots = heads.iter().map(|node| node.root).collect();
     let head_slots = heads.iter().map(|node| node.slot).collect();
