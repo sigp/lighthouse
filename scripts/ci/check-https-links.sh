@@ -2,9 +2,6 @@
 
 # Check for insecure HTTP links in Cargo.toml files
 # This script ensures all git dependencies use HTTPS instead of HTTP
-#
-# This addresses the security concern raised in:
-# https://github.com/sigp/lighthouse/issues/8106
 
 set -e
 
