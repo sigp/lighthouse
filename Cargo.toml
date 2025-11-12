@@ -147,10 +147,6 @@ ethereum_hashing = "0.7.0"
 ethereum_serde_utils = "0.8.0"
 ethereum_ssz = "0.9.0"
 ethereum_ssz_derive = "0.9.0"
-ethers-core = "1"
-ethers-middleware = { version = "1", default-features = false }
-ethers-providers = { version = "1", default-features = false }
-ethers-signers = { version = "1", default-features = false }
 execution_layer = { path = "beacon_node/execution_layer" }
 exit-future = "0.2"
 filesystem = { path = "common/filesystem" }
