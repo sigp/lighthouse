@@ -193,8 +193,10 @@ where
             Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
-        let ordered_custody_column_indices = compute_ordered_custody_column_indices(node_id, &spec)
-            .map_err(|e| format!("Failed to compute ordered custody column indices: {:?}", e))?;
+        let ordered_custody_column_indices =
+            compute_ordered_custody_column_indices::<E>(node_id, &spec).map_err(|e| {
+                format!("Failed to compute ordered custody column indices: {:?}", e)
+            })?;
 
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .store(store)
@@ -214,12 +216,6 @@ where
                 StdRng::try_from_rng(&mut OsRng)
                     .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
             ));
-
-        // FIXME: remove
-        println!(
-            "ordered_custody_column_indices: {:?}",
-            ordered_custody_column_indices
-        );
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)

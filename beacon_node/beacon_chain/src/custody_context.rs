@@ -7,7 +7,6 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use tracing::{debug, warn};
-use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody_group};
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.
@@ -504,7 +503,7 @@ impl<E: EthSpec> CustodyContext<E> {
 
         // This is an unnecessary conversion for spec compliance, basically just multiplying by 1.
         let columns_per_custody_group = spec.data_columns_per_group::<E>() as usize;
-        let custody_column_count = columns_per_custody_group * (custody_group_count);
+        let custody_column_count = columns_per_custody_group * custody_group_count;
 
         &self.ordered_custody_column_indices[..custody_column_count]
     }

@@ -122,9 +122,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
         };
 
+        // Generate or load the node id.
         let local_keypair = load_private_key(&client_config.network);
-        // ASSERT same result
         let node_id = peer_id_to_node_id(&local_keypair.public().to_peer_id())?.raw();
+
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config.clone(), node_id)
             .await?;
@@ -200,7 +201,6 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 #[cfg(test)]
 mod test {
     use super::*;
-
     use types::MainnetEthSpec;
 
     #[test]
