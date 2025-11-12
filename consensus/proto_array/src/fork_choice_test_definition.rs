@@ -3,6 +3,7 @@ mod ffg_updates;
 mod no_votes;
 mod votes;
 
+use crate::proto_array::LocalCheckpoint;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
 use serde::{Deserialize, Serialize};
@@ -219,7 +220,15 @@ impl ForkChoiceTestDefinition {
                         unrealized_finalized_checkpoint: None,
                     };
                     fork_choice
-                        .process_block::<MainnetEthSpec>(block, slot)
+                        .process_block::<MainnetEthSpec>(
+                            block,
+                            slot,
+                            self.justified_checkpoint,
+                            LocalCheckpoint::new(
+                                self.finalized_checkpoint,
+                                self.finalized_checkpoint,
+                            ),
+                        )
                         .unwrap_or_else(|e| {
                             panic!(
                                 "process_block op at index {} returned error: {:?}",
@@ -279,7 +288,13 @@ impl ForkChoiceTestDefinition {
                         }
                     };
                     fork_choice
-                        .process_execution_payload_invalidation::<MainnetEthSpec>(&op)
+                        .process_execution_payload_invalidation::<MainnetEthSpec>(
+                            &op,
+                            LocalCheckpoint::new(
+                                self.finalized_checkpoint,
+                                self.finalized_checkpoint,
+                            ),
+                        )
                         .unwrap()
                 }
                 Operation::AssertWeight { block_root, weight } => assert_eq!(
@@ -312,7 +327,8 @@ fn get_checkpoint(i: u64) -> Checkpoint {
 }
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
-    let bytes = original.as_bytes();
+    // The checkpoint are ignored `ProtoArrayForkChoice::from_bytes` so any value is ok
+    let bytes = original.as_bytes(Checkpoint::default(), Checkpoint::default());
     let decoded = ProtoArrayForkChoice::from_bytes(&bytes, original.balances.clone())
         .expect("fork choice should decode from bytes");
     assert!(

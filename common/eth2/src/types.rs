@@ -1520,6 +1520,21 @@ pub struct ForkChoiceNode {
     pub weight: u64,
     pub validity: Option<String>,
     pub execution_block_hash: Option<Hash256>,
+    pub extra_data: ForkChoiceExtraData,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForkChoiceExtraData {
+    pub target_root: Hash256,
+    pub justified_root: Hash256,
+    pub finalized_root: Hash256,
+    pub unrealized_justified_root: Option<Hash256>,
+    pub unrealized_finalized_root: Option<Hash256>,
+    pub unrealized_justified_epoch: Option<Epoch>,
+    pub unrealized_finalized_epoch: Option<Epoch>,
+    pub execution_status: String,
+    pub best_child: Option<Hash256>,
+    pub best_descendant: Option<Hash256>,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

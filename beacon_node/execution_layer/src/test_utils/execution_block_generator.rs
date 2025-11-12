@@ -1,4 +1,3 @@
-use crate::EthersTransaction;
 use crate::engine_api::{
     ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     json_structures::{
@@ -6,6 +5,8 @@ use crate::engine_api::{
     },
 };
 use crate::engines::ForkchoiceState;
+use alloy_consensus::TxEnvelope;
+use alloy_rpc_types_eth::Transaction as AlloyTransaction;
 use eth2::types::BlobsBundle;
 use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
@@ -833,7 +834,7 @@ pub fn generate_blobs<E: EthSpec>(
 
 pub fn static_valid_tx<E: EthSpec>() -> Result<Transaction<E::MaxBytesPerTransaction>, String> {
     // This is a real transaction hex encoded, but we don't care about the contents of the transaction.
-    let transaction: EthersTransaction = serde_json::from_str(
+    let transaction: AlloyTransaction = serde_json::from_str(
         r#"{
             "blockHash":"0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
             "blockNumber":"0x5daf3b",
@@ -852,7 +853,8 @@ pub fn static_valid_tx<E: EthSpec>() -> Result<Transaction<E::MaxBytesPerTransac
          }"#,
     )
     .unwrap();
-    VariableList::new(transaction.rlp().to_vec())
+
+    VariableList::new(alloy_rlp::encode::<TxEnvelope>(transaction.into()).to_vec())
         .map_err(|e| format!("Failed to convert transaction to SSZ: {:?}", e))
 }
 
