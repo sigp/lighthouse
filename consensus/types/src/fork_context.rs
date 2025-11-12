@@ -180,7 +180,8 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(4));
         spec.electra_fork_epoch = Some(Epoch::new(5));
         spec.fulu_fork_epoch = Some(Epoch::new(6));
-        spec.blob_schedule = BlobSchedule::new(blob_parameters);
+        spec.blob_schedule = BlobSchedule::new(blob_parameters)
+            .expect("test blob schedule has unique epochs");
         spec
     }
 

@@ -1179,7 +1179,8 @@ impl ChainSpec {
                     epoch: Epoch::new(419072),
                     max_blobs_per_block: 21,
                 },
-            ]),
+            ])
+            .expect("mainnet blob schedule has unique epochs"),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
@@ -1584,18 +1585,31 @@ impl<'de> Deserialize<'de> for BlobSchedule {
         D: Deserializer<'de>,
     {
         let vec = Vec::<BlobParameters>::deserialize(deserializer)?;
-        Ok(BlobSchedule::new(vec))
+        BlobSchedule::new(vec).map_err(serde::de::Error::custom)
     }
 }
 
 impl BlobSchedule {
-    pub fn new(mut vec: Vec<BlobParameters>) -> Self {
+    pub fn new(mut vec: Vec<BlobParameters>) -> Result<Self, String> {
         // reverse sort by epoch
         vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
-        Self {
+        
+        // Validate that all epochs are unique
+        for i in 0..vec.len() {
+            for j in (i + 1)..vec.len() {
+                if vec[i].epoch == vec[j].epoch {
+                    return Err(format!(
+                        "Duplicate epoch in blob schedule: epoch {}",
+                        vec[i].epoch
+                    ));
+                }
+            }
+        }
+        
+        Ok(Self {
             schedule: vec,
             skip_serializing: false,
-        }
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1664,6 +1678,60 @@ impl IntoIterator for BlobSchedule {
 
     fn into_iter(self) -> Self::IntoIter {
         self.schedule.into_iter()
+    }
+}
+
+#[cfg(test)]
+mod blob_schedule_tests {
+    use super::*;
+
+    #[test]
+    fn test_unique_epochs_accepted() {
+        let vec = vec![
+            BlobParameters {
+                epoch: Epoch::new(10),
+                max_blobs_per_block: 6,
+            },
+            BlobParameters {
+                epoch: Epoch::new(20),
+                max_blobs_per_block: 12,
+            },
+        ];
+        assert!(BlobSchedule::new(vec).is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_epochs_rejected() {
+        let vec = vec![
+            BlobParameters {
+                epoch: Epoch::new(10),
+                max_blobs_per_block: 6,
+            },
+            BlobParameters {
+                epoch: Epoch::new(10),
+                max_blobs_per_block: 12,
+            },
+        ];
+        let result = BlobSchedule::new(vec);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Duplicate epoch in blob schedule"));
+    }
+
+    #[test]
+    fn test_empty_schedule() {
+        let vec = vec![];
+        assert!(BlobSchedule::new(vec).is_ok());
+    }
+
+    #[test]
+    fn test_single_entry() {
+        let vec = vec![BlobParameters {
+            epoch: Epoch::new(10),
+            max_blobs_per_block: 6,
+        }];
+        assert!(BlobSchedule::new(vec).is_ok());
     }
 }
 
