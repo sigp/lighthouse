@@ -39,7 +39,6 @@ members = [
     "common/network_utils",
     "common/oneshot_broadcast",
     "common/pretty_reqwest_error",
-    "common/sensitive_url",
     "common/slot_clock",
     "common/system_health",
     "common/target_check",
@@ -98,9 +97,10 @@ version = "8.0.0"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
-alloy-consensus = { version = "0.14.0", default-features = false }
-alloy-primitives = { version = "1.0", features = ["rlp", "getrandom"] }
-alloy-rlp = "0.3.4"
+alloy-consensus = { version = "=1.0.42", default-features = false }
+alloy-primitives = { version = "=1.4.1", default-features = false, features = ["rlp", "getrandom"] }
+alloy-rlp = { version = "=0.3.12", default-features = false }
+alloy-rpc-types-eth = { version = "=1.0.42", default-features = false, features = ["serde"] }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
@@ -129,11 +129,11 @@ context_deserialize_derive = { path = "consensus/context_deserialize/context_des
 criterion = "0.5"
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
-derivative = "2"
 directory = { path = "common/directory" }
 dirs = "3"
 discv5 = { version = "0.10", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
+educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
 either = "1.9"
 environment = { path = "lighthouse/environment" }
@@ -225,7 +225,7 @@ rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
 rust_eth_kzg = "0.9"
 safe_arith = "0.1"
-sensitive_url = { path = "common/sensitive_url", features = ["serde"] }
+sensitive_url = { version = "0.1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"

@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use derivative::Derivative;
+use educe::Educe;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
@@ -49,8 +49,8 @@ pub enum Error {
 }
 
 /// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedLightClientOptimisticUpdate<T: BeaconChainTypes> {
     light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
     pub parent_root: Hash256,

@@ -3057,11 +3057,11 @@ impl ApiTester {
 
         assert_eq!(
             result.justified_checkpoint,
-            expected_proto_array.justified_checkpoint
+            beacon_fork_choice.justified_checkpoint()
         );
         assert_eq!(
             result.finalized_checkpoint,
-            expected_proto_array.finalized_checkpoint
+            beacon_fork_choice.finalized_checkpoint()
         );
 
         let expected_fork_choice_nodes: Vec<ForkChoiceNode> = expected_proto_array
