@@ -1,7 +1,7 @@
 use crate::beacon_block_body::{BLOB_KZG_COMMITMENTS_INDEX, format_kzg_commitments};
 use crate::test_utils::TestRandom;
 use crate::*;
-use derivative::Derivative;
+use educe::Educe;
 use merkle_proof::MerkleTree;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -51,10 +51,10 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Encode,
             Decode,
             TreeHash,
-            Derivative,
+            Educe,
             TestRandom
         ),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
         cfg_attr(
             feature = "arbitrary",
@@ -71,8 +71,8 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]

@@ -2,7 +2,7 @@
 
 use crate::*;
 use core::num::NonZeroUsize;
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode, four_byte_option_impl};
@@ -20,13 +20,13 @@ four_byte_option_impl!(four_byte_option_non_zero_usize, NonZeroUsize);
 
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
-#[derive(Derivative, Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
-#[derivative(PartialEq)]
+#[derive(Educe, Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[educe(PartialEq)]
 pub struct CommitteeCache {
     #[ssz(with = "four_byte_option_epoch")]
     initialized_epoch: Option<Epoch>,
     shuffling: Vec<usize>,
-    #[derivative(PartialEq(compare_with = "compare_shuffling_positions"))]
+    #[educe(PartialEq(method(compare_shuffling_positions)))]
     shuffling_positions: Vec<NonZeroUsizeOption>,
     committees_per_slot: u64,
     slots_per_epoch: u64,

@@ -445,7 +445,38 @@ For archive nodes, the `anchor` will be:
 
 indicating that all states with slots `>= 0` are available, i.e., full state history. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
-Sync](./advanced_checkpoint_sync.md#reconstructing-states).
+Sync](./advanced_checkpoint_sync.md#how-to-run-an-archived-node).
+
+## `/lighthouse/custody/info`
+
+Information about data columns custody info.
+
+```bash
+curl "http://localhost:5052/lighthouse/custody/info" | jq
+```
+
+```json
+{
+  "earliest_custodied_data_column_slot": "8823040",
+  "custody_group_count": "4",
+  "custody_columns": [
+    "117",
+    "72",
+    "31",
+    "79"
+  ]
+}
+```
+
+## `/lighthouse/custody/backfill`
+
+Starts a custody backfill sync from the next epoch with the node's latest custody requirements. The sync won't begin immediately, it waits until the next epoch is finalized before triggering.
+
+This endpoint should only be used to fix nodes that may have partial custody columns due to a prior backfill bug (present in v8.0.0-rc.2). Use with caution as it re-downloads all historic custody data columns and may consume significant bandwidth.
+
+```bash
+curl -X POST "http://localhost:5052/lighthouse/custody/backfill"
+```
 
 ## `/lighthouse/merge_readiness`
 

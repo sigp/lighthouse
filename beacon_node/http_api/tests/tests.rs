@@ -1,3 +1,4 @@
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
@@ -91,6 +92,7 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
+    node_custody_type: NodeCustodyType,
 }
 
 impl Default for ApiTesterConfig {
@@ -100,6 +102,7 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }
@@ -138,6 +141,7 @@ impl ApiTester {
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .node_custody_type(config.node_custody_type)
             .build();
 
         harness
@@ -174,6 +178,9 @@ impl ApiTester {
             head.beacon_block.slot() + 1,
             "precondition: current slot is one after head"
         );
+
+        // Set a min blob count for the next block for get_blobs testing
+        harness.execution_block_generator().set_min_blob_count(2);
 
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
@@ -442,10 +449,7 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester_default_payload_value() -> Self {
-        let mut config = ApiTesterConfig {
-            retain_historic_states: false,
-            spec: E::default_spec(),
-        };
+        let mut config = ApiTesterConfig::default();
         config.spec.altair_fork_epoch = Some(Epoch::new(0));
         config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         let tester = Self::new_from_config(config)
@@ -1316,12 +1320,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_deposits(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1330,7 +1336,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_deposits().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -1343,12 +1354,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_partial_withdrawals(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1357,7 +1370,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_partial_withdrawals().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -1370,12 +1388,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_consolidations(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1384,7 +1404,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_consolidations().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -1848,7 +1873,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_blob_sidecars(self, use_indices: bool) -> Self {
-        let block_id = BlockId(CoreBlockId::Finalized);
+        let block_id = BlockId(CoreBlockId::Head);
         let (block_root, _, _) = block_id.root(&self.chain).unwrap();
         let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
         let num_blobs = block.num_expected_blobs();
@@ -1859,7 +1884,7 @@ impl ApiTester {
         };
         let result = match self
             .client
-            .get_blobs::<E>(
+            .get_blob_sidecars::<E>(
                 CoreBlockId::Root(block_root),
                 blob_indices.as_deref(),
                 &self.chain.spec,
@@ -1876,6 +1901,77 @@ impl ApiTester {
         );
         let expected = block.slot();
         assert_eq!(result.first().unwrap().slot(), expected);
+
+        self
+    }
+
+    pub async fn test_get_blobs(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Head);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(response) => response.unwrap().into_data(),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        assert_eq!(
+            result.len(),
+            versioned_hashes.map_or(num_blobs, |versioned_hashes| versioned_hashes.len())
+        );
+
+        self
+    }
+
+    pub async fn test_get_blobs_post_fulu_full_node(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Head);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(result) => panic!("Full node are unable to return blobs post-Fulu: {result:?}"),
+            // Post-Fulu, full nodes don't store blobs and return error 500
+            Err(e) => assert_eq!(e.status().unwrap(), 500),
+        };
 
         self
     }
@@ -1919,7 +2015,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => {
@@ -1957,7 +2053,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => panic!("queries for pre-Deneb slots should fail. got: {result:?}"),
@@ -2962,11 +3058,11 @@ impl ApiTester {
 
         assert_eq!(
             result.justified_checkpoint,
-            expected_proto_array.justified_checkpoint
+            beacon_fork_choice.justified_checkpoint()
         );
         assert_eq!(
             result.finalized_checkpoint,
-            expected_proto_array.finalized_checkpoint
+            beacon_fork_choice.finalized_checkpoint()
         );
 
         let expected_fork_choice_nodes: Vec<ForkChoiceNode> = expected_proto_array
@@ -7734,10 +7830,7 @@ async fn builder_payload_chosen_by_profit_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7754,10 +7847,7 @@ async fn builder_works_post_capella() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_deneb() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7775,10 +7865,7 @@ async fn builder_works_post_deneb() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blob_sidecars() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7791,6 +7878,56 @@ async fn get_blob_sidecars() {
         .test_get_blob_sidecars(false)
         .await
         .test_get_blob_sidecars(true)
+        .await
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_supernode() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+        node_custody_type: NodeCustodyType::Supernode,
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_beacon_blocks_valid()
+        .await
+        // We can call the same get_blobs function in this test
+        // because the function will call get_blobs_by_versioned_hashes which handles peerDAS post-Fulu
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_full_node() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_beacon_blocks_valid()
+        .await
+        .test_get_blobs_post_fulu_full_node(false)
+        .await
+        .test_get_blobs_post_fulu_full_node(true)
         .await;
 }
 
