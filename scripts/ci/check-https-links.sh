@@ -31,7 +31,7 @@ if [ "$found_http_links" = true ]; then
     echo ""
     echo "Please replace all HTTP links with HTTPS links in the Cargo.toml files above."
     echo "For example, change: git = \"http://github.com/...\""
-    echo "                to: git = \"https://github.com/...\""
+    echo "                 to: git = \"https://github.com/...\""
     exit 1
 else
     echo "✓ All Cargo.toml files use HTTPS links."
