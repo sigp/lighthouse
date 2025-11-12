@@ -239,6 +239,10 @@ cli-local:
 mdlint:
 	./scripts/mdlint.sh
 
+# Check for HTTPS links in Cargo.toml
+https-links:
+	./scripts/ci/check-https-links.sh
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
