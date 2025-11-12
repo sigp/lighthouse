@@ -1205,19 +1205,29 @@ impl<E: EthSpec> BeaconState<E> {
         // Proposer indices are only known for the current epoch, due to the dependence on the
         // effective balances of validators, which change at every epoch transition.
         let epoch = slot.epoch(E::slots_per_epoch());
-        // TODO(EIP-7917): Explore allowing this function to be called with a slot one epoch in the future.
-        if epoch != self.current_epoch() {
+        if epoch != self.current_epoch() && epoch != self.next_epoch()? {
             return Err(Error::SlotOutOfBounds);
         }
 
         if let Ok(proposer_lookahead) = self.proposer_lookahead() {
             // Post-Fulu
-            let index = slot.as_usize().safe_rem(E::slots_per_epoch() as usize)?;
+            let slots_per_epoch = E::slots_per_epoch() as usize;
+            let start_offset = if epoch == self.current_epoch() {
+                0
+            } else {
+                slots_per_epoch
+            };
+            let index = start_offset.safe_add(slot.as_usize().safe_rem(slots_per_epoch)?)?;
             proposer_lookahead
                 .get(index)
                 .ok_or(Error::ProposerLookaheadOutOfBounds { i: index })
                 .map(|index| *index as usize)
         } else {
+            // Only allow next epoch computations after Fulu.
+            if epoch != self.current_epoch() {
+                return Err(Error::SlotOutOfBounds);
+            }
+
             // Pre-Fulu
             let seed = self.get_beacon_proposer_seed(slot, spec)?;
             let indices = self.get_active_validator_indices(epoch, spec)?;
