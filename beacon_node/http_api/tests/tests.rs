@@ -5,7 +5,6 @@ use beacon_chain::{
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
-    validator_monitor::timestamp_now,
 };
 use eth2::{
     BeaconNodeHttpClient, Error,
@@ -3105,10 +3104,7 @@ impl ApiTester {
                         unrealized_finalized_epoch: node
                             .unrealized_finalized_checkpoint
                             .map(|checkpoint| checkpoint.epoch),
-                        timestamp: timestamp_now().as_secs().to_string(),
-                        execution_status: serde_json::Value::String(
-                            node.execution_status.to_string(),
-                        ),
+                        execution_status: node.execution_status.to_string(),
                         best_child: node
                             .best_child
                             .and_then(|index| expected_proto_array.nodes.get(index))

@@ -3049,10 +3049,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     unrealized_finalized_epoch: node
                                         .unrealized_finalized_checkpoint
                                         .map(|checkpoint| checkpoint.epoch),
-                                    timestamp: timestamp_now().as_secs().to_string(),
-                                    execution_status: serde_json::Value::String(
-                                        node.execution_status.to_string(),
-                                    ),
+                                    execution_status: node.execution_status.to_string(),
                                     best_child: node
                                         .best_child
                                         .and_then(|index| proto_array.nodes.get(index))

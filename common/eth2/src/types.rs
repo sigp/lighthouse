@@ -1532,8 +1532,7 @@ pub struct ForkChoiceExtraData {
     pub unrealized_finalized_root: Option<Hash256>,
     pub unrealized_justified_epoch: Option<Epoch>,
     pub unrealized_finalized_epoch: Option<Epoch>,
-    pub timestamp: String,
-    pub execution_status: serde_json::Value,
+    pub execution_status: String,
     pub best_child: Option<Hash256>,
     pub best_descendant: Option<Hash256>,
 }
