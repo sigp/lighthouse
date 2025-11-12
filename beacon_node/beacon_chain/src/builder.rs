@@ -40,7 +40,7 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
-use types::data_column_custody_group::{CustodyIndex, get_custody_groups_ordered};
+use types::data_column_custody_group::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
     FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
@@ -103,7 +103,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     node_custody_type: NodeCustodyType,
-    node_id: Option<[u8; 32]>,
+    all_custody_groups_ordered: Option<Vec<CustodyIndex>>,
     rng: Option<Box<dyn RngCore + Send>>,
 }
 
@@ -143,7 +143,7 @@ where
             task_executor: None,
             validator_monitor_config: None,
             node_custody_type: NodeCustodyType::Fullnode,
-            node_id: None,
+            all_custody_groups_ordered: None,
             rng: None,
         }
     }
@@ -650,8 +650,13 @@ where
         self
     }
 
-    pub fn node_id(mut self, node_id: [u8; 32]) -> Self {
-        self.node_id = Some(node_id);
+    /// Sets the custody group order for this node.
+    /// This is used to determine the data columns the node is required to custody.
+    pub fn all_custody_groups_ordered(
+        mut self,
+        all_custody_groups_ordered: Vec<CustodyIndex>,
+    ) -> Self {
+        self.all_custody_groups_ordered = Some(all_custody_groups_ordered);
         self
     }
 
@@ -748,7 +753,9 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
-        let node_id = self.node_id.ok_or("Cannot build without a node id")?;
+        let all_custody_groups_ordered = self
+            .all_custody_groups_ordered
+            .ok_or("Cannot build without ordered custody groups")?;
         let rng = self.rng.ok_or("Cannot build without an RNG")?;
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
@@ -937,10 +944,6 @@ where
                 }
             }
         };
-
-        let all_custody_groups_ordered =
-            get_custody_groups_ordered(node_id, self.spec.number_of_custody_groups, &self.spec)
-                .map_err(|e| format!("Failed to compute custody groups: {:?}", e))?;
 
         // Load the persisted custody context from the db and initialize
         // the context for this run

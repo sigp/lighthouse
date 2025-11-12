@@ -353,7 +353,6 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]

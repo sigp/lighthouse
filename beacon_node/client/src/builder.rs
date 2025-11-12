@@ -2,7 +2,7 @@ use crate::Client;
 use crate::compute_light_client_updates::{
     LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY, compute_light_client_updates,
 };
-use crate::config::{ClientGenesis, Config as ClientConfig, Config};
+use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
@@ -28,7 +28,6 @@ use execution_layer::ExecutionLayer;
 use execution_layer::test_utils::generate_genesis_header;
 use futures::channel::mpsc::Receiver;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
-use lighthouse_network::discv5::enr::NodeId;
 use lighthouse_network::identity::Keypair;
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
@@ -44,7 +43,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, warn};
-use types::data_column_custody_group::{CustodyIndex, get_custody_groups_ordered};
+use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
     SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
@@ -156,7 +155,7 @@ where
         mut self,
         client_genesis: ClientGenesis,
         config: ClientConfig,
-        local_keypair: Keypair,
+        node_id: [u8; 32],
     ) -> Result<Self, String> {
         let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
@@ -194,6 +193,10 @@ where
             Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
+        let all_custody_groups_ordered =
+            get_custody_groups_ordered(node_id, spec.number_of_custody_groups, &spec)
+                .map_err(|e| format!("Failed to compute custody groups: {:?}", e))?;
+
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .store(store)
             .task_executor(context.executor.clone())
@@ -206,12 +209,17 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .node_custody_type(config.chain.node_custody_type)
-            .node_id(NodeId::from(local_keypair.public()).raw())
+            .all_custody_groups_ordered(all_custody_groups_ordered.clone())
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
                     .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
             ));
+
+        println!(
+            "all_custody_groups_ordered: {:?}",
+            all_custody_groups_ordered
+        );
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)

@@ -567,6 +567,7 @@ where
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
+            .all_custody_groups_ordered((0..spec.number_of_custody_groups).collect())
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));
@@ -595,15 +596,6 @@ where
         };
 
         let chain = builder.build().expect("should build");
-
-        chain
-            .data_availability_checker
-            .custody_context()
-            .init_ordered_data_columns_from_custody_groups(
-                (0..spec.number_of_custody_groups).collect(),
-                &spec,
-            )
-            .expect("should initialise custody context");
 
         BeaconChainHarness {
             spec: chain.spec.clone(),

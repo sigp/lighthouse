@@ -10,6 +10,7 @@ pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use lighthouse_network::load_private_key;
+use network_utils::enr_ext::peer_id_to_node_id;
 use slasher::{DatabaseBackendOverride, Slasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -122,8 +123,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         };
 
         let local_keypair = load_private_key(&client_config.network);
+        // ASSERT same result
+        let node_id = peer_id_to_node_id(&local_keypair.public().to_peer_id())?.raw();
         let builder = builder
-            .beacon_chain_builder(client_genesis, client_config.clone(), local_keypair)
+            .beacon_chain_builder(client_genesis, client_config.clone(), node_id)
             .await?;
         info!("Block production enabled");
 
@@ -197,6 +200,8 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 #[cfg(test)]
 mod test {
     use super::*;
+    
+    
     use types::MainnetEthSpec;
 
     #[test]
