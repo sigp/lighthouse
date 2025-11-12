@@ -235,34 +235,10 @@ pub static BEACON_BLOCK_GET_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(
         "Total number of beacon blocks requested from the store (cache or DB)",
     )
 });
-pub static BEACON_BLOCK_CACHE_HIT_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
-        "store_beacon_block_cache_hit_total",
-        "Number of hits to the store's block cache",
-    )
-});
 
 /*
  * Caches
  */
-pub static BEACON_BLOBS_CACHE_HIT_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
-        "store_beacon_blobs_cache_hit_total",
-        "Number of hits to the store's blob cache",
-    )
-});
-pub static STORE_BEACON_BLOCK_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "store_beacon_block_cache_size",
-        "Current count of items in beacon store block cache",
-    )
-});
-pub static STORE_BEACON_BLOB_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "store_beacon_blob_cache_size",
-        "Current count of items in beacon store blob cache",
-    )
-});
 pub static STORE_BEACON_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "store_beacon_state_cache_size",
