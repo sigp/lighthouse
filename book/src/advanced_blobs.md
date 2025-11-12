@@ -17,7 +17,7 @@ While both `--supernode` and `--semi-supernode` can serve blobs, a supernode wil
 
 Combining `--prune-blobs false` and `--supernode` (or `--semi-supernode`) implies that no data columns will be pruned, and the node will be able to serve blobs since using the flag.
 
-If you want historical blob data beyond the data availability period (18 days), you can backfill blobs or data columns with the experimental flag `--complete-blob-backfill`. However, do note that this is an experimental feature and it only works when the flag is present during a fresh checkpoint sync when the database is initialised. The flag will have no effect if the node is already running (with an existing database). During blob backfill, the feature may cause some issues, e.g., the node may block most of its peers.
+If you want historical blob data beyond the data availability period (18 days), you can backfill blobs or data columns with the experimental flag `--complete-blob-backfill`. However, do note that this is an experimental feature and it only works when the flag is present during a fresh checkpoint sync when the database is initialised. The flag will not backfill blobs if the node is already running (with an existing database). During blob backfill, the feature may cause some issues, e.g., the node may block most of its peers.
 
 **⚠️ The following section on Blobs is archived and not maintained as blobs are stored in the form of data columns after the Fulu fork ⚠️**
 
