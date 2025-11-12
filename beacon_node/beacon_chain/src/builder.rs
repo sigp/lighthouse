@@ -1293,6 +1293,9 @@ mod test {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
+            .ordered_custody_column_indices(
+                (0..MinimalEthSpec::number_of_columns() as u64).collect(),
+            )
             .build()
             .expect("should build");
 

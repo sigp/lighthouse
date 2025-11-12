@@ -210,7 +210,7 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .node_custody_type(config.chain.node_custody_type)
-            .ordered_custody_column_indices(ordered_custody_column_indices.clone())
+            .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
