@@ -567,7 +567,7 @@ where
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
-            .all_custody_groups_ordered((0..spec.number_of_custody_groups).collect())
+            .ordered_custody_column_indices((0..E::number_of_columns() as u64).collect())
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));

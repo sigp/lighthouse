@@ -1182,14 +1182,14 @@ mod test {
         );
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
-        let all_custody_groups_ordered = {
-            let mut all_custody_groups = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
-            all_custody_groups.shuffle(&mut StdRng::seed_from_u64(42));
-            all_custody_groups
+        let ordered_custody_column_indices = {
+            let mut column_indices = (0..E::number_of_columns() as u64).collect::<Vec<_>>();
+            column_indices.shuffle(&mut StdRng::seed_from_u64(42));
+            column_indices
         };
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
-            all_custody_groups_ordered,
+            ordered_custody_column_indices,
             &spec,
         ));
         let complete_blob_backfill = false;

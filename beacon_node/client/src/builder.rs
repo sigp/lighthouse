@@ -43,7 +43,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, warn};
-use types::data_column_custody_group::get_custody_groups_ordered;
+use types::data_column_custody_group::compute_ordered_custody_column_indices;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
     SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
@@ -193,9 +193,8 @@ where
             Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
-        let all_custody_groups_ordered =
-            get_custody_groups_ordered(node_id, spec.number_of_custody_groups, &spec)
-                .map_err(|e| format!("Failed to compute custody groups: {:?}", e))?;
+        let ordered_custody_column_indices = compute_ordered_custody_column_indices(node_id, &spec)
+            .map_err(|e| format!("Failed to compute ordered custody column indices: {:?}", e))?;
 
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .store(store)
@@ -209,16 +208,17 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .node_custody_type(config.chain.node_custody_type)
-            .all_custody_groups_ordered(all_custody_groups_ordered.clone())
+            .ordered_custody_column_indices(ordered_custody_column_indices.clone())
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
                     .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
             ));
 
+        // FIXME: remove
         println!(
-            "all_custody_groups_ordered: {:?}",
-            all_custody_groups_ordered
+            "ordered_custody_column_indices: {:?}",
+            ordered_custody_column_indices
         );
 
         let builder = if let Some(slasher) = self.slasher.clone() {

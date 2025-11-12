@@ -42,8 +42,8 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
 use types::data_column_custody_group::CustodyIndex;
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
+    Epoch, EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -103,7 +103,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     node_custody_type: NodeCustodyType,
-    all_custody_groups_ordered: Option<Vec<CustodyIndex>>,
+    ordered_custody_column_indices: Option<Vec<CustodyIndex>>,
     rng: Option<Box<dyn RngCore + Send>>,
 }
 
@@ -143,7 +143,7 @@ where
             task_executor: None,
             validator_monitor_config: None,
             node_custody_type: NodeCustodyType::Fullnode,
-            all_custody_groups_ordered: None,
+            ordered_custody_column_indices: None,
             rng: None,
         }
     }
@@ -650,13 +650,13 @@ where
         self
     }
 
-    /// Sets the custody group order for this node.
+    /// Sets the ordered custody column indices for this node.
     /// This is used to determine the data columns the node is required to custody.
-    pub fn all_custody_groups_ordered(
+    pub fn ordered_custody_column_indices(
         mut self,
-        all_custody_groups_ordered: Vec<CustodyIndex>,
+        ordered_custody_column_indices: Vec<ColumnIndex>,
     ) -> Self {
-        self.all_custody_groups_ordered = Some(all_custody_groups_ordered);
+        self.ordered_custody_column_indices = Some(ordered_custody_column_indices);
         self
     }
 
@@ -753,9 +753,9 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
-        let all_custody_groups_ordered = self
-            .all_custody_groups_ordered
-            .ok_or("Cannot build without ordered custody groups")?;
+        let ordered_custody_column_indices = self
+            .ordered_custody_column_indices
+            .ok_or("Cannot build without ordered custody column indices")?;
         let rng = self.rng.ok_or("Cannot build without an RNG")?;
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
@@ -958,14 +958,14 @@ where
                 custody,
                 self.node_custody_type,
                 head_epoch,
-                all_custody_groups_ordered,
+                ordered_custody_column_indices,
                 &self.spec,
             )
         } else {
             (
                 CustodyContext::new(
                     self.node_custody_type,
-                    all_custody_groups_ordered,
+                    ordered_custody_column_indices,
                     &self.spec,
                 ),
                 None,

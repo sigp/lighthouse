@@ -200,8 +200,7 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 #[cfg(test)]
 mod test {
     use super::*;
-    
-    
+
     use types::MainnetEthSpec;
 
     #[test]

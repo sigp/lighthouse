@@ -1023,10 +1023,10 @@ mod test {
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
-        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect();
+        let ordered_custody_column_indices = (0..E::number_of_columns() as u64).collect();
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
-            all_custody_groups_ordered,
+            ordered_custody_column_indices,
             &spec,
         ));
         let cache = Arc::new(
