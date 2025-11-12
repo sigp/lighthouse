@@ -404,7 +404,7 @@ jobs:
     - name: Run cargo audit
       run: make audit-CI
     - name: Check for HTTPS links in Cargo.toml
-      run: ./scripts/ci/check-https-links.sh
+      run: make https-links
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
     - name: Markdown-linter
