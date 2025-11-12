@@ -63,9 +63,6 @@ pub struct Config {
     /// Graffiti to be inserted everytime we create a block if the validator doesn't specify.
     pub beacon_graffiti: GraffitiOrigin,
     pub validator_monitor: ValidatorMonitorConfig,
-    #[serde(skip)]
-    /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
-    /// via the CLI at runtime, instead of from a configuration file saved to disk.
     pub genesis: ClientGenesis,
     pub store: store::StoreConfig,
     pub network: network::NetworkConfig,
