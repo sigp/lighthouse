@@ -1,6 +1,5 @@
 #! /usr/bin/env bash
 
-
 # Check for insecure HTTP links in Cargo.toml files
 # This script ensures all git dependencies use HTTPS instead of HTTP
 
