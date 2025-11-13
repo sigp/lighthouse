@@ -374,21 +374,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn verify_kzg_for_rpc_block(
         &self,
         block: RpcBlock<T::EthSpec>,
-    ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<AvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs {
                 verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
                     .map_err(AvailabilityCheckError::InvalidBlobs)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                Ok(AvailableBlock {
                     block_root,
                     block,
                     blob_data: AvailableBlockData::Blobs(blob_list),
                     blobs_available_timestamp: None,
                     spec: self.spec.clone(),
-                }))
+                })
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                todo!()
             };
         }
         if self.data_columns_required_for_block(&block) {
@@ -400,7 +400,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     &self.kzg,
                 )
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                Ok(AvailableBlock {
                     block_root,
                     block,
                     blob_data: AvailableBlockData::DataColumns(
@@ -411,19 +411,19 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     ),
                     blobs_available_timestamp: None,
                     spec: self.spec.clone(),
-                }))
+                })
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                todo!()
             };
         }
 
-        Ok(MaybeAvailableBlock::Available(AvailableBlock {
+        Ok(AvailableBlock {
             block_root,
             block,
             blob_data: AvailableBlockData::NoData,
             blobs_available_timestamp: None,
             spec: self.spec.clone(),
-        }))
+        })
     }
 
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
@@ -436,7 +436,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn verify_kzg_for_rpc_blocks(
         &self,
         blocks: Vec<RpcBlock<T::EthSpec>>,
-    ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
+    ) -> Result<Vec<AvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
         let all_blobs = blocks
             .iter()
@@ -473,19 +473,19 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
             let maybe_available_block = if self.blobs_required_for_block(&block) {
                 if let Some(blobs) = blobs {
-                    MaybeAvailableBlock::Available(AvailableBlock {
+                    AvailableBlock {
                         block_root,
                         block,
                         blob_data: AvailableBlockData::Blobs(blobs),
                         blobs_available_timestamp: None,
                         spec: self.spec.clone(),
-                    })
+                    }
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                    todo!()
                 }
             } else if self.data_columns_required_for_block(&block) {
                 if let Some(data_columns) = data_columns {
-                    MaybeAvailableBlock::Available(AvailableBlock {
+                    AvailableBlock {
                         block_root,
                         block,
                         blob_data: AvailableBlockData::DataColumns(
@@ -493,18 +493,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         ),
                         blobs_available_timestamp: None,
                         spec: self.spec.clone(),
-                    })
+                    }
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                    todo!()
                 }
             } else {
-                MaybeAvailableBlock::Available(AvailableBlock {
+                AvailableBlock {
                     block_root,
                     block,
                     blob_data: AvailableBlockData::NoData,
                     blobs_available_timestamp: None,
                     spec: self.spec.clone(),
-                })
+                }
             };
 
             results.push(maybe_available_block);
