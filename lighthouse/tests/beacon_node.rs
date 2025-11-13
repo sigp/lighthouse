@@ -2666,6 +2666,8 @@ fn beacon_processor() {
         .flag("beacon-processor-reprocess-queue-len", Some("3"))
         .flag("beacon-processor-attestation-batch-size", Some("4"))
         .flag("beacon-processor-aggregate-batch-size", Some("5"))
+        .flag("beacon-processor-batched-attestation-delay", Some("6"))
+        .flag("beacon-processor-delayed-attestation-batch-size", Some("7"))
         .flag("disable-backfill-rate-limiting", None)
         .run_with_zero_port()
         .with_config(|config| {
@@ -2677,6 +2679,8 @@ fn beacon_processor() {
                     max_scheduled_work_queue_len: 3,
                     max_gossip_attestation_batch_size: 4,
                     max_gossip_aggregate_batch_size: 5,
+                    max_batched_attestation_delay: Duration::from_millis(6),
+                    max_delayed_attestation_batch_size: 7,
                     enable_backfill_rate_limiting: false
                 }
             )

@@ -124,6 +124,7 @@ impl TestRig {
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
+        let beacon_processor_config = Arc::new(beacon_processor_config);
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
@@ -225,7 +226,7 @@ impl TestRig {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
-        } = BeaconProcessorChannels::new(&beacon_processor_config);
+        } = BeaconProcessorChannels::new(beacon_processor_config.clone());
 
         let (sync_tx, sync_rx) = mpsc::unbounded_channel();
 
@@ -278,7 +279,7 @@ impl TestRig {
             network_globals: network_globals.clone(),
             executor,
             current_workers: 0,
-            config: beacon_processor_config,
+            config: beacon_processor_config.clone(),
         }
         .spawn_manager(
             beacon_processor_rx,
@@ -288,6 +289,7 @@ impl TestRig {
             BeaconProcessorQueueLengths::from_state(
                 &chain.canonical_head.cached_head().snapshot.beacon_state,
                 &chain.spec,
+                beacon_processor_config.clone(),
             )
             .unwrap(),
         );

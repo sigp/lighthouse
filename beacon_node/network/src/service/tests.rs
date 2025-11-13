@@ -127,7 +127,7 @@ fn test_removing_topic_weight_on_old_topics() {
         let config = Arc::new(config);
 
         let beacon_processor_channels =
-            BeaconProcessorChannels::new(&BeaconProcessorConfig::default());
+            BeaconProcessorChannels::new(Arc::new(BeaconProcessorConfig::default()));
         NetworkService::build(
             beacon_chain.clone(),
             config,
