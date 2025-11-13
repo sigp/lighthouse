@@ -228,25 +228,25 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     }));
     *network_globals.sync_state.write() = SyncState::Synced;
 
-    let beacon_processor_config = BeaconProcessorConfig {
+    let beacon_processor_config = Arc::new(BeaconProcessorConfig {
         // The number of workers must be greater than one. Tests which use the
         // builder workflow sometimes require an internal HTTP request in order
         // to fulfill an already in-flight HTTP request, therefore having only
         // one worker will result in a deadlock.
         max_workers: 2,
         ..BeaconProcessorConfig::default()
-    };
+    });
     let BeaconProcessorChannels {
         beacon_processor_tx,
         beacon_processor_rx,
-    } = BeaconProcessorChannels::new(&beacon_processor_config);
+    } = BeaconProcessorChannels::new(beacon_processor_config.clone());
 
     let beacon_processor_send = beacon_processor_tx;
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
         current_workers: 0,
-        config: beacon_processor_config,
+        config: beacon_processor_config.clone(),
     }
     .spawn_manager(
         beacon_processor_rx,
@@ -256,6 +256,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         BeaconProcessorQueueLengths::from_state(
             &chain.canonical_head.cached_head().snapshot.beacon_state,
             &chain.spec,
+            beacon_processor_config.clone(),
         )
         .unwrap(),
     )

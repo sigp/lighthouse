@@ -85,7 +85,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
-    beacon_processor_config: Option<BeaconProcessorConfig>,
+    beacon_processor_config: Option<Arc<BeaconProcessorConfig>>,
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
     light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
@@ -138,8 +138,11 @@ where
     }
 
     pub fn beacon_processor(mut self, config: BeaconProcessorConfig) -> Self {
-        self.beacon_processor_channels = Some(BeaconProcessorChannels::new(&config));
-        self.beacon_processor_config = Some(config);
+        let beacon_processor_config = Arc::new(config);
+        self.beacon_processor_channels = Some(BeaconProcessorChannels::new(
+            beacon_processor_config.clone(),
+        ));
+        self.beacon_processor_config = Some(beacon_processor_config);
         self
     }
 
@@ -679,7 +682,7 @@ where
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
                     current_workers: 0,
-                    config: beacon_processor_config,
+                    config: beacon_processor_config.clone(),
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
@@ -693,6 +696,7 @@ where
                             .snapshot
                             .beacon_state,
                         &beacon_chain.spec,
+                        beacon_processor_config.clone(),
                     )?,
                 )?;
             }

@@ -1592,6 +1592,32 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("beacon-processor-batched-attestation-delay")
+                .long("beacon-processor-batched-attestation-delay")
+                .value_name("MILLISECONDS")
+                .help("Specifies the time delay that the attestations are batched into\
+                       with the batch size defined by --max-delayed-attestation-batch-size.\
+                       Higher values may reduce CPU usage in a healthy network while lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
+                .hide(true)
+                .default_value("50")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("beacon-processor-delayed-attestation-batch-size")
+                .long("beacon-processor-delayed-attestation-batch-size")
+                .value_name("INTEGER")
+                .help("Specifies the maximum delayed attestations are batched together during \
+                       the attestation batching with the delay defined by --batched-attestation-delay.\
+                       Variance from the default would result in reduce attestation performance and \
+                       may increase/decrease CPU usage depending on the +/- offset respectively.")
+                .hide(true)
+                .default_value("1024")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("beacon-node-backend")
                 .long("beacon-node-backend")
                 .value_name("DATABASE")

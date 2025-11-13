@@ -70,8 +70,8 @@ use types::{
 };
 use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
-    MAXIMUM_BATCHED_ATTESTATIONS, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
-    QueuedUnaggregate, ReadyWork, spawn_reprocess_scheduler,
+    QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler,
 };
 
 mod metrics;
@@ -146,6 +146,7 @@ impl BeaconProcessorQueueLengths {
     pub fn from_state<E: EthSpec>(
         state: &BeaconState<E>,
         spec: &ChainSpec,
+        beacon_processor_config: Arc<BeaconProcessorConfig>,
     ) -> Result<Self, String> {
         let active_validator_count =
             match state.get_cached_active_validator_indices(RelativeEpoch::Current) {
@@ -169,7 +170,8 @@ impl BeaconProcessorQueueLengths {
             ),
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
             unknown_block_attestation_queue: std::cmp::max(
-                (active_validator_count / slots_per_epoch) / MAXIMUM_BATCHED_ATTESTATIONS,
+                (active_validator_count / slots_per_epoch)
+                    / beacon_processor_config.max_delayed_attestation_batch_size,
                 MIN_QUEUE_LEN,
             ),
             sync_message_queue: 2048,
@@ -234,6 +236,10 @@ const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 const DEFAULT_MAX_GOSSIP_ATTESTATION_BATCH_SIZE: usize = 64;
 const DEFAULT_MAX_GOSSIP_AGGREGATE_BATCH_SIZE: usize = 64;
 
+const DEFAULT_MAX_DELAYED_ATTESTATION_BATCH_SIZE: usize = 1_024;
+
+const DEFAULT_MAX_BATCHED_ATTESTATION_DELAY: Duration = Duration::from_millis(50);
+
 /// Unique IDs used for metrics and testing.
 pub const WORKER_FREED: &str = "worker_freed";
 pub const NOTHING_TO_DO: &str = "nothing_to_do";
@@ -246,6 +252,8 @@ pub struct BeaconProcessorConfig {
     pub max_gossip_attestation_batch_size: usize,
     pub max_gossip_aggregate_batch_size: usize,
     pub enable_backfill_rate_limiting: bool,
+    pub max_batched_attestation_delay: Duration,
+    pub max_delayed_attestation_batch_size: usize,
 }
 
 impl Default for BeaconProcessorConfig {
@@ -257,6 +265,8 @@ impl Default for BeaconProcessorConfig {
             max_gossip_attestation_batch_size: DEFAULT_MAX_GOSSIP_ATTESTATION_BATCH_SIZE,
             max_gossip_aggregate_batch_size: DEFAULT_MAX_GOSSIP_AGGREGATE_BATCH_SIZE,
             enable_backfill_rate_limiting: true,
+            max_batched_attestation_delay: DEFAULT_MAX_BATCHED_ATTESTATION_DELAY,
+            max_delayed_attestation_batch_size: DEFAULT_MAX_DELAYED_ATTESTATION_BATCH_SIZE,
         }
     }
 }
@@ -268,7 +278,7 @@ pub struct BeaconProcessorChannels<E: EthSpec> {
 }
 
 impl<E: EthSpec> BeaconProcessorChannels<E> {
-    pub fn new(config: &BeaconProcessorConfig) -> Self {
+    pub fn new(config: Arc<BeaconProcessorConfig>) -> Self {
         let (beacon_processor_tx, beacon_processor_rx) =
             mpsc::channel(config.max_work_event_queue_len);
 
@@ -281,7 +291,7 @@ impl<E: EthSpec> BeaconProcessorChannels<E> {
 
 impl<E: EthSpec> Default for BeaconProcessorChannels<E> {
     fn default() -> Self {
-        Self::new(&BeaconProcessorConfig::default())
+        Self::new(Arc::new(BeaconProcessorConfig::default()))
     }
 }
 
@@ -829,7 +839,7 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub network_globals: Arc<NetworkGlobals<E>>,
     pub executor: TaskExecutor,
     pub current_workers: usize,
-    pub config: BeaconProcessorConfig,
+    pub config: Arc<BeaconProcessorConfig>,
 }
 
 impl<E: EthSpec> BeaconProcessor<E> {
@@ -1771,8 +1781,11 @@ mod tests {
         let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::mainnet());
         let genesis_time = 0;
         let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
+        let beacon_process_config = Arc::new(BeaconProcessorConfig::default());
         assert_eq!(state.validators().len(), 0);
-        let queue_lengths = BeaconProcessorQueueLengths::from_state(&state, &spec).unwrap();
+        let queue_lengths =
+            BeaconProcessorQueueLengths::from_state(&state, &spec, beacon_process_config.clone())
+                .unwrap();
         assert_eq!(queue_lengths.attestation_queue, MIN_QUEUE_LEN);
         assert_eq!(queue_lengths.unknown_block_attestation_queue, MIN_QUEUE_LEN);
     }

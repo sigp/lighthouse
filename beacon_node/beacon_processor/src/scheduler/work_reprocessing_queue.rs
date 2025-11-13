@@ -50,9 +50,6 @@ pub const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
-/// Batched attestation delay.
-pub const QUEUED_BATCH_ATTESTATION_DELAY: Duration = Duration::from_millis(50);
-
 /// For how long to queue light client updates for re-processing.
 pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 
@@ -64,9 +61,6 @@ pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue delayed column reconstruction.
 pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
-
-/// Maximum attestation for batches during batch processing.
-pub const MAXIMUM_BATCHED_ATTESTATIONS: usize = 1_024;
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -300,6 +294,8 @@ struct ReprocessQueue<S> {
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
+    delayed_attestation_batch_size: usize,
+    batched_attestation_delay: Duration,
     slot_clock: Arc<S>,
 }
 
@@ -482,6 +478,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
             next_backfill_batch_event: None,
+            delayed_attestation_batch_size: 1024,
+            batched_attestation_delay: Duration::from_millis(50),
             slot_clock,
         }
     }
@@ -834,13 +832,13 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(BatchedAttestation(queued_batch_attestation)) => {
-                let batch_processing_delay = QUEUED_BATCH_ATTESTATION_DELAY;
+                let batch_processing_delay = self.batched_attestation_delay;
 
                 if let Some(batched_queue) = self
                     .queued_batch_attestations
                     .get_mut(&self.current_attestation_batch)
                 {
-                    if batched_queue.0.len() >= MAXIMUM_BATCHED_ATTESTATIONS {
+                    if batched_queue.0.len() >= self.delayed_attestation_batch_size {
                         self.current_attestation_batch += 1;
 
                         let delay_key = self.batched_attestation_queue.insert(

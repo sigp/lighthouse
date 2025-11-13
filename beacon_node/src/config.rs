@@ -848,6 +848,13 @@ pub fn get_config<E: EthSpec>(
         .beacon_processor
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
+    client_config.beacon_processor.max_batched_attestation_delay = Duration::from_millis(
+        clap_utils::parse_required(cli_args, "beacon-processor-batched-attestation-delay")?,
+    );
+    client_config
+        .beacon_processor
+        .max_delayed_attestation_batch_size =
+        clap_utils::parse_required(cli_args, "beacon-processor-delayed-attestation-batch-size")?;
 
     #[cfg(feature = "testing")]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
