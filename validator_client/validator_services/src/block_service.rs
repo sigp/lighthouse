@@ -443,7 +443,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         // Request block from first responsive beacon node.
         //
-        // Try the proposer nodes last, since it's likely that they don't have a
+        // Try to get_validator_block_v3 using SSZ first for all beacon nodes, if all failed then fallback to JSON
+        // the proposer nodes is always the last to try for both SSZ and JSON, since it's likely that they don't have a
         // great view of attestations on the network.
         let ssz_block_response = proposer_fallback
             .request_proposers_last(|beacon_node| async move {
