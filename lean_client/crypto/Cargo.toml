@@ -9,4 +9,7 @@ alloy-primitives = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 tree_hash = { workspace = true }
+# TODO: Enable once XMSS signature verification is fully implemented
+# hashsig = { git = "https://github.com/b-wagn/hash-sig", branch = "main" }
+# bincode = { workspace = true }
 

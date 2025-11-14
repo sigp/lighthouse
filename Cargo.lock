@@ -5111,6 +5111,10 @@ dependencies = [
 [[package]]
 name = "lean-forkchoice"
 version = "0.1.0"
+dependencies = [
+ "lean-consensus",
+ "types",
+]
 
 [[package]]
 name = "lean-network"

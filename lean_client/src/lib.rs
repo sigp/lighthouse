@@ -1,5 +1,6 @@
 pub mod cli;
 use environment::RuntimeContext;
+use lean_network::{NetworkConfig, NetworkService};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, sleep};
@@ -33,6 +34,12 @@ impl<E: EthSpec> ProductionLeanClient<E> {
             .slot_clock
             .duration_to_next_slot()
             .ok_or("Unable to determine duration to next slot");
+
+        info!("Starting network service");
+        let network_config = NetworkConfig::default();
+        let network_service = NetworkService::new(network_config)
+            .map_err(|e| format!("Failed to create network service: {}", e))?;
+        network_service.start(self.executor.clone());
 
         let executor = self.executor.clone();
         let slot_clock = self.slot_clock.clone();

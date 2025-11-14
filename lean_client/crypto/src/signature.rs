@@ -36,6 +36,33 @@ impl Signature {
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
+
+    /// Verify the signature using Generalized XMSS verification.
+    ///
+    /// # Parameters
+    /// - `public_key`: The public key bytes (52 bytes for XMSS)
+    /// - `epoch`: The epoch/slot number
+    /// - `message`: The message bytes to verify
+    ///
+    /// # Returns
+    /// `true` if the signature is valid, `false` otherwise
+    ///
+    /// # TODO
+    /// Implement XMSS signature verification using the hashsig crate.
+    /// This requires:
+    /// 1. Configuring the GeneralizedXMSSSignatureScheme with the correct parameters
+    ///    matching the Python spec (TEST_CONFIG or PROD_CONFIG)
+    /// 2. Setting up the Poseidon2 tweakable hash function
+    /// 3. Configuring the incomparable encoding with LOG_LIFETIME = 24
+    /// 4. Deserializing the public key and signature from bytes
+    /// 5. Calling the verify function with the correct parameters
+    ///
+    /// Reference: /Users/manasnagaraj/projects/oss/sigmaprime/leanSpec/src/lean_spec/subspecs/xmss/interface.py
+    pub fn verify(&self, _public_key: &[u8], _epoch: u64, _message: &[u8]) -> bool {
+        // For now, return false to maintain security
+        // Signature verification should be explicitly enabled once properly implemented
+        false
+    }
 }
 
 impl Default for Signature {

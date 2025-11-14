@@ -6,20 +6,26 @@ use types::Hash256;
 use types::VariableList;
 use types::typenum::U4096;
 
+use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
+
+
+#[derive(Clone, TreeHash)]
 pub struct Attestation {
-    validator_id: u64,
-    attestation_data: AttestationData,
+    pub validator_id: u64,
+    pub attestation_data: AttestationData,
 }
 
+#[derive(Clone, TreeHash)]
 pub struct AttestationData {
-    slot: Slot,
-    head: Checkpoint,
-    target: Checkpoint,
-    source: Checkpoint,
+    pub slot: Slot,
+    pub head: Checkpoint,
+    pub target: Checkpoint,
+    pub source: Checkpoint,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Slot(u64);
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct Slot(pub u64);
 
 impl Slot {
     pub fn is_justifiable_after(self, finalized_slot: Slot) -> Result<(), String> {
@@ -47,20 +53,41 @@ impl Slot {
         Ok(())
     }
 }
-pub struct Checkpoint {
-    slot: Slot,
-    root: Hash256,
+
+impl TreeHash for Slot {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::Basic
+    }
+
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+        self.0.tree_hash_packed_encoding()
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        u64::tree_hash_packing_factor()
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        self.0.tree_hash_root()
+    }
 }
 
+#[derive(Clone, Default, TreeHash)]
+pub struct Checkpoint {
+    pub slot: Slot,
+    pub root: Hash256,
+}
+
+
 pub struct SignedAttestation {
-    message: Attestation,
-    signature: Signature,
+    pub message: Attestation,
+    pub signature: Signature,
 }
 pub struct AggregatedAttestations<E: EthSpec> {
-    aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
-    data: AttestationData,
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
+    pub data: AttestationData,
 }
 pub struct SignedAggregatedAttestations<E: EthSpec> {
-    aggregate_attestation: AggregatedAttestations<E>,
-    signature: VariableList<Signature, U4096>,
+    pub aggregate_attestation: AggregatedAttestations<E>,
+    pub signature: VariableList<Signature, U4096>,
 }
