@@ -77,17 +77,21 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
     let beacon_nodes_ref = beacon_nodes.clone();
 
-    let head_monitor_future = async move {
-        loop {
-            if let Err(err) =
-                poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await
-            {
-                warn!(error=?err, "Head service failed");
+    // the existence of head_monitor_send is overloaded with the predicate of
+    // requirement of starting the head monitoring service or not.
+    if beacon_nodes_ref.head_monitor_send.is_some() {
+        let head_monitor_future = async move {
+            loop {
+                if let Err(err) =
+                    poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await
+                {
+                    warn!(error=?err, "Head service failed");
+                }
             }
-        }
-    };
+        };
 
-    executor.spawn(head_monitor_future, "head_monitoring");
+        executor.spawn(head_monitor_future, "head_monitoring");
+    }
 
     let future = async move {
         loop {

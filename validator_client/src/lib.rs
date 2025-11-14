@@ -393,8 +393,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());
 
+        // Only the beacon_nodes are used for attestation duties and thus biconditionally
+        // proposer_nodes do not need head_send ref.
         beacon_nodes.set_head_send(head_send_ref.clone());
-        proposer_nodes.set_head_send(head_send_ref.clone());
 
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
