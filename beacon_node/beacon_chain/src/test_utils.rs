@@ -58,6 +58,7 @@ use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
+use tracing::info;
 use tree_hash::TreeHash;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
@@ -3052,6 +3053,15 @@ where
         sync_committee_strategy: SyncCommitteeStrategy,
         light_client_strategy: LightClientStrategy,
     ) -> Hash256 {
+        info!(
+            num_blocks,
+            ?block_strategy,
+            ?attestation_strategy,
+            ?sync_committee_strategy,
+            ?light_client_strategy,
+            "Harness extend_chain_with_sync"
+        );
+
         let (mut state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
                 let current_slot: u64 = self.get_current_slot().into();

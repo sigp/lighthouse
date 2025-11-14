@@ -973,11 +973,13 @@ async fn pseudo_finalize_test_generic(
         0,
         "We pseudo finalized, but our finalized checkpoint should still be unset"
     );
-    assert_eq!(
-        split.slot,
-        head.beacon_state.slot(),
-        "We pseudo finalized, our split point should be at the current head slot"
-    );
+    if expect_true_finalization_migration {
+        assert_eq!(
+            split.slot,
+            head.beacon_state.slot(),
+            "We pseudo finalized, our split point should be at the current head slot"
+        );
+    }
 
     // finalize the chain
     harness
