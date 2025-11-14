@@ -7,7 +7,7 @@ use crate::{
     LightClientHeaderGloas, SignedBlindedBeaconBlock, light_client_update::*,
     test_utils::TestRandom,
 };
-use derivative::Derivative;
+use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::Decode;
@@ -22,15 +22,15 @@ use tree_hash_derive::TreeHash;
         derive(
             Debug,
             Clone,
-            PartialEq,
             Serialize,
             Deserialize,
-            Derivative,
+            Educe,
             Decode,
             Encode,
             TestRandom,
             TreeHash,
         ),
+        educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -116,7 +116,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                     finalized_header: LightClientHeaderAltair::block_to_light_client_header(
                         finalized_block,
                     )?,
-                    finality_branch: finality_branch.into(),
+                    finality_branch: finality_branch.try_into().map_err(Error::SszTypesError)?,
                     sync_aggregate,
                     signature_slot,
                 })
@@ -128,7 +128,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderCapella::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch.try_into().map_err(Error::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -139,7 +139,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch.try_into().map_err(Error::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -150,7 +150,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderElectra::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch.try_into().map_err(Error::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -161,7 +161,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderFulu::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch.try_into().map_err(Error::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -172,7 +172,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderGloas::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch.try_into().map_err(Error::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
