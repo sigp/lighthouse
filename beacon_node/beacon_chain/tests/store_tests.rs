@@ -32,6 +32,7 @@ use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -2802,49 +2803,65 @@ async fn weak_subjectivity_sync_non_finality() {
     let checkpoint_slot = E::slots_per_epoch() * 9;
     let slots_with_blocks = (1..=checkpoint_slot).map(Slot::new).collect();
 
-    let (harness, beacon_chain) = weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig {
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig {
         slots_with_blocks,
         slots_with_not_attested_blocks: end_slot - checkpoint_slot,
         checkpoint_slot: checkpoint_slot.into(),
         backfill_batch_size: None,
+        extra_steps: Some(Arc::new(|harness, beacon_chain| {
+            let end_slot = E::slots_per_epoch() * 13;
+            let checkpoint_slot = E::slots_per_epoch() * 9;
+            Box::pin(async move {
+                // Check that the checkpoint slot is not finalized
+                let finalized_slot = get_finalized_slot(&beacon_chain).as_u64();
+                assert!(
+                    checkpoint_slot > finalized_slot,
+                    "checkpoint_slot {checkpoint_slot} finalized_slot {finalized_slot}"
+                );
+
+                let slots_to_finalize = E::slots_per_epoch() * 3;
+                info!(
+                    count = slots_to_finalize,
+                    "Producing blocks with attestations to finalize again"
+                );
+                harness.advance_slot();
+                harness
+                    .extend_chain(
+                        slots_to_finalize as usize,
+                        BlockStrategy::OnCanonicalHead,
+                        AttestationStrategy::AllValidators,
+                    )
+                    .await;
+                sync_blocks_from_harness_to_chain(&harness, &beacon_chain, Slot::new(end_slot))
+                    .await;
+
+                // Check that the checkpoint slot is finalized
+                let finalized_slot = get_finalized_slot(&beacon_chain).as_u64();
+                assert!(
+                    checkpoint_slot < finalized_slot,
+                    "checkpoint_slot {checkpoint_slot} finalized_slot {finalized_slot}"
+                );
+            })
+        })),
     })
     .await;
-
-    // Check that the checkpoint slot is not finalized
-    let finalized_slot = get_finalized_slot(&beacon_chain).as_u64();
-    assert!(
-        checkpoint_slot > finalized_slot,
-        "checkpoint_slot {checkpoint_slot} finalized_slot {finalized_slot}"
-    );
-
-    let slots_to_finalize = E::slots_per_epoch() * 3;
-    info!(
-        count = slots_to_finalize,
-        "Producing blocks with attestations"
-    );
-    harness.advance_slot();
-    harness
-        .extend_chain(
-            slots_to_finalize as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-    sync_blocks_from_harness_to_chain(&harness, &beacon_chain, end_slot.into()).await;
-
-    // Check that the checkpoint slot is finalized
-    let finalized_slot = get_finalized_slot(&beacon_chain).as_u64();
-    assert!(
-        checkpoint_slot < finalized_slot,
-        "checkpoint_slot {checkpoint_slot} finalized_slot {finalized_slot}"
-    );
 }
+
+type WeakSubjectivitySyncTestExtraSteps<E> = Arc<
+    dyn Fn(
+            TestHarness,
+            Arc<BeaconChain<DiskHarnessType<E>>>,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
+        + Send
+        + Sync,
+>;
 
 struct WeakSubjectivitySyncTestConfig {
     slots_with_blocks: Vec<Slot>,
     slots_with_not_attested_blocks: u64,
     checkpoint_slot: Slot,
     backfill_batch_size: Option<usize>,
+    extra_steps: Option<WeakSubjectivitySyncTestExtraSteps<E>>,
 }
 
 impl WeakSubjectivitySyncTestConfig {
@@ -2854,6 +2871,7 @@ impl WeakSubjectivitySyncTestConfig {
             slots_with_not_attested_blocks: 0,
             checkpoint_slot,
             backfill_batch_size: None,
+            extra_steps: None,
         }
     }
 }
@@ -2867,14 +2885,13 @@ fn get_finalized_slot<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Slot {
         .start_slot(T::EthSpec::slots_per_epoch())
 }
 
-async fn weak_subjectivity_sync_test(
-    config: WeakSubjectivitySyncTestConfig,
-) -> (TestHarness, Arc<BeaconChain<DiskHarnessType<E>>>) {
+async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
     let WeakSubjectivitySyncTestConfig {
         slots_with_blocks,
         slots_with_not_attested_blocks,
         checkpoint_slot,
         backfill_batch_size,
+        extra_steps,
     } = config;
     let temp1 = tempdir().unwrap();
     let full_store = get_store(&temp1);
@@ -3260,7 +3277,9 @@ async fn weak_subjectivity_sync_test(
     assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
 
-    (harness, beacon_chain)
+    if let Some(f) = extra_steps {
+        f(harness, beacon_chain).await;
+    }
 }
 
 async fn sync_blocks_from_harness_to_chain(
