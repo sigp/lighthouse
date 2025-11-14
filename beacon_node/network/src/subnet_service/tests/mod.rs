@@ -73,6 +73,9 @@ impl TestBeaconChain {
                     Duration::from_secs(recent_genesis_time()),
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
+                .ordered_custody_column_indices(
+                    (0..MainnetEthSpec::number_of_columns() as u64).collect(),
+                )
                 .shutdown_sender(shutdown_tx)
                 .rng(Box::new(StdRng::seed_from_u64(42)))
                 .build()
