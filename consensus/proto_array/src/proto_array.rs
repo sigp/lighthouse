@@ -125,6 +125,18 @@ impl Default for ProposerBoost {
     }
 }
 
+/// Represents a checkpoint with a root that **MUST** have a node in ProtoArray. To enable
+/// non-finalized checkpoint sync, the fork-choice deals with checkpoints with a block root that
+/// is prior to the oldest node in the ProtoArray. However, some functions will error if you pass a
+/// checkpoint for an unknown root. This type makes this distinction explicit.
+///
+/// Thanks to the invariant:
+///
+/// > Either the on chain finalized checkpoint or the local irreversible checkpoint root have a node
+/// in the ProtoArray.
+///
+/// We can assure that a LocalCheckpoint created with `new` is a checkpoint whose root is in the
+/// ProtoArray.
 #[derive(Clone, Copy)]
 pub struct LocalCheckpoint(Checkpoint);
 

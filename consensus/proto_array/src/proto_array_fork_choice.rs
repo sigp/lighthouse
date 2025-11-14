@@ -1131,6 +1131,7 @@ mod test_compute_deltas {
             epoch: genesis_epoch,
             root: finalized_root,
         };
+        let local_genesis_checkpoint = LocalCheckpoint::new(genesis_checkpoint, genesis_checkpoint);
         let junk_checkpoint = Checkpoint {
             epoch: Epoch::new(42),
             root: Hash256::repeat_byte(42),
@@ -1169,7 +1170,7 @@ mod test_compute_deltas {
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
-                genesis_checkpoint,
+                local_genesis_checkpoint,
             )
             .unwrap();
 
@@ -1194,7 +1195,7 @@ mod test_compute_deltas {
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
-                genesis_checkpoint,
+                local_genesis_checkpoint,
             )
             .unwrap();
 
@@ -1210,22 +1211,20 @@ mod test_compute_deltas {
 
         assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
             finalized_root,
-            genesis_checkpoint
+            local_genesis_checkpoint
         ));
         assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
             finalized_desc,
-            genesis_checkpoint
+            local_genesis_checkpoint
         ));
         assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
             not_finalized_desc,
-            genesis_checkpoint
+            local_genesis_checkpoint
         ));
-        assert!(
-            !fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-                unknown,
-                genesis_checkpoint
-            )
-        );
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+            unknown,
+            local_genesis_checkpoint
+        ));
 
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
@@ -1325,7 +1324,7 @@ mod test_compute_deltas {
                     },
                     Slot::from(block.slot),
                     genesis_checkpoint,
-                    genesis_checkpoint,
+                    LocalCheckpoint::new(genesis_checkpoint, genesis_checkpoint),
                 )
                 .unwrap();
         };
@@ -1384,16 +1383,14 @@ mod test_compute_deltas {
             root: finalized_root,
             epoch: Epoch::new(1),
         };
-        fc.proto_array.local_irreversible_checkpoint = Checkpoint {
-            root: finalized_root,
-            epoch: Epoch::new(1),
-        };
+        let local_finalized_checkpoint =
+            LocalCheckpoint::new(finalized_checkpoint, finalized_checkpoint);
 
         assert!(
             fc.proto_array
                 .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
                     finalized_root,
-                    finalized_checkpoint
+                    local_finalized_checkpoint,
                 ),
             "the finalized checkpoint is the finalized checkpoint"
         );
@@ -1402,7 +1399,7 @@ mod test_compute_deltas {
             fc.proto_array
                 .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
                     get_block_root(canonical_slot),
-                    finalized_checkpoint
+                    local_finalized_checkpoint,
                 ),
             "the canonical block is a descendant of the finalized checkpoint"
         );
@@ -1410,7 +1407,7 @@ mod test_compute_deltas {
             !fc.proto_array
                 .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
                     get_block_root(non_canonical_slot),
-                    finalized_checkpoint
+                    local_finalized_checkpoint,
                 ),
             "although the non-canonical block is a descendant of the finalized block, \
             it's not a descendant of the finalized checkpoint"
