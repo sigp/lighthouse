@@ -441,8 +441,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         info!(slot = slot.as_u64(), "Requesting unsigned block");
 
-        // Request block from first responsive beacon node.
-        //
         // Try to get_validator_block_v3 using SSZ first for all beacon nodes, if all failed then fallback to JSON
         // the proposer nodes is always the last to try for both SSZ and JSON, since it's likely that they don't have a
         // great view of attestations on the network.
