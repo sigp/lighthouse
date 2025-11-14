@@ -345,7 +345,13 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let anchor_blobs = if anchor_block.message().body().has_blobs() {
+
+                // `BlobSidecar` is no longer used from Fulu onwards (superseded by `DataColumnSidecar`),
+                // which will be fetched via rpc instead (unimplemented).
+                let is_before_fulu = !spec
+                    .fork_name_at_slot::<E>(anchor_block.slot())
+                    .fulu_enabled();
+                let anchor_blobs = if is_before_fulu && anchor_block.message().body().has_blobs() {
                     let max_blobs_len = spec.max_blobs_per_block(anchor_block.epoch()) as usize;
                     let anchor_blobs_bytes = anchor_blobs_bytes
                         .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
@@ -409,7 +415,11 @@ where
 
                 debug!("Downloaded finalized block");
 
-                let blobs = if block.message().body().has_blobs() {
+                // `get_blob_sidecars` API is deprecated from Fulu and may not be supported by all servers
+                let is_before_fulu = !spec
+                    .fork_name_at_slot::<E>(finalized_block_slot)
+                    .fulu_enabled();
+                let blobs = if is_before_fulu && block.message().body().has_blobs() {
                     debug!("Downloading finalized blobs");
                     if let Some(response) = remote
                         .get_blob_sidecars::<E>(BlockId::Root(block_root), None, &spec)
