@@ -133,7 +133,7 @@ impl Default for ProposerBoost {
 /// Thanks to the invariant:
 ///
 /// > Either the on chain finalized checkpoint or the local irreversible checkpoint root have a node
-/// in the ProtoArray.
+/// > in the ProtoArray.
 ///
 /// We can assure that a LocalCheckpoint created with `new` is a checkpoint whose root is in the
 /// ProtoArray.
