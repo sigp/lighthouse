@@ -770,8 +770,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
         }
 
+        let imported_blocks = available_blocks.len();
         match self.chain.import_historical_block_batch(available_blocks) {
-            Ok(imported_blocks) => {
+            Ok(()) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
                 );

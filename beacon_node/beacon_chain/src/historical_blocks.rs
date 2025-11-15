@@ -56,42 +56,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `SignatureSetError` or `InvalidSignature` will be returned.
     ///
     /// To align with sync we allow some excess blocks with slots greater than or equal to
-    /// `oldest_block_slot` to be provided. They will be ignored without being checked.
+    /// `oldest_block_slot` to be provided. They will be re-imported to fill the columns of the
+    /// checkpoint sync block.
     ///
     /// This function should not be called concurrently with any other function that mutates
     /// the anchor info (including this function itself). If a concurrent mutation occurs that
     /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
-    ///
-    /// Return the number of blocks successfully imported.
     #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
-        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
-    ) -> Result<usize, HistoricalBlockError> {
+        blocks: Vec<AvailableBlock<T::EthSpec>>,
+    ) -> Result<(), HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
 
         // Take all blocks with slots less than the oldest block slot.
-        let num_relevant = blocks.partition_point(|available_block| {
-            available_block.block().slot() < anchor_info.oldest_block_slot
-        });
-
-        let total_blocks = blocks.len();
-        blocks.truncate(num_relevant);
-        let blocks_to_import = blocks;
-
-        if blocks_to_import.len() != total_blocks {
-            debug!(
-                oldest_block_slot = %anchor_info.oldest_block_slot,
-                total_blocks,
-                ignored = total_blocks.saturating_sub(blocks_to_import.len()),
-                "Ignoring some historic blocks"
-            );
-        }
-
-        if blocks_to_import.is_empty() {
-            return Ok(0);
+        for block in &blocks {
+            if block.block().slot() >= anchor_info.oldest_block_slot {
+                debug!(
+                    oldest_block_slot = %anchor_info.oldest_block_slot,
+                    block_slot = %block.block().slot(),
+                    "Reimporting historic block"
+                );
+            }
         }
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
@@ -100,11 +88,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
-        let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
+        let mut cold_batch = Vec::with_capacity(blocks.len());
+        let mut hot_batch = Vec::with_capacity(blocks.len());
+        let mut signed_blocks = Vec::with_capacity(blocks.len());
 
-        for available_block in blocks_to_import.into_iter().rev() {
+        for available_block in blocks.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
 
             if block_root != expected_block_root {
@@ -286,6 +274,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store_migrator.process_reconstruction();
         }
 
-        Ok(num_relevant)
+        Ok(())
     }
 }
