@@ -42,12 +42,12 @@ use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
-use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
+use crate::sync::peer_sync_info::{LocalSyncInfo, PeerSyncTypeAdvanced};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
@@ -384,16 +384,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// If the peer is within the `SLOT_IMPORT_TOLERANCE`, then it's head is sufficiently close to
     /// ours that we consider it fully sync'd with respect to our current chain.
     fn add_peer(&mut self, peer_id: PeerId, remote: SyncInfo) {
-        // ensure the beacon chain still exists
-        let status = self.chain.status_message();
-        let local = SyncInfo {
-            head_slot: *status.head_slot(),
-            head_root: *status.head_root(),
-            finalized_epoch: *status.finalized_epoch(),
-            finalized_root: *status.finalized_root(),
-            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
-        };
-
+        let local = LocalSyncInfo::new(&self.chain);
         let sync_type = remote_sync_type(&local, &remote, &self.chain);
 
         // update the state of the peer.
@@ -401,9 +392,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if is_still_connected {
             match sync_type {
                 PeerSyncType::Behind => {} // Do nothing
-                PeerSyncType::Advanced => {
+                PeerSyncType::Advanced(advanced_type) => {
                     self.range_sync
-                        .add_peer(&mut self.network, local, peer_id, remote);
+                        .add_peer(&mut self.network, local, peer_id, advanced_type);
                 }
                 PeerSyncType::FullySynced => {
                     // Sync considers this peer close enough to the head to not trigger range sync.
@@ -438,15 +429,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         head_root: Hash256,
         head_slot: Option<Slot>,
     ) {
-        let status = self.chain.status_message();
-        let local = SyncInfo {
-            head_slot: *status.head_slot(),
-            head_root: *status.head_root(),
-            finalized_epoch: *status.finalized_epoch(),
-            finalized_root: *status.finalized_root(),
-            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
-        };
-
+        let local = LocalSyncInfo::new(&self.chain);
         let head_slot = head_slot.unwrap_or_else(|| {
             debug!(
                 local_head_slot = %local.head_slot,
@@ -456,18 +439,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             local.head_slot
         });
 
-        let remote = SyncInfo {
-            head_slot,
-            head_root,
-            // Set finalized to same as local to trigger Head sync
-            finalized_epoch: local.finalized_epoch,
-            finalized_root: local.finalized_root,
-            earliest_available_slot: local.earliest_available_slot,
-        };
-
         for peer_id in peers {
-            self.range_sync
-                .add_peer(&mut self.network, local.clone(), *peer_id, remote.clone());
+            self.range_sync.add_peer(
+                &mut self.network,
+                local.clone(),
+                *peer_id,
+                PeerSyncTypeAdvanced::Head {
+                    target_root: head_root,
+                    target_slot: head_slot,
+                    start_epoch: local.local_irreversible_epoch,
+                },
+            );
         }
     }
 
@@ -542,7 +524,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn update_peer_sync_state(
         &mut self,
         peer_id: &PeerId,
-        local_sync_info: &SyncInfo,
+        local_sync_info: &LocalSyncInfo,
         remote_sync_info: &SyncInfo,
         sync_type: &PeerSyncType,
     ) -> bool {
