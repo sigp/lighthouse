@@ -52,6 +52,7 @@ mod prefix_mapping;
 mod subnet_predicate;
 
 use crate::discovery::enr::{NEXT_FORK_DIGEST_ENR_KEY, PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY};
+use crate::discovery::prefix_mapping::PrefixMapping;
 pub use subnet_predicate::subnet_predicate;
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -103,6 +104,19 @@ struct SubnetQuery {
     subnet: Subnet,
     min_ttl: Option<Instant>,
     retries: usize,
+    target: QueryTarget,
+}
+
+/// Target for a peer discovery query.
+///
+/// Specifies which peers to search for during a discovery query.
+#[derive(Debug, Clone, PartialEq)]
+pub enum QueryTarget {
+    /// Query for random peers in the network.
+    Random,
+    /// Query for peers with specific node ID prefixes.
+    /// Used for deterministic subnet peer discovery to find peers in specific DHT keyspace regions.
+    Prefix(Vec<NodeId>),
 }
 
 impl SubnetQuery {
@@ -127,6 +141,7 @@ impl std::fmt::Debug for SubnetQuery {
             .field("subnet", &self.subnet)
             .field("min_ttl_secs", &min_ttl_secs)
             .field("retries", &self.retries)
+            .field("target", &self.target)
             .finish()
     }
 }
@@ -197,6 +212,11 @@ pub struct Discovery<E: EthSpec> {
     update_ports: UpdatePorts,
 
     spec: Arc<ChainSpec>,
+
+    /// Mapping from attestation subnet IDs to DHT key prefixes.
+    /// Used for deterministic subnet peer discovery to target specific regions of the DHT keyspace
+    /// when searching for subnet peers.
+    prefix_mapping: PrefixMapping,
 }
 
 impl<E: EthSpec> Discovery<E> {
@@ -330,6 +350,7 @@ impl<E: EthSpec> Discovery<E> {
             update_ports,
             enr_dir,
             spec: Arc::new(spec.clone()),
+            prefix_mapping: PrefixMapping::new(spec.clone()),
         })
     }
 
@@ -375,7 +396,30 @@ impl<E: EthSpec> Discovery<E> {
         );
 
         for subnet in subnets_to_discover {
-            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0);
+            let query_target = match subnet.subnet {
+                Subnet::Attestation(subnet_id) => {
+                    match self.prefix_mapping.get_prefixed_node_ids(&subnet_id) {
+                        Ok(node_ids) if node_ids.is_empty() => {
+                            warn!(
+                                ?subnet_id,
+                                "No NodeIds given for prefix search, falling back to random search."
+                            );
+                            QueryTarget::Random
+                        }
+                        Ok(node_ids) => QueryTarget::Prefix(node_ids),
+                        Err(error) => {
+                            warn!(
+                                ?error,
+                                ?subnet_id,
+                                "Failed to get NodeIds for prefix search, falling back to random search."
+                            );
+                            QueryTarget::Random
+                        }
+                    }
+                }
+                Subnet::SyncCommittee(_) | Subnet::DataColumn(_) => QueryTarget::Random,
+            };
+            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0, query_target);
         }
     }
 
@@ -660,7 +704,13 @@ impl<E: EthSpec> Discovery<E> {
 
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
     /// updates the min_ttl field.
-    fn add_subnet_query(&mut self, subnet: Subnet, min_ttl: Option<Instant>, retries: usize) {
+    fn add_subnet_query(
+        &mut self,
+        subnet: Subnet,
+        min_ttl: Option<Instant>,
+        retries: usize,
+        target: QueryTarget,
+    ) {
         // remove the entry and complete the query if greater than the maximum search count
         if retries > MAX_DISCOVERY_RETRY {
             debug!("Subnet peer discovery did not find sufficient peers. Reached max retry limit");
@@ -689,6 +739,7 @@ impl<E: EthSpec> Discovery<E> {
                 subnet,
                 min_ttl,
                 retries,
+                target,
             });
             metrics::set_gauge(
                 &discovery_metrics::DISCOVERY_QUEUE,
@@ -884,7 +935,12 @@ impl<E: EthSpec> Discovery<E> {
                             "Grouped subnet discovery query yielded no results."
                         );
                         queries.iter().for_each(|query| {
-                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
+                            self.add_subnet_query(
+                                query.subnet,
+                                query.min_ttl,
+                                query.retries + 1,
+                                query.target.clone(),
+                            );
                         })
                     }
                     Ok(r) => {
@@ -916,7 +972,12 @@ impl<E: EthSpec> Discovery<E> {
                                 v.inc();
                             }
                             // A subnet query has completed. Add back to the queue, incrementing retries.
-                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
+                            self.add_subnet_query(
+                                query.subnet,
+                                query.min_ttl,
+                                query.retries + 1,
+                                query.target.clone(),
+                            );
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
@@ -1283,17 +1344,24 @@ mod tests {
             subnet: Subnet::Attestation(SubnetId::new(1)),
             min_ttl: Some(now),
             retries: 0,
+            target: QueryTarget::Random,
         };
         discovery.add_subnet_query(
             subnet_query.subnet,
             subnet_query.min_ttl,
             subnet_query.retries,
+            subnet_query.target.clone(),
         );
         assert_eq!(discovery.queued_queries.back(), Some(&subnet_query));
 
         // New query should replace old query
         subnet_query.min_ttl = Some(now + Duration::from_secs(1));
-        discovery.add_subnet_query(subnet_query.subnet, subnet_query.min_ttl, 1);
+        discovery.add_subnet_query(
+            subnet_query.subnet,
+            subnet_query.min_ttl,
+            1,
+            subnet_query.target.clone(),
+        );
 
         subnet_query.retries += 1;
 
@@ -1309,6 +1377,7 @@ mod tests {
             subnet_query.subnet,
             subnet_query.min_ttl,
             MAX_DISCOVERY_RETRY + 1,
+            subnet_query.target,
         );
 
         assert_eq!(discovery.queued_queries.len(), 0);
@@ -1344,11 +1413,13 @@ mod tests {
                 subnet: Subnet::Attestation(SubnetId::new(1)),
                 min_ttl: instant1,
                 retries: 0,
+                target: QueryTarget::Random,
             },
             SubnetQuery {
                 subnet: Subnet::Attestation(SubnetId::new(2)),
                 min_ttl: instant2,
                 retries: 0,
+                target: QueryTarget::Random,
             },
         ]);
 

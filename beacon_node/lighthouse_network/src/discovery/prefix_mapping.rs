@@ -1,5 +1,6 @@
 use alloy_primitives::U256;
 use discv5::enr::NodeId;
+use rand::prelude::SliceRandom;
 use std::collections::HashMap;
 use types::{ChainSpec, SubnetId};
 
@@ -29,7 +30,7 @@ impl PrefixMapping {
         // prefix bits.
         let mask = U256::from(2_i32.pow(prefix_bits) - 1) << (256 - prefix_bits);
 
-        Ok(self
+        let mut node_ids = self
             .mapping
             .get(subnet_id)
             .ok_or("No prefix mapping for subnet_id")?
@@ -46,7 +47,12 @@ impl PrefixMapping {
 
                 NodeId::from(raw_node_id)
             })
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        // Shuffle the order of `NodeId`s to avoid always querying the same prefixes first and to
+        // distribute discovery queries more evenly across the keyspace.
+        node_ids.shuffle(&mut rand::rng());
+
+        Ok(node_ids)
     }
 }
 
