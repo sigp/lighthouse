@@ -866,11 +866,11 @@ mod test {
     use crate::CustodyContext;
     use crate::custody_context::NodeCustodyType;
     use crate::test_utils::{
-        EphemeralHarnessType, NumBlobs, generate_rand_block_and_data_columns, get_kzg,
+        EphemeralHarnessType, NumBlobs, generate_data_column_indices_rand_order,
+        generate_rand_block_and_data_columns, get_kzg,
     };
     use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use rand::seq::SliceRandom;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -1182,11 +1182,7 @@ mod test {
         );
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
-        let ordered_custody_column_indices = {
-            let mut column_indices = (0..E::number_of_columns() as u64).collect::<Vec<_>>();
-            column_indices.shuffle(&mut StdRng::seed_from_u64(42));
-            column_indices
-        };
+        let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
