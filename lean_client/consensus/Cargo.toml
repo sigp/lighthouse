@@ -1,5 +1,5 @@
 [package]
-name = "lean-consensus"
+name = "lean_consensus"
 author = ["Sigma Prime <contact@sigmaprime.io"]
 version = "0.1.0"
 edition = "2024"
@@ -14,6 +14,6 @@ tree_hash = { workspace = true }
 serde = { workspace = true }
 types = { workspace = true }
 int_to_bytes = { workspace = true }
-lean-crypto = { workspace = true }
+lean_crypto = { workspace = true }
 
 

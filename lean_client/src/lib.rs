@@ -1,9 +1,12 @@
 pub mod cli;
+
 use environment::RuntimeContext;
-use lean_network::{NetworkConfig, NetworkService};
+use lean_attestation_service::{AttestationService, AttestationServiceMessage};
+use lean_network::{NetworkConfig, NetworkMessage, NetworkService};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use task_executor::TaskExecutor;
-use tokio::time::{Duration, sleep};
+use tokio::sync::mpsc;
+use tokio::time::Duration;
 use tracing::info;
 use types::EthSpec;
 
@@ -29,35 +32,37 @@ impl<E: EthSpec> ProductionLeanClient<E> {
     }
 
     pub async fn start_service(&mut self) -> Result<(), String> {
-        let _slot_duration = Duration::from_secs(self.context.eth2_config.spec.seconds_per_slot);
-        let _duration_to_next_slot = self
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or("Unable to determine duration to next slot");
+
+        info!("Starting attestation service");
+        let (attestation_service, attestation_tx) =
+            AttestationService::<SystemTimeSlotClock, E>::new(self.slot_clock.clone());
+        self.executor.spawn(attestation_service.run(), "attestation_service");
 
         info!("Starting network service");
         let network_config = NetworkConfig::default();
-        let network_service = NetworkService::new(network_config)
+        let mut network_service = NetworkService::new(network_config)
             .map_err(|e| format!("Failed to create network service: {}", e))?;
-        network_service.start(self.executor.clone());
 
-        let executor = self.executor.clone();
-        let slot_clock = self.slot_clock.clone();
+        // Create channel to forward network messages to attestation service
+        let (network_msg_tx, mut network_msg_rx) = mpsc::unbounded_channel::<NetworkMessage>();
+        network_service.set_message_sender(network_msg_tx);
 
-        info!("Starting lean node duties");
-        let mut slot = 0;
-
-        let interval_fut = async move {
-            loop {
-                if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
-                    sleep(duration_to_next_slot).await;
-                    info!(?slot, "duties completed");
-                    slot += 1;
+        // Spawn task to forward network messages to attestation service
+        let attestation_tx_clone = attestation_tx.clone();
+        self.executor.spawn(
+            async move {
+                while let Some(msg) = network_msg_rx.recv().await {
+                    let _ = attestation_tx_clone.send(AttestationServiceMessage::NetworkMessage {
+                        topic: msg.topic,
+                        data: msg.data,
+                    });
                 }
-            }
-        };
+            },
+            "network_message_forwarder",
+        );
 
-        executor.spawn(interval_fut, "lean_node_service");
+        self.executor.spawn(network_service.start(), "network_service");
+
         Ok(())
     }
 }

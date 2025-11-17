@@ -1,5 +1,5 @@
 [package]
-name = "lean-network"
+name = "lean_network"
 version = "0.1.0"
 edition.workspace = true
 
@@ -8,13 +8,14 @@ gossipsub = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-lean-consensus = { path = "../consensus" }
+lean_consensus = { workspace = true }
 task_executor = { workspace = true }
 
 [dependencies.libp2p]
 version = "0.56"
 default-features = false
 features = [
+    "gossipsub",
     "identify",
     "yamux",
     "noise",

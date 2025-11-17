@@ -1,5 +1,5 @@
 [package]
-name = "lean-crypto"
+name = "lean_crypto"
 version = "0.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2024"

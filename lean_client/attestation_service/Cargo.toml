@@ -1,0 +1,11 @@
+[package]
+name = "lean_attestation_service"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+lean_consensus = { workspace = true }
+slot_clock = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+types = { workspace = true }

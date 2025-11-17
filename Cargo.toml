@@ -66,6 +66,7 @@ members = [
     "database_manager",
     "lcli",
     "lean_client",
+    "lean_client/attestation_service",
     "lean_client/consensus",
     "lean_client/lean_network",
     "lean_client/forkchoice",
@@ -290,10 +291,11 @@ zstd = "0.13"
 
 # lean chain crates
 lean_client = { path = "lean_client" }
-lean-consensus = { path = "lean_client/consensus" }
-lean-network = { path = "lean_client/lean_network" }
-lean-forkchoice = { path = "lean_client/forkchoice" }
-lean-crypto = { path = "lean_client/crypto"}
+lean_attestation_service = { path = "lean_client/attestation_service" }
+lean_consensus = { path = "lean_client/consensus" }
+lean_network = { path = "lean_client/lean_network" }
+lean_forkchoice = { path = "lean_client/forkchoice" }
+lean_crypto = { path = "lean_client/crypto"}
 
 
 [profile.maxperf]

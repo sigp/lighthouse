@@ -1,9 +1,9 @@
 [package]
-name = "lean-forkchoice"
+name = "lean_forkchoice"
 author = ["Sigma Prime <contact@sigmaprime.io>"]
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-lean-consensus = { workspace = true }
+lean_consensus = { workspace = true }
 types = { workspace = true }
