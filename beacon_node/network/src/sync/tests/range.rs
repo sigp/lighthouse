@@ -446,13 +446,13 @@ fn build_rpc_block(
 ) -> RpcBlock<E> {
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
-            RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
+            RpcBlock::new_available(None, block, Some(blobs.clone()), None).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
-            RpcBlock::new_with_custody_columns(None, block, columns.clone()).unwrap()
+            RpcBlock::new_available(None, block, None, Some(columns.clone())).unwrap()
         }
         // Block has no data, expects zero columns
-        None => RpcBlock::new_without_blobs(None, block),
+        None => RpcBlock::new_available(None, block, None, None).unwrap(),
     }
 }
 

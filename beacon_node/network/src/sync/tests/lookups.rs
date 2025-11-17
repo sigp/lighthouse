@@ -2286,12 +2286,13 @@ mod deneb_only {
             let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
             self.block = block.clone();
-            let block = RpcBlock::new(
+            let block = RpcBlock::new_maybe_available(
                 Some(block.canonical_root()),
                 block,
                 self.unknown_parent_blobs
                     .take()
                     .map(|vec| RuntimeVariableList::new(vec, max_len).unwrap()),
+                None,
             )
             .unwrap();
             self.rig.parent_block_processed(

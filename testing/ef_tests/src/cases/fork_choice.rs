@@ -542,13 +542,16 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(self.harness.chain.process_block(
-                block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            ))?
+            .block_on_dangerous(
+                self.harness.chain.process_block(
+                    block_root,
+                    RpcBlock::new_maybe_available(Some(block_root), block.clone(), None, None)
+                        .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                ),
+            )?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
@@ -632,13 +635,16 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(self.harness.chain.process_block(
-                block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            ))?
+            .block_on_dangerous(
+                self.harness.chain.process_block(
+                    block_root,
+                    RpcBlock::new_maybe_available(Some(block_root), block.clone(), None, None)
+                        .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                ),
+            )?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {

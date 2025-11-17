@@ -1076,7 +1076,7 @@ mod test {
                         .collect::<Vec<_>>()
                 };
 
-                RpcBlock::new_with_custody_columns(None, Arc::new(block), custody_columns)
+                RpcBlock::new_available(None, Arc::new(block), None, Some(custody_columns))
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();

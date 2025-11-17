@@ -315,7 +315,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 CouplingError::BlobPeerFailure("Blobs returned exceeds max length".to_string())
             })?;
             responses.push(
-                RpcBlock::new(None, block, Some(blobs))
+                RpcBlock::new_available(None, block, Some(blobs), None)
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
@@ -414,11 +414,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     );
                 }
 
-                RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns)
+                RpcBlock::new_available(Some(block_root), block, None, Some(custody_columns))
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 // Block has no data, expects zero columns
-                RpcBlock::new_without_blobs(Some(block_root), block)
+                RpcBlock::new_available(Some(block_root), block, None, None)
+                    .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             });
         }
 

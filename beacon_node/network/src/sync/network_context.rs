@@ -1606,7 +1606,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let block = RpcBlock::new_without_blobs(Some(block_root), block);
+        let block = RpcBlock::new_maybe_available(Some(block_root), block, None, None)
+            .map_err(|_| SendErrorProcessor::SendError)?;
 
         debug!(block = ?block_root, id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync

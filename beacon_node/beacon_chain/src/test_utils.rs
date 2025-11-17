@@ -2429,7 +2429,8 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new_without_blobs(Some(block_root), block);
+            // TODO(can refactor so we dont call new_avail a bunch)
+            return RpcBlock::new_available(Some(block_root), block, None, None).unwrap();
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2439,10 +2440,10 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns).unwrap()
+            RpcBlock::new_available(Some(block_root), block, None, Some(custody_columns)).unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
-            RpcBlock::new(Some(block_root), block, blobs).unwrap()
+            RpcBlock::new_available(Some(block_root), block, blobs, None).unwrap()
         }
     }
 
@@ -2466,9 +2467,10 @@ where
                     .filter(|d| sampling_columns.contains(&d.index))
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(Some(block_root), block, columns)?
+                // TODO(can combine these and clean it up)
+                RpcBlock::new_available(Some(block_root), block, None, Some(columns))?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block)
+                RpcBlock::new_available(Some(block_root), block, None, None)?
             }
         } else {
             let blobs = blob_items
@@ -2477,7 +2479,7 @@ where
                 })
                 .transpose()
                 .unwrap();
-            RpcBlock::new(Some(block_root), block, blobs)?
+            RpcBlock::new_available(Some(block_root), block, blobs, None)?
         })
     }
 
