@@ -571,9 +571,9 @@ impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
 
 #[cfg(test)]
 mod tests {
-    use types::MainnetEthSpec;
-
     use super::*;
+    use crate::test_utils::generate_data_column_indices_rand_order;
+    use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
 
@@ -593,15 +593,11 @@ mod tests {
             ssz_context,
             NodeCustodyType::Fullnode,
             head_epoch,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             spec,
         );
 
         custody_context
-    }
-
-    fn generate_custody_column_indices() -> Vec<u64> {
-        (0..E::number_of_columns() as u64).collect::<Vec<_>>()
     }
 
     fn complete_backfill_for_epochs(
@@ -639,7 +635,7 @@ mod tests {
                 ssz_context,
                 target_node_custody_type,
                 head_epoch,
-                generate_custody_column_indices(),
+                generate_data_column_indices_rand_order::<E>(),
                 spec,
             );
 
@@ -710,7 +706,7 @@ mod tests {
                 ssz_context,
                 target_node_custody_type,
                 head_epoch,
-                generate_custody_column_indices(),
+                generate_data_column_indices_rand_order::<E>(),
                 spec,
             );
 
@@ -734,7 +730,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Supernode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         assert_eq!(
@@ -752,7 +748,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::SemiSupernode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         assert_eq!(
@@ -770,7 +766,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         assert_eq!(
@@ -789,7 +785,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
@@ -817,7 +813,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
@@ -858,7 +854,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Supernode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
@@ -900,7 +896,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         let current_slot = Slot::new(10);
@@ -935,7 +931,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         let current_slot = Slot::new(10);
@@ -981,7 +977,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
         let current_slot = Slot::new(10);
@@ -1055,7 +1051,7 @@ mod tests {
     #[test]
     fn custody_columns_for_epoch_no_validators_fullnode() {
         let spec = E::default_spec();
-        let ordered_custody_column_indices = generate_custody_column_indices();
+        let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
@@ -1071,7 +1067,7 @@ mod tests {
     #[test]
     fn custody_columns_for_epoch_no_validators_supernode() {
         let spec = E::default_spec();
-        let ordered_custody_column_indices = generate_custody_column_indices();
+        let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Supernode,
             ordered_custody_column_indices,
@@ -1087,7 +1083,7 @@ mod tests {
     #[test]
     fn custody_columns_for_epoch_with_validators_should_match_cgc() {
         let spec = E::default_spec();
-        let ordered_custody_column_indices = generate_custody_column_indices();
+        let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
@@ -1113,7 +1109,7 @@ mod tests {
     #[test]
     fn custody_columns_for_epoch_specific_epoch_uses_epoch_cgc() {
         let spec = E::default_spec();
-        let ordered_custody_column_indices = generate_custody_column_indices();
+        let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::Fullnode,
             ordered_custody_column_indices,
@@ -1143,7 +1139,7 @@ mod tests {
             ssz_context,
             NodeCustodyType::Fullnode,
             Epoch::new(0),
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
 
@@ -1179,7 +1175,7 @@ mod tests {
         let semi_supernode_cgc = spec.number_of_custody_groups / 2; // 64
         let custody_context = CustodyContext::<E>::new(
             NodeCustodyType::SemiSupernode,
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
 
@@ -1331,7 +1327,7 @@ mod tests {
             ssz_context,
             NodeCustodyType::Fullnode,
             Epoch::new(20),
-            generate_custody_column_indices(),
+            generate_data_column_indices_rand_order::<E>(),
             &spec,
         );
 

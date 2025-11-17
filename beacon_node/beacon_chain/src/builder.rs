@@ -1241,7 +1241,9 @@ fn build_data_columns_from_blobs<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{EphemeralHarnessType, get_kzg};
+    use crate::test_utils::{
+        EphemeralHarnessType, generate_data_column_indices_rand_order, get_kzg,
+    };
     use ethereum_hashing::hash;
     use genesis::{
         DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state,
@@ -1294,7 +1296,7 @@ mod test {
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
             .ordered_custody_column_indices(
-                (0..MinimalEthSpec::number_of_columns() as u64).collect(),
+                generate_data_column_indices_rand_order::<MinimalEthSpec>(),
             )
             .build()
             .expect("should build");
