@@ -652,6 +652,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else if !self.config.prune_payloads || *block_root == split.block_root {
             // If payload pruning is disabled there's a chance we may have the payload of
             // this finalized block. Attempt to load it but don't error in case it's missing.
+            //
+            // We also allow for the split block's payload to be loaded *if it exists*. This is
+            // necessary on startup when syncing from an unaligned checkpoint (a checkpoint state
+            // at a skipped slot), and then loading the canonical head (with payload). If we modify
+            // payload pruning in future so that it doesn't prune the split block's payload, then
+            // this case could move to the case above where we error if the payload is missing.
             let fork_name = blinded_block.fork_name(&self.spec)?;
             if let Some(payload) = self.get_execution_payload(block_root, fork_name)? {
                 DatabaseBlock::Full(
