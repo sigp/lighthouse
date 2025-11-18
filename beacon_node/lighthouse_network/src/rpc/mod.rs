@@ -556,7 +556,11 @@ where
         }
 
         if !self.events.is_empty() {
-            return Poll::Ready(self.events.remove(0));
+            let event = self.events.remove(0);
+            if let ToSwarm::CloseConnection { peer_id, .. } = event {
+                debug!(%peer_id, "Notifying the swarm to close the connection");
+            }
+            return Poll::Ready(event);
         }
 
         Poll::Pending
