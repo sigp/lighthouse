@@ -1,5 +1,5 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::{BeaconChain, BeaconChainTypes, metrics};
+use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
@@ -34,6 +34,8 @@ pub enum HistoricalBlockError {
     ValidatorPubkeyCacheTimeout,
     /// Logic error: should never occur.
     IndexOutOfBounds,
+    /// Logic error: should never occur.
+    MissingOldestBlockRoot { slot: Slot },
     /// Internal store error
     StoreError(StoreError),
 }
@@ -65,37 +67,71 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
-        blocks: Vec<AvailableBlock<T::EthSpec>>,
+        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<(), HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
 
-        // Take all blocks with slots less than the oldest block slot.
-        for block in &blocks {
-            if block.block().slot() >= anchor_info.oldest_block_slot {
-                debug!(
-                    oldest_block_slot = %anchor_info.oldest_block_slot,
-                    block_slot = %block.block().slot(),
-                    "Reimporting historic block"
-                );
-            }
+        // Take all blocks with slots less than or equal to the oldest block slot.
+        //
+        // This allows for reimport of the blobs/columns for the finalized block after checkpoint
+        // sync.
+        let num_relevant = blocks.partition_point(|available_block| {
+            available_block.block().slot() <= anchor_info.oldest_block_slot
+        });
+        let total_blocks = blocks.len();
+        blocks.truncate(num_relevant);
+
+        let blocks_to_import = blocks;
+        if blocks_to_import.len() != total_blocks {
+            debug!(
+                oldest_block_slot = %anchor_info.oldest_block_slot,
+                total_blocks,
+                ignored = total_blocks.saturating_sub(blocks_to_import.len()),
+                "Ignoring some historic blocks"
+            );
+        }
+
+        if blocks_to_import.is_empty() {
+            return Ok(());
         }
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
+        let mut last_block_root = expected_block_root;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
-        let mut cold_batch = Vec::with_capacity(blocks.len());
-        let mut hot_batch = Vec::with_capacity(blocks.len());
-        let mut signed_blocks = Vec::with_capacity(blocks.len());
+        let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
+        let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
+        let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
-        for available_block in blocks.into_iter().rev() {
+        for available_block in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
 
-            if block_root != expected_block_root {
+            if block.slot() == anchor_info.oldest_block_slot {
+                // When reimporting, verify that this is actually the same block (same block root).
+                let oldest_block_root = self
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
+                    .ok()
+                    .flatten()
+                    .ok_or(HistoricalBlockError::MissingOldestBlockRoot { slot: block.slot() })?;
+                if block_root != oldest_block_root {
+                    return Err(HistoricalBlockError::MismatchedBlockRoot {
+                        block_root,
+                        expected_block_root: oldest_block_root,
+                    });
+                }
+
+                debug!(
+                    ?block_root,
+                    slot = %block.slot(),
+                    "Re-importing historic block"
+                );
+                last_block_root = block_root;
+            } else if block_root != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
                     block_root,
                     expected_block_root,
@@ -186,7 +222,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?
             .iter()
             .map(|block| block.parent_root())
-            .chain(iter::once(anchor_info.oldest_block_parent));
+            .chain(iter::once(last_block_root));
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
