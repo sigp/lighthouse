@@ -4,12 +4,14 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-gossipsub = { workspace = true }
 futures = { workspace = true }
+gossipsub = { workspace = true }
+lean_consensus = { workspace = true }
+ethereum_ssz = { workspace = true }
+task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-lean_consensus = { workspace = true }
-task_executor = { workspace = true }
+types = { workspace = true }
 
 [dependencies.libp2p]
 version = "0.56"

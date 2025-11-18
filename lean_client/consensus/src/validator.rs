@@ -17,7 +17,41 @@ impl Validator {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct ValidatorIndex(pub u64);
+
+impl ssz::Encode for ValidatorIndex {
+    fn is_ssz_fixed_len() -> bool {
+        <u64 as ssz::Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u64 as ssz::Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.0.ssz_bytes_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.0.ssz_append(buf)
+    }
+}
+
+impl ssz::Decode for ValidatorIndex {
+    fn is_ssz_fixed_len() -> bool {
+        <u64 as ssz::Decode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u64 as ssz::Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        u64::from_ssz_bytes(bytes).map(ValidatorIndex)
+    }
+}
+
 impl ValidatorIndex {
     pub fn is_proposer(&self, slot: Slot, num_validators: u64) -> bool {
         slot.0 % num_validators == self.0

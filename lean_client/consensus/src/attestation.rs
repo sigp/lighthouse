@@ -1,5 +1,6 @@
 use lean_crypto::Signature;
-
+use ssz_derive::{Decode, Encode};
+use ssz::{Decode, Encode};
 use types::BitList;
 use types::EthSpec;
 use types::Hash256;
@@ -10,13 +11,13 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 
-#[derive(Clone, TreeHash)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash)]
 pub struct Attestation {
     pub validator_id: u64,
     pub attestation_data: AttestationData,
 }
 
-#[derive(Clone, TreeHash)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash)]
 pub struct AttestationData {
     pub slot: Slot,
     pub head: Checkpoint,
@@ -24,7 +25,7 @@ pub struct AttestationData {
     pub source: Checkpoint,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Slot(pub u64);
 
 impl Slot {
@@ -72,7 +73,39 @@ impl TreeHash for Slot {
     }
 }
 
-#[derive(Clone, Default, TreeHash)]
+impl Encode for Slot {
+    fn is_ssz_fixed_len() -> bool {
+        <u64 as Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u64 as Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.0.ssz_bytes_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.0.ssz_append(buf)
+    }
+}
+
+impl Decode for Slot {
+    fn is_ssz_fixed_len() -> bool {
+        <u64 as Decode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <u64 as Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        u64::from_ssz_bytes(bytes).map(Slot)
+    }
+}
+
+#[derive(Debug, Clone, Default, Encode, Decode, TreeHash)]
 pub struct Checkpoint {
     pub slot: Slot,
     pub root: Hash256,

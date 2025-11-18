@@ -5087,9 +5087,11 @@ name = "lean_attestation_service"
 version = "0.1.0"
 dependencies = [
  "lean_consensus",
+ "lean_network",
  "slot_clock",
  "tokio",
  "tracing",
+ "tree_hash",
  "types",
 ]
 
@@ -5148,6 +5150,7 @@ dependencies = [
 name = "lean_network"
 version = "0.1.0"
 dependencies = [
+ "ethereum_ssz",
  "futures",
  "lean_consensus",
  "libp2p",
@@ -5155,6 +5158,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tracing",
+ "types",
 ]
 
 [[package]]

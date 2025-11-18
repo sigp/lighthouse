@@ -5,7 +5,9 @@ edition.workspace = true
 
 [dependencies]
 lean_consensus = { workspace = true }
+lean_network = { workspace = true }
 slot_clock = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+tree_hash = { workspace = true }
 types = { workspace = true }

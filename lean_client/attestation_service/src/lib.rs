@@ -1,49 +1,26 @@
-use lean_consensus::attestation::{Checkpoint, Slot};
+use lean_consensus::attestation::{Attestation, Checkpoint, Slot};
+use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
+use lean_consensus::lean_state::LeanState;
+pub use lean_network::NetworkMessage;
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::EthSpec;
-
-/// Messages that can be sent to the attestation service
-#[derive(Debug, Clone)]
-pub enum AttestationServiceMessage {
-    /// Network message received from gossipsub
-    NetworkMessage {
-        topic: String,
-        data: Vec<u8>,
-    },
-    /// Request to produce an attestation for the given slot
-    ProduceAttestation {
-        slot: u64,
-        validator_id: u64,
-    },
-    /// Notification of a new head block
-    NewHeadBlock {
-        slot: u64,
-        block_root: types::Hash256,
-    },
-    /// Notification of a new justified checkpoint
-    NewJustifiedCheckpoint {
-        slot: u64,
-        root: types::Hash256,
-    },
-    /// Notification of a new finalized checkpoint
-    NewFinalizedCheckpoint {
-        slot: u64,
-        root: types::Hash256,
-    },
-}
+use tree_hash::TreeHash;
+use types::{EthSpec, Hash256, VariableList};
 
 /// Attestation service that processes attestation duties
 pub struct AttestationService<T: SlotClock, E: EthSpec> {
-    /// Receiver for messages from the network service
-    message_rx: mpsc::UnboundedReceiver<AttestationServiceMessage>,
+    /// Receiver for network messages from the network service
+    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     /// Slot clock for timing
     #[allow(dead_code)]
     slot_clock: T,
+    /// Lean consensus state for processing blocks and attestations
+    lean_state: Option<LeanState<E>>,
     /// Current head block root
-    head_block_root: Option<types::Hash256>,
+    head_block_root: Option<Hash256>,
     /// Current justified checkpoint
     justified_checkpoint: Option<Checkpoint>,
     /// Current finalized checkpoint
@@ -53,22 +30,28 @@ pub struct AttestationService<T: SlotClock, E: EthSpec> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
-    /// Creates a new attestation service and returns it along with a sender for messages
+    /// Creates a new attestation service and returns it along with a sender for network messages
     pub fn new(
         slot_clock: T,
-    ) -> (Self, mpsc::UnboundedSender<AttestationServiceMessage>) {
-        let (message_tx, message_rx) = mpsc::unbounded_channel();
+    ) -> (Self, mpsc::UnboundedSender<NetworkMessage<E>>) {
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
 
         let service = Self {
-            message_rx,
+            network_rx,
             slot_clock,
+            lean_state: None,
             head_block_root: None,
             justified_checkpoint: None,
             finalized_checkpoint: None,
             _phantom: std::marker::PhantomData,
         };
 
-        (service, message_tx)
+        (service, network_tx)
+    }
+
+    /// Sets the lean state for consensus processing
+    pub fn set_lean_state(&mut self, state: LeanState<E>) {
+        self.lean_state = Some(state);
     }
 
     /// Runs the attestation service, processing messages as they arrive
@@ -100,53 +83,88 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     }
                 },
 
-                // Handle incoming messages
-                Some(message) = self.message_rx.recv() => {
-                    if let Err(e) = self.handle_message(message).await {
-                        error!("Error handling attestation service message: {}", e);
+                // Handle network messages from the wire
+                Some(network_msg) = self.network_rx.recv() => {
+                    if let Err(e) = self.handle_network_message(network_msg).await {
+                        error!("Error handling network message: {}", e);
                     }
                 },
 
                 // Channel closed
                 else => {
-                    warn!("Attestation service message channel closed, shutting down");
+                    warn!("Attestation service channel closed, shutting down");
                     break;
                 }
             }
         }
     }
 
-    /// Handles an incoming message
-    async fn handle_message(&mut self, message: AttestationServiceMessage) -> Result<(), String> {
-        match message {
-            AttestationServiceMessage::NetworkMessage { topic, data } => {
-                self.handle_network_message(topic, data).await
+    /// Handles network messages received from the wire
+    async fn handle_network_message(&mut self, network_msg: NetworkMessage<E>) -> Result<(), String> {
+        match network_msg {
+            NetworkMessage::Attestation(attestation) => {
+                self.handle_attestation(attestation).await
             }
-            AttestationServiceMessage::ProduceAttestation { slot, validator_id } => {
-                self.produce_attestation(slot, validator_id).await
-            }
-            AttestationServiceMessage::NewHeadBlock { slot, block_root } => {
-                self.update_head_block(slot, block_root).await
-            }
-            AttestationServiceMessage::NewJustifiedCheckpoint { slot, root } => {
-                self.update_justified_checkpoint(slot, root).await
-            }
-            AttestationServiceMessage::NewFinalizedCheckpoint { slot, root } => {
-                self.update_finalized_checkpoint(slot, root).await
+            NetworkMessage::Block(block) => {
+                self.handle_block(block).await
             }
         }
     }
 
-    /// Handles a network message received from gossipsub
-    async fn handle_network_message(&mut self, topic: String, data: Vec<u8>) -> Result<(), String> {
+    /// Handles an attestation received from the network
+    async fn handle_attestation(&mut self, attestation: Arc<Attestation>) -> Result<(), String> {
         info!(
-            topic = %topic,
-            data_len = data.len(),
-            "Received network message"
+            slot = attestation.attestation_data.slot.0,
+            validator_id = attestation.validator_id,
+            "Processing lean attestation from network"
         );
 
-        // TODO: Parse and process the network message based on topic
-        // https://github.com/sigp/lighthouse/issues/XXXX
+        // Use lean_consensus::lean_state::process_attestations
+        if let Some(ref mut state) = self.lean_state {
+            let mut attestations = VariableList::<Attestation, E::MaxAttestations>::empty();
+            attestations.push((*attestation).clone()).map_err(|e| format!("Failed to add attestation: {:?}", e))?;
+
+            state.process_attestations(&attestations)?;
+
+            // Update our local checkpoints from the state
+            self.justified_checkpoint = Some(state.latest_justified.clone());
+            self.finalized_checkpoint = Some(state.latest_finalized.clone());
+
+            debug!("Attestation processed using lean_state");
+        } else {
+            warn!("No lean_state available to process attestation");
+        }
+
+        Ok(())
+    }
+
+    /// Handles a block received from the network
+    async fn handle_block(&mut self, block: Arc<SignedLeanBlockWithAttestation<E>>) -> Result<(), String> {
+        let lean_block = &block.message.block;
+
+        info!(
+            slot = lean_block.slot.0,
+            proposer_index = lean_block.proposer_index,
+            "Processing lean block from network"
+        );
+
+        // Use lean_consensus::lean_state::state_transition
+        if let Some(ref mut state) = self.lean_state {
+            // Process block using state_transition (without signature validation for now)
+            state.state_transition(lean_block, false)?;
+
+            // Update our local checkpoints from the state
+            self.justified_checkpoint = Some(state.latest_justified.clone());
+            self.finalized_checkpoint = Some(state.latest_finalized.clone());
+
+            // Update head block root
+            let block_root = state.latest_block_header.tree_hash_root();
+            self.update_head_block(lean_block.slot.0, block_root).await?;
+
+            debug!("Block processed using lean_state::state_transition");
+        } else {
+            warn!("No lean_state available to process block");
+        }
 
         Ok(())
     }
@@ -162,14 +180,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     }
 
     /// Updates the current head block
-    async fn update_head_block(&mut self, slot: u64, block_root: types::Hash256) -> Result<(), String> {
+    async fn update_head_block(&mut self, slot: u64, block_root: Hash256) -> Result<(), String> {
         debug!(slot, ?block_root, "Updating head block");
         self.head_block_root = Some(block_root);
         Ok(())
     }
 
     /// Updates the justified checkpoint
-    async fn update_justified_checkpoint(&mut self, slot: u64, root: types::Hash256) -> Result<(), String> {
+    async fn update_justified_checkpoint(&mut self, slot: u64, root: Hash256) -> Result<(), String> {
         debug!(slot, ?root, "Updating justified checkpoint");
         self.justified_checkpoint = Some(Checkpoint {
             slot: Slot(slot),
@@ -179,7 +197,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     }
 
     /// Updates the finalized checkpoint
-    async fn update_finalized_checkpoint(&mut self, slot: u64, root: types::Hash256) -> Result<(), String> {
+    async fn update_finalized_checkpoint(&mut self, slot: u64, root: Hash256) -> Result<(), String> {
         debug!(slot, ?root, "Updating finalized checkpoint");
         self.finalized_checkpoint = Some(Checkpoint {
             slot: Slot(slot),

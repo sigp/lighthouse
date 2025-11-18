@@ -5,15 +5,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-fixed_bytes = { workspace = true }
-milhouse = {workspace = true}
-ethereum_ssz_derive = { workspace = true }
 ethereum_ssz = { workspace = true }
-tree_hash_derive = { workspace = true }
-tree_hash = { workspace = true }
-serde = { workspace = true }
-types = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+fixed_bytes = { workspace = true }
 int_to_bytes = { workspace = true }
 lean_crypto = { workspace = true }
+milhouse = { workspace = true }
+serde = { workspace = true }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
+types = { workspace = true }
 
 

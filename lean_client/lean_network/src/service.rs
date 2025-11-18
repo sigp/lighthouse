@@ -1,35 +1,51 @@
 use crate::config::NetworkConfig;
 use futures::StreamExt;
+use lean_consensus::attestation::Attestation;
+use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
 use libp2p::{
     core::upgrade::Version,
-    gossipsub, identify, mdns, noise,
+    gossipsub, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux, PeerId, Swarm, Transport,
 };
+use ssz::Decode;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+use types::EthSpec;
 
 #[derive(NetworkBehaviour)]
 pub struct LeanBehaviour {
-    identify: identify::Behaviour,
-    mdns: mdns::tokio::Behaviour,
     gossipsub: gossipsub::Behaviour,
 }
 
-/// Messages received from the network that need to be processed
 #[derive(Debug, Clone)]
-pub struct NetworkMessage {
+pub struct LeanPubSubMessage {
     pub topic: String,
     pub data: Vec<u8>,
 }
 
-pub struct NetworkService {
-    swarm: Swarm<LeanBehaviour>,
-    message_tx: Option<mpsc::UnboundedSender<NetworkMessage>>,
+/// Messages received from the network that need to be processed
+#[derive(Debug, Clone)]
+pub enum NetworkMessage<E: EthSpec> {
+    /// Attestation received from network
+    Attestation(Arc<Attestation>),
+    /// Block received from network
+    Block(Arc<SignedLeanBlockWithAttestation<E>>),
 }
 
-impl NetworkService {
+pub struct NetworkService<E: EthSpec> {
+    swarm: Swarm<LeanBehaviour>,
+    message_tx: Option<mpsc::UnboundedSender<NetworkMessage<E>>>,
+}
+
+#[derive(Clone)]
+pub struct NetworkServiceHandle {
+    publish_tx: mpsc::UnboundedSender<LeanPubSubMessage>,
+}
+
+impl<E: EthSpec> NetworkService<E> {
     pub fn new(config: NetworkConfig) -> Result<Self, Box<dyn std::error::Error>> {
         let local_key = libp2p::identity::Keypair::generate_ed25519();
         let local_peer_id = PeerId::from(local_key.public());
@@ -42,17 +58,7 @@ impl NetworkService {
             .multiplex(yamux::Config::default())
             .boxed();
 
-        let identify = identify::Behaviour::new(identify::Config::new(
-            "/lean-client/1.0.0".to_string(),
-            local_key.public(),
-        ));
 
-        let mdns = mdns::tokio::Behaviour::new(
-            mdns::Config::default(),
-            local_peer_id,
-        )?;
-
-        // Configure gossipsub
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
             .validation_mode(gossipsub::ValidationMode::Strict)
@@ -66,8 +72,6 @@ impl NetworkService {
         .map_err(|e| format!("Failed to create gossipsub behaviour: {}", e))?;
 
         let behaviour = LeanBehaviour {
-            identify,
-            mdns,
             gossipsub,
         };
 
@@ -91,13 +95,43 @@ impl NetworkService {
         })
     }
 
-    /// Set the message sender for forwarding network messages
-    pub fn set_message_sender(&mut self, tx: mpsc::UnboundedSender<NetworkMessage>) {
+    pub fn set_message_sender(&mut self, tx: mpsc::UnboundedSender<NetworkMessage<E>>) {
         self.message_tx = Some(tx);
     }
 
+    /// Decode message based on topic and create appropriate NetworkMessage
+    fn decode_network_message(&self, topic: &str, data: &[u8]) -> Option<NetworkMessage<E>> {
+        // Topic format is typically: /eth2/{fork_digest}/{topic_name}/{encoding}
+        // e.g., /eth2/4a26c58b/lean_attestation/ssz_snappy
+        if topic.contains("lean_attestation") || topic.contains("attestation") {
+            match Attestation::from_ssz_bytes(data) {
+                Ok(attestation) => {
+                    debug!("Successfully decoded lean attestation from network");
+                    Some(NetworkMessage::Attestation(Arc::new(attestation)))
+                }
+                Err(e) => {
+                    warn!("Failed to decode lean attestation: {:?}", e);
+                    None
+                }
+            }
+        } else if topic.contains("lean_block") || topic.contains("block") {
+            match SignedLeanBlockWithAttestation::from_ssz_bytes(data) {
+                Ok(block) => {
+                    debug!("Successfully decoded lean block from network");
+                    Some(NetworkMessage::Block(Arc::new(block)))
+                }
+                Err(e) => {
+                    warn!("Failed to decode lean block: {:?}", e);
+                    None
+                }
+            }
+        } else {
+            debug!("Unknown topic type: {}", topic);
+            None
+        }
+    }
+
     pub async fn start(mut self) {
-        eprintln!("DEBUG: Network service start() called");
         info!("Network service started");
 
         loop {
@@ -112,27 +146,34 @@ impl NetworkService {
                             message,
                             ..
                         }) => {
-                            info!(
+                            debug!(
                                 "Received gossipsub message from {:?} on topic {:?}",
                                 propagation_source, message.topic
                             );
 
-                            // Forward message to attestation service
-                            if let Some(tx) = &self.message_tx {
-                                let network_msg = NetworkMessage {
-                                    topic: message.topic.to_string(),
-                                    data: message.data.to_vec(),
-                                };
-                                if let Err(e) = tx.send(network_msg) {
-                                    warn!("Failed to send network message to attestation service: {}", e);
+                            // Decode the message based on topic
+                            if let Some(network_msg) = self.decode_network_message(
+                                &message.topic.to_string(),
+                                &message.data
+                            ) {
+                                // Send the decoded message to attestation service
+                                if let Some(tx) = &self.message_tx {
+                                    match &network_msg {
+                                        NetworkMessage::Attestation(_) => {
+                                            info!("Forwarding attestation to attestation service");
+                                        }
+                                        NetworkMessage::Block(_) => {
+                                            info!("Forwarding block to attestation service");
+                                        }
+                                    }
+
+                                    if let Err(e) = tx.send(network_msg) {
+                                        warn!("Failed to send network message to attestation service: {}", e);
+                                    }
+                                } else {
+                                    warn!("No message channel configured for attestation service");
                                 }
                             }
-                        }
-                        LeanBehaviourEvent::Identify(event) => {
-                            debug!("Identify event: {:?}", event);
-                        }
-                        LeanBehaviourEvent::Mdns(event) => {
-                            debug!("mDNS event: {:?}", event);
                         }
                         _ => {
                             debug!("Other behaviour event: {:?}", event);
@@ -170,4 +211,9 @@ impl NetworkService {
             }
         }
     }
+
+    /// this function publishes the messages to the gossipsub
+    /// network.
+    pub fn publish(&self, messages: Vec<LeanPubSubMessage>){}
 }
+
