@@ -64,11 +64,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This function should not be called concurrently with any other function that mutates
     /// the anchor info (including this function itself). If a concurrent mutation occurs that
     /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
+    ///
+    /// Return the number of blocks successfully imported.
     #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
-    ) -> Result<(), HistoricalBlockError> {
+    ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
@@ -95,7 +97,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if blocks_to_import.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
@@ -311,6 +313,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store_migrator.process_reconstruction();
         }
 
-        Ok(())
+        Ok(num_relevant)
     }
 }
