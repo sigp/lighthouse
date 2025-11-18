@@ -80,10 +80,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let num_relevant = blocks.partition_point(|available_block| {
             available_block.block().slot() <= anchor_info.oldest_block_slot
         });
+
         let total_blocks = blocks.len();
         blocks.truncate(num_relevant);
-
         let blocks_to_import = blocks;
+
         if blocks_to_import.len() != total_blocks {
             debug!(
                 oldest_block_slot = %anchor_info.oldest_block_slot,
