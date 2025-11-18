@@ -253,12 +253,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         self.inner.executor.spawn(
             async move {
                 // Log an error if the handle fails and return, skipping aggregates
-                let Some(handle) = attestation_data_handle else {
-                    error!(slot = slot.as_u64(), "Failed to spawn attestation task");
-                    return;
-                };
-
-                let Ok(Some(Ok(attestation_data))) = handle.await else {
+                let Some(attestation_data) =
+                    async { attestation_data_handle?.await.ok()?.and_then(Result::ok) }.await
+                else {
                     error!(slot = slot.as_u64(), "Failed to spawn attestation task");
                     return;
                 };
