@@ -1685,20 +1685,14 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     //
     // Fork choice has the most up-to-date view of finalization and there's no point importing a
     // block which conflicts with the fork-choice view of finalization.
-    let finalized_checkpoint = chain.canonical_head.cached_head().finalized_checkpoint();
-    let finalized_slot = finalized_checkpoint
+    let finalized_slot = chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
 
-    let would_revert_finalized_slot = if block.slot() < finalized_slot {
-        true
-    } else if block.slot() == finalized_slot {
-        block_root != finalized_checkpoint.root
-    } else {
-        false
-    };
-    // Allow to re-import the finalized block if it's the same
-    if would_revert_finalized_slot {
+    if block.slot() <= finalized_slot {
         chain.pre_finalization_block_rejected(block_root);
         Err(BlockError::WouldRevertFinalizedSlot {
             block_slot: block.slot(),
