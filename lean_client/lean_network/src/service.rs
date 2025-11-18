@@ -8,7 +8,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux, PeerId, Swarm, Transport,
 };
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -27,7 +27,6 @@ pub struct LeanPubSubMessage {
 }
 
 /// Messages received from the network that need to be processed
-#[derive(Debug, Clone)]
 pub enum NetworkMessage<E: EthSpec> {
     /// Attestation received from network
     Attestation(Arc<Attestation>),
@@ -37,7 +36,8 @@ pub enum NetworkMessage<E: EthSpec> {
 
 pub struct NetworkService<E: EthSpec> {
     swarm: Swarm<LeanBehaviour>,
-    message_tx: Option<mpsc::UnboundedSender<NetworkMessage<E>>>,
+    network_recv: mpsc::UnboundedSender<NetworkMessage<E>>,
+    network_send: mpsc::UnboundedReceiver<NetworkMessage<E>>,
 }
 
 #[derive(Clone)]
@@ -46,7 +46,11 @@ pub struct NetworkServiceHandle {
 }
 
 impl<E: EthSpec> NetworkService<E> {
-    pub fn new(config: NetworkConfig) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        config: NetworkConfig,
+        network_recv: mpsc::UnboundedSender<NetworkMessage<E>>,
+        network_send: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let local_key = libp2p::identity::Keypair::generate_ed25519();
         let local_peer_id = PeerId::from(local_key.public());
 
@@ -91,12 +95,9 @@ impl<E: EthSpec> NetworkService<E> {
 
         Ok(Self {
             swarm,
-            message_tx: None,
+            network_recv,
+            network_send,
         })
-    }
-
-    pub fn set_message_sender(&mut self, tx: mpsc::UnboundedSender<NetworkMessage<E>>) {
-        self.message_tx = Some(tx);
     }
 
     /// Decode message based on topic and create appropriate NetworkMessage
@@ -135,7 +136,15 @@ impl<E: EthSpec> NetworkService<E> {
         info!("Network service started");
 
         loop {
-            match self.swarm.select_next_some().await {
+            tokio::select! {
+                // Handle messages to publish
+                Some(msg) = self.network_send.recv() => {
+                    self.publish_message(msg).await;
+                }
+
+                // Handle swarm events
+                event = self.swarm.select_next_some() => {
+            match event {
                 SwarmEvent::NewListenAddr { address, .. } => {
                     info!("Listening on: {:?}", address);
                 }
@@ -156,22 +165,17 @@ impl<E: EthSpec> NetworkService<E> {
                                 &message.topic.to_string(),
                                 &message.data
                             ) {
-                                // Send the decoded message to attestation service
-                                if let Some(tx) = &self.message_tx {
-                                    match &network_msg {
-                                        NetworkMessage::Attestation(_) => {
-                                            info!("Forwarding attestation to attestation service");
-                                        }
-                                        NetworkMessage::Block(_) => {
-                                            info!("Forwarding block to attestation service");
-                                        }
+                                match &network_msg {
+                                    NetworkMessage::Attestation(_) => {
+                                        info!("Forwarding attestation to attestation service");
                                     }
+                                    NetworkMessage::Block(_) => {
+                                        info!("Forwarding block to attestation service");
+                                    }
+                                }
 
-                                    if let Err(e) = tx.send(network_msg) {
-                                        warn!("Failed to send network message to attestation service: {}", e);
-                                    }
-                                } else {
-                                    warn!("No message channel configured for attestation service");
+                                if let Err(e) = self.network_recv.send(network_msg) {
+                                    warn!("Failed to send network message to attestation service: {}", e);
                                 }
                             }
                         }
@@ -209,11 +213,40 @@ impl<E: EthSpec> NetworkService<E> {
                 }
                 _ => {}
             }
+                }
+            }
         }
     }
 
-    /// this function publishes the messages to the gossipsub
-    /// network.
-    pub fn publish(&self, messages: Vec<LeanPubSubMessage>){}
+    /// Publishes a message to the gossipsub network
+    async fn publish_message(&mut self, msg: NetworkMessage<E>) {
+        let (topic_name, data) = match &msg {
+            NetworkMessage::Attestation(attestation) => {
+                info!(
+                    slot = attestation.attestation_data.slot.0,
+                    validator_id = attestation.validator_id,
+                    "Publishing attestation to network"
+                );
+                ("lean_attestation", attestation.as_ssz_bytes())
+            }
+            NetworkMessage::Block(block) => {
+                info!(
+                    slot = block.message.block.slot.0,
+                    "Publishing block to network"
+                );
+                ("lean_block", block.as_ssz_bytes())
+            }
+        };
+
+        // Create gossipsub topic
+        let topic = gossipsub::IdentTopic::new(topic_name);
+
+        // Publish to gossipsub
+        if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+            warn!("Failed to publish message to gossipsub: {:?}", e);
+        } else {
+            debug!("Successfully published message to topic: {}", topic_name);
+        }
+    }
 }
 

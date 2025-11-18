@@ -1,4 +1,4 @@
-use lean_consensus::attestation::{Attestation, Checkpoint, Slot};
+use lean_consensus::attestation::{Attestation, AttestationData, Checkpoint, Slot};
 use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
 use lean_consensus::lean_state::LeanState;
 pub use lean_network::NetworkMessage;
@@ -13,7 +13,9 @@ use types::{EthSpec, Hash256, VariableList};
 /// Attestation service that processes attestation duties
 pub struct AttestationService<T: SlotClock, E: EthSpec> {
     /// Receiver for network messages from the network service
-    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    /// Sender for publishing messages to the network service
+    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
     /// Slot clock for timing
     #[allow(dead_code)]
     slot_clock: T,
@@ -30,23 +32,22 @@ pub struct AttestationService<T: SlotClock, E: EthSpec> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
-    /// Creates a new attestation service and returns it along with a sender for network messages
+    /// Creates a new attestation service with the provided channels
     pub fn new(
         slot_clock: T,
-    ) -> (Self, mpsc::UnboundedSender<NetworkMessage<E>>) {
-        let (network_tx, network_rx) = mpsc::unbounded_channel();
-
-        let service = Self {
-            network_rx,
+        network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+    ) -> Self {
+        Self {
+            network_recv,
+            network_send,
             slot_clock,
             lean_state: None,
             head_block_root: None,
             justified_checkpoint: None,
             finalized_checkpoint: None,
             _phantom: std::marker::PhantomData,
-        };
-
-        (service, network_tx)
+        }
     }
 
     /// Sets the lean state for consensus processing
@@ -74,7 +75,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         info!(slot = current_slot, "Performing attestation duties");
 
                         // TODO: Determine validator assignments for this slot
-                        // https://github.com/sigp/lighthouse/issues/XXXX
                         if let Err(e) = self.produce_attestation(current_slot, 0).await {
                             error!(slot = current_slot, error = %e, "Failed to produce attestation");
                         }
@@ -84,7 +84,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 },
 
                 // Handle network messages from the wire
-                Some(network_msg) = self.network_rx.recv() => {
+                Some(network_msg) = self.network_recv.recv() => {
                     if let Err(e) = self.handle_network_message(network_msg).await {
                         error!("Error handling network message: {}", e);
                     }
@@ -173,8 +173,50 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     async fn produce_attestation(&self, slot: u64, validator_id: u64) -> Result<(), String> {
         info!(slot, validator_id, "Producing attestation");
 
-        // TODO: Implement attestation production logic
-        // https://github.com/sigp/lighthouse/issues/XXXX
+        // Ensure we have the necessary state to produce an attestation
+        let head_root = self.head_block_root
+            .ok_or_else(|| "No head block root available".to_string())?;
+
+        let source = self.justified_checkpoint
+            .clone()
+            .ok_or_else(|| "No justified checkpoint available".to_string())?;
+
+        let target = self.finalized_checkpoint
+            .clone()
+            .ok_or_else(|| "No finalized checkpoint available".to_string())?;
+
+        // Create head checkpoint
+        let head = Checkpoint {
+            slot: Slot(slot),
+            root: head_root,
+        };
+
+        // Create attestation data
+        let attestation_data = AttestationData {
+            slot: Slot(slot),
+            head,
+            source,
+            target,
+        };
+
+        // Create attestation
+        let attestation = Attestation {
+            validator_id,
+            attestation_data,
+        };
+
+        debug!(
+            slot,
+            validator_id,
+            ?head_root,
+            "Produced attestation"
+        );
+
+        // Publish attestation to network
+        if let Err(e) = self.network_send.send(NetworkMessage::Attestation(Arc::new(attestation))) {
+            error!(slot, validator_id, "Failed to send attestation to network: {}", e);
+            return Err(format!("Failed to send attestation to network: {}", e));
+        }
 
         Ok(())
     }
