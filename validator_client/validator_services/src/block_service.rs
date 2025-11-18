@@ -441,7 +441,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         info!(slot = slot.as_u64(), "Requesting unsigned block");
 
-        // Request an SSZ block from all beacon nodes in order, returning on the first successful response. 
+        // Request an SSZ block from all beacon nodes in order, returning on the first successful response.
         // If all nodes fail, run a second pass falling back to JSON.
         //
         // Proposer nodes will always be tried last during each pass since it's likely that they don't have a
