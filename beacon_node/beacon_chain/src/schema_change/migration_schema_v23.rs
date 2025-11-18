@@ -89,7 +89,7 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
     };
 
     // We use dummy roots for the justified states because we can source the balances from the v17
-    // persited fork choice. The justified state root isn't required to look up the justified state's
+    // persisted fork choice. The justified state root isn't required to look up the justified state's
     // balances (as it would be in V28). This fork choice object with corrupt state roots SHOULD NOT
     // be written to disk.
     let dummy_justified_state_root = Hash256::repeat_byte(0x66);
