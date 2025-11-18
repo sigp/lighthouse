@@ -639,6 +639,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let block = if blinded_block.message().execution_payload().is_err()
             || blinded_block.slot() >= split.slot
+            || block_root == split.block_root
         {
             // Re-constructing the full block should always succeed here.
             let full_block = self.make_full_block(block_root, blinded_block)?;
