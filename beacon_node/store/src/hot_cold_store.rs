@@ -639,7 +639,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let block = if blinded_block.message().execution_payload().is_err()
             || blinded_block.slot() >= split.slot
-            || *block_root == split.block_root
         {
             // Re-constructing the full block should always succeed here.
             let full_block = self.make_full_block(block_root, blinded_block)?;
@@ -650,7 +649,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .inspect(|cache| cache.lock().put_block(*block_root, full_block.clone()));
 
             DatabaseBlock::Full(full_block)
-        } else if !self.config.prune_payloads {
+        } else if !self.config.prune_payloads || *block_root == split.block_root {
             // If payload pruning is disabled there's a chance we may have the payload of
             // this finalized block. Attempt to load it but don't error in case it's missing.
             let fork_name = blinded_block.fork_name(&self.spec)?;

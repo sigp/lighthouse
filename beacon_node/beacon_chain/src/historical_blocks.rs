@@ -75,12 +75,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
 
-        // Take all blocks with slots less than or equal to the oldest block slot.
+        // Take all blocks with slots less than the oldest block slot, or equal to the anchor slot.
         //
         // This allows for reimport of the blobs/columns for the finalized block after checkpoint
         // sync.
         let num_relevant = blocks.partition_point(|available_block| {
-            available_block.block().slot() <= anchor_info.oldest_block_slot
+            available_block.block().slot() < anchor_info.oldest_block_slot
+                || available_block.block().slot() == anchor_info.anchor_slot
         });
 
         let total_blocks = blocks.len();
@@ -114,7 +115,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for available_block in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
 
-            if block.slot() == anchor_info.oldest_block_slot {
+            if block.slot() == anchor_info.anchor_slot {
                 // When reimporting, verify that this is actually the same block (same block root).
                 let oldest_block_root = self
                     .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
