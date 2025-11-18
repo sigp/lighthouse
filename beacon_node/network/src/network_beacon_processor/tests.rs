@@ -398,7 +398,13 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new_maybe_available(
+                    Some(block_root),
+                    self.next_block.clone(),
+                    None,
+                    None,
+                )
+                .unwrap(),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
@@ -410,7 +416,13 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new_maybe_available(
+                    Some(block_root),
+                    self.next_block.clone(),
+                    None,
+                    None,
+                )
+                .unwrap(),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )

@@ -63,7 +63,7 @@ impl<E: EthSpec> RpcBlock<E> {
         }
     }
 
-    pub fn rpc_block_inner(&self) -> &RpcBlockInner<E> {
+    fn rpc_block_inner(&self) -> &RpcBlockInner<E> {
         match self {
             RpcBlock::Available(available_rpc_block) => &available_rpc_block.block,
             RpcBlock::MaybeAvailable(maybe_available_rpc_block) => &maybe_available_rpc_block.block,
