@@ -17,7 +17,6 @@ pub struct AttestationService<T: SlotClock, E: EthSpec> {
     /// Sender for publishing messages to the network service
     network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
     /// Slot clock for timing
-    #[allow(dead_code)]
     slot_clock: T,
     /// Lean consensus state for processing blocks and attestations
     lean_state: Option<LeanState<E>>,
@@ -27,8 +26,6 @@ pub struct AttestationService<T: SlotClock, E: EthSpec> {
     justified_checkpoint: Option<Checkpoint>,
     /// Current finalized checkpoint
     finalized_checkpoint: Option<Checkpoint>,
-    /// Phantom data for EthSpec
-    _phantom: std::marker::PhantomData<E>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
@@ -46,7 +43,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             head_block_root: None,
             justified_checkpoint: None,
             finalized_checkpoint: None,
-            _phantom: std::marker::PhantomData,
         }
     }
 
