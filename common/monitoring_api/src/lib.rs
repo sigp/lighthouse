@@ -195,7 +195,7 @@ impl MonitoringHttpClient {
             endpoint = %self.monitoring_endpoint,
             "Sending metrics to remote endpoint"
         );
-        self.post(self.monitoring_endpoint.full.clone(), &metrics)
+        self.post(self.monitoring_endpoint.expose_full().clone(), &metrics)
             .await
     }
 }

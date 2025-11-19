@@ -5,8 +5,7 @@ use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;
-use compare_fields_derive::CompareFields;
-use derivative::Derivative;
+use educe::Educe;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{NumFields, metastruct};
@@ -173,7 +172,21 @@ pub enum Error {
     AggregatorNotInCommittee {
         aggregator_index: u64,
     },
-    PleaseNotifyTheDevs(String),
+    ComputeProposerIndicesPastEpoch {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ComputeProposerIndicesInsufficientLookahead {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ComputeProposerIndicesExcessiveLookahead {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ProposerLookaheadOutOfBounds {
+        i: usize,
+    },
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -232,7 +245,7 @@ impl From<BeaconStateHash> for Hash256 {
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
-            Derivative,
+            Educe,
             Debug,
             PartialEq,
             Serialize,
@@ -249,7 +262,7 @@ impl From<BeaconStateHash> for Hash256 {
             derive(arbitrary::Arbitrary),
             arbitrary(bound = "E: EthSpec")
         ),
-        derivative(Clone),
+        educe(Clone),
     ),
     specific_variant_attributes(
         Base(metastruct(
@@ -578,6 +591,7 @@ where
     #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Fulu, Gloas))]
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
 
     // Gloas
@@ -886,10 +900,27 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         epoch: Epoch,
         block_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<Hash256, Error> {
-        let decision_slot = self.proposer_shuffling_decision_slot(epoch);
+        let decision_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
         if self.slot() <= decision_slot {
             Ok(block_root)
+        } else {
+            self.get_block_root(decision_slot).copied()
+        }
+    }
+
+    /// Returns the block root at the last slot of `epoch - 1`.
+    ///
+    /// This can be deleted after Glamsterdam and the removal of the v1 proposer duties endpoint.
+    pub fn legacy_proposer_shuffling_decision_root_at_epoch(
+        &self,
+        epoch: Epoch,
+        head_block_root: Hash256,
+    ) -> Result<Hash256, Error> {
+        let decision_slot = epoch.saturating_sub(1u64).end_slot(E::slots_per_epoch());
+        if self.slot() <= decision_slot {
+            Ok(head_block_root)
         } else {
             self.get_block_root(decision_slot).copied()
         }
@@ -902,19 +933,18 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// The `block_root` covers the one-off scenario where the genesis block decides its own
     /// shuffling. It should be set to the latest block applied to `self` or the genesis block root.
-    pub fn proposer_shuffling_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
-        let decision_slot = self.proposer_shuffling_decision_slot(self.current_epoch());
-        if self.slot() == decision_slot {
-            Ok(block_root)
-        } else {
-            self.get_block_root(decision_slot).copied()
-        }
+    pub fn proposer_shuffling_decision_root(
+        &self,
+        block_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, Error> {
+        self.proposer_shuffling_decision_root_at_epoch(self.current_epoch(), block_root, spec)
     }
 
-    /// Returns the slot at which the proposer shuffling was decided. The block root at this slot
-    /// can be used to key the proposer shuffling for the given epoch.
-    fn proposer_shuffling_decision_slot(&self, epoch: Epoch) -> Slot {
-        epoch.start_slot(E::slots_per_epoch()).saturating_sub(1_u64)
+    pub fn epoch_cache_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
+        // Epoch cache decision root for the current epoch (N) is the block root at the end of epoch
+        // N - 1. This is the same as the root that determines the next epoch attester shuffling.
+        self.attester_shuffling_decision_root(block_root, RelativeEpoch::Next)
     }
 
     /// Returns the block root which decided the attester shuffling for the given `relative_epoch`.
@@ -998,6 +1028,45 @@ impl<E: EthSpec> BeaconState<E> {
         indices: &[usize],
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
+        // Regardless of fork, we never support computing proposer indices for past epochs.
+        let current_epoch = self.current_epoch();
+        if epoch < current_epoch {
+            return Err(Error::ComputeProposerIndicesPastEpoch {
+                current_epoch,
+                request_epoch: epoch,
+            });
+        }
+
+        if spec.fork_name_at_epoch(epoch).fulu_enabled() {
+            // Post-Fulu we must never compute proposer indices using insufficient lookahead. This
+            // would be very dangerous as it would lead to conflicts between the *true* proposer as
+            // defined by `self.proposer_lookahead` and the output of this function.
+            // With MIN_SEED_LOOKAHEAD=1 (common config), this is equivalent to checking that the
+            // requested epoch is not the current epoch.
+            //
+            // We do not run this check if this function is called from `upgrade_to_fulu`,
+            // which runs *after* the slot is incremented, and needs to compute the proposer
+            // shuffling for the epoch that was just transitioned into.
+            if self.fork_name_unchecked().fulu_enabled()
+                && epoch < current_epoch.safe_add(spec.min_seed_lookahead)?
+            {
+                return Err(Error::ComputeProposerIndicesInsufficientLookahead {
+                    current_epoch,
+                    request_epoch: epoch,
+                });
+            }
+        } else {
+            // Pre-Fulu the situation is reversed, we *should not* compute proposer indices using
+            // too much lookahead. To do so would make us vulnerable to changes in the proposer
+            // indices caused by effective balance changes.
+            if epoch >= current_epoch.safe_add(spec.min_seed_lookahead)? {
+                return Err(Error::ComputeProposerIndicesExcessiveLookahead {
+                    current_epoch,
+                    request_epoch: epoch,
+                });
+            }
+        }
+
         epoch
             .slot_iter(E::slots_per_epoch())
             .map(|slot| {
@@ -1146,10 +1215,7 @@ impl<E: EthSpec> BeaconState<E> {
             let index = slot.as_usize().safe_rem(E::slots_per_epoch() as usize)?;
             proposer_lookahead
                 .get(index)
-                .ok_or(Error::PleaseNotifyTheDevs(format!(
-                    "Proposer lookahead out of bounds: {} for slot: {}",
-                    index, slot
-                )))
+                .ok_or(Error::ProposerLookaheadOutOfBounds { i: index })
                 .map(|index| *index as usize)
         } else {
             // Pre-Fulu
@@ -1168,6 +1234,25 @@ impl<E: EthSpec> BeaconState<E> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
+        // This isn't in the spec, but we remove the footgun that is requesting the current epoch
+        // for a Fulu state.
+        if let Ok(proposer_lookahead) = self.proposer_lookahead()
+            && epoch >= self.current_epoch()
+            && epoch <= self.next_epoch()?
+        {
+            let slots_per_epoch = E::slots_per_epoch() as usize;
+            let start_offset = if epoch == self.current_epoch() {
+                0
+            } else {
+                slots_per_epoch
+            };
+            return Ok(proposer_lookahead
+                .iter_from(start_offset)?
+                .take(slots_per_epoch)
+                .map(|x| *x as usize)
+                .collect());
+        }
+
         // Not using the cached validator indices since they are shuffled.
         let indices = self.get_active_validator_indices(epoch, spec)?;
 

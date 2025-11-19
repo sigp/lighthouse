@@ -3,7 +3,7 @@ use crate::{
     AggregateSignature, AttestationData, EthSpec, ForkName, VariableList, test_utils::TestRandom,
 };
 use core::slice::Iter;
-use derivative::Derivative;
+use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -28,11 +28,11 @@ use tree_hash_derive::TreeHash;
             Decode,
             Encode,
             TestRandom,
-            Derivative,
+            Educe,
             TreeHash,
         ),
         context_deserialize(ForkName),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -46,7 +46,8 @@ use tree_hash_derive::TreeHash;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, Derivative, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
+#[educe(PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
