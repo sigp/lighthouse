@@ -15,3 +15,5 @@ genesis.ssz
 /*.iml
 .idea
 
+# VSCode
+/.vscode
