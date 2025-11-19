@@ -6,11 +6,12 @@ edition = { workspace = true }
 autotests = false
 
 [features]
-arbitrary-fuzz = ["types/arbitrary-fuzz"]
+arbitrary-fuzz = ["types/arbitrary-fuzz", "eip_3076/arbitrary-fuzz"]
 portable = ["types/portable"]
 
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"] }
+eip_3076 = { workspace = true, features = ["json"] }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
 r2d2 = { workspace = true }

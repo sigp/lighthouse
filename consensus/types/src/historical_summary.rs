@@ -1,7 +1,7 @@
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{BeaconState, EthSpec, ForkName, Hash256};
-use compare_fields_derive::CompareFields;
+use compare_fields::CompareFields;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

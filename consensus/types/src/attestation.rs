@@ -8,7 +8,7 @@ use crate::{
 };
 use crate::{Hash256, Slot, test_utils::TestRandom};
 use crate::{IndexedAttestation, context_deserialize};
-use derivative::Derivative;
+use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
@@ -45,11 +45,11 @@ impl From<ssz_types::Error> for Error {
             Decode,
             Encode,
             TestRandom,
-            Derivative,
+            Educe,
             TreeHash,
         ),
         context_deserialize(ForkName),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -66,7 +66,8 @@ impl From<ssz_types::Error> for Error {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, Derivative, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
+#[educe(PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
@@ -599,18 +600,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
 */
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Decode,
-    Encode,
-    TestRandom,
-    Derivative,
-    TreeHash,
-    PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TestRandom, TreeHash, PartialEq)]
 #[context_deserialize(ForkName)]
 pub struct SingleAttestation {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -622,19 +612,22 @@ pub struct SingleAttestation {
 }
 
 impl SingleAttestation {
-    pub fn to_indexed<E: EthSpec>(&self, fork_name: ForkName) -> IndexedAttestation<E> {
+    pub fn to_indexed<E: EthSpec>(
+        &self,
+        fork_name: ForkName,
+    ) -> Result<IndexedAttestation<E>, ssz_types::Error> {
         if fork_name.electra_enabled() {
-            IndexedAttestation::Electra(IndexedAttestationElectra {
-                attesting_indices: vec![self.attester_index].into(),
+            Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+                attesting_indices: vec![self.attester_index].try_into()?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-            })
+            }))
         } else {
-            IndexedAttestation::Base(IndexedAttestationBase {
-                attesting_indices: vec![self.attester_index].into(),
+            Ok(IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices: vec![self.attester_index].try_into()?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-            })
+            }))
         }
     }
 }

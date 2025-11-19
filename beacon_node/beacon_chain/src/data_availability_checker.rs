@@ -52,9 +52,8 @@ use types::non_zero_usize::new_non_zero_usize;
 ///
 /// `PendingComponents` are now never removed from the cache manually are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
-pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
-pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
+const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
+const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
@@ -128,7 +127,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
-            OVERFLOW_LRU_CAPACITY,
+            OVERFLOW_LRU_CAPACITY_NON_ZERO,
             store,
             custody_context.clone(),
             spec.clone(),
@@ -617,39 +616,45 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             ));
         };
 
-        let data_columns_to_publish = all_data_columns
-            .into_iter()
-            .filter(|d| !existing_column_indices.contains(&d.index()))
-            .collect::<Vec<_>>();
-
-        let Some(slot) = data_columns_to_publish
-            .first()
-            .map(|d| d.as_data_column().slot())
-        else {
+        let Some(slot) = all_data_columns.first().map(|d| d.as_data_column().slot()) else {
             return Ok(DataColumnReconstructionResult::RecoveredColumnsNotImported(
                 "No new columns to import and publish",
             ));
         };
 
+        let columns_to_sample = self
+            .custody_context()
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+
+        // We only need to import and publish columns that we need to sample
+        // and columns that we haven't already received
+        let data_columns_to_import_and_publish = all_data_columns
+            .into_iter()
+            .filter(|d| {
+                columns_to_sample.contains(&d.index())
+                    && !existing_column_indices.contains(&d.index())
+            })
+            .collect::<Vec<_>>();
+
         metrics::stop_timer(timer);
         metrics::inc_counter_by(
             &metrics::DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS,
-            data_columns_to_publish.len() as u64,
+            data_columns_to_import_and_publish.len() as u64,
         );
 
         debug!(
-            count = data_columns_to_publish.len(),
+            count = data_columns_to_import_and_publish.len(),
             ?block_root,
             %slot,
             "Reconstructed columns"
         );
 
         self.availability_cache
-            .put_kzg_verified_data_columns(*block_root, data_columns_to_publish.clone())
+            .put_kzg_verified_data_columns(*block_root, data_columns_to_import_and_publish.clone())
             .map(|availability| {
                 DataColumnReconstructionResult::Success((
                     availability,
-                    data_columns_to_publish
+                    data_columns_to_import_and_publish
                         .into_iter()
                         .map(|d| d.clone_arc())
                         .collect::<Vec<_>>(),
@@ -859,6 +864,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 mod test {
     use super::*;
     use crate::CustodyContext;
+    use crate::custody_context::NodeCustodyType;
     use crate::test_utils::{
         EphemeralHarnessType, NumBlobs, generate_rand_block_and_data_columns, get_kzg,
     };
@@ -1082,6 +1088,95 @@ mod test {
         verification_result.expect_err("should have failed to verify blocks");
     }
 
+    #[test]
+    fn should_exclude_reconstructed_columns_not_required_for_sampling() {
+        // SETUP
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+
+        let da_checker = new_da_checker(spec.clone());
+        let custody_context = &da_checker.custody_context;
+        let all_column_indices_ordered =
+            init_custody_context_with_ordered_columns(custody_context, &mut rng, &spec);
+
+        // Set custody requirement to 65 columns (enough to trigger reconstruction)
+        let epoch = Epoch::new(1);
+        custody_context.register_validators(
+            vec![(0, 2_048_000_000_000), (1, 32_000_000_000)], // 64 + 1
+            Slot::new(0),
+            &spec,
+        );
+        let sampling_requirement = custody_context.num_of_data_columns_to_sample(epoch, &spec);
+        assert_eq!(
+            sampling_requirement, 65,
+            "sampling requirement should be 65"
+        );
+
+        let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut rng,
+            &spec,
+        );
+        let block_root = Hash256::random();
+        // Add the block to the DA checker
+        da_checker
+            .availability_cache
+            .put_pre_execution_block(block_root, Arc::new(block), BlockImportSource::Gossip)
+            .expect("should put block");
+
+        // Add 64 columns to the da checker (enough to be able to reconstruct)
+        // Order by all_column_indices_ordered, then take first 64
+        let custody_columns = all_column_indices_ordered
+            .iter()
+            .filter_map(|&col_idx| data_columns.iter().find(|d| d.index == col_idx).cloned())
+            .take(64)
+            .map(|d| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::__new_for_testing(d),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        da_checker
+            .availability_cache
+            .put_kzg_verified_data_columns(block_root, custody_columns)
+            .expect("should put custody columns");
+
+        // Try reconstrucing
+        let reconstruction_result = da_checker
+            .reconstruct_data_columns(&block_root)
+            .expect("should reconstruct columns");
+
+        // Reconstruction should succeed
+        let (_availability, reconstructed_columns) = match reconstruction_result {
+            DataColumnReconstructionResult::Success(result) => result,
+            e => {
+                panic!("Expected successful reconstruction {:?}", e);
+            }
+        };
+
+        // Remaining 64 columns should be reconstructed
+        assert_eq!(
+            reconstructed_columns.len(),
+            sampling_requirement - spec.number_of_custody_groups as usize / 2,
+            "should reconstruct the remaining 1 columns"
+        );
+
+        // Only the columns required for custody (65) should be imported into the cache
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
+        let actual_cached: HashSet<ColumnIndex> = da_checker
+            .cached_data_column_indexes(&block_root)
+            .expect("should have cached data columns")
+            .into_iter()
+            .collect();
+        let expected_sampling_columns = sampling_columns.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(
+            actual_cached, expected_sampling_columns,
+            "should cache only the required custody columns, not all reconstructed columns"
+        );
+    }
+
     fn init_custody_context_with_ordered_columns(
         custody_context: &Arc<CustodyContext<E>>,
         mut rng: &mut StdRng,
@@ -1103,7 +1198,7 @@ mod test {
         );
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
-        let custody_context = Arc::new(CustodyContext::new(false));
+        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode, &spec));
         let complete_blob_backfill = false;
         DataAvailabilityChecker::new(
             complete_blob_backfill,
