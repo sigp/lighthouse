@@ -64,7 +64,7 @@ that we have observed are:
 The following table lists the data for different configurations. Note that the disk space requirement is for the `chain_db` and `freezer_db`, excluding the `blobs_db`.
 
 | Hierarchy Exponents | Storage Requirement | Sequential Slot Query | Uncached Query | Time to Sync |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 5,9,11,13,16,18,21 (default) | 418 GiB | 250-700 ms | up to 10 s | 1 week |
 | 5,7,11 (frequent snapshots) | 589 GiB | 250-700 ms | up to 6 s | 1 week |
 | 0,5,7,11 (per-slot diffs) | 2500 GiB | 250-700 ms | up to 4 s | 7 weeks |
