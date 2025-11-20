@@ -1,8 +1,7 @@
+use alloy_network::TransactionBuilder;
+use alloy_primitives::{Address, U256};
+use alloy_rpc_types_eth::{AccessList, TransactionRequest};
 use deposit_contract::{BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS, encode_eth1_tx_data};
-use ethers_core::types::{
-    Address, Bytes, Eip1559TransactionRequest, TransactionRequest, U256,
-    transaction::{eip2718::TypedTransaction, eip2930::AccessList},
-};
 use types::{DepositData, EthSpec, FixedBytesExtended, Hash256, Keypair, Signature};
 
 /// Hardcoded deposit contract address based on sender address and nonce
@@ -21,7 +20,7 @@ pub enum Transaction {
 }
 
 /// Get a list of transactions to publish to the execution layer.
-pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<TypedTransaction> {
+pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<TransactionRequest> {
     vec![
         Transaction::Transfer(account1, account2).transaction::<E>(),
         Transaction::TransferLegacy(account1, account2).transaction::<E>(),
@@ -29,7 +28,7 @@ pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<Typ
         Transaction::DeployDepositContract(account1).transaction::<E>(),
         Transaction::DepositDepositContract {
             sender: account1,
-            deposit_contract_address: ethers_core::types::Address::from_slice(
+            deposit_contract_address: Address::from_slice(
                 &hex::decode(DEPOSIT_CONTRACT_ADDRESS).unwrap(),
             ),
         }
@@ -38,33 +37,36 @@ pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<Typ
 }
 
 impl Transaction {
-    pub fn transaction<E: EthSpec>(&self) -> TypedTransaction {
+    pub fn transaction<E: EthSpec>(&self) -> TransactionRequest {
         match &self {
-            Self::TransferLegacy(from, to) => TransactionRequest::new()
+            Self::TransferLegacy(from, to) => TransactionRequest::default()
                 .from(*from)
                 .to(*to)
-                .value(1)
-                .into(),
-            Self::Transfer(from, to) => Eip1559TransactionRequest::new()
+                .value(U256::from(1))
+                .with_gas_price(1_000_000_000u128), // 1 gwei
+            Self::Transfer(from, to) => TransactionRequest::default()
                 .from(*from)
                 .to(*to)
-                .value(1)
-                .into(),
-            Self::TransferAccessList(from, to) => TransactionRequest::new()
+                .value(U256::from(1))
+                .with_max_fee_per_gas(2_000_000_000u128)
+                .with_max_priority_fee_per_gas(1_000_000_000u128),
+            Self::TransferAccessList(from, to) => TransactionRequest::default()
                 .from(*from)
                 .to(*to)
-                .value(1)
+                .value(U256::from(1))
                 .with_access_list(AccessList::default())
-                .into(),
+                .with_gas_price(1_000_000_000u128), // 1 gwei
             Self::DeployDepositContract(addr) => {
                 let mut bytecode = String::from_utf8(BYTECODE.to_vec()).unwrap();
                 bytecode.retain(|c| c.is_ascii_hexdigit());
                 let bytecode = hex::decode(&bytecode[1..]).unwrap();
-                TransactionRequest::new()
+                let mut req = TransactionRequest::default()
                     .from(*addr)
-                    .data(Bytes::from(bytecode))
-                    .gas(CONTRACT_DEPLOY_GAS)
-                    .into()
+                    .with_input(bytecode)
+                    .with_gas_limit(CONTRACT_DEPLOY_GAS.try_into().unwrap())
+                    .with_gas_price(1_000_000_000u128); // 1 gwei
+                req.set_create();
+                req
             }
             Self::DepositDepositContract {
                 sender,
@@ -80,13 +82,13 @@ impl Transaction {
                     signature: Signature::empty().into(),
                 };
                 deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
-                TransactionRequest::new()
+                TransactionRequest::default()
                     .from(*sender)
                     .to(*deposit_contract_address)
-                    .data(Bytes::from(encode_eth1_tx_data(&deposit).unwrap()))
-                    .gas(DEPOSIT_GAS)
-                    .value(U256::from(amount) * U256::exp10(9))
-                    .into()
+                    .with_input(encode_eth1_tx_data(&deposit).unwrap())
+                    .with_gas_limit(DEPOSIT_GAS.try_into().unwrap())
+                    .value(U256::from(amount) * U256::from(10).pow(U256::from(9)))
+                    .with_gas_price(1_000_000_000u128) // 1 gwei
             }
         }
     }

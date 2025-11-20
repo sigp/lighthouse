@@ -1428,11 +1428,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         // Spawn the payload verification future as a new task, but don't wait for it to complete.
         // The `payload_verification_future` will be awaited later to ensure verification completed
         // successfully.
-        let current_span = Span::current();
         let payload_verification_handle = chain
             .task_executor
             .spawn_handle(
-                payload_verification_future.instrument(current_span),
+                payload_verification_future
+                    .instrument(debug_span!("execution_payload_verification")),
                 "execution_payload_verification",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?;
