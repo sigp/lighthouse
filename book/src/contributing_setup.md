@@ -85,6 +85,7 @@ structure:
 
 - A `main.rs` file is defined at `package/tests/main.rs` that declares other test files as modules
 - In `package/Cargo.toml`, integration tests are explicitly configured:
+
     ```toml
     [package]
     autotests = false
