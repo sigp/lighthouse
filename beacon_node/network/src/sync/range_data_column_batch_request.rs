@@ -268,8 +268,8 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
             let received_columns = columns.iter().map(|c| c.index).collect::<HashSet<_>>();
 
-            let missing_columns = received_columns
-                .difference(expected_custody_columns)
+            let missing_columns = expected_custody_columns
+                .difference(&received_columns)
                 .collect::<HashSet<_>>();
 
             // blobs are expected for this slot but there is at least one missing columns

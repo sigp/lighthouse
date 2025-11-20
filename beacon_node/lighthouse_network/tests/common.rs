@@ -16,6 +16,7 @@ use types::{
 
 type E = MinimalEthSpec;
 
+use lighthouse_network::identity::secp256k1;
 use lighthouse_network::rpc::config::InboundRateLimiterConfig;
 use tempfile::Builder as TempBuilder;
 
@@ -138,10 +139,15 @@ pub async fn build_libp2p_instance(
         libp2p_registry: None,
     };
     Libp2pInstance(
-        LibP2PService::new(executor, libp2p_context, custody_group_count)
-            .await
-            .expect("should build libp2p instance")
-            .0,
+        LibP2PService::new(
+            executor,
+            libp2p_context,
+            custody_group_count,
+            secp256k1::Keypair::generate().into(),
+        )
+        .await
+        .expect("should build libp2p instance")
+        .0,
         signal,
     )
 }
