@@ -77,5 +77,9 @@ pub fn size_of_dir(path: &Path) -> u64 {
 }
 
 fn size_of_dir_entry(dir: fs::DirEntry) -> u64 {
-    dir.metadata().map(|m| m.len()).unwrap_or(0)
+    match dir.metadata() {
+        Ok(metadata) if metadata.is_dir() => size_of_dir(&dir.path()),
+        Ok(metadata) => metadata.len(),
+        Err(_) => 0,
+    }
 }
