@@ -2146,6 +2146,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core 0.9.10",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4030,6 +4044,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashsig"
+version = "0.1.0"
+source = "git+https://github.com/b-wagn/hash-sig?branch=main#7dd0694a0c732da49b9b1d2f630c11e9e0d70c14"
+dependencies = [
+ "dashmap",
+ "num-bigint",
+ "num-traits",
+ "p3-baby-bear",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-symmetric",
+ "rand 0.9.0",
+ "rayon",
+ "serde",
+ "sha3 0.10.8",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "hdrhistogram"
 version = "7.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5083,30 +5116,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "lean_attestation_service"
-version = "0.1.0"
-dependencies = [
- "lean_consensus",
- "lean_network",
- "slot_clock",
- "tokio",
- "tracing",
- "tree_hash",
- "types",
-]
-
-[[package]]
 name = "lean_client"
 version = "0.1.0"
 dependencies = [
  "clap",
  "clap_utils",
  "environment",
- "lean_attestation_service",
+ "ethereum_ssz",
+ "lean_consensus",
+ "lean_genesis",
+ "lean_keystore",
  "lean_network",
+ "lean_store",
+ "lean_validator_service",
  "serde",
  "slot_clock",
+ "store",
  "task_executor",
+ "tempfile",
  "tokio",
  "tracing",
  "types",
@@ -5123,6 +5150,8 @@ dependencies = [
  "lean_crypto",
  "milhouse",
  "serde",
+ "serde_json",
+ "serde_yaml",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -5133,8 +5162,10 @@ name = "lean_crypto"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "bincode",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "hashsig",
  "tree_hash",
 ]
 
@@ -5142,22 +5173,87 @@ dependencies = [
 name = "lean_forkchoice"
 version = "0.1.0"
 dependencies = [
+ "ethereum_ssz",
  "lean_consensus",
+ "parking_lot 0.12.3",
+ "store",
+ "tracing",
  "types",
+]
+
+[[package]]
+name = "lean_genesis"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_yaml",
+ "tracing",
+]
+
+[[package]]
+name = "lean_keystore"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "hashsig",
+ "rand 0.9.0",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "lean_network"
 version = "0.1.0"
 dependencies = [
+ "enr",
  "ethereum_ssz",
  "futures",
  "lean_consensus",
  "libp2p",
  "libp2p-gossipsub 0.50.0",
+ "libp2p-identity",
+ "serde",
+ "serde_yaml",
  "task_executor",
  "tokio",
  "tracing",
+ "types",
+]
+
+[[package]]
+name = "lean_store"
+version = "0.1.0"
+dependencies = [
+ "ethereum_ssz",
+ "lean_consensus",
+ "store",
+ "types",
+]
+
+[[package]]
+name = "lean_validator_service"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "ethereum_ssz",
+ "futures",
+ "hashsig",
+ "lean_consensus",
+ "lean_crypto",
+ "lean_forkchoice",
+ "lean_keystore",
+ "lean_network",
+ "lean_store",
+ "slot_clock",
+ "store",
+ "tokio",
+ "tracing",
+ "tree_hash",
  "types",
 ]
 
@@ -6896,6 +6992,143 @@ dependencies = [
  "elliptic-curve 0.13.8",
  "primeorder",
  "sha2 0.10.8",
+]
+
+[[package]]
+name = "p3-baby-bear"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "p3-field",
+ "p3-mds",
+ "p3-monty-31",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "rand 0.9.0",
+]
+
+[[package]]
+name = "p3-dft"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-field",
+ "p3-matrix",
+ "p3-maybe-rayon",
+ "p3-util",
+ "tracing",
+]
+
+[[package]]
+name = "p3-field"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "itertools 0.14.0",
+ "num-bigint",
+ "p3-maybe-rayon",
+ "p3-util",
+ "paste",
+ "rand 0.9.0",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "p3-koala-bear"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "p3-field",
+ "p3-monty-31",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "rand 0.9.0",
+]
+
+[[package]]
+name = "p3-matrix"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-field",
+ "p3-maybe-rayon",
+ "p3-util",
+ "rand 0.9.0",
+ "serde",
+ "tracing",
+ "transpose",
+]
+
+[[package]]
+name = "p3-maybe-rayon"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+
+[[package]]
+name = "p3-mds"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "p3-dft",
+ "p3-field",
+ "p3-symmetric",
+ "p3-util",
+ "rand 0.9.0",
+]
+
+[[package]]
+name = "p3-monty-31"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "itertools 0.14.0",
+ "num-bigint",
+ "p3-dft",
+ "p3-field",
+ "p3-matrix",
+ "p3-maybe-rayon",
+ "p3-mds",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "p3-util",
+ "paste",
+ "rand 0.9.0",
+ "serde",
+ "tracing",
+ "transpose",
+]
+
+[[package]]
+name = "p3-poseidon2"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "p3-field",
+ "p3-mds",
+ "p3-symmetric",
+ "p3-util",
+ "rand 0.9.0",
+]
+
+[[package]]
+name = "p3-symmetric"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-field",
+ "serde",
+]
+
+[[package]]
+name = "p3-util"
+version = "0.3.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -9134,6 +9367,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "strength_reduce"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
+
+[[package]]
 name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9928,6 +10167,16 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "transpose"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
+dependencies = [
+ "num-integer",
+ "strength_reduce",
 ]
 
 [[package]]

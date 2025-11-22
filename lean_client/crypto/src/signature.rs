@@ -40,28 +40,51 @@ impl Signature {
     /// Verify the signature using Generalized XMSS verification.
     ///
     /// # Parameters
-    /// - `public_key`: The public key bytes (52 bytes for XMSS)
-    /// - `epoch`: The epoch/slot number
-    /// - `message`: The message bytes to verify
+    /// - `public_key`: The public key bytes (XMSS root + parameter values)
+    /// - `epoch`: The epoch/slot number used for signature generation
+    /// - `message`: The message hash to verify (32 bytes)
     ///
     /// # Returns
     /// `true` if the signature is valid, `false` otherwise
-    ///
-    /// # TODO
-    /// Implement XMSS signature verification using the hashsig crate.
-    /// This requires:
-    /// 1. Configuring the GeneralizedXMSSSignatureScheme with the correct parameters
-    ///    matching the Python spec (TEST_CONFIG or PROD_CONFIG)
-    /// 2. Setting up the Poseidon2 tweakable hash function
-    /// 3. Configuring the incomparable encoding with LOG_LIFETIME = 24
-    /// 4. Deserializing the public key and signature from bytes
-    /// 5. Calling the verify function with the correct parameters
-    ///
-    /// Reference: /Users/manasnagaraj/projects/oss/sigmaprime/leanSpec/src/lean_spec/subspecs/xmss/interface.py
-    pub fn verify(&self, _public_key: &[u8], _epoch: u64, _message: &[u8]) -> bool {
-        // For now, return false to maintain security
-        // Signature verification should be explicitly enabled once properly implemented
-        false
+    pub fn verify(&self, public_key: &[u8], epoch: u64, message: &[u8]) -> bool {
+        use hashsig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
+        use hashsig::signature::SignatureScheme;
+
+        // Validate input lengths
+        if self.bytes.is_empty() || public_key.is_empty() || message.len() != 32 {
+            return false;
+        }
+
+        // Epoch must fit in u32 for XMSS
+        let epoch_u32 = match epoch.try_into() {
+            Ok(e) => e,
+            Err(_) => return false,
+        };
+
+        // Deserialize the public key
+        let public_key_deserialized: <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::PublicKey =
+            match bincode::deserialize(public_key) {
+                Ok(pk) => pk,
+                Err(_) => return false,
+            };
+
+        // Deserialize the signature
+        let signature_deserialized: <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::Signature =
+            match bincode::deserialize(&self.bytes) {
+                Ok(sig) => sig,
+                Err(_) => return false,
+            };
+
+        // Convert message to fixed-size array (32 bytes)
+        let mut message_array = [0u8; 32];
+        if message.len() == 32 {
+            message_array.copy_from_slice(message);
+        } else {
+            return false;
+        }
+
+        // Verify the signature
+        SIGTopLevelTargetSumLifetime32Dim64Base8::verify(&public_key_deserialized, epoch_u32, &message_array, &signature_deserialized)
     }
 }
 

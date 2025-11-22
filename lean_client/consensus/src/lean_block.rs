@@ -8,7 +8,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{EthSpec, Hash256, VariableList};
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash)]
 pub struct LeanBlock<E: EthSpec> {
     pub slot: Slot,
     pub proposer_index: u64,

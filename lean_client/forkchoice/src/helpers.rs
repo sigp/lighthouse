@@ -24,7 +24,8 @@ pub fn get_fork_choice_head<E: EthSpec>(
 
     for attestation in latest_attestations.values() {
         let head_root = attestation.message.attestation_data.head.root;
-        if let Some(head_block) = blocks.get(&head_root) {
+        // Only process attestations that point to known blocks
+        if blocks.contains_key(&head_root) {
             // Walk up from attestation target, incrementing ancestor weights
             let mut block_hash = head_root;
             while let Some(block) = blocks.get(&block_hash) {

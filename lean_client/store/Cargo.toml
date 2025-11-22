@@ -1,12 +1,11 @@
 [package]
-name = "lean_forkchoice"
+name = "lean_store"
 version = "0.1.0"
-edition = "2024"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition.workspace = true
 
 [dependencies]
 ethereum_ssz = { workspace = true }
 lean_consensus = { workspace = true }
-parking_lot = { workspace = true }
 store = { workspace = true, features = ["redb"] }
-tracing = { workspace = true }
 types = { workspace = true }

@@ -165,6 +165,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxPendingDepositsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
+    /// Lean chain
+    type JustificationValidators: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
     fn default_spec() -> ChainSpec;
 
     fn spec_name() -> EthSpecId;
@@ -423,8 +426,8 @@ impl EthSpec for MainnetEthSpec {
     type SlotsPerHistoricalRoot = U8192;
     type EpochsPerHistoricalVector = U65536;
     type EpochsPerSlashingsVector = U8192;
-    type HistoricalRootsLimit = U16777216;
-    type ValidatorRegistryLimit = U1099511627776;
+    type HistoricalRootsLimit = U262144;
+    type ValidatorRegistryLimit = U4096;
     type MaxProposerSlashings = U16;
     type MaxAttesterSlashings = U2;
     type MaxAttestations = U128;
@@ -464,7 +467,8 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
-    type MaxPendingDepositsPerEpoch = U16;
+    type MaxPendingDepositsPerEpoch = U16; // participation. If a larger size is needed, consider using a different data structure.
+    type JustificationValidators = U1073741824;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -507,6 +511,7 @@ impl EthSpec for MinimalEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type JustificationValidators = U1073741824;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -606,6 +611,7 @@ impl EthSpec for GnosisEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type JustificationValidators = U1073741824;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

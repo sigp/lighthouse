@@ -1,0 +1,1119 @@
+use lean_consensus::attestation::{Attestation, AttestationData, Checkpoint, SignedAttestation, Slot as LeanSlot};
+use lean_consensus::lean_block::{LeanBlock, LeanBlockBody, LeanBlockWithAttestation, SignedLeanBlockWithAttestation};
+use lean_consensus::lean_state::{LeanState, INTERVALS_PER_SLOT, SECONDS_PER_INTERVAL};
+use lean_crypto::Signature;
+use lean_forkchoice::helpers::get_fork_choice_head;
+use lean_keystore::{ValidatorKeyPair, KeyStore};
+use lean_store::LeanStore;
+pub use lean_network::NetworkMessage;
+use slot_clock::SlotClock;
+use hashsig::signature::SignatureScheme;
+use hashsig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
+use std::collections::HashMap;
+use std::sync::Arc;
+use store::KeyValueStore;
+use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration as TokioDuration};
+use tracing::{debug, error, info, warn};
+use tree_hash::TreeHash;
+use types::{EthSpec, Hash256, List, Slot, VariableList};
+
+/// Validator service that processes validator duties including attestations
+///
+/// Manages interval ticks and network message processing using tokio::select! for simple
+/// async handling without complex pinning or stream implementation.
+pub struct ValidatorService<T: SlotClock, E: EthSpec, D: KeyValueStore<E>> {
+    /// Receiver for network messages from the network service
+    network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    /// Sender for publishing messages to the network service
+    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+    /// Slot clock for timing
+    slot_clock: T,
+    /// Store for database operations
+    store: LeanStore<E, D>,
+    /// Validator key pair for XMSS signatures
+    validator_key_pair: ValidatorKeyPair,
+    /// Key store for loading validator public keys for signature verification
+    keystore: KeyStore,
+}
+
+impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T, E, D> {
+    /// Creates a new validator service with the provided channels
+    pub fn new(
+        slot_clock: T,
+        network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+        db: Arc<D>,
+        validator_key_pair: ValidatorKeyPair,
+        keystore: KeyStore,
+    ) -> Self {
+        Self {
+            network_recv,
+            network_send,
+            slot_clock,
+            store: LeanStore::new(db),
+            validator_key_pair,
+            keystore,
+        }
+    }
+
+    /// Signs an attestation message using XMSS private key
+    ///
+    /// The message to sign is the SSZ-encoded Attestation.
+    /// Uses the hash-sig crate to create an XMSS signature.
+    fn sign_attestation(&self, attestation: &Attestation, epoch: u64) -> Result<Signature, String> {
+        // Hash the attestation message using tree hash (32 bytes)
+        let message_hash = attestation.tree_hash_root();
+
+        // Deserialize the XMSS secret key from the stored PrivateKey structure
+        // The secret key is stored as bincode-serialized data in the keystore
+        type Scheme = SIGTopLevelTargetSumLifetime32Dim64Base8;
+        let secret_key: <Scheme as SignatureScheme>::SecretKey =
+            bincode::deserialize(self.validator_key_pair.private_key_prf())
+                .map_err(|e| format!("Failed to deserialize XMSS secret key from PRF key: {}", e))?;
+
+        // Sign the message hash using the XMSS scheme
+        // The epoch parameter is used for XMSS signature generation (must be u32)
+        let epoch_u32 = epoch.try_into()
+            .map_err(|_| format!("Epoch {} is too large for u32", epoch))?;
+        let xmss_signature = Scheme::sign(&secret_key, epoch_u32, &message_hash.0)
+            .map_err(|e| format!("Failed to sign attestation with XMSS: {:?}", e))?;
+
+        // Serialize the XMSS signature to bytes using bincode
+        let signature_bytes = bincode::serialize(&xmss_signature)
+            .map_err(|e| format!("Failed to serialize XMSS signature: {}", e))?;
+
+        // Create Signature from bytes
+        Ok(Signature::from_bytes(signature_bytes))
+    }
+
+    /// Sets the lean state for consensus processing by storing it in the database
+    pub fn set_lean_state(&mut self, state: LeanState<E>) -> Result<(), String> {
+        self.store.save_state(&state)
+    }
+
+    /// Runs the validator service, processing messages and interval ticks
+    ///
+    /// Uses tokio::select! to handle:
+    /// - Interval tick timing (calculated from slot_clock)
+    /// - Network messages from the network service
+    pub async fn run(mut self) {
+        info!("Validator service started");
+
+        loop {
+            // Use slot_clock to determine when the next interval occurs
+            let next_interval_duration = match self.get_time_to_next_interval() {
+                Some(d) => d,
+                None => {
+                    // Critical failure: slot clock is unavailable or broken
+                    // The validator service cannot function without access to the slot clock
+                    error!(
+                        "CRITICAL: Unable to determine next interval - slot clock is unavailable. \
+                        Validator service cannot proceed. This indicates a serious system failure."
+                    );
+                    break;
+                }
+            };
+
+            tokio::select! {
+                // Wait for the next interval boundary
+                _ = sleep(next_interval_duration) => {
+                    // Process the interval tick
+                    if let Err(e) = self.process_interval_tick().await {
+                        error!(error = %e, "Failed to process interval tick");
+                    }
+                }
+
+                // Handle network messages
+                Some(network_msg) = self.network_recv.recv() => {
+                    if let Err(e) = self.handle_network_message(network_msg).await {
+                        error!("Error handling network message: {}", e);
+                    }
+                }
+
+                // If both channels are closed, exit
+                else => {
+                    warn!("Network message channel closed, validator service shutting down");
+                    break;
+                }
+            }
+        }
+
+        info!("Validator service stopped");
+    }
+
+    /// Calculates the time until the next interval boundary using the slot clock
+    fn get_time_to_next_interval(&self) -> Option<TokioDuration> {
+        let now = self.slot_clock.now_duration()?;
+        let current_slot = self.slot_clock.now()?;
+        let slot_start = self.slot_clock.start_of(current_slot)?;
+
+        // Time elapsed since slot start
+        let time_since_slot_start = now.checked_sub(slot_start)?;
+        let elapsed_secs = time_since_slot_start.as_secs();
+
+        // Current interval (0-3)
+        let current_interval = elapsed_secs / SECONDS_PER_INTERVAL;
+
+        // If we're past all 4 intervals in this slot, wait for next slot
+        if current_interval >= INTERVALS_PER_SLOT {
+            return self.slot_clock.duration_to_next_slot()
+                .map(|d| TokioDuration::from_secs(d.as_secs()) + TokioDuration::from_nanos(d.subsec_nanos() as u64));
+        }
+
+        // Calculate when the next interval starts
+        let next_interval_secs = (current_interval + 1) * SECONDS_PER_INTERVAL;
+        let time_to_next_interval = std::time::Duration::from_secs(next_interval_secs - elapsed_secs);
+
+        Some(TokioDuration::from_secs(time_to_next_interval.as_secs())
+            + TokioDuration::from_nanos(time_to_next_interval.subsec_nanos() as u64))
+    }
+
+    /// Processes an interval tick: calculates current interval and executes appropriate duties
+    async fn process_interval_tick(&mut self) -> Result<(), String> {
+        if let Some((current_slot, current_interval)) = self.get_current_interval() {
+            debug!(
+                slot = current_slot.as_u64(),
+                interval = current_interval,
+                "Processing interval tick"
+            );
+
+            self.tick_interval().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Gets the current slot and interval number
+    ///
+    /// Returns `Some((slot, interval))` if we can determine the current interval,
+    /// or `None` if the slot clock cannot be read.
+    fn get_current_interval(&self) -> Option<(Slot, u64)> {
+        let current_slot = self.slot_clock.now()?;
+        let now = self.slot_clock.now_duration()?;
+        let slot_start = self.slot_clock.start_of(current_slot)?;
+
+        // Calculate time since slot start
+        let time_since_slot_start = now.checked_sub(slot_start)?;
+
+        // Calculate current interval (0-3)
+        let current_interval = (time_since_slot_start.as_secs() / SECONDS_PER_INTERVAL) % INTERVALS_PER_SLOT;
+
+        Some((current_slot, current_interval))
+    }
+}
+
+impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T, E, D> {
+    /// Processes a single interval tick
+    ///
+    /// Implements the `tick_interval()` logic from the spec:
+    /// - Interval 0: Accept new attestations if proposal exists, update fork choice
+    /// - Interval 1: Validators create and gossip attestations
+    /// - Interval 2: Update safe target with 2/3+ majority
+    /// - Interval 3: Accept accumulated attestations (new → known), update fork choice
+    pub async fn tick_interval(&mut self) -> Result<(), String> {
+        let current_slot = self.slot_clock.now()
+            .ok_or_else(|| "Unable to determine current slot".to_string())?;
+        let now = self.slot_clock.now_duration()
+            .ok_or_else(|| "Unable to determine current time".to_string())?;
+        let slot_u64 = current_slot.as_u64();
+        let slot_start = self.slot_clock.start_of(current_slot)
+            .ok_or_else(|| format!("Unable to determine start of slot {}", slot_u64))?;
+
+        // Calculate current interval within slot (0-3)
+        let time_since_slot_start = now.checked_sub(slot_start)
+            .ok_or_else(|| "Current time is before slot start".to_string())?;
+        let interval = (time_since_slot_start.as_secs() / SECONDS_PER_INTERVAL) % INTERVALS_PER_SLOT;
+
+        debug!(
+            slot = slot_u64,
+            interval,
+            "Processing interval tick"
+        );
+
+        // Handle each interval
+        match interval {
+            0 => {
+                // Interval 0: Produce block if this validator is proposer, then accept attestations if proposal exists
+                if let Err(e) = self.perform_proposal_duties(current_slot).await {
+                    warn!(error = %e, "Failed to perform proposal duties");
+                }
+
+                if self.has_proposal_for_slot(current_slot)? {
+                    info!(slot = slot_u64, "Interval 0: Accepting new attestations");
+                    self.store.accept_new_attestations()?;
+                    self.update_fork_choice_head().await?;
+                } else {
+                    debug!(slot = slot_u64, "Interval 0: No proposal, skipping attestation acceptance");
+                }
+            }
+            1 => {
+                // Interval 1: Validators create and gossip attestations
+                debug!(slot = slot_u64, "Interval 1: Validator attesting");
+                if let Err(e) = self.perform_attestation_duties(slot_u64).await {
+                    warn!(error = %e, "Failed to perform attestation duties");
+                }
+            }
+            2 => {
+                // Interval 2: Update safe target with 2/3+ majority
+                debug!(slot = slot_u64, "Interval 2: Updating safe target");
+                self.update_safe_target().await?;
+            }
+            3 => {
+                // Interval 3: Accept accumulated attestations
+                info!(slot = slot_u64, "Interval 3: Accepting accumulated attestations");
+                self.store.accept_new_attestations()?;
+                self.update_fork_choice_head().await?;
+            }
+            _ => {
+                warn!(interval, "Unexpected interval value (should be 0-3)");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks if there's a proposal (block) for the given slot
+    fn has_proposal_for_slot(&self, slot: Slot) -> Result<bool, String> {
+        // Check if we have a block for this slot
+        // Load all blocks and check if any match this slot
+        let blocks = self.store.load_all_blocks()?;
+        let slot_u64 = slot.as_u64();
+        // Compare using the u64 value since block.slot is lean_consensus::Slot(u64)
+        Ok(blocks.values().any(|block| block.slot.0 == slot_u64))
+    }
+
+    /// Updates the fork choice head after accepting new attestations
+    async fn update_fork_choice_head(&mut self) -> Result<(), String> {
+        // Load all blocks and known attestations for fork choice
+        let all_blocks = self.store.load_all_blocks()?;
+        let all_attestations = self.store.load_known_attestations()?;
+
+        // Get current state for justified checkpoint
+        let state = self.store.fetch_state()?
+            .ok_or_else(|| "No lean_state available for fork choice".to_string())?;
+
+        // Update head using fork choice algorithm
+        self.update_head(&all_blocks, &all_attestations, &state)?;
+
+        Ok(())
+    }
+
+    /// Updates the safe target checkpoint
+    ///
+    /// Computes target that has sufficient (2/3+ majority) attestation support.
+    /// The safe target represents a block with enough attestation weight to be
+    /// considered "safe" for validators to attest to.
+    ///
+    /// The safe target is calculated using fork choice with a minimum score threshold
+    /// of 2/3 of validators, then persisted to the database.
+    async fn update_safe_target(&mut self) -> Result<(), String> {
+        // Load all blocks and attestations
+        let all_blocks = self.store.load_all_blocks()?;
+        let all_attestations = self.store.load_known_attestations()?;
+
+        // Get current state for validator count
+        let state = self.store.fetch_state()?
+            .ok_or_else(|| "No lean_state available for safe target calculation".to_string())?;
+
+        let num_validators = state.validators.len();
+        
+        // Calculate 2/3 majority threshold (ceiling division)
+        let min_target_score = (num_validators * 2 + 2) / 3; // Ceiling division
+
+        // Find head with minimum attestation threshold
+        let latest_justified = &state.latest_justified;
+        let safe_target = get_fork_choice_head(
+            &all_blocks,
+            latest_justified.root,
+            &all_attestations,
+            min_target_score,
+        );
+
+        // Persist safe target to database
+        self.store.save_safe_target(safe_target)?;
+
+        debug!(
+            ?safe_target,
+            num_validators,
+            min_target_score,
+            "Updated and persisted safe target"
+        );
+
+        Ok(())
+    }
+
+    /// Handles network messages received from the wire
+    async fn handle_network_message(&mut self, network_msg: NetworkMessage<E>) -> Result<(), String> {
+        match network_msg {
+            NetworkMessage::Attestation(signed_attestation) => {
+                // Network gossip attestations are processed as "new" (pending)
+                // Verify the signature before processing
+                self.verify_and_handle_attestation(signed_attestation, false).await
+            }
+            NetworkMessage::Block(block) => {
+                self.handle_block(block).await
+            }
+        }
+    }
+
+    /// Verifies the attestation signature and then handles it
+    ///
+    /// # Arguments
+    /// * `signed_attestation` - The signed attestation to verify and process
+    /// * `is_from_block` - True if attestation came from block body, False if from network gossip
+    async fn verify_and_handle_attestation(
+        &mut self,
+        signed_attestation: Arc<SignedAttestation>,
+        is_from_block: bool,
+    ) -> Result<(), String> {
+        // Verify the attestation signature
+        let epoch = signed_attestation.message.attestation_data.slot.0 / 32;
+        let message_hash = signed_attestation.message.tree_hash_root();
+        let validator_id = signed_attestation.message.validator_id;
+
+        // Load the validator's public key from the keystore (genesis folder)
+        match self.keystore.load_public_key(validator_id) {
+            Ok(public_key) => {
+                // Serialize public key to bytes for verification using bincode
+                // The XMSS public key consists of root and parameter fields
+                let public_key_bytes = match bincode::serialize(&public_key) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        warn!(
+                            validator_id,
+                            error = %e,
+                            "Failed to serialize public key for verification"
+                        );
+                        return Ok(()); // Continue processing without verification
+                    }
+                };
+
+                // Verify the attestation signature
+                if !signed_attestation.signature.verify(&public_key_bytes, epoch, &message_hash.0) {
+                    warn!(
+                        validator_id,
+                        epoch,
+                        "Invalid attestation signature - verification failed"
+                    );
+                    return Err(format!("Invalid attestation signature for validator {}", validator_id));
+                }
+
+                debug!(
+                    validator_id,
+                    epoch,
+                    "Attestation signature verified successfully"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    validator_id,
+                    error = %e,
+                    "Failed to load public key from keystore for signature verification"
+                );
+                // Reject attestation if we can't verify it
+                return Err(format!("Cannot verify attestation signature - public key not found for validator {}", validator_id));
+            }
+        }
+
+        // Process the attestation
+        self.handle_attestation(signed_attestation.clone(), is_from_block).await
+    }
+
+    /// Handles an attestation received from the network or block
+    ///
+    /// Implements attestation pipelining according to the spec:
+    /// - Network gossip attestations → saved as "new" (pending)
+    /// - Block body attestations → saved as "known" (immediately contribute to fork choice)
+    ///
+    /// # Arguments
+    /// * `signed_attestation` - The signed attestation to process
+    /// * `is_from_block` - True if attestation came from block body, False if from network gossip
+    async fn handle_attestation(
+        &mut self,
+        signed_attestation: Arc<SignedAttestation>,
+        is_from_block: bool,
+    ) -> Result<(), String> {
+        let attestation = &signed_attestation.message;
+        let attestation_slot = attestation.attestation_data.slot.0;
+        let validator_id = attestation.validator_id;
+
+        info!(
+            slot = attestation_slot,
+            validator_id,
+            is_from_block,
+            "Processing lean attestation"
+        );
+
+        // Fetch state from database
+        let mut state = self.store.fetch_state()?
+            .ok_or_else(|| "No lean_state available in database to process attestation".to_string())?;
+
+        // Process attestation in state (for justification tracking)
+        let mut attestations = VariableList::<Attestation, E::MaxAttestations>::empty();
+        attestations.push((*attestation).clone())
+            .map_err(|e| format!("Failed to add attestation: {:?}", e))?;
+
+        state.process_attestations(&attestations)?;
+
+        // Save updated state back to database
+        self.store.save_state(&state)?;
+
+        // Use the SignedAttestation received from the network (already has signature)
+        // No need to create a new signature - the attestation was signed by the original validator
+
+        // Implement attestation pipelining:
+        // - Block body attestations → known (immediately contribute to fork choice)
+        // - Network gossip attestations → new (pending, wait for interval tick)
+        if is_from_block {
+            // On-chain attestation: process immediately as "known"
+            // Check if this supersedes existing known attestation
+            if let Ok(existing_known) = self.store.load_known_attestations() {
+                if let Some(existing) = existing_known.get(&validator_id) {
+                    // Only replace if new attestation is from a later slot
+                    if existing.message.attestation_data.slot.0 >= attestation_slot {
+                        debug!(
+                            validator_id,
+                            existing_slot = existing.message.attestation_data.slot.0,
+                            new_slot = attestation_slot,
+                            "Skipping attestation - existing known attestation is newer or equal"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+
+            // Save as known attestation (contributes to fork choice immediately)
+            self.store.save_known_attestation(validator_id, &signed_attestation)?;
+
+            // Remove from new attestations if this supersedes it
+            // Check if there's a new attestation that should be removed
+            if let Ok(new_attestations) = self.store.load_new_attestations() {
+                if let Some(new_att) = new_attestations.get(&validator_id) {
+                    if new_att.message.attestation_data.slot.0 <= attestation_slot {
+                        // Remove the new attestation as it's superseded by the known one
+                        self.store.delete_new_attestation(validator_id)?;
+                    }
+                }
+            }
+
+            debug!(
+                validator_id,
+                slot = attestation_slot,
+                "Saved attestation as known (from block body)"
+            );
+        } else {
+            // Network gossip attestation: save as "new" (pending)
+            // Check if this supersedes existing new attestation
+            if let Ok(existing_new) = self.store.load_new_attestations() {
+                if let Some(existing) = existing_new.get(&validator_id) {
+                    // Only replace if new attestation is from a later slot
+                    if existing.message.attestation_data.slot.0 >= attestation_slot {
+                        debug!(
+                            validator_id,
+                            existing_slot = existing.message.attestation_data.slot.0,
+                            new_slot = attestation_slot,
+                            "Skipping attestation - existing new attestation is newer or equal"
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+
+            // Save as new attestation (does not contribute to fork choice yet)
+            self.store.save_new_attestation(validator_id, &signed_attestation)?;
+
+            debug!(
+                validator_id,
+                slot = attestation_slot,
+                "Saved attestation as new (from network gossip)"
+            );
+        }
+
+        debug!(
+            justified_slot = state.latest_justified.slot.0,
+            finalized_slot = state.latest_finalized.slot.0,
+            "Attestation processed and saved to database"
+        );
+
+        Ok(())
+    }
+
+    /// Handles a block received from the network (implements on_block from spec)
+    ///
+    /// This method integrates a block into the forkchoice store by:
+    /// 1. Validating the block's parent exists
+    /// 2. Computing the post-state via the state transition function
+    /// 3. Processing attestations included in the block body (on-chain)
+    /// 4. Updating the forkchoice head
+    /// 5. Processing the proposer's attestation (as if gossiped)
+    async fn handle_block(&mut self, signed_block: Arc<SignedLeanBlockWithAttestation<E>>) -> Result<(), String> {
+        // Unpack block components
+        let block = &signed_block.message.block;
+        let proposer_attestation = &signed_block.message.proposer_attestation;
+        let block_root = block.tree_hash_root();
+
+        info!(
+            slot = block.slot.0,
+            proposer_index = block.proposer_index,
+            ?block_root,
+            "Processing lean block from network (on_block)"
+        );
+
+        // Skip duplicate blocks (idempotent operation)
+        if self.store.block_exists(block_root)? {
+            debug!(?block_root, "Block already processed, skipping");
+            return Ok(());
+        }
+
+        // Verify parent state is available
+        //
+        // The parent state must exist before processing this block.
+        // If missing, the node must sync the parent chain first.
+        let parent_state = self.store.fetch_state()?
+            .ok_or_else(|| {
+                format!(
+                    "Parent state not found (root={:?}). Sync parent chain before processing block at slot {}.",
+                    block.parent_root, block.slot.0
+                )
+            })?;
+
+        debug!(
+            parent_slot = parent_state.slot.0,
+            parent_justified = parent_state.latest_justified.slot.0,
+            "Fetched parent state for block processing"
+        );
+
+        // Validate cryptographic signatures
+        //
+        // NOTE: XMSS signature verification is not yet implemented.
+        // This is blocked on:
+        // 1. KoalaBear finite field implementation (P = 2^31 - 2^24 + 1)
+        // 2. Poseidon2 permutation implementation
+        // 3. Full XMSS signature scheme implementation
+        //
+        // For now, signature validation is skipped (devnet mode).
+        // Once XMSS is implemented, this should call:
+        //   signed_block.verify_all_signatures(state, epoch)?
+        //
+        // See: lean_client/crypto/src/signature.rs for signature structure
+        // See: lean_client/IMPLEMENTATION_STATUS.md for implementation status
+        let valid_signatures = false;
+
+        // Execute state transition function to compute post-block state
+        let mut post_state = parent_state;
+        post_state.state_transition(block, valid_signatures)?;
+
+        debug!(
+            post_slot = post_state.slot.0,
+            post_justified = post_state.latest_justified.slot.0,
+            post_finalized = post_state.latest_finalized.slot.0,
+            "State transition completed"
+        );
+
+        // Save block and state to database
+        self.store.save_block(block_root, block)?;
+        self.store.save_state(&post_state)?;
+
+        debug!(?block_root, "Block and state saved to database");
+
+        // Process block body attestations
+        //
+        // Iterate over attestations in the block body.
+        // These are historical attestations from other validators included by the proposer.
+        // They are processed immediately as "known" attestations (is_from_block=true).
+        for attestation in block.body.attestations.iter() {
+            // Block body attestations need to be signed before processing
+            // Calculate epoch from slot for signature generation
+            let epoch = attestation.attestation_data.slot.0 / 32;
+            let signature = self.sign_attestation(attestation, epoch)
+                .unwrap_or_else(|_| {
+                    warn!(
+                        validator_id = attestation.validator_id,
+                        "Failed to sign block body attestation, using empty signature"
+                    );
+                    lean_crypto::Signature::empty()
+                });
+
+            let signed_attestation = Arc::new(SignedAttestation {
+                message: attestation.clone(),
+                signature,
+            });
+
+            if let Err(e) = self.verify_and_handle_attestation(signed_attestation, true).await {
+                warn!(
+                    validator_id = attestation.validator_id,
+                    error = %e,
+                    "Failed to process block body attestation"
+                );
+                // Continue processing other attestations even if one fails
+            }
+        }
+
+        debug!(
+            attestation_count = block.body.attestations.len(),
+            "Block body attestations processed"
+        );
+
+        // Update forkchoice head
+        //
+        // IMPORTANT: This must happen BEFORE processing proposer attestation
+        // to prevent the proposer from gaining circular weight advantage.
+
+        // Load all blocks and attestations from database for fork choice
+        let all_blocks = self.store.load_all_blocks()?;
+        let all_attestations = self.store.load_all_attestations()?;
+
+        debug!(
+            loaded_blocks = all_blocks.len(),
+            loaded_attestations = all_attestations.len(),
+            "Loaded blocks and attestations for fork choice"
+        );
+
+        // Run fork choice algorithm
+        let new_head = self.update_head(&all_blocks, &all_attestations, &post_state)?;
+
+        debug!(?new_head, "Fork choice updated head");
+
+        // Process proposer attestation as if received via gossip
+        //
+        // The proposer casts their attestation in interval 1, after block
+        // proposal. This attestation should:
+        // 1. NOT affect this block's fork choice position (processed as "new")
+        // 2. Be available for inclusion in future blocks
+        // 3. Influence fork choice only after interval 3 (end of slot)
+        let epoch = proposer_attestation.attestation_data.slot.0 / 32;
+        let signature = self.sign_attestation(&proposer_attestation, epoch)
+            .unwrap_or_else(|_| {
+                warn!("Failed to sign proposer attestation");
+                lean_crypto::Signature::empty()
+            });
+
+        let signed_proposer_attestation = Arc::new(SignedAttestation {
+            message: proposer_attestation.clone(),
+            signature,
+        });
+
+        if let Err(e) = self.verify_and_handle_attestation(signed_proposer_attestation, false).await {
+            warn!(
+                validator_id = proposer_attestation.validator_id,
+                error = %e,
+                "Failed to process proposer attestation"
+            );
+        }
+
+        info!(
+            slot = block.slot.0,
+            ?block_root,
+            justified_slot = post_state.latest_justified.slot.0,
+            finalized_slot = post_state.latest_finalized.slot.0,
+            attestation_count = block.body.attestations.len(),
+            "Block processed successfully (on_block complete)"
+        );
+
+        Ok(())
+    }
+
+    /// Updates the current head block using LMD-GHOST fork choice algorithm
+    ///
+    /// This implements the core fork choice algorithm, selecting the canonical
+    /// chain head based on:
+    /// 1. Latest justified checkpoint
+    /// 2. LMD-GHOST fork choice rule (heaviest subtree)
+    /// 3. Validator attestation weights
+    ///
+    /// # Arguments
+    /// * `blocks` - HashMap of all known blocks (keyed by block root)
+    /// * `attestations` - HashMap of latest attestations (keyed by validator index)
+    /// * `current_state` - Current state for extracting justified checkpoint
+    ///
+    /// # Returns
+    /// The new head root selected by fork choice
+    fn update_head(
+        &self,
+        blocks: &HashMap<Hash256, LeanBlock<E>>,
+        attestations: &HashMap<u64, SignedAttestation>,
+        current_state: &LeanState<E>,
+    ) -> Result<Hash256, String> {
+        // Get the latest justified checkpoint from the current state
+        let latest_justified = &current_state.latest_justified;
+
+        debug!(
+            justified_slot = latest_justified.slot.0,
+            ?latest_justified.root,
+            block_count = blocks.len(),
+            attestation_count = attestations.len(),
+            "Running fork choice (update_head)"
+        );
+
+        // Run LMD-GHOST fork choice algorithm
+        //
+        // Selects canonical head by walking the tree from the justified root,
+        // choosing the heaviest child at each fork based on attestation weights.
+        let new_head = get_fork_choice_head(
+            blocks,
+            latest_justified.root,
+            attestations,
+            0, // min_score = 0 (no minimum threshold)
+        );
+
+        debug!(
+            ?new_head,
+            justified_slot = latest_justified.slot.0,
+            "Fork choice selected new head"
+        );
+
+        // Save the new head to the database
+        self.store.save_head_root(new_head)?;
+
+        Ok(new_head)
+    }
+
+    /// Performs proposal duties if this validator is the proposer for the slot
+    ///
+    /// Checks if this validator is the proposer for the given slot. If so, produces
+    /// a block and publishes it to the network.
+    async fn perform_proposal_duties(&mut self, slot: Slot) -> Result<(), String> {
+        let slot_u64 = slot.as_u64();
+
+        // Fetch state from database
+        let state = self.store.fetch_state()?
+            .ok_or_else(|| "No lean_state available to check proposal duties".to_string())?;
+
+        // For now, just try to produce a block if we're one of the validators
+        // In a full implementation, we would check the proposer schedule
+        let num_validators = state.validators.len();
+        if num_validators == 0 {
+            return Err("No validators in state".to_string());
+        }
+
+        debug!(
+            slot = slot_u64,
+            num_validators,
+            "Checking proposal duties"
+        );
+
+        // Produce the block
+        if let Err(e) = self.produce_block(slot).await {
+            debug!(
+                slot = slot_u64,
+                error = %e,
+                "Not producing block (likely not proposer for this slot)"
+            );
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
+    /// Produces a block for the given slot
+    ///
+    /// Creates a simple block with:
+    /// 1. Current head as parent
+    /// 2. State root computed from current state
+    /// 3. Signs and publishes the block to the network
+    async fn produce_block(&mut self, slot: Slot) -> Result<(), String> {
+        let slot_u64 = slot.as_u64();
+
+        // Fetch state from database
+        let state = self.store.fetch_state()?
+            .ok_or_else(|| "No lean_state available to produce block".to_string())?;
+
+        // Get head root from forkchoice
+        let head_root = self.store.fetch_head_root()?
+            .unwrap_or_else(|| state.latest_block_header.tree_hash_root());
+
+        // Create the block with LeanSlot type
+        let lean_slot = LeanSlot(slot_u64);
+
+        // For now, use validator_id = 0 as placeholder proposer
+        let validator_id: u64 = 0;
+
+        // Create block with empty body
+        let body = LeanBlockBody {
+            attestations: VariableList::default(),
+        };
+
+        let block = LeanBlock {
+            slot: lean_slot,
+            proposer_index: validator_id,
+            parent_root: head_root,
+            state_root: Hash256::ZERO,
+            body,
+        };
+
+        // Compute state root
+        let computed_state_root = state.tree_hash_root();
+
+        // Create final block with state root
+        let final_block = LeanBlock {
+            state_root: computed_state_root,
+            ..block
+        };
+
+        let block_root = final_block.tree_hash_root();
+
+        // Create proposer attestation
+        let proposer_attestation = Attestation {
+            validator_id,
+            attestation_data: AttestationData {
+                slot: lean_slot,
+                head: Checkpoint {
+                    slot: lean_slot,
+                    root: block_root,
+                },
+                source: state.latest_justified.clone(),
+                target: state.latest_justified.clone(),
+            },
+        };
+
+        // For now, create an empty signature list
+        // In a full implementation, we would sign the block and add signatures
+        let signatures = List::<Signature, E::ValidatorRegistryLimit>::default();
+
+        // Create signed block
+        let signed_block = Arc::new(SignedLeanBlockWithAttestation {
+            message: LeanBlockWithAttestation {
+                block: final_block,
+                proposer_attestation,
+            },
+            signature: signatures,
+        });
+
+        info!(
+            slot = slot_u64,
+            proposer_index = validator_id,
+            ?block_root,
+            "Produced block"
+        );
+
+        // Save block to database
+        self.store.save_block(block_root, &signed_block.message.block)?;
+
+        // Publish block to network
+        if let Err(e) = self.network_send.send(NetworkMessage::Block(signed_block)) {
+            error!(slot = slot_u64, "Failed to send block to network: {}", e);
+            return Err(format!("Failed to send block to network: {}", e));
+        }
+
+        Ok(())
+    }
+
+    /// Performs attestation duties for all validators in the given slot
+    ///
+    /// In lean consensus, all validators attest every slot (unlike Ethereum where
+    /// validators are assigned to committees). This method iterates through all
+    /// validators and produces attestations for each.
+    async fn perform_attestation_duties(&self, slot: u64) -> Result<(), String> {
+        // Fetch state from database
+        let state = self.store.fetch_state()?
+            .ok_or_else(|| "No lean_state available in database to perform attestation duties".to_string())?;
+
+        let num_validators = state.validators.len();
+        debug!(slot, num_validators, "Performing attestation duties for all validators");
+
+        // Produce attestation for each validator
+        for validator_index in 0..num_validators {
+            if let Err(e) = self.produce_attestation(slot, validator_index as u64).await {
+                warn!(
+                    slot,
+                    validator_id = validator_index,
+                    error = %e,
+                    "Failed to produce attestation for validator"
+                );
+                // Continue with other validators even if one fails
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Produces an attestation for the given slot and validator
+    ///
+    /// This method constructs an Attestation object according to the lean protocol
+    /// specification. The attestation represents the validator's view of the chain
+    /// state and their choice for the next justified checkpoint.
+    ///
+    /// Algorithm:
+    /// 1. Get the current head from forkchoice (or state if forkchoice not available)
+    /// 2. Calculate the appropriate attestation target using forkchoice state
+    /// 3. Use the latest justified checkpoint as the attestation source
+    /// 4. Construct and publish the complete Attestation object
+    async fn produce_attestation(&self, slot: u64, validator_id: u64) -> Result<(), String> {
+        debug!(slot, validator_id, "Producing attestation");
+
+        // Fetch state from database
+        let state = self.store.fetch_state()?
+            .ok_or_else(|| "No lean_state available in database to produce attestation".to_string())?;
+
+        // Get head root from forkchoice (stored head) or fallback to state
+        let head_root = self.store.fetch_head_root()?
+            .unwrap_or_else(|| state.latest_block_header.tree_hash_root());
+
+        // Get head block to determine head slot
+        let head_block = self.store.fetch_block(head_root)?
+            .ok_or_else(|| format!("Head block not found in database: {:?}", head_root))?;
+
+        // Create head checkpoint
+        let head = Checkpoint {
+            slot: head_block.slot,
+            root: head_root,
+        };
+
+        // Get source checkpoint (latest justified)
+        let source = state.latest_justified.clone();
+
+        // Calculate attestation target using forkchoice state
+        // This implements the get_attestation_target logic from the spec
+        let target = self.get_attestation_target(&state, &head_root, &head_block)?;
+
+        // Store checkpoint slots for logging before moving values
+        let head_slot = head.slot.0;
+        let target_slot = target.slot.0;
+        let source_slot = source.slot.0;
+
+        // Create attestation data
+        let attestation_data = AttestationData {
+            slot: LeanSlot(slot),
+            head,
+            source,
+            target,
+        };
+
+        // Create attestation
+        let attestation = Attestation {
+            validator_id,
+            attestation_data,
+        };
+
+        debug!(
+            slot,
+            validator_id,
+            ?head_root,
+            head_slot,
+            target_slot,
+            source_slot,
+            "Produced attestation"
+        );
+
+        // Sign attestation with XMSS key
+        let epoch = slot / 32;
+        let signature = self.sign_attestation(&attestation, epoch)
+            .map_err(|e| format!("Failed to sign attestation: {}", e))?;
+
+        // Create signed attestation
+        let signed_attestation = Arc::new(SignedAttestation {
+            message: attestation,
+            signature,
+        });
+
+        // Publish signed attestation to network
+        if let Err(e) = self.network_send.send(NetworkMessage::Attestation(signed_attestation)) {
+            error!(slot, validator_id, "Failed to send attestation to network: {}", e);
+            return Err(format!("Failed to send attestation to network: {}", e));
+        }
+
+        Ok(())
+    }
+
+    /// Calculate target checkpoint for validator attestations
+    ///
+    /// Determines appropriate attestation target based on head, safe target,
+    /// and finalization constraints. The target selection algorithm balances
+    /// between advancing the chain head and maintaining safety guarantees.
+    ///
+    /// Attestation Target Algorithm:
+    /// 1. Start at Head: Begin with the current head block
+    /// 2. Walk Toward Safe: Move backward (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
+    ///    if safe target is newer
+    /// 3. Ensure Justifiable: Continue walking back until slot is justifiable
+    /// 4. Return Checkpoint: Create checkpoint from selected block
+    fn get_attestation_target(
+        &self,
+        state: &LeanState<E>,
+        head_root: &Hash256,
+        head_block: &LeanBlock<E>,
+    ) -> Result<Checkpoint, String> {
+        // Start from current head
+        let mut target_block_root = *head_root;
+        let mut target_block = head_block.clone();
+
+        // Get safe target from database (if available)
+        let safe_target_root = self.store.fetch_safe_target()?;
+        let justification_lookback_slots = state.config.justification_lookback_slots;
+
+        // Walk back toward safe target (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
+        // if safe target exists and is newer than current target
+        if let Some(safe_target) = safe_target_root {
+            // Check if safe target is newer than current head
+            if let Ok(Some(safe_target_block)) = self.store.fetch_block(safe_target) {
+                if safe_target_block.slot > target_block.slot {
+                    // Walk back toward safe target (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
+                    let mut steps = 0;
+                    while steps < justification_lookback_slots
+                        && target_block.slot > safe_target_block.slot
+                        && target_block.parent_root != Hash256::ZERO
+                    {
+                        target_block_root = target_block.parent_root;
+                        target_block = self.store.fetch_block(target_block_root)?
+                            .ok_or_else(|| {
+                                format!(
+                                    "Parent block not found while walking toward safe target: {:?}",
+                                    target_block_root
+                                )
+                            })?;
+                        steps += 1;
+                    }
+                }
+            }
+        }
+
+        // Ensure target is in justifiable slot range
+        // Walk back until we find a slot that satisfies justifiability rules
+        // relative to the latest finalized checkpoint
+        let finalized_slot = state.latest_finalized.slot;
+        let mut steps = 0;
+        const MAX_STEPS: u64 = 100; // Safety limit to prevent infinite loops
+
+        while steps < MAX_STEPS {
+            // Check if current target slot is justifiable
+            match target_block.slot.is_justifiable_after(finalized_slot) {
+                Ok(()) => {
+                    // Slot is justifiable, use this as target
+                    break;
+                }
+                Err(_) => {
+                    // Slot is not justifiable, walk back to parent
+                    if target_block.parent_root == Hash256::ZERO {
+                        // Reached genesis, use current block
+                        break;
+                    }
+
+                    // Update root to parent before fetching
+                    target_block_root = target_block.parent_root;
+
+                    // Fetch parent block
+                    target_block = self.store.fetch_block(target_block_root)?
+                        .ok_or_else(|| {
+                            format!(
+                                "Parent block not found while walking back: {:?}",
+                                target_block_root
+                            )
+                        })?;
+                    steps += 1;
+                }
+            }
+        }
+
+        if steps >= MAX_STEPS {
+            return Err("Exceeded maximum steps while finding justifiable target".to_string());
+        }
+
+        // Create checkpoint from selected target block
+        // Use the root we've been tracking, which corresponds to target_block
+        Ok(Checkpoint {
+            root: target_block_root,
+            slot: target_block.slot,
+        })
+    }
+}

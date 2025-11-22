@@ -7,7 +7,7 @@ use std::path::PathBuf;
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
     name = "lean_validator_node",
-    visible_aliases = &["l", "ln", "lean_node"],
+    visible_aliases = &["l", "ln", "lean-node"],
     about = "lean node follows the lean consensus for ethereum chain",
     styles = get_color_style(),
     next_line_help = true,
@@ -19,39 +19,57 @@ use std::path::PathBuf;
 pub struct LeanNode {
     #[clap(
         long,
-        alias = "validator-dir",
-        value_name = "VALIDATORS_DIR",
-        conflicts_with = "datadir",
-        help = "The directory which contains the validator keystores, deposit data for \
-                each validator along with the common slashing protection database \
-                and the validator_definitions.yml",
+        value_name = "CONFIG_YAML",
+        help = "Path to the chain config.yaml file",
         display_order = 0
     )]
-    pub validators_dir: Option<PathBuf>,
+    pub config: PathBuf,
 
     #[clap(
         long,
-        help = "If present, do not attempt to discover new validators in the validators-dir. Validators \
-                will need to be manually added to the validator_definitions.yml file.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
+        value_name = "VALIDATOR_CONFIG_YAML",
+        help = "Path to the validator-config.yaml file",
+        display_order = 1
     )]
-    pub disable_auto_discover: bool,
+    pub validators: PathBuf,
 
     #[clap(
         long,
-        help = "Disable the performance of attestation duties (and sync committee duties). This \
-                flag should only be used in emergencies to prioritise block proposal duties.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
+        value_name = "NODES_YAML",
+        help = "Path to the nodes.yaml file for bootnodes",
+        display_order = 2
     )]
-    pub disable_attesting: bool,
+    pub nodes: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "NODE_ID",
+        help = "Node identifier (e.g., 'lighthouse_0', 'ream_0')",
+        display_order = 3
+    )]
+    pub node_id: String,
+
+    #[clap(
+        long,
+        value_name = "PRIVATE_KEY",
+        help = "Path to the hex encoded secp256k1 libp2p private key",
+        display_order = 4
+    )]
+    pub private_key: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "SOCKET_PORT",
+        help = "P2P socket port (QUIC)",
+        display_order = 5
+    )]
+    pub socket_port: u16,
 
     /* Prometheus metrics HTTP server related arguments */
     #[clap(
         long,
         help = "Enable the Prometheus metrics HTTP server. Disabled by default.",
-        display_order = 0,
+        display_order = 6,
         help_heading = FLAG_HEADER
     )]
     pub metrics: bool,

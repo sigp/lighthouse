@@ -1,11 +1,7 @@
 use lean_crypto::Signature;
 use ssz_derive::{Decode, Encode};
 use ssz::{Decode, Encode};
-use types::BitList;
-use types::EthSpec;
 use types::Hash256;
-use types::VariableList;
-use types::typenum::U4096;
 
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -112,15 +108,8 @@ pub struct Checkpoint {
 }
 
 
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct SignedAttestation {
     pub message: Attestation,
     pub signature: Signature,
-}
-pub struct AggregatedAttestations<E: EthSpec> {
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
-    pub data: AttestationData,
-}
-pub struct SignedAggregatedAttestations<E: EthSpec> {
-    pub aggregate_attestation: AggregatedAttestations<E>,
-    pub signature: VariableList<Signature, U4096>,
 }

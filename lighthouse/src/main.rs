@@ -755,6 +755,7 @@ fn run<E: EthSpec>(
     // Creating a command which can run both might be useful future works.
 
     // Print an indication of which network is currently in use.
+    // Note: lean_node subcommand doesn't use --network or --testnet-dir flags
     let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
     let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
 
@@ -821,15 +822,22 @@ fn run<E: EthSpec>(
                 "validator_client",
             );
         }
-        Ok(LighthouseSubcommands::LeanNode(_)) => {
-            let context = environment.core_context();
-            let executor = context.executor.clone();
+        Ok(LighthouseSubcommands::LeanNode(lean_node_config)) => {
+            let executor = environment.core_context().executor.clone();
             let temp_executor = executor.clone();
+            let data_dir = parse_path_or_default(matches, "datadir")?.join(DEFAULT_LEAN_NODE_DIR);
             executor.clone().spawn(
                 async move {
-                    if let Err(e) = ProductionLeanClient::new(context, temp_executor)
-                        .and_then(|mut ln| async move { ln.start_service().await })
-                        .await
+                    if let Err(e) = ProductionLeanClient::new(
+                        temp_executor,
+                        data_dir,
+                        lean_node_config.config.clone(),
+                        lean_node_config.validators.clone(),
+                        lean_node_config.nodes.clone(),
+                        lean_node_config.node_id.clone(),
+                    )
+                    .and_then(|mut ln: ProductionLeanClient<E>| async move { ln.start_service(lean_node_config.validators.clone()).await })
+                    .await
                     {
                         crit!(reason = e, "Failed to start lean node");
                         // Ignore the error since it always occurs during normal operation when

@@ -3,6 +3,7 @@ use crate::attestation::{Attestation, Checkpoint, Slot};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use ssz_derive::{Encode, Decode};
 
 use crate::lean_block::{LeanBlock, LeanBlockBody};
 use crate::validator::ValidatorIndex;
@@ -14,7 +15,7 @@ use milhouse::List;
 use types::{BitVector, EthSpec, Hash256};
 
 
-#[derive(TreeHash)]
+#[derive(TreeHash, Encode, Decode)]
 pub struct LeanState<E: EthSpec> {
     pub config: Config,
     pub slot: Slot,
@@ -22,21 +23,51 @@ pub struct LeanState<E: EthSpec> {
     pub latest_block_header: LeanBlockHeader,
     pub latest_justified: Checkpoint,
     pub latest_finalized: Checkpoint,
-    //TODO: deal with this E: EthSpec
+    /// Historical block hashes stored in the state.
+    /// Uses `E::HistoricalRootsLimit` from EthSpec for type-level size limits.
     pub historical_block_hashes: List<Hash256, E::HistoricalRootsLimit>,
-    //TODO: the Justification needs to be different
-    pub justified_slots: BitVector<E::JustificationBitsLength>,
+    /// Justification tracking fields.
+    /// NOTE: The justification structure may need refinement based on final spec requirements.
+    /// Current implementation uses:
+    /// - `justified_slots`: BitVector tracking which slots are justified
+    /// - `justifications_roots`: List of checkpoint roots that have been justified
+    /// - `justifications_validators`: BitVector tracking validator participation in justifications
+    pub justified_slots: BitVector<E::HistoricalRootsLimit>,
     pub validators: List<Validator, E::ValidatorRegistryLimit>,
-    pub justifications_roots: List<Hash256, E::JustificationBitsLength>,
-    pub justifications_validators: BitVector<E::ValidatorRegistryLimit>,
+    pub justifications_roots: List<Hash256, E::HistoricalRootsLimit>,
+    pub justifications_validators: BitVector<E::JustificationValidators>,
 }
 
 impl<E: EthSpec> LeanState<E> {
-    pub fn generate_genesis(&self, validators: List<Validator, E::ValidatorRegistryLimit>) -> Self {
-        let genesis_config = Config {
-
-
+    /// Initializes a genesis state with default configuration and empty validators list
+    pub fn genesis_default() -> Self {
+        let genesis_config = Config::devnet();
+        let genesis_header = LeanBlockHeader{
+            slot: Slot(0),
+            proposer_index: ValidatorIndex(0),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
+            body_root: LeanBlockBody::<E> {
+                attestations: VariableList::empty()
+            }.tree_hash_root()
         };
+
+        Self{
+            config: genesis_config,
+            slot: Slot(0),
+            latest_justified: Checkpoint::default(),
+            latest_finalized: Checkpoint::default(),
+            latest_block_header: genesis_header,
+            historical_block_hashes: List::empty(),
+            justified_slots: BitVector::default(),
+            validators: List::empty(),
+            justifications_roots: List::empty(),
+            justifications_validators: BitVector::default(),
+        }
+    }
+
+    pub fn generate_genesis(&self, validators: List<Validator, E::ValidatorRegistryLimit>) -> Self {
+        let genesis_config = Config::devnet();
         let genesis_header = LeanBlockHeader{
             slot: Slot(0),
             proposer_index: ValidatorIndex(0),
@@ -69,7 +100,7 @@ impl<E: EthSpec> LeanState<E> {
 
     }
     pub fn get_justifications(&self) ->
-        Result<HashMap<Hash256, BitVector<E::ValidatorRegistryLimit>>, String>
+        Result<HashMap<Hash256, BitVector<E::HistoricalRootsLimit>>, String>
     {
 
         if self.justifications_roots.is_empty() {
@@ -85,7 +116,7 @@ impl<E: EthSpec> LeanState<E> {
             let start = i * validator_count;
             let end = (i + 1) * validator_count;
 
-            let mut justifications = BitVector::<E::ValidatorRegistryLimit>::default();
+            let mut justifications = BitVector::<E::HistoricalRootsLimit>::default();
             for (bit_idx, global_idx) in (start..end).enumerate() {
                 let bit_value = self.justifications_validators.get(global_idx).map_err(|e| {
                     format!("Failed to get bit at index {}: {:?}", global_idx, e)
@@ -106,7 +137,7 @@ impl<E: EthSpec> LeanState<E> {
     pub fn with_justification(
         &mut self,
         root: Hash256,
-        validator_justifications: &BitVector<E::ValidatorRegistryLimit>,
+        validator_justifications: &BitVector<E::HistoricalRootsLimit>,
     ) -> Result<(), String> {
         let validator_count = self.validators.len();
 
@@ -318,5 +349,124 @@ impl<E: EthSpec> LeanState<E> {
     }
 }
 
-#[derive(TreeHash)]
-pub struct Config {}
+/// Chain configuration parameters for lean consensus.
+///
+/// This struct holds the canonical, immutable configuration constants for the chain.
+/// It follows the lean consensus specification for chain configuration.
+#[derive(Debug, Clone, PartialEq, Eq, TreeHash, Encode, Decode, serde::Serialize, serde::Deserialize)]
+pub struct Config {
+    /// The fixed duration of a single slot in seconds.
+    pub seconds_per_slot: u64,
+    /// The number of slots to lookback for justification.
+    pub justification_lookback_slots: u64,
+    /// The maximum number of historical block roots to store in the state.
+    pub historical_roots_limit: u64,
+    /// The maximum number of validators that can be in the registry.
+    pub validator_registry_limit: u64,
+    /// Genesis time in seconds since Unix epoch.
+    pub genesis_time: u64,
+}
+
+/// Configuration for genesis generation (YAML/JSON only, not part of chain state)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenesisConfig {
+    /// Base chain configuration
+    #[serde(flatten)]
+    pub config: Config,
+    /// Log2 of the number of active epochs for XMSS keys (e.g., 24 means 2^24 active epochs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_epoch: Option<u64>,
+    /// Shuffle algorithm for validator assignment (e.g., "roundrobin").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shuffle: Option<String>,
+}
+
+impl From<Config> for GenesisConfig {
+    fn from(config: Config) -> Self {
+        Self {
+            config,
+            active_epoch: None,
+            shuffle: Some("roundrobin".to_string()),
+        }
+    }
+}
+
+impl From<GenesisConfig> for Config {
+    fn from(genesis_config: GenesisConfig) -> Self {
+        genesis_config.config
+    }
+}
+
+impl Config {
+    /// Returns the devnet chain configuration.
+    ///
+    /// This is the default configuration for the lean consensus devnet.
+    pub fn devnet() -> Self {
+        Self {
+            seconds_per_slot: SECONDS_PER_SLOT,
+            justification_lookback_slots: JUSTIFICATION_LOOKBACK_SLOTS,
+            historical_roots_limit: HISTORICAL_ROOTS_LIMIT,
+            validator_registry_limit: VALIDATOR_REGISTRY_LIMIT,
+            genesis_time: 0, // Default genesis time, should be set when creating genesis state
+        }
+    }
+
+    /// Calculates genesis time as current time + offset seconds.
+    ///
+    /// This allows nodes to start before genesis and sync up.
+    pub fn with_genesis_time_offset(offset_seconds: u64) -> Self {
+        let mut config = Self::devnet();
+        config.genesis_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + offset_seconds;
+        config
+    }
+
+
+    /// Returns the number of seconds per forkchoice processing interval.
+    ///
+    /// This is derived from `seconds_per_slot` and `intervals_per_slot`.
+    pub fn seconds_per_interval(&self) -> u64 {
+        self.seconds_per_slot / INTERVALS_PER_SLOT
+    }
+
+    /// Returns the number of intervals per slot.
+    ///
+    /// This is a constant value defined by the lean consensus specification.
+    pub fn intervals_per_slot(&self) -> u64 {
+        INTERVALS_PER_SLOT
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::devnet()
+    }
+}
+
+// --- Time Parameters ---
+
+/// Number of intervals per slot for forkchoice processing.
+pub const INTERVALS_PER_SLOT: u64 = 4;
+
+/// The fixed duration of a single slot in seconds.
+pub const SECONDS_PER_SLOT: u64 = 4;
+
+/// Seconds per forkchoice processing interval.
+pub const SECONDS_PER_INTERVAL: u64 = SECONDS_PER_SLOT / INTERVALS_PER_SLOT;
+
+/// The number of slots to lookback for justification.
+pub const JUSTIFICATION_LOOKBACK_SLOTS: u64 = 3;
+
+// --- State List Length Presets ---
+
+/// The maximum number of historical block roots to store in the state.
+///
+/// With a 4-second slot, this corresponds to a history of approximately 12.1 days.
+pub const HISTORICAL_ROOTS_LIMIT: u64 = 1 << 18; // 2^18
+
+/// The maximum number of validators that can be in the registry.
+pub const VALIDATOR_REGISTRY_LIMIT: u64 = 1 << 12; // 2^12

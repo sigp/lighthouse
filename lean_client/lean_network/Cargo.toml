@@ -4,10 +4,14 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+enr = { version = "0.13", features = ["ed25519", "k256"] }
 futures = { workspace = true }
 gossipsub = { workspace = true }
 lean_consensus = { workspace = true }
 ethereum_ssz = { workspace = true }
+libp2p-identity = { version = "0.2", features = ["secp256k1", "ed25519"] }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -19,13 +23,9 @@ default-features = false
 features = [
     "gossipsub",
     "identify",
-    "yamux",
-    "noise",
     "tcp",
     "tokio",
-    "secp256k1",
     "macros",
-    "ecdsa",
     "quic",
     "mdns"
 ]

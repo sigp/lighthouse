@@ -66,11 +66,14 @@ members = [
     "database_manager",
     "lcli",
     "lean_client",
-    "lean_client/attestation_service",
+    "lean_client/validator_service",
     "lean_client/consensus",
     "lean_client/lean_network",
     "lean_client/forkchoice",
     "lean_client/crypto",
+    "lean_client/store",
+    "lean_client/keystore",
+    "lean_client/genesis",
     "lighthouse",
     "lighthouse/environment",
     "slasher",
@@ -291,11 +294,14 @@ zstd = "0.13"
 
 # lean chain crates
 lean_client = { path = "lean_client" }
-lean_attestation_service = { path = "lean_client/attestation_service" }
+lean_validator_service = { path = "lean_client/validator_service" }
 lean_consensus = { path = "lean_client/consensus" }
 lean_network = { path = "lean_client/lean_network" }
 lean_forkchoice = { path = "lean_client/forkchoice" }
 lean_crypto = { path = "lean_client/crypto"}
+lean_store = { path = "lean_client/store" }
+lean_keystore = { path = "lean_client/keystore" }
+lean_genesis = { path = "lean_client/genesis" }
 
 
 [profile.maxperf]

@@ -8,12 +8,20 @@ edition.workspace = true
 clap = { workspace = true }
 clap_utils = { workspace = true }
 environment = { workspace = true }
-lean_attestation_service = { workspace = true }
+ethereum_ssz = { workspace = true }
+lean_consensus = { workspace = true }
+lean_genesis = { path = "genesis" }
+lean_keystore = { path = "keystore" }
+lean_store = { path = "store" }
+lean_validator_service = { workspace = true }
 lean_network = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
+store = { workspace = true, features = ["redb"] }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
