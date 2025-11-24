@@ -3064,16 +3064,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_logger"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
-dependencies = [
- "log",
- "regex",
-]
-
-[[package]]
 name = "environment"
 version = "0.1.2"
 dependencies = [
@@ -5561,8 +5551,7 @@ dependencies = [
  "network_utils",
  "parking_lot",
  "prometheus-client",
- "quickcheck",
- "quickcheck_macros",
+ "proptest",
  "rand 0.9.0",
  "regex",
  "serde",
@@ -5872,8 +5861,7 @@ dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
  "fixed_bytes",
- "quickcheck",
- "quickcheck_macros",
+ "proptest",
  "safe_arith",
 ]
 
@@ -7241,28 +7229,6 @@ dependencies = [
  "quick-protobuf",
  "thiserror 1.0.69",
  "unsigned-varint 0.8.0",
-]
-
-[[package]]
-name = "quickcheck"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "588f6378e4dd99458b60ec275b4477add41ce4fa9f64dcba6f15adccb19b50d6"
-dependencies = [
- "env_logger",
- "log",
- "rand 0.8.5",
-]
-
-[[package]]
-name = "quickcheck_macros"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b22a693222d716a9587786f37ac3f6b4faedb5b80c23914e7303ff5a1d8016e9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
