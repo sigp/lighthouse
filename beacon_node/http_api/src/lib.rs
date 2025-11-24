@@ -4200,20 +4200,21 @@ pub fn serve<T: BeaconChainTypes>(
             |request_data: api_types::ManualFinalizationRequestData,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let checkpoint = Checkpoint {
                         epoch: request_data.epoch,
                         root: request_data.block_root,
                     };
 
-                    chain
-                        .manual_finalization(checkpoint)
-                        .map(|_| api_types::GenericResponse::from(request_data))
-                        .map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!(
-                                "Failed to finalize state due to error: {e:?}"
-                            ))
-                        })
+                    chain.manual_finalization(checkpoint).await.map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "Failed to finalize state due to error: {e:?}"
+                        ))
+                    })?;
+                    Ok::<_, warp::reject::Rejection>(
+                        warp::reply::json(&api_types::GenericResponse::from(request_data))
+                            .into_response(),
+                    )
                 })
             },
         );

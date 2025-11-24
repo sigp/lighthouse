@@ -1060,45 +1060,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    pub fn manual_finalization(self: &Arc<Self>, checkpoint: Checkpoint) -> Result<(), Error> {
-        // Take a clone of the current ("old") head.
-        let old_cached_head = self.canonical_head.cached_head();
+    pub async fn manual_finalization(
+        self: &Arc<Self>,
+        checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        // Set the irreversible checkpoint first. This will cause finality to advance if the
+        // checkpoint is greater than current finality.
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || {
+                chain
+                    .canonical_head
+                    .fork_choice_write_lock()
+                    .set_local_irreversible_checkpoint(checkpoint)
+            },
+            "set_local_irreversible_checkpoint",
+        )
+        .await??;
 
-        let new_view = {
-            let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
-            fork_choice_write_lock.set_local_irreversible_checkpoint(checkpoint)?;
-            let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
-            ForkChoiceView {
-                head_block_root: old_cached_head.head_block_root(),
-                justified_checkpoint: fork_choice_read_lock.justified_checkpoint(),
-                finalized_checkpoint: fork_choice_read_lock.finalized_checkpoint(),
-            }
-        };
-
-        let new_cached_head = {
-            let fork_choice = self.canonical_head.fork_choice_read_lock();
-            let new_cached_head = CachedHead {
-                // The head hasn't changed, take a relatively cheap `Arc`-clone of the existing
-                // head.
-                snapshot: old_cached_head.snapshot.clone(),
-                justified_checkpoint: new_view.justified_checkpoint,
-                finalized_checkpoint: new_view.finalized_checkpoint,
-                head_hash: fork_choice.execution_hash(old_cached_head.head_block_root()),
-                justified_hash: fork_choice
-                    .execution_hash(new_view.justified_checkpoint.on_chain().root),
-                finalized_hash: fork_choice
-                    .execution_hash(new_view.finalized_checkpoint.on_chain().root),
-            };
-            drop(fork_choice);
-
-            let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
-            *cached_head_write_lock = new_cached_head;
-            // Take a clone of the cached head for later use. It is cloned whilst
-            // holding the write-lock to ensure we get exactly the head we just enshrined.
-            cached_head_write_lock.clone()
-        };
-
-        self.after_finalization(&new_cached_head, new_view)?;
+        // Allow to set an irreversible checkpoint that is not an ancestor of the current head. If
+        // that happens the current head will become non-viable. Re-compute head in case the
+        // current head is not a descendant of the irreversible checkpoint.
+        self.recompute_head_at_slot(self.slot()?).await;
         Ok(())
     }
 
