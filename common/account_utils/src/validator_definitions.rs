@@ -211,6 +211,26 @@ impl ValidatorDefinition {
             },
         })
     }
+
+    pub fn check_fee_recipient(&self, global_fee_recipient: Option<Address>) -> Result<(), String> {
+        // Skip disabled validators. Also skip if validator has its own fee set, or the global flag is set
+        if !self.enabled || self.suggested_fee_recipient.is_some() || global_fee_recipient.is_some()
+        {
+            return Ok(());
+        }
+
+        // If nothing set
+        Err(format!(
+            "Validator {} is missing `suggested_fee_recipient`!\n\n\
+                 You will LOSE all transaction fees when this validator proposes a block.\n\n\
+                 Fix it in one of these ways:\n\
+                 • Add this line in validator_definitions.yml:\n\
+                   suggested_fee_recipient: 0xYourAddressHere\n\n\
+                 • Or use global flag:\n\
+                   --suggested-fee-recipient 0xYourAddressHere",
+            self.voting_public_key
+        ))
+    }
 }
 
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
@@ -409,6 +429,34 @@ impl ValidatorDefinitions {
             .iter()
             .filter_map(|def| def.signing_definition.voting_keystore_password_path())
     }
+
+    /// Called after loading to run safety checks on all validators
+    pub fn check_all_fee_recipients(
+        &self,
+        global_fee_recipient: Option<Address>,
+    ) -> Result<(), String> {
+        for def in &self.0 {
+            def.check_fee_recipient(global_fee_recipient)?;
+        }
+
+        // Friendly reminder for users using the global flag
+        if global_fee_recipient.is_some() {
+            let missing = self
+                .0
+                .iter()
+                .filter(|d| d.enabled && d.suggested_fee_recipient.is_none())
+                .count();
+            if missing > 0 {
+                tracing::warn!(
+                    "Global --suggested-fee-recipient is being used for {} validator(s). \
+                        Consider setting it in validator_definitions.yml for each one.",
+                    missing
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Perform an exhaustive tree search of `dir`, adding any discovered voting keystore paths to
@@ -485,6 +533,7 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 mod tests {
     use super::*;
     use std::str::FromStr;
+    use types::Keypair;
 
     #[test]
     fn voting_keystore_filename_lighthouse() {
@@ -680,5 +729,239 @@ mod tests {
 
         let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_proposals).unwrap();
         assert_eq!(def.builder_proposals, Some(true));
+    }
+
+    #[test]
+    fn fee_recipient_check_fails_when_missing() {
+        let def = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: PublicKey::from_str(
+                "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            ).unwrap(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: None,
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            }
+        };
+        // Should fail when no fee recipient is set anywhere
+        let check_result = def.check_fee_recipient(None);
+        assert!(check_result.is_err());
+        assert!(check_result.unwrap_err().contains("is missing `suggested_fee_recipient`"));
+    }
+
+    #[test]
+    fn fee_recipient_check_passes_with_global_flag() {
+        let def = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: PublicKey::from_str(
+                "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            ).unwrap(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: None,
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        // Should pass when global fee recipient is set
+        let global_fee = Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
+        assert!(def.check_fee_recipient(global_fee).is_ok());
+    }
+
+    #[test]
+    fn fee_recipient_check_passes_with_validator_specific() {
+        let def = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: PublicKey::from_str(
+                "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            ).unwrap(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap()),
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        // Should pass when validator has its own fee recipient
+        assert!(def.check_fee_recipient(None).is_ok());
+    }
+
+    #[test]
+    fn fee_recipient_check_skips_disabled_validators() {
+        let def = ValidatorDefinition {
+            enabled: false,
+            voting_public_key: PublicKey::from_str(
+                "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            ).unwrap(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: None,  // No fee recipient
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        // Should pass because validator is disabled
+        assert!(def.check_fee_recipient(None).is_ok());
+    }
+
+    #[test]
+    fn check_all_fee_recipients_fails_on_first_missing() {
+        let keypair = Keypair::random();
+        let def1 = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: keypair.pk.clone(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap()),
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        let def2 = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: keypair.pk.clone(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: None,
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        let defs = ValidatorDefinitions::from(vec![def1, def2]);
+        
+        // Should fail because def2 has no fee recipient and no global fee recipient is set
+        let result = defs.check_all_fee_recipients(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("is missing `suggested_fee_recipient`"));
+    }
+
+    #[test]
+    fn check_all_fee_recipients_passes_all_configured() {
+        let keypair = Keypair::random();
+        let def1 = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: keypair.pk.clone(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap()),
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        let def2 = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: keypair.pk.clone(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: Some(Address::from_str("0xb2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap()),
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        let defs = ValidatorDefinitions::from(vec![def1, def2]);
+        
+        // Should pass - all validators have fee recipients
+        assert!(defs.check_all_fee_recipients(None).is_ok());
+    }
+
+    #[test]
+    fn check_all_fee_recipients_passes_with_global() {
+        let keypair = Keypair::random();
+        let def1 = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: keypair.pk.clone(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: None,
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        let def2 = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: keypair.pk.clone(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: None,
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
+        let defs = ValidatorDefinitions::from(vec![def1, def2]);
+        
+        // Should pass - global fee recipient is set
+        let global_fee = Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
+        assert!(defs.check_all_fee_recipients(global_fee).is_ok());
     }
 }
