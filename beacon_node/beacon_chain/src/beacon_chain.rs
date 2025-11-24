@@ -1208,6 +1208,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(Some)
     }
 
+    pub fn get_execution_hash(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<ExecutionBlockHash>, Error> {
+        if let Some(execution_hash) = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .execution_hash(*block_root)
+        {
+            return Ok(Some(execution_hash));
+        }
+        Ok(self.store.get_blinded_block(block_root)?.and_then(|block| {
+            if let Ok(payload) = block.message().execution_payload() {
+                Some(payload.block_hash())
+            } else {
+                None
+            }
+        }))
+    }
+
     /// Returns the blobs at the given root, if any.
     ///
     /// ## Errors

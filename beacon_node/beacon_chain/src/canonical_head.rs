@@ -267,24 +267,33 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
     ) -> Self {
-        let head_block_root = snapshot.beacon_block_root;
-        let justified_checkpoint = fork_choice.justified_checkpoint();
-        let finalized_checkpoint = fork_choice.finalized_checkpoint();
-
-        let cached_head = CachedHead {
-            snapshot,
-            justified_checkpoint,
-            finalized_checkpoint,
-            // TODO: Do we need to cache this nodes?
-            head_hash: fork_choice.execution_hash(head_block_root),
-            justified_hash: fork_choice.execution_hash(justified_checkpoint.on_chain().root),
-            finalized_hash: fork_choice.execution_hash(finalized_checkpoint.on_chain().root),
-        };
-
+        let cached_head = Self::new_cached_head(&fork_choice, snapshot);
         Self {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
+        }
+    }
+
+    fn new_cached_head(
+        fork_choice: &BeaconForkChoice<T>,
+        snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
+    ) -> CachedHead<T::EthSpec> {
+        let head_block_root = snapshot.beacon_block_root;
+        let justified_checkpoint = fork_choice.justified_checkpoint();
+        let finalized_checkpoint = fork_choice.finalized_checkpoint();
+
+        CachedHead {
+            snapshot,
+            justified_checkpoint,
+            finalized_checkpoint,
+            // TODO(non-fin-cp-sync): This values maybe be None. It's unclear if ELs can handle
+            // zero hashes. We decide to only send to the EL the "real" network on chain finalized
+            // and justified hashes such that the "safe" tag retains the same economic security no
+            // matter in what mode this beacon node is running.
+            head_hash: fork_choice.execution_hash(head_block_root),
+            justified_hash: fork_choice.execution_hash(justified_checkpoint.on_chain().root),
+            finalized_hash: fork_choice.execution_hash(finalized_checkpoint.on_chain().root),
         }
     }
 
@@ -321,16 +330,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             beacon_state,
         };
 
-        let justified_checkpoint = fork_choice.justified_checkpoint();
-        let finalized_checkpoint = fork_choice.finalized_checkpoint();
-        let cached_head = CachedHead {
-            snapshot: Arc::new(snapshot),
-            justified_checkpoint,
-            finalized_checkpoint,
-            head_hash: fork_choice.execution_hash(beacon_block_root),
-            justified_hash: fork_choice.execution_hash(justified_checkpoint.on_chain().root),
-            finalized_hash: fork_choice.execution_hash(finalized_checkpoint.on_chain().root),
-        };
+        let cached_head = Self::new_cached_head(&fork_choice, snapshot.into());
 
         *fork_choice_write_lock = fork_choice;
         // Avoid interleaving the fork choice and cached head locks.
@@ -667,11 +667,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // parameters have changed.
         let new_forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root: new_view.head_block_root,
-            head_hash: fork_choice_read_lock.execution_hash(new_view.head_block_root),
-            justified_hash: fork_choice_read_lock
-                .execution_hash(new_view.justified_checkpoint.on_chain().root),
-            finalized_hash: fork_choice_read_lock
-                .execution_hash(new_view.finalized_checkpoint.on_chain().root),
+            // Only fetch the execution hashes of head and finality checkpoints if necessary. The
+            // fork-choice may not include nodes for the finalized / justified blocks, so a DB read
+            // may be necessary.
+            head_hash: if new_view.head_block_root == old_view.head_block_root {
+                old_cached_head.head_hash
+            } else {
+                self.get_execution_hash(&new_view.head_block_root)?
+            },
+            justified_hash: if new_view.justified_checkpoint.on_chain()
+                == old_view.justified_checkpoint.on_chain()
+            {
+                old_cached_head.justified_hash
+            } else {
+                self.get_execution_hash(&new_view.justified_checkpoint.on_chain().root)?
+            },
+            finalized_hash: if new_view.finalized_checkpoint.on_chain()
+                == old_view.finalized_checkpoint.on_chain()
+            {
+                old_cached_head.finalized_hash
+            } else {
+                self.get_execution_hash(&new_view.finalized_checkpoint.on_chain().root)?
+            },
         };
 
         perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock);
