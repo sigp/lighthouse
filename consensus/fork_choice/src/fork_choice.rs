@@ -1334,10 +1334,9 @@ where
     pub fn set_local_irreversible_checkpoint(
         &mut self,
         checkpoint: Checkpoint,
-        state_root: Hash256,
     ) -> Result<(), Error<T::Error>> {
         self.fc_store
-            .set_local_irreversible_checkpoint(checkpoint, state_root)
+            .set_local_irreversible_checkpoint(checkpoint)
             .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         Ok(())
     }

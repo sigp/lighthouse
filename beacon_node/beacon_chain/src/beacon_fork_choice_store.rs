@@ -187,6 +187,10 @@ where
             epoch: anchor_epoch,
             root: anchor.beacon_block_root,
         };
+
+        // For post-genesis states this justified balances will not match the justified checkpoint.
+        // TODO(non-fin-cp-sync): Fetch the justified state from checkpointz server and get the
+        // justified balances from it.
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
         let anchor_state_root = anchor_state.canonical_root()?;
 
@@ -298,34 +302,6 @@ where
             _phantom: PhantomData,
         })
     }
-
-    fn update_justified_balances(
-        &mut self,
-        checkpoint: Checkpoint,
-        justified_state_root: Hash256,
-    ) -> Result<(), Error> {
-        self.justified_state_root = justified_state_root;
-
-        if let Some(balances) = self.balances_cache.get(checkpoint.root, checkpoint.epoch) {
-            // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
-            metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
-            self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
-        } else {
-            metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
-
-            // Justified state is reasonably useful to cache, it might be finalized soon.
-            let update_cache = true;
-            let state = self
-                .store
-                .get_hot_state(&self.justified_state_root, update_cache)
-                .map_err(Error::FailedToReadState)?
-                .ok_or(Error::MissingState(self.justified_state_root))?;
-
-            self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
-        }
-
-        Ok(())
-    }
 }
 
 impl<E, Hot, Cold> ForkChoiceStore<E> for BeaconForkChoiceStore<E, Hot, Cold>
@@ -401,7 +377,30 @@ where
         justified_state_root: Hash256,
     ) -> Result<(), Error> {
         self.justified_checkpoint = checkpoint;
-        self.update_justified_balances(checkpoint, justified_state_root)
+        self.justified_state_root = justified_state_root;
+
+        if let Some(balances) = self.balances_cache.get(
+            self.justified_checkpoint.root,
+            self.justified_checkpoint.epoch,
+        ) {
+            // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
+            metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
+            self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
+        } else {
+            metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
+
+            // Justified state is reasonably useful to cache, it might be finalized soon.
+            let update_cache = true;
+            let state = self
+                .store
+                .get_hot_state(&self.justified_state_root, update_cache)
+                .map_err(Error::FailedToReadState)?
+                .ok_or(Error::MissingState(self.justified_state_root))?;
+
+            self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
+        }
+
+        Ok(())
     }
 
     fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint, state_root: Hash256) {
@@ -413,15 +412,12 @@ where
         self.unrealized_finalized_checkpoint = checkpoint;
     }
 
-    fn set_local_irreversible_checkpoint(
-        &mut self,
-        checkpoint: Checkpoint,
-        state_root: Hash256,
-    ) -> Result<(), Error> {
+    fn set_local_irreversible_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Error> {
         self.local_irreversible_checkpoint = checkpoint;
-        if self.local_irreversible_checkpoint.epoch > self.justified_checkpoint.epoch {
-            self.update_justified_balances(checkpoint, state_root)?;
-        }
+        // Do not update the justified balances. They should match the network justified balances,
+        // such that all nodes have a consistent fork-choice view. The current balances are cached
+        // and stored in the fork-choice store. Even the node can't access the justified state, the
+        // justified balances will remain available.
         Ok(())
     }
 
