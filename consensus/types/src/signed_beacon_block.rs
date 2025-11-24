@@ -8,6 +8,7 @@ use ssz_derive::{Decode, Encode};
 use std::fmt;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
+use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -253,6 +254,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     }
 
     /// Produce a signed beacon block header corresponding to this block.
+    #[instrument(level = "debug", skip_all)]
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         SignedBeaconBlockHeader {
             message: self.message().block_header(),
