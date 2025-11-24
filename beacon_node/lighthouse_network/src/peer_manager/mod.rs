@@ -3077,9 +3077,13 @@ mod tests {
                 )
         }
 
+        // Upper bound for testing peer pruning - we test with at least the target number
+        // and up to 50% more than the target to verify pruning behavior.
+        const MAX_TEST_PEERS: usize = 300;
+
         proptest! {
             #[test]
-            fn prune_excess_peers(peer_conditions in proptest::collection::vec(peer_condition_strategy(), DEFAULT_TARGET_PEERS..=300)) {
+            fn prune_excess_peers(peer_conditions in proptest::collection::vec(peer_condition_strategy(), DEFAULT_TARGET_PEERS..=MAX_TEST_PEERS)) {
                 let target_peer_count = DEFAULT_TARGET_PEERS;
                 let spec = E::default_spec();
 
