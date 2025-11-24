@@ -412,13 +412,12 @@ where
         self.unrealized_finalized_checkpoint = checkpoint;
     }
 
-    fn set_local_irreversible_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Error> {
+    fn set_local_irreversible_checkpoint(&mut self, checkpoint: Checkpoint) {
         self.local_irreversible_checkpoint = checkpoint;
         // Do not update the justified balances. They should match the network justified balances,
         // such that all nodes have a consistent fork-choice view. The current balances are cached
         // and stored in the fork-choice store. Even the node can't access the justified state, the
         // justified balances will remain available.
-        Ok(())
     }
 
     fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256) {

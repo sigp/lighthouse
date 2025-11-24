@@ -72,6 +72,7 @@ pub enum Error<T> {
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ValidatorStatuses(BeaconStateError),
+    BadIrreversibleCheckpoint(String),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -1335,9 +1336,21 @@ where
         &mut self,
         checkpoint: Checkpoint,
     ) -> Result<(), Error<T::Error>> {
-        self.fc_store
-            .set_local_irreversible_checkpoint(checkpoint)
-            .map_err(Error::UnableToSetJustifiedCheckpoint)?;
+        // Irreversible checkpoint is potentially user input, sanity check it
+        if let Some(block) = self.proto_array.get_block(&checkpoint.root) {
+            if block.slot.epoch(E::slots_per_epoch()) > checkpoint.epoch {
+                return Err(Error::BadIrreversibleCheckpoint(format!(
+                    "Epoch {} ahead of block slot {}",
+                    checkpoint.epoch, block.slot
+                )));
+            }
+        } else {
+            return Err(Error::BadIrreversibleCheckpoint(format!(
+                "Unknown root {:?}",
+                checkpoint.root
+            )));
+        }
+        self.fc_store.set_local_irreversible_checkpoint(checkpoint);
         Ok(())
     }
 

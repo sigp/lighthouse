@@ -78,10 +78,7 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
 
     /// Sets the local irreversible checkpoint, which may be ahead of the network's justified
     /// checkpoint. Only blocks descendant of this checkpoint are viable heads.
-    fn set_local_irreversible_checkpoint(
-        &mut self,
-        checkpoint: Checkpoint,
-    ) -> Result<(), Self::Error>;
+    fn set_local_irreversible_checkpoint(&mut self, checkpoint: Checkpoint);
 
     /// Sets the `unrealized_justified_checkpoint`.
     fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint, state_root: Hash256);
