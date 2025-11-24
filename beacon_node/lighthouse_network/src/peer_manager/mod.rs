@@ -3004,16 +3004,20 @@ mod tests {
             let available_subnets: Vec<u64> = (custody_requirement..total_subnet_count).collect();
             let max_custody_subnets = available_subnets.len();
 
+            // Trusted peer probability constants - 1 in 5 peers should be trusted (20%)
+            const TRUSTED_PEER_WEIGHT_FALSE: u32 = 4;
+            const TRUSTED_PEER_WEIGHT_TRUE: u32 = 1;
+
             (
                 proptest::collection::vec(any::<bool>(), attestation_len),
                 proptest::collection::vec(any::<bool>(), sync_committee_len),
                 any::<f64>(),
                 any::<bool>(),
                 any::<f64>(),
-                // Use weighted to make trusted peers less common (20% chance)
+                // Weight trusted peers to avoid test rejection due to too many trusted peers
                 prop_oneof![
-                    4 => Just(false),
-                    1 => Just(true),
+                    TRUSTED_PEER_WEIGHT_FALSE => Just(false),
+                    TRUSTED_PEER_WEIGHT_TRUE => Just(true),
                 ],
                 0..=max_custody_subnets,
             )
