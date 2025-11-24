@@ -4,9 +4,8 @@ use futures::StreamExt;
 use lean_consensus::attestation::SignedAttestation;
 use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
 use libp2p::{
-    gossipsub,
+    Multiaddr, PeerId, Swarm, Transport, gossipsub,
     swarm::{NetworkBehaviour, SwarmEvent},
-    PeerId, Swarm, Transport, Multiaddr,
 };
 use ssz::{Decode, Encode};
 use std::collections::VecDeque;
@@ -64,9 +63,8 @@ impl<E: EthSpec> NetworkService<E> {
         info!("Local peer id: {:?}", local_peer_id);
 
         // Use QUIC transport (handles multiplexing natively)
-        let transport = libp2p::quic::tokio::Transport::new(
-            libp2p::quic::Config::new(&local_key)
-        ).map(|(peer_id, conn), _| (peer_id, libp2p::core::muxing::StreamMuxerBox::new(conn)))
+        let transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(&local_key))
+            .map(|(peer_id, conn), _| (peer_id, libp2p::core::muxing::StreamMuxerBox::new(conn)))
             .boxed();
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
@@ -81,9 +79,7 @@ impl<E: EthSpec> NetworkService<E> {
         )
         .map_err(|e| format!("Failed to create gossipsub behaviour: {}", e))?;
 
-        let behaviour = LeanBehaviour {
-            gossipsub,
-        };
+        let behaviour = LeanBehaviour { gossipsub };
 
         let mut swarm = Swarm::new(
             transport,
@@ -133,12 +129,18 @@ impl<E: EthSpec> NetworkService<E> {
                     });
                 }
                 Err(e) => {
-                    warn!("Invalid bootstrap node address {}: {}", bootstrap_addr_str, e);
+                    warn!(
+                        "Invalid bootstrap node address {}: {}",
+                        bootstrap_addr_str, e
+                    );
                 }
             }
         }
 
-        info!("Initialized {} bootstrap nodes for retry", bootstrap_nodes.len());
+        info!(
+            "Initialized {} bootstrap nodes for retry",
+            bootstrap_nodes.len()
+        );
 
         Ok(Self {
             swarm,
@@ -362,7 +364,10 @@ impl<E: EthSpec> NetworkService<E> {
     }
 
     /// Marks a bootstrap node as successfully connected based on the connection endpoint
-    fn mark_bootstrap_node_connected_by_endpoint(&mut self, endpoint: &libp2p::core::ConnectedPoint) {
+    fn mark_bootstrap_node_connected_by_endpoint(
+        &mut self,
+        endpoint: &libp2p::core::ConnectedPoint,
+    ) {
         // Extract the remote address from the connection endpoint
         let remote_addr = endpoint.get_remote_address();
 
@@ -394,14 +399,12 @@ impl<E: EthSpec> NetworkService<E> {
             remote_str
                 .split('/')
                 .find(|s| s.starts_with("ip"))
-                .unwrap_or("")
+                .unwrap_or(""),
         ) && multiaddr_str.contains(
             remote_str
                 .split('/')
                 .find(|s| s.parse::<u16>().is_ok())
-                .unwrap_or("")
+                .unwrap_or(""),
         )
     }
 }
-
-

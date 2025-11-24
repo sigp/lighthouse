@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 use tracing::info;
 
 /// ENR fields for node configuration
@@ -36,7 +36,6 @@ pub struct ValidatorEntry {
     #[serde(default, rename = "metricsPort")]
     pub metrics_port: Option<u16>,
 }
-
 
 /// Configuration section of validator-config.yaml
 #[derive(Debug, Clone, Serialize, Deserialize)]

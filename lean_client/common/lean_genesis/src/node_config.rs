@@ -4,8 +4,8 @@
 //! This module provides utilities for reading nodes.yaml files.
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 use tracing::info;
 
 /// Node entry in nodes.yaml
@@ -28,7 +28,6 @@ pub struct NodesConfig {
 }
 
 impl NodesConfig {
-
     /// Saves nodes configuration to a YAML file
     pub fn save_to_file(&self, path: &Path) -> Result<(), String> {
         info!(path = ?path, "Saving nodes.yaml");
@@ -42,8 +41,7 @@ impl NodesConfig {
         let yaml_content = serde_yaml::to_string(self)
             .map_err(|e| format!("Failed to serialize nodes config to YAML: {}", e))?;
 
-        fs::write(path, yaml_content)
-            .map_err(|e| format!("Failed to write nodes.yaml: {}", e))?;
+        fs::write(path, yaml_content).map_err(|e| format!("Failed to write nodes.yaml: {}", e))?;
 
         Ok(())
     }

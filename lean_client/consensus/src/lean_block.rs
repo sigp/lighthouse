@@ -94,9 +94,9 @@ impl<E: EthSpec> SignedLeanBlockWithAttestation<E> {
                 ));
             }
 
-            let validator = validators.get(validator_id).ok_or_else(|| {
-                format!("Failed to get validator at index {}", validator_id)
-            })?;
+            let validator = validators
+                .get(validator_id)
+                .ok_or_else(|| format!("Failed to get validator at index {}", validator_id))?;
 
             // Get the attestation data slot (epoch)
             let epoch = attestation.attestation_data.slot.0;

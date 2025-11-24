@@ -1,11 +1,10 @@
 use lean_crypto::Signature;
-use ssz_derive::{Decode, Encode};
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use types::Hash256;
 
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 pub struct Attestation {
@@ -106,7 +105,6 @@ pub struct Checkpoint {
     pub slot: Slot,
     pub root: Hash256,
 }
-
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SignedAttestation {

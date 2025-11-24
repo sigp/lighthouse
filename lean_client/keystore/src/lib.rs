@@ -9,7 +9,9 @@
 mod key_generation;
 mod key_storage;
 
-pub use key_generation::{generate_keys, generate_keys_sync, KeyGenerationConfig, KeyGenerationError};
+pub use key_generation::{
+    KeyGenerationConfig, KeyGenerationError, generate_keys, generate_keys_sync,
+};
 pub use key_storage::{KeyStore, KeyStoreError, PrivateKey, PublicKey, ValidatorKeyPair};
 
 use std::path::PathBuf;

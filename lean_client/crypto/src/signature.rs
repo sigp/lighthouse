@@ -84,7 +84,12 @@ impl Signature {
         }
 
         // Verify the signature
-        SIGTopLevelTargetSumLifetime32Dim64Base8::verify(&public_key_deserialized, epoch_u32, &message_array, &signature_deserialized)
+        SIGTopLevelTargetSumLifetime32Dim64Base8::verify(
+            &public_key_deserialized,
+            epoch_u32,
+            &message_array,
+            &signature_deserialized,
+        )
     }
 }
 

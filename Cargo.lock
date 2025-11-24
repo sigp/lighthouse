@@ -5123,10 +5123,12 @@ dependencies = [
  "clap_utils",
  "environment",
  "ethereum_ssz",
+ "lean_config",
  "lean_consensus",
  "lean_genesis",
  "lean_keystore",
  "lean_network",
+ "lean_network_config",
  "lean_store",
  "lean_validator_service",
  "serde",
@@ -5135,6 +5137,22 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
+ "tracing",
+ "types",
+]
+
+[[package]]
+name = "lean_config"
+version = "0.1.0"
+dependencies = [
+ "lean_consensus",
+ "lean_genesis",
+ "lean_keystore",
+ "lean_network",
+ "lean_network_config",
+ "lean_store",
+ "slot_clock",
+ "store",
  "tracing",
  "types",
 ]
@@ -5223,6 +5241,15 @@ dependencies = [
  "tokio",
  "tracing",
  "types",
+]
+
+[[package]]
+name = "lean_network_config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_yaml",
+ "tracing",
 ]
 
 [[package]]

@@ -823,21 +823,18 @@ fn run<E: EthSpec>(
             );
         }
         Ok(LighthouseSubcommands::LeanNode(lean_node_config)) => {
-            let executor = environment.core_context().executor.clone();
-            let temp_executor = executor.clone();
+            let lean_context = environment.service_context("lean_node".to_string());
+            let executor = lean_context.executor.clone();
             let data_dir = parse_path_or_default(matches, "datadir")?.join(DEFAULT_LEAN_NODE_DIR);
+            let lean_node_cli = *lean_node_config;
+            let lean_client_config = lean_client::Config::from_cli(lean_node_cli, data_dir);
             executor.clone().spawn(
                 async move {
-                    if let Err(e) = ProductionLeanClient::new(
-                        temp_executor,
-                        data_dir,
-                        lean_node_config.config.clone(),
-                        lean_node_config.validators.clone(),
-                        lean_node_config.nodes.clone(),
-                        lean_node_config.node_id.clone(),
-                    )
-                    .and_then(|mut ln: ProductionLeanClient<E>| async move { ln.start_service(lean_node_config.validators.clone()).await })
-                    .await
+                    if let Err(e) = ProductionLeanClient::new(lean_context, lean_client_config)
+                        .and_then(|mut ln: ProductionLeanClient<E>| async move {
+                            ln.start_service().await
+                        })
+                        .await
                     {
                         crit!(reason = e, "Failed to start lean node");
                         // Ignore the error since it always occurs during normal operation when

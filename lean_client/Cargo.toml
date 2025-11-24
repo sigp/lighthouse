@@ -10,11 +10,13 @@ clap_utils = { workspace = true }
 environment = { workspace = true }
 ethereum_ssz = { workspace = true }
 lean_consensus = { workspace = true }
-lean_genesis = { path = "genesis" }
+lean_genesis = { workspace = true }
 lean_keystore = { path = "keystore" }
+lean_network = { workspace = true }
+lean_network_config = { workspace = true }
 lean_store = { path = "store" }
 lean_validator_service = { workspace = true }
-lean_network = { workspace = true }
+lean_config = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
 store = { workspace = true, features = ["redb"] }

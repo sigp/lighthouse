@@ -1,7 +1,7 @@
-use ssz_derive::{Decode, Encode};
-use types::Hash256;
-use tree_hash::TreeHash;
 use crate::attestation::Slot;
+use ssz_derive::{Decode, Encode};
+use tree_hash::TreeHash;
+use types::Hash256;
 use types::{FixedVector, typenum::U52};
 
 use tree_hash_derive::TreeHash;
@@ -58,7 +58,6 @@ impl ValidatorIndex {
     }
 }
 
-
 impl TreeHash for ValidatorIndex {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         tree_hash::TreeHashType::Basic
@@ -76,4 +75,3 @@ impl TreeHash for ValidatorIndex {
         self.0.tree_hash_root()
     }
 }
-

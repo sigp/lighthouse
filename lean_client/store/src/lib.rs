@@ -247,11 +247,7 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanStore<E, D> {
     }
 
     /// Fetches an item using a specific key
-    fn fetch_with_key<T: Decode>(
-        &self,
-        column: DBColumn,
-        key: &[u8],
-    ) -> Result<Option<T>, String> {
+    fn fetch_with_key<T: Decode>(&self, column: DBColumn, key: &[u8]) -> Result<Option<T>, String> {
         let bytes = self
             .db
             .get_bytes(column, key)

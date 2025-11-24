@@ -4,7 +4,6 @@ use lean_consensus::lean_state::LeanState;
 use std::collections::HashMap;
 use types::{EthSpec, Hash256};
 
-
 pub fn get_fork_choice_head<E: EthSpec>(
     blocks: &HashMap<Hash256, LeanBlock<E>>,
     root: Hash256,
@@ -41,7 +40,6 @@ pub fn get_fork_choice_head<E: EthSpec>(
         }
     }
 
-
     let mut children_map: HashMap<Hash256, Vec<Hash256>> = HashMap::new();
 
     for (block_hash, block) in blocks.iter() {
@@ -75,7 +73,6 @@ pub fn get_fork_choice_head<E: EthSpec>(
             .unwrap();
     }
 }
-
 
 pub fn get_latest_justified<E: EthSpec>(
     states: &HashMap<Hash256, LeanState<E>>,

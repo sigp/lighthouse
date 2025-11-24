@@ -1,9 +1,9 @@
-use libp2p::{Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
+use libp2p::{Multiaddr, PeerId};
 use libp2p_identity::{PublicKey, ed25519, secp256k1};
 use std::net::IpAddr;
 use std::path::Path;
-use tracing::{debug, warn, error};
+use tracing::{debug, error, warn};
 
 /// Loads bootstrap nodes from nodes.yaml using ENR records
 ///
@@ -27,11 +27,20 @@ pub fn load_bootstrap_nodes<P: AsRef<Path>>(nodes_path: P) -> Result<Vec<String>
         return Err(format!("nodes.yaml file at {:?} is empty", path));
     }
 
-    debug!("Reading nodes.yaml from {:?}, content length: {} bytes", path, content.len());
+    debug!(
+        "Reading nodes.yaml from {:?}, content length: {} bytes",
+        path,
+        content.len()
+    );
 
     // Parse as YAML array of ENR strings
-    let enr_records: Vec<String> = serde_yaml::from_str(&content)
-        .map_err(|e| format!("Failed to parse nodes.yaml as YAML: {}. Content preview: {}", e, content.chars().take(200).collect::<String>()))?;
+    let enr_records: Vec<String> = serde_yaml::from_str(&content).map_err(|e| {
+        format!(
+            "Failed to parse nodes.yaml as YAML: {}. Content preview: {}",
+            e,
+            content.chars().take(200).collect::<String>()
+        )
+    })?;
 
     debug!("Parsed {} ENR records from nodes.yaml", enr_records.len());
 
@@ -60,14 +69,29 @@ pub fn load_bootstrap_nodes<P: AsRef<Path>>(nodes_path: P) -> Result<Vec<String>
 
     if multiaddrs.is_empty() {
         let error_details = if !parse_errors.is_empty() {
-            format!("All {} ENR records failed to parse. First error: {}", enr_records.len(), parse_errors[0].1)
+            format!(
+                "All {} ENR records failed to parse. First error: {}",
+                enr_records.len(),
+                parse_errors[0].1
+            )
         } else {
             format!("No ENR records found in file")
         };
-        error!("No valid bootstrap nodes found in {:?}. {}", path, error_details);
-        return Err(format!("No valid bootstrap nodes found in {:?}. {}", path, error_details));
+        error!(
+            "No valid bootstrap nodes found in {:?}. {}",
+            path, error_details
+        );
+        return Err(format!(
+            "No valid bootstrap nodes found in {:?}. {}",
+            path, error_details
+        ));
     } else {
-        debug!("Loaded {} bootstrap nodes from {:?} ({} failed to parse)", multiaddrs.len(), path, parse_errors.len());
+        debug!(
+            "Loaded {} bootstrap nodes from {:?} ({} failed to parse)",
+            multiaddrs.len(),
+            path,
+            parse_errors.len()
+        );
     }
 
     Ok(multiaddrs)
@@ -75,20 +99,22 @@ pub fn load_bootstrap_nodes<P: AsRef<Path>>(nodes_path: P) -> Result<Vec<String>
 
 /// Parses an ENR record string to extract multiaddr
 /// ENR records are base64-encoded and contain IP/port information
-/// 
+///
 /// This follows the same pattern as Ream and Lighthouse:
 /// - Uses standard ENR fields: ip4/ip6 for IP addresses
 /// - Uses get_decodable("quic") for QUIC port (as per Ream's implementation)
 /// - Falls back to udp4/udp6 if quic port is not available
 fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
     // ENR format: enr:-IW4Q...
-    let enr = enr_str.parse::<enr::Enr<enr::CombinedKey>>()
+    let enr = enr_str
+        .parse::<enr::Enr<enr::CombinedKey>>()
         .map_err(|e| format!("Failed to parse ENR string: {:?}", e))?;
 
     debug!("Parsed ENR: seq={}, id={:?}", enr.seq(), enr.id());
 
     // Extract IP address - use standard ENR fields
-    let ip = enr.ip4()
+    let ip = enr
+        .ip4()
         .map(|ip| IpAddr::V4(ip))
         .or_else(|| enr.ip6().map(|ip| IpAddr::V6(ip)))
         .ok_or_else(|| {
@@ -99,7 +125,8 @@ fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
 
     // Extract QUIC port using get_decodable (as per Ream's implementation)
     // The "quic" key is decoded as u16 automatically by get_decodable
-    let port = enr.get_decodable::<u16>("quic")
+    let port = enr
+        .get_decodable::<u16>("quic")
         .and_then(Result::ok)
         .or_else(|| enr.udp4())
         .or_else(|| enr.udp6())
@@ -107,8 +134,10 @@ fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
             let has_udp4 = enr.udp4().is_some();
             let has_udp6 = enr.udp6().is_some();
             let has_quic = enr.get_decodable::<u16>("quic").is_some();
-            format!("ENR has no UDP/QUIC port (udp4: {}, udp6: {}, quic: {})", 
-                has_udp4, has_udp6, has_quic)
+            format!(
+                "ENR has no UDP/QUIC port (udp4: {}, udp6: {}, quic: {})",
+                has_udp4, has_udp6, has_quic
+            )
         })?;
 
     // Extract peer ID from ENR public key
@@ -116,16 +145,12 @@ fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
 
     // Build multiaddr with peer ID (matching format: /ip4/127.0.0.1/udp/9000/quic-v1/p2p/{peer_id})
     let mut multiaddr = match ip {
-        IpAddr::V4(ipv4) => {
-            format!("/ip4/{}/udp/{}/quic-v1", ipv4, port)
-                .parse::<Multiaddr>()
-                .map_err(|e| format!("Failed to construct multiaddr: {}", e))?
-        }
-        IpAddr::V6(ipv6) => {
-            format!("/ip6/{}/udp/{}/quic-v1", ipv6, port)
-                .parse::<Multiaddr>()
-                .map_err(|e| format!("Failed to construct multiaddr: {}", e))?
-        }
+        IpAddr::V4(ipv4) => format!("/ip4/{}/udp/{}/quic-v1", ipv4, port)
+            .parse::<Multiaddr>()
+            .map_err(|e| format!("Failed to construct multiaddr: {}", e))?,
+        IpAddr::V6(ipv6) => format!("/ip6/{}/udp/{}/quic-v1", ipv6, port)
+            .parse::<Multiaddr>()
+            .map_err(|e| format!("Failed to construct multiaddr: {}", e))?,
     };
 
     // Add peer ID to multiaddr (as shown in validator-config.yaml comments)

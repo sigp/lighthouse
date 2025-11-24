@@ -1,19 +1,18 @@
 use crate::attestation::{Attestation, Checkpoint, Slot};
 
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use ssz_derive::{Encode, Decode};
 
 use crate::lean_block::{LeanBlock, LeanBlockBody};
-use crate::validator::ValidatorIndex;
 use crate::validator::Validator;
+use crate::validator::ValidatorIndex;
 
-use types::VariableList;
 use crate::lean_block::LeanBlockHeader;
 use milhouse::List;
+use types::VariableList;
 use types::{BitVector, EthSpec, Hash256};
-
 
 #[derive(TreeHash, Encode, Decode)]
 pub struct LeanState<E: EthSpec> {
@@ -42,17 +41,18 @@ impl<E: EthSpec> LeanState<E> {
     /// Initializes a genesis state with default configuration and empty validators list
     pub fn genesis_default() -> Self {
         let genesis_config = Config::devnet();
-        let genesis_header = LeanBlockHeader{
+        let genesis_header = LeanBlockHeader {
             slot: Slot(0),
             proposer_index: ValidatorIndex(0),
             parent_root: Hash256::ZERO,
             state_root: Hash256::ZERO,
             body_root: LeanBlockBody::<E> {
-                attestations: VariableList::empty()
-            }.tree_hash_root()
+                attestations: VariableList::empty(),
+            }
+            .tree_hash_root(),
         };
 
-        Self{
+        Self {
             config: genesis_config,
             slot: Slot(0),
             latest_justified: Checkpoint::default(),
@@ -68,20 +68,20 @@ impl<E: EthSpec> LeanState<E> {
 
     pub fn generate_genesis(&self, validators: List<Validator, E::ValidatorRegistryLimit>) -> Self {
         let genesis_config = Config::devnet();
-        let genesis_header = LeanBlockHeader{
+        let genesis_header = LeanBlockHeader {
             slot: Slot(0),
             proposer_index: ValidatorIndex(0),
             parent_root: Hash256::ZERO,
             state_root: Hash256::ZERO,
             body_root: LeanBlockBody::<E> {
-
-                attestations: VariableList::empty()
-            }.tree_hash_root()
+                attestations: VariableList::empty(),
+            }
+            .tree_hash_root(),
         };
 
-        Self{
+        Self {
             config: genesis_config,
-            slot:Slot(0),
+            slot: Slot(0),
             latest_justified: Checkpoint::default(),
             latest_finalized: Checkpoint::default(),
             latest_block_header: genesis_header,
@@ -90,19 +90,15 @@ impl<E: EthSpec> LeanState<E> {
             validators,
             justifications_roots: List::empty(),
             justifications_validators: BitVector::default(),
-
-
         }
     }
 
     pub fn is_proposer(&self, validator_index: ValidatorIndex) -> bool {
-        self.slot.0 %  self.validators.len() as u64 == validator_index.0
-
+        self.slot.0 % self.validators.len() as u64 == validator_index.0
     }
-    pub fn get_justifications(&self) ->
-        Result<HashMap<Hash256, BitVector<E::HistoricalRootsLimit>>, String>
-    {
-
+    pub fn get_justifications(
+        &self,
+    ) -> Result<HashMap<Hash256, BitVector<E::HistoricalRootsLimit>>, String> {
         if self.justifications_roots.is_empty() {
             return Ok(HashMap::new());
         }
@@ -110,29 +106,28 @@ impl<E: EthSpec> LeanState<E> {
         let validator_count = self.validators.len();
 
         self.justifications_roots
-        .iter()
-        .enumerate()
-        .map(|(i, root)| {
-            let start = i * validator_count;
-            let end = (i + 1) * validator_count;
+            .iter()
+            .enumerate()
+            .map(|(i, root)| {
+                let start = i * validator_count;
+                let end = (i + 1) * validator_count;
 
-            let mut justifications = BitVector::<E::HistoricalRootsLimit>::default();
-            for (bit_idx, global_idx) in (start..end).enumerate() {
-                let bit_value = self.justifications_validators.get(global_idx).map_err(|e| {
-                    format!("Failed to get bit at index {}: {:?}", global_idx, e)
-                })?;
-                justifications.set(bit_idx, bit_value).map_err(|e| {
-                    format!("Failed to set bit at index {}: {:?}", bit_idx, e)
-                })?;
-            }
+                let mut justifications = BitVector::<E::HistoricalRootsLimit>::default();
+                for (bit_idx, global_idx) in (start..end).enumerate() {
+                    let bit_value =
+                        self.justifications_validators
+                            .get(global_idx)
+                            .map_err(|e| {
+                                format!("Failed to get bit at index {}: {:?}", global_idx, e)
+                            })?;
+                    justifications
+                        .set(bit_idx, bit_value)
+                        .map_err(|e| format!("Failed to set bit at index {}: {:?}", bit_idx, e))?;
+                }
 
-            Ok((*root, justifications))
-        })
-        .collect()
-
-
-
-
+                Ok((*root, justifications))
+            })
+            .collect()
     }
     pub fn with_justification(
         &mut self,
@@ -156,25 +151,33 @@ impl<E: EthSpec> LeanState<E> {
             ));
         }
 
-        self.justifications_roots.push(root).map_err(|e| {
-            format!("Failed to append root to justifications_roots: {:?}", e)
-        })?;
+        self.justifications_roots
+            .push(root)
+            .map_err(|e| format!("Failed to append root to justifications_roots: {:?}", e))?;
 
         for i in 0..validator_count {
             let bit_value = validator_justifications.get(i).map_err(|e| {
-                format!("Failed to get bit at index {} from validator_justifications: {:?}", i, e)
+                format!(
+                    "Failed to get bit at index {} from validator_justifications: {:?}",
+                    i, e
+                )
             })?;
 
             let current_len = self.justifications_validators.len();
-            self.justifications_validators.set(current_len, bit_value).map_err(|e| {
-                format!("Failed to append bit to justifications_validators at index {}: {:?}", current_len, e)
-            })?;
+            self.justifications_validators
+                .set(current_len, bit_value)
+                .map_err(|e| {
+                    format!(
+                        "Failed to append bit to justifications_validators at index {}: {:?}",
+                        current_len, e
+                    )
+                })?;
         }
 
         Ok(())
     }
     pub fn process_slot(&mut self) -> Result<(), String> {
-        if self.latest_block_header.state_root == Hash256::ZERO{
+        if self.latest_block_header.state_root == Hash256::ZERO {
             self.latest_block_header.state_root = self.tree_hash_root();
         }
 
@@ -229,7 +232,6 @@ impl<E: EthSpec> LeanState<E> {
             ));
         }
 
-
         let is_genesis_parent = parent_header.slot == Slot(0);
         if is_genesis_parent {
             self.latest_justified.root = parent_root;
@@ -238,21 +240,21 @@ impl<E: EthSpec> LeanState<E> {
 
         let num_empty_slots = block.slot.0 - parent_header.slot.0 - 1;
 
-        self.historical_block_hashes.push(parent_root).map_err(|e| {
-            format!("Failed to append parent root to historical hashes: {:?}", e)
-        })?;
+        self.historical_block_hashes
+            .push(parent_root)
+            .map_err(|e| format!("Failed to append parent root to historical hashes: {:?}", e))?;
 
-        self.justified_slots.set(self.historical_block_hashes.len() - 1, is_genesis_parent).map_err(|e| {
-            format!("Failed to set justified slot: {:?}", e)
-        })?;
+        self.justified_slots
+            .set(self.historical_block_hashes.len() - 1, is_genesis_parent)
+            .map_err(|e| format!("Failed to set justified slot: {:?}", e))?;
 
         for _ in 0..num_empty_slots {
-            self.historical_block_hashes.push(Hash256::ZERO).map_err(|e| {
-                format!("Failed to append ZERO_HASH for empty slot: {:?}", e)
-            })?;
-            self.justified_slots.set(self.historical_block_hashes.len() - 1, false).map_err(|e| {
-                format!("Failed to set justified slot for empty slot: {:?}", e)
-            })?;
+            self.historical_block_hashes
+                .push(Hash256::ZERO)
+                .map_err(|e| format!("Failed to append ZERO_HASH for empty slot: {:?}", e))?;
+            self.justified_slots
+                .set(self.historical_block_hashes.len() - 1, false)
+                .map_err(|e| format!("Failed to set justified slot for empty slot: {:?}", e))?;
         }
 
         self.latest_block_header = LeanBlockHeader {
@@ -272,8 +274,11 @@ impl<E: EthSpec> LeanState<E> {
 
         Ok(())
     }
-    pub fn process_attestations(&mut self, attestations: &VariableList<Attestation, E::MaxAttestations>) -> Result<(), String> {
-         for attestation in attestations.iter() {
+    pub fn process_attestations(
+        &mut self,
+        attestations: &VariableList<Attestation, E::MaxAttestations>,
+    ) -> Result<(), String> {
+        for attestation in attestations.iter() {
             let attestation_data = &attestation.attestation_data;
             let source = &attestation_data.source;
             let target = &attestation_data.target;
@@ -287,7 +292,10 @@ impl<E: EthSpec> LeanState<E> {
 
             let source_is_justified = if source_slot_int < self.justified_slots.len() {
                 self.justified_slots.get(source_slot_int).map_err(|e| {
-                    format!("Failed to get justified slot at index {}: {:?}", source_slot_int, e)
+                    format!(
+                        "Failed to get justified slot at index {}: {:?}",
+                        source_slot_int, e
+                    )
                 })?
             } else {
                 continue;
@@ -295,28 +303,35 @@ impl<E: EthSpec> LeanState<E> {
 
             let target_is_justified = if target_slot_int < self.justified_slots.len() {
                 self.justified_slots.get(target_slot_int).map_err(|e| {
-                    format!("Failed to get justified slot at index {}: {:?}", target_slot_int, e)
+                    format!(
+                        "Failed to get justified slot at index {}: {:?}",
+                        target_slot_int, e
+                    )
                 })?
             } else {
                 false
             };
 
             if source_is_justified && target_is_justified {
-                if source.slot.0 + 1 == target.slot.0
-                    && self.latest_justified.slot < target.slot {
+                if source.slot.0 + 1 == target.slot.0 && self.latest_justified.slot < target.slot {
                     self.latest_finalized = (*source).clone();
                     self.latest_justified = (*target).clone();
                 }
             } else if source_is_justified {
                 while self.justified_slots.len() <= target_slot_int {
-                    self.justified_slots.set(self.justified_slots.len(), false).map_err(|e| {
-                        format!("Failed to extend justified_slots: {:?}", e)
-                    })?;
+                    self.justified_slots
+                        .set(self.justified_slots.len(), false)
+                        .map_err(|e| format!("Failed to extend justified_slots: {:?}", e))?;
                 }
 
-                self.justified_slots.set(target_slot_int, true).map_err(|e| {
-                    format!("Failed to set justified slot at index {}: {:?}", target_slot_int, e)
-                })?;
+                self.justified_slots
+                    .set(target_slot_int, true)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to set justified slot at index {}: {:?}",
+                            target_slot_int, e
+                        )
+                    })?;
 
                 if target.slot > self.latest_justified.slot {
                     self.latest_justified = (*target).clone();
@@ -326,7 +341,11 @@ impl<E: EthSpec> LeanState<E> {
 
         Ok(())
     }
-    pub fn state_transition(&mut self, block: &LeanBlock<E>, validate_signatures: bool) -> Result<(), String> {
+    pub fn state_transition(
+        &mut self,
+        block: &LeanBlock<E>,
+        validate_signatures: bool,
+    ) -> Result<(), String> {
         if validate_signatures {
             return Err("Signature validation not yet implemented".to_string());
         }
@@ -353,7 +372,9 @@ impl<E: EthSpec> LeanState<E> {
 ///
 /// This struct holds the canonical, immutable configuration constants for the chain.
 /// It follows the lean consensus specification for chain configuration.
-#[derive(Debug, Clone, PartialEq, Eq, TreeHash, Encode, Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, TreeHash, Encode, Decode, serde::Serialize, serde::Deserialize,
+)]
 pub struct Config {
     /// The fixed duration of a single slot in seconds.
     pub seconds_per_slot: u64,
@@ -424,7 +445,6 @@ impl Config {
             + offset_seconds;
         config
     }
-
 
     /// Returns the number of seconds per forkchoice processing interval.
     ///

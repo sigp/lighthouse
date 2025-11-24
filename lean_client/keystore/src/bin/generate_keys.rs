@@ -29,8 +29,10 @@ fn main() {
 
     let args = Args::parse();
 
-    println!("Generating {} validator keys with active_epoch={}", 
-             args.num_validators, args.log_num_active_epochs);
+    println!(
+        "Generating {} validator keys with active_epoch={}",
+        args.num_validators, args.log_num_active_epochs
+    );
 
     let key_config = HashSigKeyConfig::new(args.num_validators, args.log_num_active_epochs)
         .with_output_dir(args.output_dir.clone());

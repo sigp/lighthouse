@@ -2,10 +2,10 @@
 //!
 //! Provides utilities for reading and writing config.yaml files used with PK's eth-beacon-genesis tool.
 
-use std::path::Path;
-use std::fs;
-use tracing::info;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
+use tracing::info;
 
 /// Configuration structure matching PK's tool format
 #[derive(Debug, Clone, Serialize, Deserialize)]

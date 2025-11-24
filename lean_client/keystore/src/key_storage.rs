@@ -118,8 +118,9 @@ impl KeyStore {
 
     /// Creates the key store directory if it doesn't exist
     pub fn ensure_directory(&self) -> Result<(), KeyStoreError> {
-        fs::create_dir_all(&self.base_dir)
-            .map_err(|e| KeyStoreError::DirectoryError(format!("Failed to create directory: {}", e)))?;
+        fs::create_dir_all(&self.base_dir).map_err(|e| {
+            KeyStoreError::DirectoryError(format!("Failed to create directory: {}", e))
+        })?;
         Ok(())
     }
 
@@ -128,17 +129,25 @@ impl KeyStore {
     /// Creates two files:
     /// - `validator_{index}_pk.json` - Public key
     /// - `validator_{index}_sk.json` - Private key
-    pub fn save_key_pair(&self, validator_index: u64, key_pair: &ValidatorKeyPair) -> Result<(), KeyStoreError> {
+    pub fn save_key_pair(
+        &self,
+        validator_index: u64,
+        key_pair: &ValidatorKeyPair,
+    ) -> Result<(), KeyStoreError> {
         self.ensure_directory()?;
 
         // Save public key
-        let public_key_path = self.base_dir.join(format!("validator_{}_pk.json", validator_index));
+        let public_key_path = self
+            .base_dir
+            .join(format!("validator_{}_pk.json", validator_index));
         let public_key_json = serde_json::to_string_pretty(&key_pair.public_key)?;
         fs::write(&public_key_path, public_key_json)?;
         debug!(?public_key_path, "Saved public key");
 
         // Save private key
-        let private_key_path = self.base_dir.join(format!("validator_{}_sk.json", validator_index));
+        let private_key_path = self
+            .base_dir
+            .join(format!("validator_{}_sk.json", validator_index));
         let private_key_json = serde_json::to_string_pretty(&key_pair.private_key)?;
         fs::write(&private_key_path, private_key_json)?;
         debug!(?private_key_path, "Saved private key");
@@ -151,29 +160,32 @@ impl KeyStore {
     /// Reads both public and private key files for the given validator index.
     pub fn load_key_pair(&self, validator_index: u64) -> Result<ValidatorKeyPair, KeyStoreError> {
         // Load public key
-        let public_key_path = self.base_dir.join(format!("validator_{}_pk.json", validator_index));
+        let public_key_path = self
+            .base_dir
+            .join(format!("validator_{}_pk.json", validator_index));
         if !public_key_path.exists() {
             return Err(KeyStoreError::KeyNotFound(validator_index));
         }
 
         let public_key_json = fs::read_to_string(&public_key_path)?;
-        let public_key: PublicKey = serde_json::from_str(&public_key_json)
-            .map_err(|e| KeyStoreError::InvalidFormat(format!("Invalid public key format: {}", e)))?;
+        let public_key: PublicKey = serde_json::from_str(&public_key_json).map_err(|e| {
+            KeyStoreError::InvalidFormat(format!("Invalid public key format: {}", e))
+        })?;
 
         // Load private key
-        let private_key_path = self.base_dir.join(format!("validator_{}_sk.json", validator_index));
+        let private_key_path = self
+            .base_dir
+            .join(format!("validator_{}_sk.json", validator_index));
         if !private_key_path.exists() {
             return Err(KeyStoreError::KeyNotFound(validator_index));
         }
 
         let private_key_json = fs::read_to_string(&private_key_path)?;
-        let private_key: PrivateKey = serde_json::from_str(&private_key_json)
-            .map_err(|e| KeyStoreError::InvalidFormat(format!("Invalid private key format: {}", e)))?;
+        let private_key: PrivateKey = serde_json::from_str(&private_key_json).map_err(|e| {
+            KeyStoreError::InvalidFormat(format!("Invalid private key format: {}", e))
+        })?;
 
-        info!(
-            validator_index,
-            "Loaded XMSS key pair for validator"
-        );
+        info!(validator_index, "Loaded XMSS key pair for validator");
 
         Ok(ValidatorKeyPair::new(public_key, private_key))
     }
@@ -203,11 +215,17 @@ impl KeyStore {
                     .strip_prefix("validator_")
                     .and_then(|s| s.strip_suffix("_pk.json"))
                     .ok_or_else(|| {
-                        KeyStoreError::InvalidFormat(format!("Invalid filename format: {}", file_name_str))
+                        KeyStoreError::InvalidFormat(format!(
+                            "Invalid filename format: {}",
+                            file_name_str
+                        ))
                     })?;
 
                 let validator_index = index_str.parse::<u64>().map_err(|e| {
-                    KeyStoreError::InvalidFormat(format!("Invalid validator index in filename: {}", e))
+                    KeyStoreError::InvalidFormat(format!(
+                        "Invalid validator index in filename: {}",
+                        e
+                    ))
                 })?;
 
                 public_key_files.push(validator_index);
@@ -241,8 +259,12 @@ impl KeyStore {
 
     /// Checks if a key pair exists for the given validator index
     pub fn key_pair_exists(&self, validator_index: u64) -> bool {
-        let public_key_path = self.base_dir.join(format!("validator_{}_pk.json", validator_index));
-        let private_key_path = self.base_dir.join(format!("validator_{}_sk.json", validator_index));
+        let public_key_path = self
+            .base_dir
+            .join(format!("validator_{}_pk.json", validator_index));
+        let private_key_path = self
+            .base_dir
+            .join(format!("validator_{}_sk.json", validator_index));
         public_key_path.exists() && private_key_path.exists()
     }
 
@@ -261,14 +283,17 @@ impl KeyStore {
     ///
     /// Reads the public key file for the given validator index.
     pub fn load_public_key(&self, validator_index: u64) -> Result<PublicKey, KeyStoreError> {
-        let public_key_path = self.base_dir.join(format!("validator_{}_pk.json", validator_index));
+        let public_key_path = self
+            .base_dir
+            .join(format!("validator_{}_pk.json", validator_index));
         if !public_key_path.exists() {
             return Err(KeyStoreError::KeyNotFound(validator_index));
         }
 
         let public_key_json = fs::read_to_string(&public_key_path)?;
-        let public_key: PublicKey = serde_json::from_str(&public_key_json)
-            .map_err(|e| KeyStoreError::InvalidFormat(format!("Invalid public key format: {}", e)))?;
+        let public_key: PublicKey = serde_json::from_str(&public_key_json).map_err(|e| {
+            KeyStoreError::InvalidFormat(format!("Invalid public key format: {}", e))
+        })?;
 
         Ok(public_key)
     }

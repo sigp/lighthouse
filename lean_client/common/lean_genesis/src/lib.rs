@@ -8,9 +8,9 @@
 //! for the complete genesis generation workflow.
 
 mod config;
-mod validator_config;
 mod node_config;
+mod validator_config;
 
 pub use config::*;
-pub use validator_config::*;
 pub use node_config::*;
+pub use validator_config::*;

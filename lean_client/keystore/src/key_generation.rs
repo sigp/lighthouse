@@ -87,7 +87,7 @@ pub fn generate_keys(
     // - LOG_NUM_ACTIVE_EPOCHS = log_num_active_epochs (active epochs: 2^log_num_active_epochs)
     // - DIM = 64
     // - BASE = 8
-    
+
     info!(
         "Generating XMSS keys with LOG_LIFETIME=32, LOG_NUM_ACTIVE_EPOCHS={}",
         config.log_num_active_epochs
@@ -120,7 +120,9 @@ pub fn generate_keys(
 }
 
 /// Generates keys synchronously (same as regular version)
-pub fn generate_keys_sync(config: &KeyGenerationConfig) -> Result<Vec<ValidatorKeyPair>, KeyGenerationError> {
+pub fn generate_keys_sync(
+    config: &KeyGenerationConfig,
+) -> Result<Vec<ValidatorKeyPair>, KeyGenerationError> {
     generate_keys(config)
 }
 
@@ -132,7 +134,11 @@ fn generate_xmss_key_pair(
     // Create a cryptographically secure RNG
     // Using validator_index as a seed to ensure deterministic key generation
     // Note: In production, you may want to use a more sophisticated seeding strategy
-    let mut rng = StdRng::from_seed(validator_index.to_le_bytes().repeat(4)[..32].try_into().unwrap());
+    let mut rng = StdRng::from_seed(
+        validator_index.to_le_bytes().repeat(4)[..32]
+            .try_into()
+            .unwrap(),
+    );
 
     // Generate key pair using the SIGTopLevelTargetSumLifetime32Dim64Base8 scheme
     // Activation epoch starts at 0, and the key is active for num_active_epochs epochs
@@ -160,8 +166,7 @@ fn generate_xmss_key_pair(
 
     debug!(
         validator_index,
-        num_active_epochs,
-        "Generated XMSS key pair"
+        num_active_epochs, "Generated XMSS key pair"
     );
 
     Ok(ValidatorKeyPair::new(public_key, private_key))
