@@ -804,6 +804,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
+                    HistoricalBlockError::MissingOldestBlockRoot { slot } => {
+                        warn!(
+                            %slot,
+                            error = "missing_oldest_block_root",
+                            "Backfill batch processing error"
+                        );
+                        // This is an internal error, do not penalize the peer.
+                        None
+                    }
+
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
                             error = "pubkey_cache_timeout",
