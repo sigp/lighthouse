@@ -109,7 +109,7 @@ pub fn build_config(
     config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port, port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
-    config.network_dir = path.into_path();
+    config.network_dir = path.keep();
     config.disable_peer_scoring = disable_peer_scoring;
     config.inbound_rate_limiter_config = inbound_rate_limiter;
     Arc::new(config)
