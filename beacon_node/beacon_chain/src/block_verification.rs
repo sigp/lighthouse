@@ -1221,9 +1221,13 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError>> {
-        let header = from.block.signed_block_header();
-        Self::from_gossip_verified_block(from, chain)
-            .map_err(|e| BlockSlashInfo::from_early_error_block(header, e))
+        let block = from.block.clone();
+        Self::from_gossip_verified_block(from, chain).map_err(|e| {
+            // Lazily create the header from the block in case of error. Computing the header
+            // involves some hashing and takes ~13ms which we DO NOT want to do on the hot path of
+            // block processing (prior to sending newPayload pre-Gloas).
+            BlockSlashInfo::from_early_error_block(block.signed_block_header(), e)
+        })
     }
 
     pub fn block_root(&self) -> Hash256 {
