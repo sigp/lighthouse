@@ -3017,32 +3017,60 @@ mod tests {
                 ],
                 0..=max_custody_subnets,
             )
-                .prop_flat_map(move |(attestation_net_bitfield, sync_committee_net_bitfield, score, outgoing, gossipsub_score, trusted, custody_subnet_count)| {
-                    // Use proptest's subsequence to select a random subset of subnets
-                    let custody_subnets_strategy = proptest::sample::subsequence(
-                        available_subnets.clone(),
-                        custody_subnet_count
-                    );
-                    
-                    (Just(attestation_net_bitfield), Just(sync_committee_net_bitfield), Just(score), Just(outgoing), Just(gossipsub_score), Just(trusted), custody_subnets_strategy)
-                })
-                .prop_map(|(attestation_net_bitfield, sync_committee_net_bitfield, score, outgoing, gossipsub_score, trusted, custody_subnets_vec)| {
-                    let custody_subnets: HashSet<DataColumnSubnetId> = custody_subnets_vec
-                        .into_iter()
-                        .map(DataColumnSubnetId::new)
-                        .collect();
-                    
-                    PeerCondition {
-                        peer_id: PeerId::random(),
-                        outgoing,
+                .prop_flat_map(
+                    move |(
                         attestation_net_bitfield,
                         sync_committee_net_bitfield,
                         score,
-                        trusted,
+                        outgoing,
                         gossipsub_score,
-                        custody_subnets,
-                    }
-                })
+                        trusted,
+                        custody_subnet_count,
+                    )| {
+                        // Use proptest's subsequence to select a random subset of subnets
+                        let custody_subnets_strategy = proptest::sample::subsequence(
+                            available_subnets.clone(),
+                            custody_subnet_count,
+                        );
+
+                        (
+                            Just(attestation_net_bitfield),
+                            Just(sync_committee_net_bitfield),
+                            Just(score),
+                            Just(outgoing),
+                            Just(gossipsub_score),
+                            Just(trusted),
+                            custody_subnets_strategy,
+                        )
+                    },
+                )
+                .prop_map(
+                    |(
+                        attestation_net_bitfield,
+                        sync_committee_net_bitfield,
+                        score,
+                        outgoing,
+                        gossipsub_score,
+                        trusted,
+                        custody_subnets_vec,
+                    )| {
+                        let custody_subnets: HashSet<DataColumnSubnetId> = custody_subnets_vec
+                            .into_iter()
+                            .map(DataColumnSubnetId::new)
+                            .collect();
+
+                        PeerCondition {
+                            peer_id: PeerId::random(),
+                            outgoing,
+                            attestation_net_bitfield,
+                            sync_committee_net_bitfield,
+                            score,
+                            trusted,
+                            gossipsub_score,
+                            custody_subnets,
+                        }
+                    },
+                )
         }
 
         proptest! {
@@ -3050,7 +3078,7 @@ mod tests {
             fn prune_excess_peers(peer_conditions in proptest::collection::vec(peer_condition_strategy(), DEFAULT_TARGET_PEERS..=300)) {
                 let target_peer_count = DEFAULT_TARGET_PEERS;
                 let spec = E::default_spec();
-                
+
                 let trusted_peers: Vec<_> = peer_conditions
                     .iter()
                     .filter_map(|p| if p.trusted { Some(p.peer_id) } else { None })
@@ -3058,7 +3086,7 @@ mod tests {
                 // If we have a high percentage of trusted peers, it is very difficult to reason about
                 // the expected results of the pruning.
                 prop_assume!(trusted_peers.len() <= peer_conditions.len() / 3_usize);
-                
+
                 let rt = Runtime::new().unwrap();
 
                 let result = rt.block_on(async move {
