@@ -48,7 +48,7 @@ jobs:
         needs: extract-version
         steps:
             - name: Checkout sources
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
             - name: Get latest version of stable Rust
               if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
@@ -124,7 +124,7 @@ jobs:
         steps:
             # This is necessary for generating the changelog. It has to come before "Download Artifacts" or else it deletes the artifacts.
             - name: Checkout sources
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
 

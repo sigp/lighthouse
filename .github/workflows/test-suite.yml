@@ -81,7 +81,7 @@ jobs:
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     # Set Java version to 21. (required since Web3Signer 24.12.0).
     - uses: actions/setup-java@v4
       with:
@@ -116,7 +116,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -139,7 +139,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -161,7 +161,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -178,7 +178,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -207,7 +207,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -225,7 +225,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -249,7 +249,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -266,7 +266,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -286,7 +286,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -308,7 +308,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -330,7 +330,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -351,7 +351,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: 1
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -381,7 +381,7 @@ jobs:
     name: check-msrv
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install Rust at Minimum Supported Rust Version (MSRV)
       run: |
         metadata=$(cargo metadata --no-deps --format-version 1)
@@ -395,7 +395,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of nightly Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -423,7 +423,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install dependencies
       run: sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
     - name: Use Rust beta
@@ -436,7 +436,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -450,7 +450,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -489,6 +489,6 @@ jobs:
       'cargo-sort',
     ]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Check that success job is dependent on all others
         run: ./scripts/ci/check-success-job.sh ./.github/workflows/test-suite.yml test-suite-success
