@@ -599,17 +599,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    pub fn irreversible_slot(&self) -> Slot {
-        let local_finalized_slot = self
-            .head()
-            .finalized_checkpoint()
-            .local()
-            .epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
-        let split = self.store.get_split_info();
-        std::cmp::max(local_finalized_slot, split.slot)
-    }
-
     /// Return a database operation for writing the `PersistedBeaconChain` to disk.
     ///
     /// These days the `PersistedBeaconChain` is only used to store the genesis block root, so it

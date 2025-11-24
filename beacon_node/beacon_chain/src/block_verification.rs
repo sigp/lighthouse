@@ -1687,7 +1687,12 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 ) -> Result<(), BlockError> {
     // Reject blocks that conflict with the local node's irreversible slot. Could be the finalized
     // slot, or a more recent slot that the user marked as irreversible.
-    let finalized_slot = chain.irreversible_slot();
+    let finalized_slot = chain
+        .head()
+        .finalized_checkpoint()
+        .local()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
 
     if block.slot() <= finalized_slot {
         chain.pre_finalization_block_rejected(block_root);
