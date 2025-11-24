@@ -55,8 +55,7 @@ use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
-    Error as StoreError, HotStateSummary, KeyValueStore, KeyValueStoreOp, StoreConfig,
-    iter::StateRootsIterator,
+    Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
 };
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::info_span;
@@ -1061,39 +1060,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    pub fn manual_finalization(
-        self: &Arc<Self>,
-        checkpoint: Checkpoint,
-        // TODO: Should we derive the state_root from the checkpoint?
-        state_root: Hash256,
-    ) -> Result<(), Error> {
-        let HotStateSummary {
-            slot,
-            latest_block_root,
-            ..
-        } = self
-            .store
-            .load_hot_state_summary(&state_root)
-            .map_err(Error::DBError)?
-            .ok_or(Error::MissingHotStateSummary(state_root))?;
-
-        if slot != checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch()) {
-            return Err(Error::InvalidCheckpoint(format!(
-                "state {state_root:?} slot {slot} not first slot of checkpoint {checkpoint:?}"
-            )));
-        }
-        if latest_block_root != *checkpoint.root {
-            return Err(Error::InvalidCheckpoint(format!(
-                "state {state_root:?} not a post state of checkpoint {checkpoint:?}"
-            )));
-        }
-
+    pub fn manual_finalization(self: &Arc<Self>, checkpoint: Checkpoint) -> Result<(), Error> {
         // Take a clone of the current ("old") head.
         let old_cached_head = self.canonical_head.cached_head();
 
         let new_view = {
             let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
-            fork_choice_write_lock.set_local_irreversible_checkpoint(checkpoint, state_root)?;
+            fork_choice_write_lock.set_local_irreversible_checkpoint(checkpoint)?;
             let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
             ForkChoiceView {
                 head_block_root: old_cached_head.head_block_root(),

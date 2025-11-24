@@ -1477,6 +1477,8 @@ pub struct StandardLivenessResponseData {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ManualFinalizationRequestData {
+    /// DEPRECATED
+    /// TODO(non-fin-cp-sync): Should we remove?
     pub state_root: Hash256,
     pub epoch: Epoch,
     pub block_root: Hash256,
