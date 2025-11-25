@@ -279,9 +279,19 @@ impl AttesterCache {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let key = AttesterCacheKey::new(state.current_epoch(), state, latest_block_root)?;
+
+        // Fast path: check with read lock first to avoid write lock contention.
+        if self.cache.read().contains_key(&key) {
+            return Ok(());
+        }
+
+        // Slow path: create cache item outside of lock to avoid holding write lock during
+        // expensive committee cache initialization.
+        let cache_item = AttesterCacheValue::new(state, spec)?;
+
         let mut cache = self.cache.write();
+        // Check again in case another thread inserted while we were creating the cache item.
         if !cache.contains_key(&key) {
-            let cache_item = AttesterCacheValue::new(state, spec)?;
             Self::insert_respecting_max_len(&mut cache, key, cache_item);
         }
         Ok(())
