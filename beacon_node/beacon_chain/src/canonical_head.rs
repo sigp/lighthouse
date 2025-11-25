@@ -108,13 +108,10 @@ pub struct CachedHead<E: EthSpec> {
     /// This value may be distinct to the `self.snapshot.beacon_state.finalized_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
     finalized_checkpoint: ForkChoiceCheckpoint,
-    /// The `execution_payload.block_hash` of the block at the head of the chain. Set to `None`
-    /// before Bellatrix.
-    head_hash: Option<ExecutionBlockHash>,
-    /// The `execution_payload.block_hash` of the justified block. Set to `None` before Bellatrix.
-    justified_hash: Option<ExecutionBlockHash>,
-    /// The `execution_payload.block_hash` of the finalized block. Set to `None` before Bellatrix.
-    finalized_hash: Option<ExecutionBlockHash>,
+    /// The `execution_payload.block_hash` of the block at the head of the chain, the justified root
+    /// and the finalized root. Maybe None before Bellatrix, and if the blocks they reference are
+    /// unknown.
+    forkchoice_update_parameters: ForkchoiceUpdateParameters,
 }
 
 impl<E: EthSpec> CachedHead<E> {
@@ -229,12 +226,7 @@ impl<E: EthSpec> CachedHead<E> {
     ///
     /// Useful for supplying to the execution layer.
     pub fn forkchoice_update_parameters(&self) -> ForkchoiceUpdateParameters {
-        ForkchoiceUpdateParameters {
-            head_root: self.snapshot.beacon_block_root,
-            head_hash: self.head_hash,
-            justified_hash: self.justified_hash,
-            finalized_hash: self.finalized_hash,
-        }
+        self.forkchoice_update_parameters
     }
 }
 
@@ -264,37 +256,43 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// Instantiate `Self`.
     pub fn new(
+        store: &BeaconStore<T>,
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
-    ) -> Self {
-        let cached_head = Self::new_cached_head(&fork_choice, snapshot);
-        Self {
+    ) -> Result<Self, Error> {
+        let cached_head = Self::new_cached_head(store, &fork_choice, snapshot)?;
+        Ok(Self {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
-        }
+        })
     }
 
     fn new_cached_head(
+        store: &BeaconStore<T>,
         fork_choice: &BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
-    ) -> CachedHead<T::EthSpec> {
+    ) -> Result<CachedHead<T::EthSpec>, Error> {
         let head_block_root = snapshot.beacon_block_root;
         let justified_checkpoint = fork_choice.justified_checkpoint();
         let finalized_checkpoint = fork_choice.finalized_checkpoint();
+        let forkchoice_update_parameters = compute_fork_choice_update_parameters::<T>(
+            fork_choice,
+            store,
+            ForkChoiceView {
+                head_block_root,
+                justified_checkpoint,
+                finalized_checkpoint,
+            },
+            None,
+        )?;
 
-        CachedHead {
+        Ok(CachedHead {
             snapshot,
             justified_checkpoint,
             finalized_checkpoint,
-            // TODO(non-fin-cp-sync): This values maybe be None. It's unclear if ELs can handle
-            // zero hashes. We decide to only send to the EL the "real" network on chain finalized
-            // and justified hashes such that the "safe" tag retains the same economic security no
-            // matter in what mode this beacon node is running.
-            head_hash: fork_choice.execution_hash(head_block_root),
-            justified_hash: fork_choice.execution_hash(justified_checkpoint.on_chain().root),
-            finalized_hash: fork_choice.execution_hash(finalized_checkpoint.on_chain().root),
-        }
+            forkchoice_update_parameters,
+        })
     }
 
     /// Load a persisted version of `BeaconForkChoice` from the `store` and restore `self` to that
@@ -330,7 +328,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             beacon_state,
         };
 
-        let cached_head = Self::new_cached_head(&fork_choice, snapshot.into());
+        let cached_head = Self::new_cached_head(store, &fork_choice, snapshot.into())?;
 
         *fork_choice_write_lock = fork_choice;
         // Avoid interleaving the fork choice and cached head locks.
@@ -665,31 +663,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Get the parameters to update the execution layer since either the head or some finality
         // parameters have changed.
-        let new_forkchoice_update_parameters = ForkchoiceUpdateParameters {
-            head_root: new_view.head_block_root,
-            // Only fetch the execution hashes of head and finality checkpoints if necessary. The
-            // fork-choice may not include nodes for the finalized / justified blocks, so a DB read
-            // may be necessary.
-            head_hash: if new_view.head_block_root == old_view.head_block_root {
-                old_cached_head.head_hash
-            } else {
-                self.get_execution_hash(&new_view.head_block_root)?
-            },
-            justified_hash: if new_view.justified_checkpoint.on_chain()
-                == old_view.justified_checkpoint.on_chain()
-            {
-                old_cached_head.justified_hash
-            } else {
-                self.get_execution_hash(&new_view.justified_checkpoint.on_chain().root)?
-            },
-            finalized_hash: if new_view.finalized_checkpoint.on_chain()
-                == old_view.finalized_checkpoint.on_chain()
-            {
-                old_cached_head.finalized_hash
-            } else {
-                self.get_execution_hash(&new_view.finalized_checkpoint.on_chain().root)?
-            },
-        };
+        let new_forkchoice_update_parameters = compute_fork_choice_update_parameters::<T>(
+            &fork_choice_read_lock,
+            &self.store,
+            new_view,
+            // Pass the old cached params to prevent DB reads
+            Some((old_view, old_cached_head.forkchoice_update_parameters())),
+        )?;
 
         perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock);
 
@@ -731,9 +711,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot: Arc::new(new_snapshot),
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
-                head_hash: new_forkchoice_update_parameters.head_hash,
-                justified_hash: new_forkchoice_update_parameters.justified_hash,
-                finalized_hash: new_forkchoice_update_parameters.finalized_hash,
+                forkchoice_update_parameters: new_forkchoice_update_parameters,
             };
 
             let new_head = {
@@ -758,9 +736,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot: old_cached_head.snapshot.clone(),
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
-                head_hash: new_forkchoice_update_parameters.head_hash,
-                justified_hash: new_forkchoice_update_parameters.justified_hash,
-                finalized_hash: new_forkchoice_update_parameters.finalized_hash,
+                forkchoice_update_parameters: new_forkchoice_update_parameters,
             };
 
             let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
@@ -1130,6 +1106,58 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY, store_config)
     }
+}
+
+fn compute_fork_choice_update_parameters<T: BeaconChainTypes>(
+    fork_choice: &BeaconForkChoice<T>,
+    store: &BeaconStore<T>,
+    new_view: ForkChoiceView,
+    old_view_and_params: Option<(ForkChoiceView, ForkchoiceUpdateParameters)>,
+) -> Result<ForkchoiceUpdateParameters, Error> {
+    // TODO(non-fin-cp-sync): This values maybe be None. It's unclear if ELs can handle
+    // zero hashes. We decide to only send to the EL the "real" network on chain finalized
+    // and justified hashes such that the "safe" tag retains the same economic security no
+    // matter in what mode this beacon node is running.
+    let get_execution_hash = |block_root: &Hash256| -> Result<Option<ExecutionBlockHash>, Error> {
+        if let Some(execution_hash) = fork_choice.execution_hash(*block_root) {
+            return Ok(Some(execution_hash));
+        }
+        Ok(store.get_blinded_block(block_root)?.and_then(|block| {
+            if let Ok(payload) = block.message().execution_payload() {
+                Some(payload.block_hash())
+            } else {
+                None
+            }
+        }))
+    };
+
+    Ok(ForkchoiceUpdateParameters {
+        head_root: new_view.head_block_root,
+        // Only fetch the execution hashes of head and finality checkpoints if necessary. The
+        // fork-choice may not include nodes for the finalized / justified blocks, so a DB read
+        // may be necessary.
+        head_hash: if let Some((old_view, old_params)) = old_view_and_params
+            && new_view.head_block_root == old_view.head_block_root
+        {
+            old_params.head_hash
+        } else {
+            get_execution_hash(&new_view.head_block_root)?
+        },
+        justified_hash: if let Some((old_view, old_params)) = old_view_and_params
+            && new_view.justified_checkpoint.on_chain() == old_view.justified_checkpoint.on_chain()
+        {
+            old_params.justified_hash
+        } else {
+            get_execution_hash(&new_view.justified_checkpoint.on_chain().root)?
+        },
+        finalized_hash: if let Some((old_view, old_params)) = old_view_and_params
+            && new_view.finalized_checkpoint.on_chain() == old_view.finalized_checkpoint.on_chain()
+        {
+            old_params.finalized_hash
+        } else {
+            get_execution_hash(&new_view.finalized_checkpoint.on_chain().root)?
+        },
+    })
 }
 
 /// Check to see if the `finalized_proto_block` has an invalid execution payload. If so, shut down
