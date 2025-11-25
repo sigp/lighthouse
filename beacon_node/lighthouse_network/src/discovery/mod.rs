@@ -381,7 +381,9 @@ impl<E: EthSpec> Discovery<E> {
         let target_peers = std::cmp::min(FIND_NODE_QUERY_CLOSEST_PEERS, target_peers);
         debug!(target_peers, "Starting a peer discovery request");
         self.find_peer_active = true;
-        self.start_query(QueryType::FindPeers, target_peers, |_| true);
+        self.start_query(QueryType::FindPeers, target_peers, NodeId::random(), |_| {
+            true
+        });
     }
 
     /// Processes a request to search for more peers on a subnet.
@@ -396,13 +398,14 @@ impl<E: EthSpec> Discovery<E> {
         );
 
         for subnet in subnets_to_discover {
+            // TODO: Add `prefix_search_for_subnet` param to the config.
             let query_target = match subnet.subnet {
                 Subnet::Attestation(subnet_id) => {
                     match self.prefix_mapping.get_prefixed_node_ids(&subnet_id) {
                         Ok(node_ids) if node_ids.is_empty() => {
                             warn!(
                                 ?subnet_id,
-                                "No NodeIds given for prefix search, falling back to random search."
+                                "No NodeIds provided for prefix search, falling back to random search."
                             );
                             QueryTarget::Random
                         }
@@ -836,16 +839,75 @@ impl<E: EthSpec> Discovery<E> {
 
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
-            // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, self.spec.clone());
+            // Split queries into random and prefix-based searches.
+            let (random_search_queries, prefix_search_queries): (Vec<_>, Vec<_>) =
+                filtered_subnet_queries
+                    .into_iter()
+                    .partition(|q| q.target == QueryTarget::Random);
 
-            debug!(
-                subnets = ?filtered_subnet_queries,
-                "Starting grouped subnet query"
-            );
+            if !random_search_queries.is_empty() {
+                self.random_search(random_search_queries);
+            }
+
+            if !prefix_search_queries.is_empty() {
+                self.prefix_search(prefix_search_queries);
+            }
+        }
+    }
+
+    /// Starts a grouped discovery query for the given subnets using a random NodeId as the target.
+    /// This performs a single discovery query that searches for peers across all specified subnets
+    /// simultaneously, using a random target node in the DHT keyspace.
+    fn random_search(&mut self, subnet_queries: Vec<SubnetQuery>) {
+        // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
+        let subnet_predicate = subnet_predicate::<E>(
+            subnet_queries.iter().map(|q| q.subnet).collect::<Vec<_>>(),
+            self.spec.clone(),
+        );
+        debug!(
+            subnets = ?subnet_queries,
+            "Starting grouped subnet query"
+        );
+        self.start_query(
+            QueryType::Subnet(subnet_queries),
+            TARGET_PEERS_FOR_GROUPED_QUERY,
+            NodeId::random(),
+            subnet_predicate,
+        );
+    }
+
+    /// Starts individual discovery queries for each subnet using specific NodeId prefixes as
+    /// targets.
+    /// Each query targets a specific region of the DHT keyspace based on the prefix mapping,
+    /// allowing deterministic subnet peer discovery.
+    fn prefix_search(&mut self, subnet_queries: Vec<SubnetQuery>) {
+        for query in subnet_queries {
+            let target_node = match &query.target {
+                QueryTarget::Random => {
+                    warn!(
+                        ?query,
+                        "Unexpected QueryTarget::Random in prefix_search, using random NodeId instead.",
+                    );
+                    NodeId::random()
+                }
+                QueryTarget::Prefix(node_ids) => {
+                    if node_ids.is_empty() {
+                        warn!(
+                            ?query,
+                            "Empty node_ids in prefix search, using random NodeId instead.",
+                        );
+                        NodeId::random()
+                    } else {
+                        node_ids[query.retries % node_ids.len()]
+                    }
+                }
+            };
+            let subnet_predicate = subnet_predicate::<E>(vec![query.subnet], self.spec.clone());
+            debug!(?query, "Starting prefix search query",);
             self.start_query(
-                QueryType::Subnet(filtered_subnet_queries),
+                QueryType::Subnet(vec![query]),
                 TARGET_PEERS_FOR_GROUPED_QUERY,
+                target_node,
                 subnet_predicate,
             );
         }
@@ -860,6 +922,7 @@ impl<E: EthSpec> Discovery<E> {
         &mut self,
         query: QueryType,
         target_peers: usize,
+        target_node: NodeId,
         additional_predicate: impl Fn(&Enr) -> bool + Send + 'static,
     ) {
         let enr_fork_id = match self.local_enr().eth2() {
@@ -886,7 +949,7 @@ impl<E: EthSpec> Discovery<E> {
         let query_future = self
             .discv5
             // Generate a random target node id.
-            .find_node_predicate(NodeId::random(), predicate, target_peers)
+            .find_node_predicate(target_node, predicate, target_peers)
             .map(|v| QueryResult {
                 query_type: query,
                 result: v,
