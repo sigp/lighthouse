@@ -866,11 +866,11 @@ mod test {
     use crate::CustodyContext;
     use crate::custody_context::NodeCustodyType;
     use crate::test_utils::{
-        EphemeralHarnessType, NumBlobs, generate_rand_block_and_data_columns, get_kzg,
+        EphemeralHarnessType, NumBlobs, generate_data_column_indices_rand_order,
+        generate_rand_block_and_data_columns, get_kzg,
     };
     use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use rand::seq::SliceRandom;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -892,8 +892,6 @@ mod test {
 
         let da_checker = new_da_checker(spec.clone());
         let custody_context = &da_checker.custody_context;
-        let all_column_indices_ordered =
-            init_custody_context_with_ordered_columns(custody_context, &mut rng, &spec);
 
         // GIVEN a single 32 ETH validator is attached slot 0
         let epoch = Epoch::new(0);
@@ -926,7 +924,8 @@ mod test {
             &spec,
         );
         let block_root = Hash256::random();
-        let requested_columns = &all_column_indices_ordered[..10];
+        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let requested_columns = &custody_columns[..10];
         da_checker
             .put_rpc_custody_columns(
                 block_root,
@@ -971,8 +970,6 @@ mod test {
 
         let da_checker = new_da_checker(spec.clone());
         let custody_context = &da_checker.custody_context;
-        let all_column_indices_ordered =
-            init_custody_context_with_ordered_columns(custody_context, &mut rng, &spec);
 
         // GIVEN a single 32 ETH validator is attached slot 0
         let epoch = Epoch::new(0);
@@ -1006,7 +1003,8 @@ mod test {
             &spec,
         );
         let block_root = Hash256::random();
-        let requested_columns = &all_column_indices_ordered[..10];
+        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let requested_columns = &custody_columns[..10];
         let gossip_columns = data_columns
             .into_iter()
             .filter(|d| requested_columns.contains(&d.index))
@@ -1096,8 +1094,6 @@ mod test {
 
         let da_checker = new_da_checker(spec.clone());
         let custody_context = &da_checker.custody_context;
-        let all_column_indices_ordered =
-            init_custody_context_with_ordered_columns(custody_context, &mut rng, &spec);
 
         // Set custody requirement to 65 columns (enough to trigger reconstruction)
         let epoch = Epoch::new(1);
@@ -1127,7 +1123,8 @@ mod test {
 
         // Add 64 columns to the da checker (enough to be able to reconstruct)
         // Order by all_column_indices_ordered, then take first 64
-        let custody_columns = all_column_indices_ordered
+        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let custody_columns = custody_columns
             .iter()
             .filter_map(|&col_idx| data_columns.iter().find(|d| d.index == col_idx).cloned())
             .take(64)
@@ -1177,19 +1174,6 @@ mod test {
         );
     }
 
-    fn init_custody_context_with_ordered_columns(
-        custody_context: &Arc<CustodyContext<E>>,
-        mut rng: &mut StdRng,
-        spec: &ChainSpec,
-    ) -> Vec<u64> {
-        let mut all_data_columns = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
-        all_data_columns.shuffle(&mut rng);
-        custody_context
-            .init_ordered_data_columns_from_custody_groups(all_data_columns.clone(), spec)
-            .expect("should initialise ordered custody columns");
-        all_data_columns
-    }
-
     fn new_da_checker(spec: Arc<ChainSpec>) -> DataAvailabilityChecker<T> {
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -1198,7 +1182,12 @@ mod test {
         );
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
-        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode, &spec));
+        let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+        let custody_context = Arc::new(CustodyContext::new(
+            NodeCustodyType::Fullnode,
+            ordered_custody_column_indices,
+            &spec,
+        ));
         let complete_blob_backfill = false;
         DataAvailabilityChecker::new(
             complete_blob_backfill,

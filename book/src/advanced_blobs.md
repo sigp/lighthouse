@@ -6,12 +6,12 @@ With the [Fusaka](https://ethereum.org/roadmap/fusaka) upgrade, the main feature
 
 Table below summarizes the role of relevant flags in Lighthouse beacon node:
 
-| | Post-Deneb, Pre-Fulu || Post-Fulu ||
-|-------|----------|----------|-----------|----------|
-| Flag | Usage | Can serve blobs? | Usage | Can serve blobs? |
-| --prune-blobs false | Does not prune blobs since using the flag | Yes, for blobs since using the flag and for the past 18 days | Does not prune data columns since using the flag | No |
-| --semi-supernode | - | - | Store half data columns | Yes, for blobs since using the flag for a max of 18 days |
-| --supernode | - | - | Store all data columns | Yes, for blobs since using the flag for a max of 18 days |
+|                     | Post-Deneb, Pre-Fulu                      |                                                              | Post-Fulu                                        |                                                          |
+|---------------------|-------------------------------------------|--------------------------------------------------------------|--------------------------------------------------|----------------------------------------------------------|
+| Flag                | Usage                                     | Can serve blobs?                                             | Usage                                            | Can serve blobs?                                         |
+| --prune-blobs false | Does not prune blobs since using the flag | Yes, for blobs since using the flag and for the past 18 days | Does not prune data columns since using the flag | No                                                       |
+| --semi-supernode    | -                                         | -                                                            | Store half data columns                          | Yes, for blobs since using the flag for a max of 18 days |
+| --supernode         | -                                         | -                                                            | Store all data columns                           | Yes, for blobs since using the flag for a max of 18 days |
 
 While both `--supernode` and `--semi-supernode` can serve blobs, a supernode will be faster to respond to blobs queries as it skips the blob reconstruction step. Running a supernode also helps the network by serving the data columns to its peers.
 

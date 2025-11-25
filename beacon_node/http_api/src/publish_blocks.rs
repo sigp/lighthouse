@@ -9,9 +9,12 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     IntoGossipVerifiedBlock, NotifyExecutionLayer, build_blob_data_column_sidecars,
 };
-use eth2::types::{
-    BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
-    PublishBlockRequest, SignedBlockContents,
+use eth2::{
+    StatusCode,
+    types::{
+        BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs,
+        FullPayloadContents, PublishBlockRequest, SignedBlockContents,
+    },
 };
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
@@ -32,7 +35,6 @@ use types::{
     DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
     FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
-use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
 
 pub type UnverifiedBlobs<T> = Option<(
@@ -302,7 +304,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                         message: "duplicate block".to_string(),
                         stacktraces: vec![],
                     }),
-                    duplicate_status_code,
+                    warp_utils::status_code::convert(duplicate_status_code)?,
                 )
                 .into_response())
             }
