@@ -329,6 +329,8 @@ jobs:
       run: make cargo-fmt
     - name: Lint code for quality and style with Clippy
       run: make lint-full
+    - name: Check dependencies for usage of an unencrypted HTTP
+      run: make insecure-deps
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
     - name: Typecheck benchmark code without running it

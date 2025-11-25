@@ -343,6 +343,15 @@ vendor:
 udeps:
 	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release --features "$(TEST_FEATURES)"
 
+# Checks dependencies for usage of an unencrypted HTTP
+# Tee preserves output. If there are matches, print a message and return 1
+insecure-deps:
+	bash -c \
+	  "find -name Cargo.toml \
+			| xargs grep -P \"git\s?=\s?[\\\"']http:\" \
+			| tee /dev/tty \
+			| [ \`wc -l\` == 0 ] || (echo \"Using plain HTTP in dependencies is forbidden\" && false)"
+
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
 	cargo clean
