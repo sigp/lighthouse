@@ -1185,7 +1185,7 @@ pub static VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS: LazyLock<
 > = LazyLock::new(|| {
     try_create_histogram_vec(
         "validator_monitor_unaggregated_attestation_delay_seconds",
-        "The delay between when the validator should send the attestation and when it was received.",
+        "The delay between when the validator sent the attestation and the start of the slot.",
         &["src", "validator"],
     )
 });
@@ -1875,7 +1875,7 @@ pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>>
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_data_availability_reconstructed_columns_total",
-            "Total count of reconstructed columns",
+            "Total count of useful reconstructed columns",
         )
     });
 

@@ -1,13 +1,14 @@
 use crate::beacon_block_body::{BLOB_KZG_COMMITMENTS_INDEX, format_kzg_commitments};
 use crate::test_utils::TestRandom;
 use crate::*;
-use derivative::Derivative;
+use educe::Educe;
 use merkle_proof::MerkleTree;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
+use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -51,10 +52,10 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Encode,
             Decode,
             TreeHash,
-            Derivative,
+            Educe,
             TestRandom
         ),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
         cfg_attr(
             feature = "arbitrary",
@@ -71,8 +72,8 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
@@ -253,6 +254,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     }
 
     /// Produce a signed beacon block header corresponding to this block.
+    #[instrument(level = "debug", skip_all)]
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         SignedBeaconBlockHeader {
             message: self.message().block_header(),

@@ -1214,7 +1214,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            slot_clock.unagg_attestation_production_delay(),
+            Duration::from_secs(0),
             slot_clock,
         );
 

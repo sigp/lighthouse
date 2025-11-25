@@ -9,6 +9,7 @@ use crate::{
     sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
@@ -94,20 +95,32 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), false, spec).await
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Fullnode,
+            spec,
+        )
+        .await
     }
 
     pub async fn new_supernode(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), true, spec).await
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Supernode,
+            spec,
+        )
+        .await
     }
 
     pub async fn new_parametric(
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
-        import_data_columns: bool,
+        node_custody_type: NodeCustodyType,
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
@@ -116,7 +129,7 @@ impl TestRig {
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .import_all_data_columns(import_data_columns)
+            .node_custody_type(node_custody_type)
             .chain_config(<_>::default())
             .build();
 
@@ -903,36 +916,29 @@ async fn data_column_reconstruction_at_deadline() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain
-        .slot_clock
-        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
-
-    assert_eq!(
-        rig.chain.slot().unwrap(),
-        rig.next_block.slot() - 1,
-        "chain should be at the correct slot"
-    );
-
     // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
+    let slot_duration = rig.chain.slot_clock.slot_duration().as_millis() as u64;
+    let reconstruction_deadline_millis =
+        (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
     rig.chain
         .slot_clock
-        .set_current_time(slot_start + Duration::from_secs(3));
+        .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
-    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
-    for i in 0..num_data_columns {
+    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
         rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
             .await;
     }
 
     // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
-    if num_data_columns > 0 {
-        rig.assert_event_journal_completes_with_timeout(
-            &[WorkType::ColumnReconstruction],
-            Duration::from_millis(50),
-        )
-        .await;
-    }
+    rig.assert_event_journal_with_timeout(
+        &[WorkType::ColumnReconstruction.into()],
+        Duration::from_millis(50),
+        false,
+        false,
+    )
+    .await;
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
@@ -1610,7 +1616,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     let mut rig = TestRig::new_parametric(
         SMALL_CHAIN,
         beacon_processor_config,
-        false,
+        NodeCustodyType::Fullnode,
         test_spec::<E>(),
     )
     .await;
@@ -1692,7 +1698,13 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
-    let mut rig = TestRig::new_parametric(64, BeaconProcessorConfig::default(), false, spec).await;
+    let mut rig = TestRig::new_parametric(
+        64,
+        BeaconProcessorConfig::default(),
+        NodeCustodyType::Fullnode,
+        spec,
+    )
+    .await;
 
     let start_slot = 16;
     // This will span from epoch 0 (Electra) to epoch 1 (Fulu)

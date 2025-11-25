@@ -6,7 +6,7 @@ use crate::{
     LightClientHeaderElectra, LightClientHeaderFulu, LightClientHeaderGloas,
     SignedBlindedBeaconBlock, light_client_update::*,
 };
-use derivative::Derivative;
+use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::Decode;
@@ -24,15 +24,15 @@ use tree_hash_derive::TreeHash;
         derive(
             Debug,
             Clone,
-            PartialEq,
             Serialize,
             Deserialize,
-            Derivative,
+            Educe,
             Decode,
             Encode,
             TestRandom,
             TreeHash,
         ),
+        educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
