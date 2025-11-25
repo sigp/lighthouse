@@ -2368,7 +2368,7 @@ where
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
-        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
+        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items, true)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
@@ -2392,7 +2392,7 @@ where
         let (block, blob_items) = block_contents;
 
         let block_root = block.canonical_root();
-        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
+        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items, true)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
@@ -2447,6 +2447,7 @@ where
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
+        is_available: bool,
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let epoch = block.slot().epoch(E::slots_per_epoch());
@@ -2462,9 +2463,17 @@ where
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
                 // TODO(can combine these and clean it up)
-                RpcBlock::new_available(Some(block_root), block, None, Some(columns))?
+                if is_available {
+                    RpcBlock::new_available(Some(block_root), block, None, Some(columns))?
+                } else {
+                    RpcBlock::new_maybe_available(Some(block_root), block, None, Some(columns))?
+                }
             } else {
-                RpcBlock::new_available(Some(block_root), block, None, None)?
+                if is_available {
+                    RpcBlock::new_available(Some(block_root), block, None, None)?
+                } else {
+                    RpcBlock::new_maybe_available(Some(block_root), block, None, None)?
+                }
             }
         } else {
             let blobs = blob_items
@@ -2473,7 +2482,11 @@ where
                 })
                 .transpose()
                 .unwrap();
-            RpcBlock::new_available(Some(block_root), block, blobs, None)?
+            if is_available {
+                RpcBlock::new_available(Some(block_root), block, blobs, None)?
+            } else {
+                RpcBlock::new_maybe_available(Some(block_root), block, blobs, None)?
+            }
         })
     }
 
