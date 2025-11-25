@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{Level, info};
+use tracing::{Instrument, Level, info};
 use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -832,9 +832,19 @@ fn run<E: EthSpec>(
                 return Ok(());
             }
 
+            // Capture the current OpenTelemetry context before spawning the task
+            // This ensures trace context (TraceId, SpanId) propagates to the spawned task
+            let parent_cx = opentelemetry::Context::current();
+
             executor.clone().spawn(
                 async move {
-                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                    // Attach the parent context to this task so spans are properly linked
+                    let _guard = parent_cx.attach();
+
+                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config)
+                        .instrument(tracing::debug_span!("start_beacon_node"))
+                        .await
+                    {
                         crit!(reason = ?e, "Failed to start beacon node");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
