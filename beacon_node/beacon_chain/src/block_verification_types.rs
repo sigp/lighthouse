@@ -131,15 +131,6 @@ impl<E: EthSpec> RpcBlockInner<E> {
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
     ) -> Result<Self, AvailabilityCheckError> {
-        match block.fork_name_unchecked() {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Fulu
-            | ForkName::Gloas => return Err(AvailabilityCheckError::InvalidFork),
-            ForkName::Deneb | ForkName::Electra => (),
-        }
         // Treat empty blob lists as if they are missing.
         let blobs = blobs.filter(|b| !b.is_empty());
         if let (Some(blobs), Ok(block_commitments)) = (
@@ -174,21 +165,10 @@ impl<E: EthSpec> RpcBlockInner<E> {
     /// guarantees about whether columns should be present, only that they are
     /// consistent with the block. An empty list passed in for `custody_columns` is
     /// viewed the same as `None` passed in.
-    pub fn new_block_and_columns(
+    fn new_block_and_columns(
         block: Arc<SignedBeaconBlock<E>>,
         custody_columns: Option<Vec<CustodyDataColumn<E>>>,
     ) -> Result<Self, AvailabilityCheckError> {
-        match block.fork_name_unchecked() {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra
-            | ForkName::Gloas => return Err(AvailabilityCheckError::InvalidFork),
-            ForkName::Fulu => (),
-        }
-
         let columns = if let Some(custody_columns) = custody_columns {
             if block.num_expected_blobs() > 0 && custody_columns.is_empty() {
                 // The number of required custody columns is out of scope here.
@@ -208,14 +188,18 @@ impl<E: EthSpec> RpcBlockInner<E> {
     }
 
     /// Constructs a new `Block` variant.
-    pub fn new(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, AvailabilityCheckError> {
+    pub fn new(
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<BlobSidecarList<E>>,
+        columns: Option<Vec<CustodyDataColumn<E>>>,
+    ) -> Result<Self, AvailabilityCheckError> {
         match block.fork_name_unchecked() {
-            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
-                return Err(AvailabilityCheckError::InvalidFork);
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
+                Ok(RpcBlockInner::Block(block))
             }
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => (),
+            ForkName::Deneb | ForkName::Electra => Self::new_block_and_blobs(block, blobs),
+            ForkName::Fulu | ForkName::Gloas => Self::new_block_and_columns(block, columns),
         }
-        Ok(Self::Block(block))
     }
 }
 
@@ -230,14 +214,7 @@ impl<E: EthSpec> RpcBlock<E> {
         columns: Option<Vec<CustodyDataColumn<E>>>,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-
-        let rpc_block_inner = if blobs.is_some() {
-            RpcBlockInner::new_block_and_blobs(block, blobs)?
-        } else if columns.is_some() {
-            RpcBlockInner::new_block_and_columns(block, columns)?
-        } else {
-            RpcBlockInner::new(block)?
-        };
+        let rpc_block_inner = RpcBlockInner::new(block, blobs, columns)?;
 
         Ok(RpcBlock::MaybeAvailable(MaybeAvailableRpcBlock {
             block_root,
@@ -257,14 +234,7 @@ impl<E: EthSpec> RpcBlock<E> {
         columns: Option<Vec<CustodyDataColumn<E>>>,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-
-        let rpc_block_inner = if blobs.is_some() {
-            RpcBlockInner::new_block_and_blobs(block, blobs)?
-        } else if columns.is_some() {
-            RpcBlockInner::new_block_and_columns(block, columns)?
-        } else {
-            RpcBlockInner::new(block)?
-        };
+        let rpc_block_inner = RpcBlockInner::new(block, blobs, columns)?;
 
         Ok(RpcBlock::Available(AvailableRpcBlock {
             block_root,
