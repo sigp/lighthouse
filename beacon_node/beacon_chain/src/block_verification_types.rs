@@ -1,16 +1,16 @@
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::eth1_finalization_cache::Eth1FinalizationData;
-use crate::{get_block_root, PayloadVerificationOutcome};
-use derivative::Derivative;
+use crate::{PayloadVerificationOutcome, get_block_root};
+use educe::Educe;
+use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
-    Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -26,12 +26,11 @@ use types::{
 /// Note: We make a distinction over blocks received over gossip because
 /// in a post-deneb world, the blobs corresponding to a given block that are received
 /// over rpc do not contain the proposer signature for dos resistance.
-#[derive(Clone, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
+#[derive(Clone, Educe)]
+#[educe(Hash(bound(E: EthSpec)))]
 pub struct RpcBlock<E: EthSpec> {
     block_root: Hash256,
     block: RpcBlockInner<E>,
-    custody_columns_count: usize,
 }
 
 impl<E: EthSpec> Debug for RpcBlock<E> {
@@ -43,10 +42,6 @@ impl<E: EthSpec> Debug for RpcBlock<E> {
 impl<E: EthSpec> RpcBlock<E> {
     pub fn block_root(&self) -> Hash256 {
         self.block_root
-    }
-
-    pub fn custody_columns_count(&self) -> usize {
-        self.custody_columns_count
     }
 
     pub fn as_block(&self) -> &SignedBeaconBlock<E> {
@@ -85,8 +80,8 @@ impl<E: EthSpec> RpcBlock<E> {
 /// Note: This variant is intentionally private because we want to safely construct the
 /// internal variants after applying consistency checks to ensure that the block and blobs
 /// are consistent with respect to each other.
-#[derive(Debug, Clone, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Educe)]
+#[educe(Hash(bound(E: EthSpec)))]
 enum RpcBlockInner<E: EthSpec> {
     /// Single block lookup response. This should potentially hit the data availability cache.
     Block(Arc<SignedBeaconBlock<E>>),
@@ -103,14 +98,12 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn new_without_blobs(
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
-        custody_columns_count: usize,
     ) -> Self {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
         Self {
             block_root,
             block: RpcBlockInner::Block(block),
-            custody_columns_count,
         }
     }
 
@@ -152,8 +145,6 @@ impl<E: EthSpec> RpcBlock<E> {
         Ok(Self {
             block_root,
             block: inner,
-            // Block is before PeerDAS
-            custody_columns_count: 0,
         })
     }
 
@@ -161,8 +152,6 @@ impl<E: EthSpec> RpcBlock<E> {
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
         custody_columns: Vec<CustodyDataColumn<E>>,
-        custody_columns_count: usize,
-        spec: &ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
@@ -172,17 +161,13 @@ impl<E: EthSpec> RpcBlock<E> {
         }
         // Treat empty data column lists as if they are missing.
         let inner = if !custody_columns.is_empty() {
-            RpcBlockInner::BlockAndCustodyColumns(
-                block,
-                RuntimeVariableList::new(custody_columns, spec.number_of_columns as usize)?,
-            )
+            RpcBlockInner::BlockAndCustodyColumns(block, VariableList::new(custody_columns)?)
         } else {
             RpcBlockInner::Block(block)
         };
         Ok(Self {
             block_root,
             block: inner,
-            custody_columns_count,
         })
     }
 
@@ -250,12 +235,10 @@ impl<E: EthSpec> ExecutedBlock<E> {
             MaybeAvailableBlock::AvailabilityPending {
                 block_root: _,
                 block: pending_block,
-                custody_columns_count,
             } => Self::AvailabilityPending(AvailabilityPendingExecutedBlock::new(
                 pending_block,
                 import_data,
                 payload_verification_outcome,
-                custody_columns_count,
             )),
         }
     }
@@ -321,7 +304,6 @@ pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
     pub block: Arc<SignedBeaconBlock<E>>,
     pub import_data: BlockImportData<E>,
     pub payload_verification_outcome: PayloadVerificationOutcome,
-    pub custody_columns_count: usize,
 }
 
 impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
@@ -329,13 +311,11 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
         block: Arc<SignedBeaconBlock<E>>,
         import_data: BlockImportData<E>,
         payload_verification_outcome: PayloadVerificationOutcome,
-        custody_columns_count: usize,
     ) -> Self {
         Self {
             block,
             import_data,
             payload_verification_outcome,
-            custody_columns_count,
         }
     }
 
@@ -357,7 +337,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub consensus_context: ConsensusContext<E>,
 }
 
@@ -371,10 +350,6 @@ impl<E: EthSpec> BlockImportData<E> {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data: Eth1FinalizationData {
-                eth1_data: <_>::default(),
-                eth1_deposit_index: 0,
-            },
             consensus_context: ConsensusContext::new(Slot::new(0)),
         }
     }
@@ -387,7 +362,7 @@ pub trait AsBlock<E: EthSpec> {
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
     fn signed_block_header(&self) -> SignedBeaconBlockHeader;
-    fn message(&self) -> BeaconBlockRef<E>;
+    fn message(&self) -> BeaconBlockRef<'_, E>;
     fn as_block(&self) -> &SignedBeaconBlock<E>;
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>>;
     fn canonical_root(&self) -> Hash256;
@@ -414,7 +389,7 @@ impl<E: EthSpec> AsBlock<E> for Arc<SignedBeaconBlock<E>> {
         SignedBeaconBlock::signed_block_header(self)
     }
 
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         SignedBeaconBlock::message(self)
     }
 
@@ -447,7 +422,7 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
@@ -488,7 +463,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
         self.block().signed_block_header()
     }
 
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.block().message()
     }
 
@@ -521,7 +496,7 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {

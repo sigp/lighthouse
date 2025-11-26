@@ -2,10 +2,10 @@
 
 use crate::*;
 use core::num::NonZeroUsize;
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
-use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
+use ssz::{Decode, DecodeError, Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use std::sync::Arc;
@@ -20,13 +20,13 @@ four_byte_option_impl!(four_byte_option_non_zero_usize, NonZeroUsize);
 
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
-#[derive(Derivative, Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
-#[derivative(PartialEq)]
+#[derive(Educe, Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[educe(PartialEq)]
 pub struct CommitteeCache {
     #[ssz(with = "four_byte_option_epoch")]
     initialized_epoch: Option<Epoch>,
     shuffling: Vec<usize>,
-    #[derivative(PartialEq(compare_with = "compare_shuffling_positions"))]
+    #[educe(PartialEq(method(compare_shuffling_positions)))]
     shuffling_positions: Vec<NonZeroUsizeOption>,
     committees_per_slot: u64,
     slots_per_epoch: u64,
@@ -159,7 +159,7 @@ impl CommitteeCache {
         &self,
         slot: Slot,
         index: CommitteeIndex,
-    ) -> Option<BeaconCommittee> {
+    ) -> Option<BeaconCommittee<'_>> {
         if self.initialized_epoch.is_none()
             || !self.is_initialized_at(slot.epoch(self.slots_per_epoch))
             || index >= self.committees_per_slot
@@ -185,7 +185,10 @@ impl CommitteeCache {
     /// Get all the Beacon committees at a given `slot`.
     ///
     /// Committees are sorted by ascending index order 0..committees_per_slot
-    pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
+    pub fn get_beacon_committees_at_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         if self.initialized_epoch.is_none() {
             return Err(Error::CommitteeCacheUninitialized(None));
         }
@@ -199,7 +202,7 @@ impl CommitteeCache {
     }
 
     /// Returns all committees for `self.initialized_epoch`.
-    pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee>, Error> {
+    pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let initialized_epoch = self
             .initialized_epoch
             .ok_or(Error::CommitteeCacheUninitialized(None))?;
@@ -371,6 +374,7 @@ where
     active
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

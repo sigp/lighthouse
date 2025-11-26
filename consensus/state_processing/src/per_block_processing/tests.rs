@@ -5,10 +5,10 @@ use crate::per_block_processing::errors::{
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
-use crate::{per_block_processing, BlockReplayError, BlockReplayer};
+use crate::{BlockReplayError, BlockReplayer, per_block_processing};
 use crate::{
-    per_block_processing::{process_operations, verify_exit::verify_exit},
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
+    per_block_processing::{process_operations, verify_exit::verify_exit},
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use ssz_types::Bitfield;
@@ -213,7 +213,7 @@ async fn valid_4_deposits() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 4, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -237,7 +237,7 @@ async fn invalid_deposit_deposit_count_too_big() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -269,7 +269,7 @@ async fn invalid_deposit_count_too_small() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -301,7 +301,7 @@ async fn invalid_deposit_bad_merkle_proof() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -336,7 +336,7 @@ async fn invalid_deposit_wrong_sig() {
 
     let (deposits, state) =
         harness.make_deposits(&mut state, 1, None, Some(SignatureBytes::empty()));
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -360,7 +360,7 @@ async fn invalid_deposit_invalid_pub_key() {
 
     let (deposits, state) =
         harness.make_deposits(&mut state, 1, Some(PublicKeyBytes::empty()), None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -717,10 +717,10 @@ async fn invalid_attester_slashing_not_slashable() {
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
-        AttesterSlashing::Base(ref mut attester_slashing) => {
+        AttesterSlashing::Base(attester_slashing) => {
             attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
         }
-        AttesterSlashing::Electra(ref mut attester_slashing) => {
+        AttesterSlashing::Electra(attester_slashing) => {
             attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
         }
     }
@@ -752,11 +752,13 @@ async fn invalid_attester_slashing_1_invalid() {
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
-        AttesterSlashing::Base(ref mut attester_slashing) => {
-            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+        AttesterSlashing::Base(attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
-        AttesterSlashing::Electra(ref mut attester_slashing) => {
-            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+        AttesterSlashing::Electra(attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
     }
 
@@ -790,11 +792,13 @@ async fn invalid_attester_slashing_2_invalid() {
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
-        AttesterSlashing::Base(ref mut attester_slashing) => {
-            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+        AttesterSlashing::Base(attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
-        AttesterSlashing::Electra(ref mut attester_slashing) => {
-            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+        AttesterSlashing::Electra(attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
     }
 
@@ -906,7 +910,7 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
     let mut ctxt = ConsensusContext::new(state.slot());
     let result_1 = process_operations::process_proposer_slashings(
         &mut state,
-        &[proposer_slashing.clone()],
+        std::slice::from_ref(&proposer_slashing),
         VerifySignatures::False,
         &mut ctxt,
         &spec,
@@ -915,7 +919,7 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
 
     let result_2 = process_operations::process_proposer_slashings(
         &mut state,
-        &[proposer_slashing],
+        std::slice::from_ref(&proposer_slashing),
         VerifySignatures::False,
         &mut ctxt,
         &spec,

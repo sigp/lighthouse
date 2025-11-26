@@ -11,7 +11,7 @@ insecure_keys = []
 [dependencies]
 bls = { workspace = true }
 deposit_contract = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 eth2_keystore = { workspace = true }
 filesystem = { workspace = true }
 hex = { workspace = true }

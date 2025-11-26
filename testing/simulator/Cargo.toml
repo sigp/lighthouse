@@ -15,7 +15,7 @@ logging = { workspace = true }
 node_test_rig = { path = "../node_test_rig" }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
-sensitive_url  = { path = "../../common/sensitive_url" }
+sensitive_url  = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

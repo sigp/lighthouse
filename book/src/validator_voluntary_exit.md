@@ -10,6 +10,8 @@ A validator can initiate a voluntary exit provided that the validator is current
 It takes at a minimum 5 epochs (32 minutes) for a validator to exit after initiating a voluntary exit.
 This number can be much higher depending on how many other validators are queued to exit.
 
+You can also perform voluntary exit for one or more validators using the validator manager, see [Managing Validators](./validator_manager_api.md#exit) for more details.
+
 ## Initiating a voluntary exit
 
 In order to initiate an exit, users can use the `lighthouse account validator exit` command.
@@ -94,7 +96,7 @@ After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>
 There are two types of withdrawal credentials, `0x00` and `0x01`. To check which type your validator has, go to [Staking launchpad](https://launchpad.ethereum.org/en/withdrawals), enter your validator index and click `verify on mainnet`:
 
 - `withdrawals enabled` means your validator is of type `0x01`, and you will automatically receive the full withdrawal to the withdrawal address that you set.
-- `withdrawals not enabled` means your validator is of type `0x00`, and will need to update your withdrawal credentials from `0x00` type to `0x01` type (also known as BLS-to-execution-change, or BTEC) to receive the staked funds. The common way to do this is using `Staking deposit CLI` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys).
+- `withdrawals not enabled` means your validator is of type `0x00`, and will need to update your withdrawal credentials from `0x00` type to `0x01` type (also known as BLS-to-execution-change, or BTEC) to receive the staked funds. The common way to do this is using `ethstaker-deposit-cli` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys).
 
 ### 2. What if my validator is of type `0x00` and I do not update my withdrawal credentials after I initiated a voluntary exit?
 
@@ -118,26 +120,9 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
 
 - A fixed waiting period of 256 epochs (27.3 hours) for the validator's status to become withdrawable.
 
-- A varying time of "validator sweep" that can take up to _n_ days with _n_ listed in the table below. The "validator sweep" is the process of skimming through all eligible validators by index number for withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set.
+- A varying time of "validator sweep" that take a few days. The "validator sweep" is the process of skimming through all eligible validators by index number for withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set.
 
-<div align="center">
-
-| Number of eligible validators | Ideal scenario _n_ | Practical scenario _n_ |
-|:----------------:|:---------------------:|:----:|
-| 300000  | 2.60 | 2.63 |
-| 400000  | 3.47 | 3.51 |
-| 500000  | 4.34  | 4.38 |
-| 600000  | 5.21 | 5.26 |
-| 700000  | 6.08 | 6.14 |
-| 800000  | 6.94 | 7.01 |
-| 900000  | 7.81 | 7.89 |
-| 1000000 | 8.68 | 8.77 |
-
-</div>
-
-> Note: Ideal scenario assumes no block proposals are missed. This means a total of withdrawals of 7200 blocks/day * 16 withdrawals/block = 115200 withdrawals/day. Practical scenario assumes 1% of blocks are missed per day. As an example, if there are 700000 eligible validators, one would expect a waiting time of slightly more than 6 days.
-
-   The total time taken is the summation of the above 3 waiting periods. After these waiting periods, you will receive the staked funds in your withdrawal address.
+The total time taken is the summation of the above 3 waiting periods. After these waiting periods, you will receive the staked funds in your withdrawal address.
 
 The voluntary exit and full withdrawal process is summarized in the Figure below.
 

@@ -1,3 +1,4 @@
+pub use eth2::Error;
 use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
@@ -5,20 +6,19 @@ use eth2::types::{
     ForkVersionedResponse, PublicKeyBytes, SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
-pub use eth2::Error;
 use eth2::{
-    ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
-    JSON_CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
+    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error, success_or_error,
 };
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT};
+use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use ssz::Encode;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
@@ -155,15 +155,7 @@ impl BuilderHttpClient {
             }
             ContentType::Json => {
                 self.ssz_available.store(false, Ordering::SeqCst);
-                let mut de = serde_json::Deserializer::from_slice(&response_bytes);
-                let data =
-                    T::context_deserialize(&mut de, fork_name).map_err(Error::InvalidJson)?;
-
-                Ok(ForkVersionedResponse {
-                    version: fork_name,
-                    metadata: EmptyMetadata {},
-                    data,
-                })
+                serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)
             }
         }
     }
@@ -249,7 +241,7 @@ impl BuilderHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn post_with_raw_response<T: Serialize, U: IntoUrl>(
@@ -270,7 +262,7 @@ impl BuilderHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// `POST /eth/v1/builder/validators`
@@ -278,7 +270,7 @@ impl BuilderHttpClient {
         &self,
         validator: &[SignedValidatorRegistrationData],
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -293,11 +285,11 @@ impl BuilderHttpClient {
     }
 
     /// `POST /eth/v1/builder/blinded_blocks` with SSZ serialized request body
-    pub async fn post_builder_blinded_blocks_ssz<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v1_ssz<E: EthSpec>(
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<FullPayloadContents<E>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         let body = blinded_block.as_ssz_bytes();
 
@@ -340,12 +332,62 @@ impl BuilderHttpClient {
             .map_err(Error::InvalidSsz)
     }
 
+    /// `POST /eth/v2/builder/blinded_blocks` with SSZ serialized request body
+    pub async fn post_builder_blinded_blocks_v2_ssz<E: EthSpec>(
+        &self,
+        blinded_block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<(), Error> {
+        let mut path = self.server.expose_full().clone();
+
+        let body = blinded_block.as_ssz_bytes();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v2")
+            .push("builder")
+            .push("blinded_blocks");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&blinded_block.fork_name_unchecked().to_string())
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            CONTENT_TYPE_HEADER,
+            HeaderValue::from_str(SSZ_CONTENT_TYPE_HEADER)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_str(PREFERENCE_ACCEPT_VALUE)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+
+        let result = self
+            .post_ssz_with_raw_response(
+                path,
+                body,
+                headers,
+                Some(self.timeouts.post_blinded_blocks),
+            )
+            .await?;
+
+        if result.status() == StatusCode::ACCEPTED {
+            Ok(())
+        } else {
+            // ACCEPTED is the only valid status code response
+            Err(Error::StatusCode(result.status()))
+        }
+    }
+
     /// `POST /eth/v1/builder/blinded_blocks`
-    pub async fn post_builder_blinded_blocks<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v1<E: EthSpec>(
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -383,6 +425,54 @@ impl BuilderHttpClient {
             .await?)
     }
 
+    /// `POST /eth/v2/builder/blinded_blocks`
+    pub async fn post_builder_blinded_blocks_v2<E: EthSpec>(
+        &self,
+        blinded_block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<(), Error> {
+        let mut path = self.server.expose_full().clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v2")
+            .push("builder")
+            .push("blinded_blocks");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&blinded_block.fork_name_unchecked().to_string())
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            CONTENT_TYPE_HEADER,
+            HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_str(JSON_ACCEPT_VALUE)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+
+        let result = self
+            .post_with_raw_response(
+                path,
+                &blinded_block,
+                headers,
+                Some(self.timeouts.post_blinded_blocks),
+            )
+            .await?;
+
+        if result.status() == StatusCode::ACCEPTED {
+            Ok(())
+        } else {
+            // ACCEPTED is the only valid status code response
+            Err(Error::StatusCode(result.status()))
+        }
+    }
+
     /// `GET /eth/v1/builder/header`
     pub async fn get_builder_header<E: EthSpec>(
         &self,
@@ -390,7 +480,7 @@ impl BuilderHttpClient {
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
     ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -431,7 +521,7 @@ impl BuilderHttpClient {
 
     /// `GET /eth/v1/builder/status`
     pub async fn get_builder_status<E: EthSpec>(&self) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -448,6 +538,12 @@ impl BuilderHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eth2::types::builder_bid::{BuilderBid, BuilderBidFulu};
+    use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use eth2::types::{MainnetEthSpec, Signature};
+    use mockito::{Matcher, Server, ServerGuard};
+
+    type E = MainnetEthSpec;
 
     #[test]
     fn test_headers_no_panic() {
@@ -457,5 +553,147 @@ mod tests {
         assert!(HeaderValue::from_str(PREFERENCE_ACCEPT_VALUE).is_ok());
         assert!(HeaderValue::from_str(JSON_ACCEPT_VALUE).is_ok());
         assert!(HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_builder_header_ssz_response() {
+        // Set up mock server
+        let mut server = Server::new_async().await;
+        let mock_response_body = fulu_signed_builder_bid();
+        mock_get_header_response(
+            &mut server,
+            Some("fulu"),
+            ContentType::Ssz,
+            mock_response_body.clone(),
+        );
+
+        let builder_client = BuilderHttpClient::new(
+            SensitiveUrl::from_str(&server.url()).unwrap(),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let response = builder_client
+            .get_builder_header(
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                &PublicKeyBytes::empty(),
+            )
+            .await
+            .expect("should succeed in get_builder_header")
+            .expect("should have response body");
+
+        assert_eq!(response, mock_response_body);
+    }
+
+    #[tokio::test]
+    async fn test_get_builder_header_json_response() {
+        // Set up mock server
+        let mut server = Server::new_async().await;
+        let mock_response_body = fulu_signed_builder_bid();
+        mock_get_header_response(
+            &mut server,
+            None,
+            ContentType::Json,
+            mock_response_body.clone(),
+        );
+
+        let builder_client = BuilderHttpClient::new(
+            SensitiveUrl::from_str(&server.url()).unwrap(),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let response = builder_client
+            .get_builder_header(
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                &PublicKeyBytes::empty(),
+            )
+            .await
+            .expect("should succeed in get_builder_header")
+            .expect("should have response body");
+
+        assert_eq!(response, mock_response_body);
+    }
+
+    #[tokio::test]
+    async fn test_get_builder_header_no_version_header_fallback_json() {
+        // Set up mock server
+        let mut server = Server::new_async().await;
+        let mock_response_body = fulu_signed_builder_bid();
+        mock_get_header_response(
+            &mut server,
+            Some("fulu"),
+            ContentType::Json,
+            mock_response_body.clone(),
+        );
+
+        let builder_client = BuilderHttpClient::new(
+            SensitiveUrl::from_str(&server.url()).unwrap(),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let response = builder_client
+            .get_builder_header(
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                &PublicKeyBytes::empty(),
+            )
+            .await
+            .expect("should succeed in get_builder_header")
+            .expect("should have response body");
+
+        assert_eq!(response, mock_response_body);
+    }
+
+    fn mock_get_header_response(
+        server: &mut ServerGuard,
+        header_version_opt: Option<&str>,
+        content_type: ContentType,
+        response_body: ForkVersionedResponse<SignedBuilderBid<E>>,
+    ) {
+        let mut mock = server.mock(
+            "GET",
+            Matcher::Regex(r"^/eth/v1/builder/header/\d+/.+/.+$".to_string()),
+        );
+
+        if let Some(version) = header_version_opt {
+            mock = mock.with_header(CONSENSUS_VERSION_HEADER, version);
+        }
+
+        match content_type {
+            ContentType::Json => {
+                mock = mock
+                    .with_header(CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER)
+                    .with_body(serde_json::to_string(&response_body).unwrap());
+            }
+            ContentType::Ssz => {
+                mock = mock
+                    .with_header(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
+                    .with_body(response_body.data.as_ssz_bytes());
+            }
+        }
+
+        mock.with_status(200).create();
+    }
+
+    fn fulu_signed_builder_bid() -> ForkVersionedResponse<SignedBuilderBid<E>> {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        ForkVersionedResponse {
+            version: ForkName::Fulu,
+            metadata: EmptyMetadata {},
+            data: SignedBuilderBid {
+                message: BuilderBid::Fulu(BuilderBidFulu::random_for_test(rng)),
+                signature: Signature::empty(),
+            },
+        }
     }
 }

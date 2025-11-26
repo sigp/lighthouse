@@ -1,8 +1,9 @@
 #![cfg(not(debug_assertions))]
 
 use eth2_wallet::{
+    DerivedKey, Error, KeyType, KeystoreError, Wallet, WalletBuilder,
     bip39::{Language, Mnemonic, Seed},
-    recover_validator_secret, DerivedKey, Error, KeyType, KeystoreError, Wallet, WalletBuilder,
+    recover_validator_secret,
 };
 use std::fs::File;
 use tempfile::tempdir;

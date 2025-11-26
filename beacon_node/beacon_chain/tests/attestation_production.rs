@@ -3,7 +3,7 @@
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
-use beacon_chain::{metrics, StateSkipConfig, WhenSlotSkipped};
+use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
 use types::{

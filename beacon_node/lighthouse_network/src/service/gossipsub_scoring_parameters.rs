@@ -1,5 +1,5 @@
-use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
+use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use gossipsub::{IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams};
 use std::cmp::max;
 use std::collections::HashMap;

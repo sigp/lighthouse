@@ -2,7 +2,7 @@ use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{AggregateSignature, BitVector, EthSpec, ForkName, SyncCommitteeContribution};
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -21,22 +21,14 @@ impl From<ArithError> for Error {
         Error::ArithError(e)
     }
 }
-
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    Derivative,
-    arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 pub struct SyncAggregate<E: EthSpec> {
     pub sync_committee_bits: BitVector<E::SyncCommitteeSize>,

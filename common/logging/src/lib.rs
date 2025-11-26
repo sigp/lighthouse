@@ -1,5 +1,3 @@
-use metrics::{try_create_int_counter, IntCounter, Result as MetricsResult};
-use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_subscriber::EnvFilter;
 
@@ -14,7 +12,7 @@ mod utils;
 
 pub use sse_logging_components::SSELoggingComponents;
 pub use tracing_libp2p_discv5_logging_layer::{
-    create_libp2p_discv5_tracing_layer, Libp2pDiscv5TracingLayer,
+    Libp2pDiscv5TracingLayer, create_libp2p_discv5_tracing_layer,
 };
 pub use tracing_logging_layer::LoggingLayer;
 pub use tracing_metrics_layer::MetricsLayer;
@@ -22,15 +20,6 @@ pub use utils::build_workspace_filter;
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
-
-pub static INFOS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("info_total", "Count of infos logged"));
-pub static WARNS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("warn_total", "Count of warns logged"));
-pub static ERRORS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("error_total", "Count of errors logged"));
-pub static CRITS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("crit_total", "Count of crits logged"));
 
 /// Provides de-bounce functionality for logging.
 #[derive(Default)]

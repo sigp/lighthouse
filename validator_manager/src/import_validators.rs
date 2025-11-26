@@ -3,9 +3,9 @@ use crate::DumpConfig;
 use account_utils::eth2_keystore::Keystore;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use derivative::Derivative;
+use educe::Educe;
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
-use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
+use eth2::{SensitiveUrl, lighthouse_vc::std_types::ImportKeystoreStatus};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -55,7 +55,7 @@ pub fn cli_app() -> Command {
                 .help(
                     "The path to a keystore JSON file to be \
                     imported to the validator client. This file is usually created \
-                    using staking-deposit-cli or ethstaker-deposit-cli",
+                    using ethstaker-deposit-cli",
                 )
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -159,15 +159,15 @@ pub fn cli_app() -> Command {
         )
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct ImportConfig {
     pub validators_file_path: Option<PathBuf>,
     pub keystore_file_path: Option<PathBuf>,
     pub vc_url: SensitiveUrl,
     pub vc_token_path: PathBuf,
     pub ignore_duplicates: bool,
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub password: Option<Zeroizing<String>>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
@@ -279,38 +279,38 @@ async fn run(config: ImportConfig) -> Result<(), String> {
 
     for (i, validator) in validators.into_iter().enumerate() {
         match validator.upload(&http_client, ignore_duplicates).await {
-            Ok(status) => {
-                match status.status {
-                    ImportKeystoreStatus::Imported => {
-                        eprintln!("Uploaded keystore {} of {} to the VC", i + 1, count)
-                    }
-                    ImportKeystoreStatus::Duplicate => {
-                        if ignore_duplicates {
-                            eprintln!("Re-uploaded keystore {} of {} to the VC", i + 1, count)
-                        } else {
-                            eprintln!(
-                                "Keystore {} of {} was uploaded to the VC, but it was a duplicate. \
-                                Exiting now, use --{} to allow duplicates.",
-                                i + 1, count, IGNORE_DUPLICATES_FLAG
-                            );
-                            return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
-                        }
-                    }
-                    ImportKeystoreStatus::Error => {
+            Ok(status) => match status.status {
+                ImportKeystoreStatus::Imported => {
+                    eprintln!("Uploaded keystore {} of {} to the VC", i + 1, count)
+                }
+                ImportKeystoreStatus::Duplicate => {
+                    if ignore_duplicates {
+                        eprintln!("Re-uploaded keystore {} of {} to the VC", i + 1, count)
+                    } else {
                         eprintln!(
-                            "Upload of keystore {} of {} failed with message: {:?}. \
+                            "Keystore {} of {} was uploaded to the VC, but it was a duplicate. \
+                                Exiting now, use --{} to allow duplicates.",
+                            i + 1,
+                            count,
+                            IGNORE_DUPLICATES_FLAG
+                        );
+                        return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
+                    }
+                }
+                ImportKeystoreStatus::Error => {
+                    eprintln!(
+                        "Upload of keystore {} of {} failed with message: {:?}. \
                                 A potential solution is run this command again \
                                 using the --{} flag, however care should be taken to ensure \
                                 that there are no duplicate deposits submitted.",
-                            i + 1,
-                            count,
-                            status.message,
-                            IGNORE_DUPLICATES_FLAG
-                        );
-                        return Err(format!("Upload failed with {:?}", status.message));
-                    }
+                        i + 1,
+                        count,
+                        status.message,
+                        IGNORE_DUPLICATES_FLAG
+                    );
+                    return Err(format!("Upload failed with {:?}", status.message));
                 }
-            }
+            },
             e @ Err(UploadError::InvalidPublicKey) => {
                 eprintln!("Validator {} has an invalid public key", i);
                 return Err(format!("{:?}", e));
@@ -384,8 +384,8 @@ pub mod tests {
     use super::*;
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
     use std::fs::{self, File};
-    use tempfile::{tempdir, TempDir};
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use tempfile::{TempDir, tempdir};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
 
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
 
@@ -404,8 +404,12 @@ pub mod tests {
         }
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-            let dir = tempdir().unwrap();
             let vc = ApiTester::new_with_http_config(http_config).await;
+            Self::new_with_vc(vc).await
+        }
+
+        pub async fn new_with_vc(vc: ApiTester) -> Self {
+            let dir = tempdir().unwrap();
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
             fs::write(&vc_token_path, &vc.api_token).unwrap();
 

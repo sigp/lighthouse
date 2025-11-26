@@ -1,4 +1,4 @@
-use types::{milhouse, BeaconStateError, EpochCacheError, InconsistentFork};
+use types::{BeaconStateError, EpochCacheError, InconsistentFork, milhouse};
 
 #[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {
@@ -30,6 +30,7 @@ pub enum EpochProcessingError {
     MissingEarliestExitEpoch,
     MissingExitBalanceToConsume,
     PendingDepositsLogicError,
+    ProposerLookaheadOutOfBounds(usize),
 }
 
 impl From<InclusionError> for EpochProcessingError {

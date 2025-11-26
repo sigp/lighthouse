@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::U256, VariableList};
+use ssz_types::{VariableList, typenum::U256};
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -15,10 +15,10 @@ use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnsByRootIdentifier, Epoch, EthSpec, ForkContext, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
-    SignedBeaconBlock, Slot,
+    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
+    ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar,
 };
 
 /// Maximum length of error message.
@@ -29,15 +29,21 @@ pub const MAX_ERROR_LEN: u64 = 256;
 #[derive(Debug, Clone)]
 pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
 
-impl From<String> for ErrorType {
-    fn from(s: String) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<&str> for ErrorType {
+    // This will truncate the error if `string.as_bytes()` exceeds `MaxErrorLen`.
+    fn from(s: &str) -> Self {
+        let mut bytes = s.as_bytes().to_vec();
+        bytes.truncate(MAX_ERROR_LEN as usize);
+        Self(
+            VariableList::try_from(bytes)
+                .expect("length should not exceed MaxErrorLen after truncation"),
+        )
     }
 }
 
-impl From<&str> for ErrorType {
-    fn from(s: &str) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<String> for ErrorType {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
     }
 }
 
@@ -63,7 +69,11 @@ impl Display for ErrorType {
 /* Requests */
 
 /// The STATUS request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq),)
+)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_digest: [u8; 4],
@@ -79,6 +89,43 @@ pub struct StatusMessage {
 
     /// The slot associated with the latest block root.
     pub head_slot: Slot,
+
+    /// The slot after which we guarantee to have all the blocks
+    /// and blobs/data columns that we currently advertise.
+    #[superstruct(only(V2))]
+    pub earliest_available_slot: Slot,
+}
+
+impl StatusMessage {
+    pub fn status_v1(&self) -> StatusMessageV1 {
+        match &self {
+            Self::V1(status) => status.clone(),
+            Self::V2(status) => StatusMessageV1 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+            },
+        }
+    }
+
+    pub fn status_v2(&self) -> StatusMessageV2 {
+        match &self {
+            Self::V1(status) => StatusMessageV2 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+                // Note: we always produce a V2 message as our local
+                // status message, so this match arm should ideally never
+                // be invoked in lighthouse.
+                earliest_available_slot: Slot::new(0),
+            },
+            Self::V2(status) => status.clone(),
+        }
+    }
 }
 
 /// The PING request/response message.
@@ -359,11 +406,11 @@ impl DataColumnsByRangeRequest {
         .len()
     }
 
-    pub fn ssz_max_len(spec: &ChainSpec) -> usize {
+    pub fn ssz_max_len<E: EthSpec>() -> usize {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns as usize],
+            columns: vec![0; E::number_of_columns()],
         }
         .as_ssz_bytes()
         .len()
@@ -440,20 +487,22 @@ pub struct BlocksByRootRequest {
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
-        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
-        Self::V2(BlocksByRootRequestV2 { block_roots })
+            .max_request_blocks(fork_context.current_fork_name());
+        let block_roots = RuntimeVariableList::new(block_roots, max_request_blocks)
+            .map_err(|e| format!("BlocksByRootRequestV2 too many roots: {e:?}"))?;
+        Ok(Self::V2(BlocksByRootRequestV2 { block_roots }))
     }
 
-    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
-        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
-        Self::V1(BlocksByRootRequestV1 { block_roots })
+            .max_request_blocks(fork_context.current_fork_name());
+        let block_roots = RuntimeVariableList::new(block_roots, max_request_blocks)
+            .map_err(|e| format!("BlocksByRootRequestV1 too many roots: {e:?}"))?;
+        Ok(Self::V1(BlocksByRootRequestV1 { block_roots }))
     }
 }
 
@@ -465,29 +514,31 @@ pub struct BlobsByRootRequest {
 }
 
 impl BlobsByRootRequest {
-    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
+    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blob_sidecars = fork_context
             .spec
-            .max_request_blob_sidecars(fork_context.current_fork());
-        let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
-        Self { blob_ids }
+            .max_request_blob_sidecars(fork_context.current_fork_name());
+        let blob_ids = RuntimeVariableList::new(blob_ids, max_request_blob_sidecars)
+            .map_err(|e| format!("BlobsByRootRequestV1 too many blob IDs: {e:?}"))?;
+        Ok(Self { blob_ids })
     }
 }
 
 /// Request a number of data columns from a peer.
 #[derive(Clone, Debug, PartialEq)]
-pub struct DataColumnsByRootRequest {
+pub struct DataColumnsByRootRequest<E: EthSpec> {
     /// The list of beacon block roots and column indices being requested.
-    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier>,
+    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier<E>>,
 }
 
-impl DataColumnsByRootRequest {
+impl<E: EthSpec> DataColumnsByRootRequest<E> {
     pub fn new(
-        data_column_ids: Vec<DataColumnsByRootIdentifier>,
+        data_column_ids: Vec<DataColumnsByRootIdentifier<E>>,
         max_request_blocks: usize,
-    ) -> Self {
-        let data_column_ids = RuntimeVariableList::from_vec(data_column_ids, max_request_blocks);
-        Self { data_column_ids }
+    ) -> Result<Self, &'static str> {
+        let data_column_ids = RuntimeVariableList::new(data_column_ids, max_request_blocks)
+            .map_err(|_| "DataColumnsByRootRequest too many column IDs")?;
+        Ok(Self { data_column_ids })
     }
 
     pub fn max_requested(&self) -> usize {
@@ -708,6 +759,23 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
+
+    pub fn slot(&self) -> Option<Slot> {
+        match self {
+            Self::BlocksByRange(r) | Self::BlocksByRoot(r) => Some(r.slot()),
+            Self::BlobsByRange(r) | Self::BlobsByRoot(r) => {
+                Some(r.signed_block_header.message.slot)
+            }
+            Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => {
+                Some(r.signed_block_header.message.slot)
+            }
+            Self::LightClientBootstrap(r) => Some(r.get_slot()),
+            Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),
+            Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),
+            Self::LightClientUpdatesByRange(r) => Some(r.attested_header_slot()),
+            Self::MetaData(_) | Self::Status(_) | Self::Pong(_) => None,
+        }
+    }
 }
 
 impl std::fmt::Display for RpcErrorResponse {
@@ -726,7 +794,16 @@ impl std::fmt::Display for RpcErrorResponse {
 
 impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_digest, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(
+            f,
+            "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}, Earliest available slot: {:?}",
+            self.fork_digest(),
+            self.finalized_root(),
+            self.finalized_epoch(),
+            self.head_root(),
+            self.head_slot(),
+            self.earliest_available_slot()
+        )
     }
 }
 
@@ -857,7 +934,7 @@ impl std::fmt::Display for BlobsByRangeRequest {
     }
 }
 
-impl std::fmt::Display for DataColumnsByRootRequest {
+impl<E: EthSpec> std::fmt::Display for DataColumnsByRootRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

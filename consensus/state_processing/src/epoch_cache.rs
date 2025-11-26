@@ -3,6 +3,7 @@ use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use crate::metrics;
 use safe_arith::SafeArith;
+use tracing::instrument;
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 use types::{
     ActivationQueue, BeaconState, ChainSpec, EthSpec, FixedBytesExtended, ForkName, Hash256,
@@ -122,7 +123,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let epoch_cache: &EpochCache = state.epoch_cache();
     let decision_block_root = state
-        .proposer_shuffling_decision_root(Hash256::zero())
+        .epoch_cache_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
     Ok(epoch_cache
@@ -130,6 +131,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
         .is_ok())
 }
 
+#[instrument(skip_all, level = "debug")]
 pub fn initialize_epoch_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -144,7 +146,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch().map_err(EpochCacheError::BeaconState)?;
     let decision_block_root = state
-        .proposer_shuffling_decision_root(Hash256::zero())
+        .epoch_cache_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
     state.build_total_active_balance_cache(spec)?;

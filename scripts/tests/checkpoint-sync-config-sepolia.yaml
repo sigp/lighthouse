@@ -1,0 +1,20 @@
+# Kurtosis config file to checkpoint sync to a live network (Sepolia).
+participants:
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    el_type: geth
+    el_image: ethereum/client-go:latest
+    supernode: true
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    el_type: geth
+    el_image: ethereum/client-go:latest
+    supernode: false
+
+checkpoint_sync_enabled: true
+checkpoint_sync_url: "https://checkpoint-sync.sepolia.ethpandaops.io"
+
+global_log_level: debug
+
+network_params:
+  network: sepolia

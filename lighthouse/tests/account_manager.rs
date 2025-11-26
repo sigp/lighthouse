@@ -1,30 +1,31 @@
 use account_manager::{
+    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG,
     validator::{
+        CMD as VALIDATOR_CMD,
         create::*,
         import::{self, CMD as IMPORT_CMD},
         modify::{ALL, CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG},
-        CMD as VALIDATOR_CMD,
     },
     wallet::{
+        CMD as WALLET_CMD,
         create::{CMD as CREATE_CMD, *},
         list::CMD as LIST_CMD,
-        CMD as WALLET_CMD,
     },
-    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG, *,
+    *,
 };
 use account_utils::{
+    STDIN_INPUTS_FLAG,
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
-    STDIN_INPUTS_FLAG,
 };
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::str::from_utf8;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
 use zeroize::Zeroizing;
