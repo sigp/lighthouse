@@ -205,6 +205,13 @@ Flags:
       --distributed
           Enables functionality required for running the validator in a
           distributed validator cluster.
+      --enable-beacon-head-monitor
+          Enable the beacon head monitor so fallback head updates trigger duties
+          when a lagging        primary is detected. This keeps the attestation
+          service responsive when using multiple beacon nodes, but it relies on
+          the fallback service streaming head events which may increase network
+          usage. When not enabled (default), duties are only triggered on slot
+          boundaries and ignore fallback head changes.
       --enable-doppelganger-protection
           If this flag is set, Lighthouse will delay startup for three epochs
           and monitor for messages on the network by any of the validators
