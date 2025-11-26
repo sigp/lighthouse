@@ -1164,9 +1164,9 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError>> {
-        let header = block.signed_block_header();
+        let arc_block = block.block_cloned();
         Self::new(block, block_root, chain)
-            .map_err(|e| BlockSlashInfo::from_early_error_block(header, e))
+            .map_err(|e| BlockSlashInfo::from_early_error_block(arc_block.signed_block_header(), e))
     }
 
     /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify
@@ -1221,9 +1221,13 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError>> {
-        let header = from.block.signed_block_header();
-        Self::from_gossip_verified_block(from, chain)
-            .map_err(|e| BlockSlashInfo::from_early_error_block(header, e))
+        let block = from.block.clone();
+        Self::from_gossip_verified_block(from, chain).map_err(|e| {
+            // Lazily create the header from the block in case of error. Computing the header
+            // involves some hashing and takes ~13ms which we DO NOT want to do on the hot path of
+            // block processing (prior to sending newPayload pre-Gloas).
+            BlockSlashInfo::from_early_error_block(block.signed_block_header(), e)
+        })
     }
 
     pub fn block_root(&self) -> Hash256 {
@@ -1248,12 +1252,12 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
-        let header = self.block.signed_block_header();
+        let arc_block = self.block.block_cloned();
         let (parent, block) = if let Some(parent) = self.parent {
             (parent, self.block)
         } else {
             load_parent(self.block, chain)
-                .map_err(|e| BlockSlashInfo::SignatureValid(header.clone(), e))?
+                .map_err(|e| BlockSlashInfo::SignatureValid(arc_block.signed_block_header(), e))?
         };
 
         ExecutionPendingBlock::from_signature_verified_components(
@@ -1264,7 +1268,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
             chain,
             notify_execution_layer,
         )
-        .map_err(|e| BlockSlashInfo::SignatureValid(header, e))
+        .map_err(|e| BlockSlashInfo::SignatureValid(arc_block.signed_block_header(), e))
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
