@@ -84,11 +84,12 @@ async fn rpc_blobs_with_invalid_header_signature() {
             block_root,
             rpc_block,
             NotifyExecutionLayer::Yes,
-            BlockImportSource::RangeSync,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
         .unwrap();
+    
     assert_eq!(
         availability,
         AvailabilityProcessingStatus::MissingComponents(slot, block_root)
@@ -113,6 +114,8 @@ async fn rpc_blobs_with_invalid_header_signature() {
         .process_rpc_blobs(slot, block_root, blob_sidecars)
         .await
         .unwrap_err();
+
+    println!("{:?}", err);
     assert!(matches!(
         err,
         BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
