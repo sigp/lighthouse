@@ -2,9 +2,10 @@ use crate::execution_engine::{
     ACCOUNT1, ACCOUNT2, ExecutionEngine, GenericExecutionEngine, KEYSTORE_PASSWORD, PRIVATE_KEYS,
 };
 use crate::transactions::transactions;
-use ethers_middleware::SignerMiddleware;
-use ethers_providers::Middleware;
-use ethers_signers::LocalWallet;
+use alloy_network::{EthereumWallet, TransactionBuilder};
+use alloy_primitives::Address as AlloyAddress;
+use alloy_provider::{Provider, ProviderBuilder};
+use alloy_signer_local::PrivateKeySigner;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
@@ -64,7 +65,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 
         let client = Client::builder().build().unwrap();
         let request = client
-            .post(http_url.full.clone())
+            .post(http_url.expose_full().clone())
             .header(CONTENT_TYPE, "application/json")
             .json(&body);
 
@@ -90,7 +91,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
         );
 
         let request = client
-            .post(http_url.full.clone())
+            .post(http_url.expose_full().clone())
             .header(CONTENT_TYPE, "application/json")
             .json(&body);
 
@@ -202,12 +203,13 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         self.wait_until_synced().await;
 
         // Create a local signer in case we need to sign transactions locally
-        let wallet1: LocalWallet = PRIVATE_KEYS[0].parse().expect("Invalid private key");
-        let signer = SignerMiddleware::new(&self.ee_a.execution_engine.provider, wallet1);
+        let private_key_signer: PrivateKeySigner =
+            PRIVATE_KEYS[0].parse().expect("Invalid private key");
+        let wallet = EthereumWallet::from(private_key_signer);
 
         // We hardcode the accounts here since some EEs start with a default unlocked account
-        let account1 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT1).unwrap());
-        let account2 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT2).unwrap());
+        let account1 = AlloyAddress::from_slice(&hex::decode(ACCOUNT1).unwrap());
+        let account2 = AlloyAddress::from_slice(&hex::decode(ACCOUNT2).unwrap());
 
         /*
          * Read the terminal block hash from both pairs, check it's equal.
@@ -237,11 +239,18 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         if self.use_local_signing {
             // Sign locally with the Signer middleware
-            for (i, tx) in txs.clone().into_iter().enumerate() {
+            for (i, mut tx) in txs.clone().into_iter().enumerate() {
                 // The local signer uses eth_sendRawTransaction, so we need to manually set the nonce
-                let mut tx = tx.clone();
-                tx.set_nonce(i as u64);
-                let pending_tx = signer.send_transaction(tx, None).await.unwrap();
+                tx = tx.with_nonce(i as u64);
+                let wallet_provider = ProviderBuilder::new().wallet(wallet.clone()).connect_http(
+                    self.ee_a
+                        .execution_engine
+                        .http_url()
+                        .to_string()
+                        .parse()
+                        .unwrap(),
+                );
+                let pending_tx = wallet_provider.send_transaction(tx).await.unwrap();
                 pending_txs.push(pending_tx);
             }
         } else {
@@ -261,7 +270,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                     .ee_a
                     .execution_engine
                     .provider
-                    .send_transaction(tx, None)
+                    .send_transaction(tx)
                     .await
                     .unwrap();
                 pending_txs.push(pending_tx);
@@ -446,11 +455,10 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         // Verify that all submitted txs were successful
         for pending_tx in pending_txs {
-            let tx_receipt = pending_tx.await.unwrap().unwrap();
-            assert_eq!(
-                tx_receipt.status,
-                Some(1.into()),
-                "Tx index {} has invalid status ",
+            let tx_receipt = pending_tx.get_receipt().await.unwrap();
+            assert!(
+                tx_receipt.status(),
+                "Tx index {:?} has invalid status ",
                 tx_receipt.transaction_index
             );
         }

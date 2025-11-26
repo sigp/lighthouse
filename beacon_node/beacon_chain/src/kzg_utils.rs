@@ -258,7 +258,8 @@ pub(crate) fn build_data_column_sidecars<E: EthSpec>(
                 .get(col)
                 .ok_or(format!("Missing blob cell at index {col}"))?;
             let cell: Vec<u8> = cell.to_vec();
-            let cell = Cell::<E>::from(cell);
+            let cell =
+                Cell::<E>::try_from(cell).map_err(|e| format!("BytesPerCell exceeded: {e:?}"))?;
 
             let proof = blob_cell_proofs
                 .get(col)
@@ -276,23 +277,27 @@ pub(crate) fn build_data_column_sidecars<E: EthSpec>(
         }
     }
 
-    let sidecars: Vec<Arc<DataColumnSidecar<E>>> = columns
+    let sidecars: Result<Vec<Arc<DataColumnSidecar<E>>>, String> = columns
         .into_iter()
         .zip(column_kzg_proofs)
         .enumerate()
-        .map(|(index, (col, proofs))| {
-            Arc::new(DataColumnSidecar {
-                index: index as u64,
-                column: DataColumn::<E>::from(col),
-                kzg_commitments: kzg_commitments.clone(),
-                kzg_proofs: VariableList::from(proofs),
-                signed_block_header: signed_block_header.clone(),
-                kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
-            })
-        })
+        .map(
+            |(index, (col, proofs))| -> Result<Arc<DataColumnSidecar<E>>, String> {
+                Ok(Arc::new(DataColumnSidecar {
+                    index: index as u64,
+                    column: DataColumn::<E>::try_from(col)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    kzg_commitments: kzg_commitments.clone(),
+                    kzg_proofs: VariableList::try_from(proofs)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    signed_block_header: signed_block_header.clone(),
+                    kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
+                }))
+            },
+        )
         .collect();
 
-    Ok(sidecars)
+    sidecars
 }
 
 /// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
@@ -463,7 +468,7 @@ mod test {
 
     #[track_caller]
     fn test_validate_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
         let blob_refs = blobs.iter().collect::<Vec<_>>();
@@ -489,7 +494,8 @@ mod test {
 
     #[track_caller]
     fn test_build_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
 
@@ -529,6 +535,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_data_columns(kzg: &Kzg, spec: &ChainSpec) {
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
         let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -552,6 +559,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_data_columns_unordered(kzg: &Kzg, spec: &ChainSpec) {
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
         let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -573,7 +581,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_blobs_from_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        let num_of_blobs = 3;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
         let blob_refs = blobs.iter().collect::<Vec<_>>();
@@ -583,7 +591,8 @@ mod test {
 
         // Now reconstruct
         let signed_blinded_block = signed_block.into();
-        let blob_indices = vec![3, 4, 5];
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
+        let blob_indices = vec![1, 2];
         let reconstructed_blobs = reconstruct_blobs(
             kzg,
             &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],

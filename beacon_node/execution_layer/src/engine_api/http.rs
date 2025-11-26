@@ -652,7 +652,7 @@ impl HttpJsonRpc {
 
         let mut request = self
             .client
-            .post(self.url.full.clone())
+            .post(self.url.expose_full().clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
             .json(&body);
@@ -768,7 +768,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+        let params = json!([JsonExecutionPayload::try_from(execution_payload)?]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -785,7 +785,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+        let params = json!([JsonExecutionPayload::try_from(execution_payload)?]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -803,7 +803,12 @@ impl HttpJsonRpc {
         new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::Deneb(new_payload_request_deneb.execution_payload.clone().into()),
+            JsonExecutionPayload::Deneb(
+                new_payload_request_deneb
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
             new_payload_request_deneb.versioned_hashes,
             new_payload_request_deneb.parent_beacon_block_root,
         ]);
@@ -825,7 +830,10 @@ impl HttpJsonRpc {
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
             JsonExecutionPayload::Electra(
-                new_payload_request_electra.execution_payload.clone().into()
+                new_payload_request_electra
+                    .execution_payload
+                    .clone()
+                    .try_into()?
             ),
             new_payload_request_electra.versioned_hashes,
             new_payload_request_electra.parent_beacon_block_root,
@@ -850,7 +858,12 @@ impl HttpJsonRpc {
         new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::Fulu(new_payload_request_fulu.execution_payload.clone().into()),
+            JsonExecutionPayload::Fulu(
+                new_payload_request_fulu
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
             new_payload_request_fulu.versioned_hashes,
             new_payload_request_fulu.parent_beacon_block_root,
             new_payload_request_fulu
@@ -874,7 +887,12 @@ impl HttpJsonRpc {
         new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::Gloas(new_payload_request_gloas.execution_payload.clone().into()),
+            JsonExecutionPayload::Gloas(
+                new_payload_request_gloas
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
             new_payload_request_gloas.versioned_hashes,
             new_payload_request_gloas.parent_beacon_block_root,
             new_payload_request_gloas
@@ -1125,10 +1143,14 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
+        response
             .into_iter()
-            .map(|opt_json| opt_json.map(From::from))
-            .collect())
+            .map(|opt_json| {
+                opt_json
+                    .map(|json| json.try_into().map_err(Error::from))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
@@ -1149,10 +1171,14 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
+        response
             .into_iter()
-            .map(|opt_json| opt_json.map(From::from))
-            .collect())
+            .map(|opt_json| {
+                opt_json
+                    .map(|json| json.try_into().map_err(Error::from))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
@@ -1453,8 +1479,7 @@ mod test {
 
     impl Tester {
         pub fn new(with_auth: bool) -> Self {
-            let spec = Arc::new(MainnetEthSpec::default_spec());
-            let server = MockServer::unit_testing(spec);
+            let server = MockServer::unit_testing();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
@@ -1814,16 +1839,16 @@ mod test {
                                 fee_recipient: Address::repeat_byte(1),
                                 state_root: Hash256::repeat_byte(1),
                                 receipts_root: Hash256::repeat_byte(0),
-                                logs_bloom: vec![1; 256].into(),
+                                logs_bloom: vec![1; 256].try_into().unwrap(),
                                 prev_randao: Hash256::repeat_byte(1),
                                 block_number: 0,
                                 gas_limit: 1,
                                 gas_used: 2,
                                 timestamp: 42,
-                                extra_data: vec![].into(),
+                                extra_data: vec![].try_into().unwrap(),
                                 base_fee_per_gas: Uint256::from(1),
                                 block_hash: ExecutionBlockHash::repeat_byte(1),
-                                transactions: vec![].into(),
+                                transactions: vec![].try_into().unwrap(),
                             },
                         ))
                         .await;
@@ -1861,16 +1886,16 @@ mod test {
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
                             receipts_root: Hash256::repeat_byte(0),
-                            logs_bloom: vec![1; 256].into(),
+                            logs_bloom: vec![1; 256].try_into().unwrap(),
                             prev_randao: Hash256::repeat_byte(1),
                             block_number: 0,
                             gas_limit: 1,
                             gas_used: 2,
                             timestamp: 42,
-                            extra_data: vec![].into(),
+                            extra_data: vec![].try_into().unwrap(),
                             base_fee_per_gas: Uint256::from(1),
                             block_hash: ExecutionBlockHash::repeat_byte(1),
-                            transactions: vec![].into(),
+                            transactions: vec![].try_into().unwrap(),
                         },
                     ))
                     .await
@@ -2071,16 +2096,16 @@ mod test {
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
-                            logs_bloom: vec![0; 256].into(),
+                            logs_bloom: vec![0; 256].try_into().unwrap(),
                             prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c95111",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
-                            extra_data: vec![].into(),
+                            extra_data: vec![].try_into().unwrap(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                            transactions: vec![].into(),
+                            transactions: vec![].try_into().unwrap(),
                         });
 
                     assert_eq!(payload, expected);
@@ -2096,16 +2121,16 @@ mod test {
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
-                            logs_bloom: vec![0; 256].into(),
+                            logs_bloom: vec![0; 256].try_into().unwrap(),
                             prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
-                            extra_data: vec![].into(),
+                            extra_data: vec![].try_into().unwrap(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                            transactions: vec![].into(),
+                            transactions: vec![].try_into().unwrap(),
                         }))
                         .await;
                 },

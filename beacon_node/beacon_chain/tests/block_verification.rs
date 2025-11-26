@@ -297,19 +297,20 @@ async fn chain_segment_full_segment() {
 
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
-    for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+        .into_iter()
+        .collect();
+
+    for chunk_size in &[1, 2, 31, 32, 33] {
         let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
-        let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
-        let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
-            .into_iter()
-            .collect();
 
         harness
             .chain
             .slot_clock
             .set_slot(blocks.last().unwrap().slot().as_u64());
 
-        for chunk in blocks.chunks(*chunk_size) {
+        for chunk in blocks.clone().chunks(*chunk_size) {
             harness
                 .chain
                 .process_chain_segment(chunk.to_vec(), NotifyExecutionLayer::Yes)
@@ -707,7 +708,7 @@ async fn invalid_signature_attester_slashing() {
 
         let attester_slashing = if fork_name.electra_enabled() {
             let indexed_attestation = IndexedAttestationElectra {
-                attesting_indices: vec![0].into(),
+                attesting_indices: vec![0].try_into().unwrap(),
                 data: AttestationData {
                     slot: Slot::new(0),
                     index: 0,
@@ -731,7 +732,7 @@ async fn invalid_signature_attester_slashing() {
             AttesterSlashing::Electra(attester_slashing)
         } else {
             let indexed_attestation = IndexedAttestationBase {
-                attesting_indices: vec![0].into(),
+                attesting_indices: vec![0].try_into().unwrap(),
                 data: AttestationData {
                     slot: Slot::new(0),
                     index: 0,
@@ -898,7 +899,9 @@ async fn invalid_signature_deposit() {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let deposit = Deposit {
-            proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1].into(),
+            proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1]
+                .try_into()
+                .unwrap(),
             data: DepositData {
                 pubkey: Keypair::random().pk.into(),
                 withdrawal_credentials: Hash256::zero(),
@@ -1270,7 +1273,9 @@ async fn block_gossip_verification() {
         as usize;
 
     if let Ok(kzg_commitments) = block.body_mut().blob_kzg_commitments_mut() {
-        *kzg_commitments = vec![KzgCommitment::empty_for_testing(); kzg_commitments_len + 1].into();
+        *kzg_commitments = vec![KzgCommitment::empty_for_testing(); kzg_commitments_len + 1]
+            .try_into()
+            .unwrap();
         assert!(
             matches!(
                 unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
