@@ -106,9 +106,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
                 chain_spec: self
                     .chain_spec
                     .ok_or("Cannot build AttestationService without chain_spec")?,
-                head_monitor_rx: self
-                    .head_monitor_rx
-                    .ok_or("Cannot build AttestationService without head_monitor_rx")?,
+                head_monitor_rx: self.head_monitor_rx,
                 disable: self.disable,
                 latest_attested_slot: Mutex::new(Slot::default()),
             }),
@@ -124,7 +122,7 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
-    head_monitor_rx: Arc<Mutex<mpsc::Receiver<HeadEvent>>>,
+    head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
     disable: bool,
     latest_attested_slot: Mutex<Slot>,
 }
@@ -184,10 +182,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 };
 
-                let beacon_node_index = tokio::select! {
-                    _ = sleep(duration + slot_duration /3 ) => None,
-                    Ok(event) = self.poll_for_head_events() => Some(event.beacon_node_index),
-                    else => None
+                let slot_trigger_delay = slot_duration / 3;
+                let beacon_node_index = if self.head_monitor_rx.is_some() {
+                    tokio::select! {
+                        _ = sleep(duration + slot_trigger_delay) => None,
+                        event = self.poll_for_head_events() => event.map(|event| event.beacon_node_index),
+                    }
+                } else {
+                    sleep(duration + slot_trigger_delay).await;
+                    None
                 };
 
                 let Some(current_slot) = self.slot_clock.now() else {
@@ -215,11 +218,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    async fn poll_for_head_events(&self) -> Result<HeadEvent, String> {
-        let mut receiver = self.head_monitor_rx.lock().await;
+    async fn poll_for_head_events(&self) -> Option<HeadEvent> {
+        let Some(receiver) = &self.head_monitor_rx else {
+            return None;
+        };
+        let mut receiver = receiver.lock().await;
         match receiver.recv().await {
-            Some(head_event) => Ok(head_event),
-            None => Err("Head monitor channel closed unexpectedly".to_string()),
+            Some(head_event) => Some(head_event),
+            None => {
+                warn!("Head monitor channel closed unexpectedly");
+                None
+            }
         }
     }
 

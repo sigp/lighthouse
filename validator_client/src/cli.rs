@@ -468,6 +468,17 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Enable the beacon head monitor so fallback head updates trigger duties when a lagging        primary is detected. \
+                This keeps the attestation service responsive when using multiple beacon nodes, but it relies on the \
+                fallback service streaming head events which may increase network usage. \
+                When not enabled (default), duties are only triggered on slot boundaries and ignore fallback head changes.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub enable_beacon_head_monitor: bool,
+
+    #[clap(
+        long,
         help = "Disable Lighthouse's slashing protection for all web3signer keys. This can \
                 reduce the I/O burden on the VC but is only safe if slashing protection \
                 is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \

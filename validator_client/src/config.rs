@@ -80,6 +80,9 @@ pub struct Config {
     pub broadcast_topics: Vec<ApiTopic>,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
+    /// Enables the beacon head monitor that reacts to fallback head updates.
+    #[serde(default)]
+    pub enable_beacon_head_monitor: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
     /// Whether we are running with distributed network support.
@@ -129,6 +132,7 @@ impl Default for Config {
             builder_registration_timestamp_override: None,
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
+            enable_beacon_head_monitor: false,
             validator_registration_batch_size: 500,
             distributed: false,
             initialized_validators: <_>::default(),
@@ -368,6 +372,7 @@ impl Config {
         config.validator_store.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
+        config.enable_beacon_head_monitor = validator_client_config.enable_beacon_head_monitor;
 
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;

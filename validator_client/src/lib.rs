@@ -13,7 +13,8 @@ use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    BeaconNodeFallback, CandidateBeaconNode, start_fallback_updater_service,
+    BeaconNodeFallback, CandidateBeaconNode, beacon_head_monitor::HeadEvent,
+    start_fallback_updater_service,
 };
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
@@ -386,16 +387,19 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
         );
 
-        let (head_send, head_receiver) = mpsc::channel(MAX_HEAD_EVENT_QUEUE_LEN);
-
-        let head_send_ref = Arc::new(head_send);
-
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());
 
         // Only the beacon_nodes are used for attestation duties and thus biconditionally
         // proposer_nodes do not need head_send ref.
-        beacon_nodes.set_head_send(head_send_ref.clone());
+        let head_monitor_rx = if config.enable_beacon_head_monitor {
+            let (head_monitor_tx, head_receiver) =
+                mpsc::channel::<HeadEvent>(MAX_HEAD_EVENT_QUEUE_LEN);
+            beacon_nodes.set_head_send(Arc::new(head_monitor_tx));
+            Some(Arc::new(Mutex::new(head_receiver)))
+        } else {
+            None
+        };
 
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
@@ -506,16 +510,20 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let block_service = block_service_builder.build()?;
 
-        let attestation_service = AttestationServiceBuilder::new()
+        let mut attestation_builder = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
-            .head_monitor_rx(Arc::new(Mutex::new(head_receiver)))
-            .disable(config.disable_attesting)
-            .build()?;
+            .disable(config.disable_attesting);
+
+        if let Some(head_monitor_rx) = head_monitor_rx {
+            attestation_builder = attestation_builder.head_monitor_rx(head_monitor_rx);
+        }
+
+        let attestation_service = attestation_builder.build()?;
 
         let preparation_service = PreparationServiceBuilder::new()
             .slot_clock(slot_clock.clone())
