@@ -3837,7 +3837,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     parking_lot::RwLockUpgradableReadGuard::upgrade(pubkey_cache);
                 pubkey_cache.import_new_pubkeys(&state)?;
                 pubkey_cache.get_db_ops()
-                
             } else {
                 // Even if no new validators were written to the cache,
                 // we may still have validators staged to be written to the db

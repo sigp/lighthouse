@@ -43,8 +43,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         };
 
         cache.import_new_pubkeys(state)?;
-        let (_, db_ops) = cache.get_db_ops();
+        let (indices, db_ops) = cache.get_db_ops();
         store.do_atomically_with_block_and_blobs_cache(db_ops)?;
+        cache.flush_staged_indices(indices);
 
         Ok(cache)
     }
@@ -349,7 +350,6 @@ mod test {
         check_cache_get(&cache, &keypairs[..]);
     }
 
-
     /// Test for crash safety: ensures that the staged_indices mechanism prevents
     /// gaps in the on-disk pubkey cache when crashes occur during block import.
     ///
@@ -374,11 +374,15 @@ mod test {
         let store = get_store();
 
         // Create initial cache with 8 validators and persist to disk.
-        let cache = ValidatorPubkeyCache::new(&state_8, store.clone())
-            .expect("should create cache");
+        let cache =
+            ValidatorPubkeyCache::new(&state_8, store.clone()).expect("should create cache");
         check_cache_get(&cache, &keypairs_8[..]);
         assert_eq!(cache.len(), 8, "cache should have 8 validators");
-        assert_eq!(cache.staged_indices.len(), 0, "no staged indices after creation");
+        assert_eq!(
+            cache.staged_indices.len(),
+            0,
+            "no staged indices after creation"
+        );
         drop(cache);
 
         // Reload cache from disk.
@@ -413,9 +417,17 @@ mod test {
 
         // Get DB operations for persisting the new validators.
         let (indices_to_write_1, db_ops_1) = cache.get_db_ops();
-        assert_eq!(indices_to_write_1.len(), 4, "should have 4 indices to write");
+        assert_eq!(
+            indices_to_write_1.len(),
+            4,
+            "should have 4 indices to write"
+        );
         assert_eq!(db_ops_1.len(), 4, "should have 4 db operations");
-        assert_eq!(indices_to_write_1, vec![8, 9, 10, 11], "indices should be 8-11");
+        assert_eq!(
+            indices_to_write_1,
+            vec![8, 9, 10, 11],
+            "indices should be 8-11"
+        );
 
         // SIMULATE CRASH: Get DB ops but DON'T write to disk and DON'T flush staged indices.
         // In the real scenario, the program would crash here before:
@@ -437,7 +449,11 @@ mod test {
             indices_to_write_2, indices_to_write_1,
             "should return same indices on retry"
         );
-        assert_eq!(db_ops_2.len(), 4, "should return same db_ops count on retry");
+        assert_eq!(
+            db_ops_2.len(),
+            4,
+            "should return same db_ops count on retry"
+        );
 
         // SIMULATE RESTART: Drop cache and reload from disk.
         drop(cache);
@@ -463,8 +479,8 @@ mod test {
 
         // NOW TEST THE FIX: Properly persist with flush.
         drop(cache_after_crash);
-        let mut cache = ValidatorPubkeyCache::load_from_store(store.clone())
-            .expect("should load cache");
+        let mut cache: ValidatorPubkeyCache<T> =
+            ValidatorPubkeyCache::load_from_store(store.clone()).expect("should load cache");
 
         // Re-import the validators (simulating the next block import).
         cache
@@ -493,8 +509,8 @@ mod test {
 
         // Drop and reload to verify persistence.
         drop(cache);
-        let final_cache = ValidatorPubkeyCache::load_from_store(store)
-            .expect("should load final cache");
+        let final_cache =
+            ValidatorPubkeyCache::load_from_store(store).expect("should load final cache");
 
         // Verify all 12 validators are now persisted on disk.
         assert_eq!(
@@ -525,9 +541,9 @@ mod test {
         let store = get_store();
 
         // Start with 5 validators.
-        let (state_5, keypairs_5) = get_state(5);
-        let mut cache = ValidatorPubkeyCache::new(&state_5, store.clone())
-            .expect("should create cache");
+        let (state_5, _) = get_state(5);
+        let mut cache: ValidatorPubkeyCache<T> =
+            ValidatorPubkeyCache::new(&state_5, store.clone()).expect("should create cache");
         assert_eq!(cache.len(), 5);
 
         // Add 3 more validators (total 8).
@@ -596,8 +612,7 @@ mod test {
 
         // Verify complete persistence by reloading.
         drop(cache);
-        let reloaded = ValidatorPubkeyCache::load_from_store(store)
-            .expect("should reload cache");
+        let reloaded = ValidatorPubkeyCache::load_from_store(store).expect("should reload cache");
         assert_eq!(
             reloaded.len(),
             12,
