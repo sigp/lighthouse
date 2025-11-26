@@ -303,8 +303,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             && current_slot == slot
         {
             // Note: this metric is useful to gauge how long it takes to receive blobs requested
-            // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
-            // we can use that as a baseline to measure against.
+            // over rpc.
             let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
 
             metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
