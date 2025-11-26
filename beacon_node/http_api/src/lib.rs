@@ -46,6 +46,7 @@ pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
+use eth2::StatusCode;
 use eth2::types::{
     self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
     ForkChoiceExtraData, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest,
@@ -103,7 +104,6 @@ use version::{
     unsupported_version_rejection,
 };
 use warp::Reply;
-use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
 use warp::{Filter, Rejection, http::Response};
@@ -4097,7 +4097,7 @@ pub fn serve<T: BeaconChainTypes>(
                 convert_rejection(rx.await.unwrap_or_else(|_| {
                     Ok(warp::reply::with_status(
                         warp::reply::json(&"No response from channel"),
-                        eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
                     )
                     .into_response())
                 }))

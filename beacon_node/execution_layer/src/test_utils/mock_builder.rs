@@ -842,7 +842,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .beacon_client
             .get_beacon_blocks::<E>(BlockId::Finalized)
             .await
-            .map_err(|_| "couldn't get finalized block".to_string())?
+            .map_err(|e| format!("couldn't get finalized block: {e:?}"))?
             .ok_or_else(|| "missing finalized block".to_string())?
             .data()
             .message()
@@ -855,7 +855,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .beacon_client
             .get_beacon_blocks::<E>(BlockId::Justified)
             .await
-            .map_err(|_| "couldn't get justified block".to_string())?
+            .map_err(|e| format!("couldn't get justified block: {e:?}"))?
             .ok_or_else(|| "missing justified block".to_string())?
             .data()
             .message()
