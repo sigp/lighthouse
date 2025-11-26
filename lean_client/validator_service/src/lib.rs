@@ -1,9 +1,13 @@
-use lean_consensus::attestation::{Attestation, AttestationData, Checkpoint, SignedAttestation, Slot as LeanSlot};
-use lean_consensus::lean_block::{LeanBlock, LeanBlockBody, LeanBlockWithAttestation, SignedLeanBlockWithAttestation};
+use lean_consensus::attestation::{
+    Attestation, AttestationData, Checkpoint, SignedAttestation, Slot as LeanSlot,
+};
+use lean_consensus::lean_block::{
+    LeanBlock, LeanBlockBody, LeanBlockWithAttestation, SignedLeanBlockWithAttestation,
+};
 use lean_consensus::lean_state::{LeanState, INTERVALS_PER_SLOT, SECONDS_PER_INTERVAL};
 use lean_crypto::Signature;
 use lean_forkchoice::helpers::get_fork_choice_head;
-use lean_keystore::{ValidatorKeyPair, KeyStore};
+use lean_keystore::{KeyStore, ValidatorKeyPair};
 use lean_store::LeanStore;
 pub use lean_network::NetworkMessage;
 use slot_clock::SlotClock;
@@ -31,6 +35,8 @@ pub struct ValidatorService<T: SlotClock, E: EthSpec, D: KeyValueStore<E>> {
     slot_clock: T,
     /// Store for database operations
     store: LeanStore<E, D>,
+    /// Validator index managed by this node
+    validator_index: u64,
     /// Validator key pair for XMSS signatures
     validator_key_pair: ValidatorKeyPair,
     /// Key store for loading validator public keys for signature verification
@@ -44,6 +50,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
         db: Arc<D>,
+        validator_index: u64,
         validator_key_pair: ValidatorKeyPair,
         keystore: KeyStore,
     ) -> Self {
@@ -52,6 +59,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             network_send,
             slot_clock,
             store: LeanStore::new(db),
+            validator_index,
             validator_key_pair,
             keystore,
         }
@@ -61,15 +69,25 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
     ///
     /// The message to sign is the SSZ-encoded Attestation.
     /// Uses the hash-sig crate to create an XMSS signature.
-    fn sign_attestation(&self, attestation: &Attestation, epoch: u64) -> Result<Signature, String> {
+    fn sign_attestation(
+        &self,
+        validator_id: u64,
+        attestation: &Attestation,
+        epoch: u64,
+    ) -> Result<Signature, String> {
         // Hash the attestation message using tree hash (32 bytes)
         let message_hash = attestation.tree_hash_root();
+
+        let key_pair = self
+            .validator_key_pairs
+            .get(&validator_id)
+            .ok_or_else(|| format!("Validator {} is not assigned to this node", validator_id))?;
 
         // Deserialize the XMSS secret key from the stored PrivateKey structure
         // The secret key is stored as bincode-serialized data in the keystore
         type Scheme = SIGTopLevelTargetSumLifetime32Dim64Base8;
         let secret_key: <Scheme as SignatureScheme>::SecretKey =
-            bincode::deserialize(self.validator_key_pair.private_key_prf()).map_err(|e| {
+            bincode::deserialize(key_pair.private_key_prf()).map_err(|e| {
                 format!("Failed to deserialize XMSS secret key from PRF key: {}", e)
             })?;
 
@@ -94,6 +112,33 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         self.store.save_state(&state)
     }
 
+    /// Waits for genesis time to arrive
+    async fn wait_for_genesis(&self) {
+        // SystemTimeSlotClock::genesis_duration() returns the duration since UNIX_EPOCH to genesis
+        let genesis_time = self.slot_clock.genesis_duration();
+        
+        let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(n) => n,
+            Err(_) => {
+                error!("System time is before UNIX EPOCH!");
+                return;
+            }
+        };
+
+        if now < genesis_time {
+            let wait_duration = genesis_time - now;
+            info!(
+                wait_seconds = wait_duration.as_secs(),
+                genesis_time = genesis_time.as_secs(),
+                "Waiting for genesis"
+            );
+            sleep(wait_duration).await;
+            info!("Genesis time reached");
+        } else {
+            debug!("Genesis time is in the past, starting immediately");
+        }
+    }
+
     /// Runs the validator service, processing messages and interval ticks
     ///
     /// Uses tokio::select! to handle:
@@ -101,6 +146,9 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
     /// - Network messages from the network service
     pub async fn run(mut self) {
         info!("Validator service started");
+
+        // Wait for genesis
+        self.wait_for_genesis().await;
 
         loop {
             // Use slot_clock to determine when the next interval occurs
@@ -662,10 +710,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             // Calculate epoch from slot for signature generation
             let epoch = attestation.attestation_data.slot.0 / 32;
             let signature = self
-                .sign_attestation(attestation, epoch)
-                .unwrap_or_else(|_| {
+                .sign_attestation(attestation.validator_id, attestation, epoch)
+                .unwrap_or_else(|e| {
                     warn!(
                         validator_id = attestation.validator_id,
+                        error = %e,
                         "Failed to sign block body attestation, using empty signature"
                     );
                     lean_crypto::Signature::empty()
@@ -723,9 +772,13 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // 3. Influence fork choice only after interval 3 (end of slot)
         let epoch = proposer_attestation.attestation_data.slot.0 / 32;
         let signature = self
-            .sign_attestation(&proposer_attestation, epoch)
-            .unwrap_or_else(|_| {
-                warn!("Failed to sign proposer attestation");
+            .sign_attestation(proposer_attestation.validator_id, &proposer_attestation, epoch)
+            .unwrap_or_else(|e| {
+                warn!(
+                    validator_id = proposer_attestation.validator_id,
+                    error = %e,
+                    "Failed to sign proposer attestation"
+                );
                 lean_crypto::Signature::empty()
             });
 
@@ -827,21 +880,35 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // For now, just try to produce a block if we're one of the validators
         // In a full implementation, we would check the proposer schedule
-        let num_validators = state.validators.len();
+        let num_validators = state.validators.len() as u64;
         if num_validators == 0 {
             return Err("No validators in state".to_string());
         }
 
-        debug!(slot = slot_u64, num_validators, "Checking proposal duties");
+        let expected_proposer = slot_u64 % num_validators;
+        if expected_proposer != self.validator_index {
+            debug!(
+                slot = slot_u64,
+                expected_proposer,
+                validator_id = self.validator_index,
+                "Not proposer for this slot"
+            );
+            return Ok(());
+        }
 
-        // Produce the block
+        debug!(
+            slot = slot_u64,
+            proposer = self.validator_index,
+            num_validators,
+            "Performing proposal duties"
+        );
+
         if let Err(e) = self.produce_block(slot).await {
             debug!(
                 slot = slot_u64,
                 error = %e,
-                "Not producing block (likely not proposer for this slot)"
+                "Failed to produce block"
             );
-            return Ok(());
         }
 
         Ok(())
@@ -862,6 +929,19 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             .fetch_state()?
             .ok_or_else(|| "No lean_state available to produce block".to_string())?;
 
+        let num_validators = state.validators.len() as u64;
+        if num_validators == 0 {
+            return Err("No validators available in state".to_string());
+        }
+
+        let expected_proposer = slot_u64 % num_validators;
+        if self.validator_index != expected_proposer {
+            return Err(format!(
+                "Validator {} is proposer for slot {} but this node controls validator {}",
+                expected_proposer, slot_u64, self.validator_index
+            ));
+        }
+
         // Get head root from forkchoice
         let head_root = self
             .store
@@ -871,8 +951,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Create the block with LeanSlot type
         let lean_slot = LeanSlot(slot_u64);
 
-        // For now, use validator_id = 0 as placeholder proposer
-        let validator_id: u64 = 0;
+        let validator_id = self.validator_index;
 
         // Create block with empty body
         let body = LeanBlockBody {
@@ -945,34 +1024,25 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         Ok(())
     }
 
-    /// Performs attestation duties for all validators in the given slot
+    /// Performs attestation duties for validators assigned to this node.
     ///
-    /// In lean consensus, all validators attest every slot (unlike Ethereum where
-    /// validators are assigned to committees). This method iterates through all
-    /// validators and produces attestations for each.
+    /// The current lean client maps `--node-id` to a contiguous range of validator
+    /// indices. Only those validators are expected to produce attestations via this
+    /// service.
     async fn perform_attestation_duties(&self, slot: u64) -> Result<(), String> {
-        // Fetch state from database
-        let state = self.store.fetch_state()?.ok_or_else(|| {
-            "No lean_state available in database to perform attestation duties".to_string()
-        })?;
-
-        let num_validators = state.validators.len();
         debug!(
             slot,
-            num_validators, "Performing attestation duties for all validators"
+            validator_id = self.validator_index,
+            "Performing attestation duties for assigned validator"
         );
 
-        // Produce attestation for each validator
-        for validator_index in 0..num_validators {
-            if let Err(e) = self.produce_attestation(slot, validator_index as u64).await {
-                warn!(
-                    slot,
-                    validator_id = validator_index,
-                    error = %e,
-                    "Failed to produce attestation for validator"
-                );
-                // Continue with other validators even if one fails
-            }
+        if let Err(e) = self.produce_attestation(slot, self.validator_index).await {
+            warn!(
+                slot,
+                validator_id = self.validator_index,
+                error = %e,
+                "Failed to produce attestation for validator"
+            );
         }
 
         Ok(())
@@ -1054,7 +1124,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Sign attestation with XMSS key
         let epoch = slot / 32;
         let signature = self
-            .sign_attestation(&attestation, epoch)
+            .sign_attestation(validator_id, &attestation, epoch)
             .map_err(|e| format!("Failed to sign attestation: {}", e))?;
 
         // Create signed attestation

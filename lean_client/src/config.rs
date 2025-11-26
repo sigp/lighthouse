@@ -12,6 +12,7 @@ pub struct Config {
     pub node_id: String,
     pub private_key: PathBuf,
     pub socket_port: u16,
+    pub genesis_json_path: Option<PathBuf>,
     pub enable_metrics: bool,
 }
 
@@ -26,6 +27,7 @@ impl Config {
             node_id: cli.node_id,
             private_key: cli.private_key,
             socket_port: cli.socket_port,
+            genesis_json_path: cli.genesis_json,
             enable_metrics: cli.metrics,
         }
     }
@@ -39,6 +41,8 @@ impl From<Config> for LeanClientPaths {
             validators_path: value.validators_path,
             nodes_path: value.nodes_path,
             node_id: value.node_id,
+            node_key_path: value.private_key,
+            genesis_json_path: value.genesis_json_path,
         }
     }
 }

@@ -3,6 +3,7 @@ use crate::topics::{ATTESTATION_TOPIC, BLOCK_TOPIC};
 use futures::StreamExt;
 use lean_consensus::attestation::SignedAttestation;
 use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
+use libp2p::identity::{self, Keypair};
 use libp2p::{
     Multiaddr, PeerId, Swarm, Transport, gossipsub,
     swarm::{NetworkBehaviour, SwarmEvent},
@@ -57,7 +58,30 @@ impl<E: EthSpec> NetworkService<E> {
         network_recv: mpsc::UnboundedSender<NetworkMessage<E>>,
         network_send: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let local_key = libp2p::identity::Keypair::generate_ed25519();
+        let NetworkConfig {
+            listen_port,
+            bootstrap_nodes: bootstrap_node_strings,
+            node_key,
+        } = config;
+
+        let local_key = match node_key {
+            Some(mut key_bytes) => {
+                if key_bytes.len() != 32 {
+                    return Err(format!(
+                        "Libp2p private key must be 32 bytes, got {} bytes",
+                        key_bytes.len()
+                    )
+                    .into());
+                }
+                let secret = identity::secp256k1::SecretKey::try_from_bytes(&mut key_bytes[..])
+                    .map_err(|e| {
+                        format!("Failed to parse libp2p secp256k1 private key: {:?}", e)
+                    })?;
+                let kp: identity::secp256k1::Keypair = secret.into();
+                Keypair::from(kp)
+            }
+            None => identity::Keypair::generate_ed25519(),
+        };
         let local_peer_id = PeerId::from(local_key.public());
 
         info!("Local peer id: {:?}", local_peer_id);
@@ -89,7 +113,7 @@ impl<E: EthSpec> NetworkService<E> {
                 .with_idle_connection_timeout(Duration::from_secs(60)),
         );
 
-        let listen_addr = format!("/ip4/0.0.0.0/udp/{}/quic-v1", config.listen_port)
+        let listen_addr = format!("/ip4/0.0.0.0/udp/{}/quic-v1", listen_port)
             .parse()
             .map_err(|e| format!("Invalid listen address: {}", e))?;
 
@@ -118,7 +142,7 @@ impl<E: EthSpec> NetworkService<E> {
 
         // Initialize bootstrap nodes cache
         let mut bootstrap_nodes = VecDeque::new();
-        for bootstrap_addr_str in config.bootstrap_nodes.iter() {
+        for bootstrap_addr_str in bootstrap_node_strings.iter() {
             match bootstrap_addr_str.parse::<Multiaddr>() {
                 Ok(multiaddr) => {
                     bootstrap_nodes.push_back(BootstrapNode {

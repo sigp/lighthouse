@@ -44,7 +44,7 @@ pub struct LeanNode {
     #[clap(
         long,
         value_name = "NODE_ID",
-        help = "Node identifier (e.g., 'lighthouse_0', 'ream_0')",
+        help = "Node identifier (e.g., 'lighthouse_0')",
         display_order = 3
     )]
     pub node_id: String,
@@ -64,6 +64,14 @@ pub struct LeanNode {
         display_order = 5
     )]
     pub socket_port: u16,
+
+    #[clap(
+        long,
+        value_name = "GENESIS_JSON",
+        help = "Path to the genesis.json file",
+        display_order = 6
+    )]
+    pub genesis_json: Option<PathBuf>,
 
     /* Prometheus metrics HTTP server related arguments */
     #[clap(

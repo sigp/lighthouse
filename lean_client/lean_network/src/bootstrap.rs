@@ -100,9 +100,9 @@ pub fn load_bootstrap_nodes<P: AsRef<Path>>(nodes_path: P) -> Result<Vec<String>
 /// Parses an ENR record string to extract multiaddr
 /// ENR records are base64-encoded and contain IP/port information
 ///
-/// This follows the same pattern as Ream and Lighthouse:
+/// This follows the same pattern used elsewhere in Lighthouse:
 /// - Uses standard ENR fields: ip4/ip6 for IP addresses
-/// - Uses get_decodable("quic") for QUIC port (as per Ream's implementation)
+/// - Uses get_decodable("quic") for QUIC port
 /// - Falls back to udp4/udp6 if quic port is not available
 fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
     // ENR format: enr:-IW4Q...
@@ -123,7 +123,7 @@ fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
             format!("ENR has no IP address (ip4: {}, ip6: {})", has_ip4, has_ip6)
         })?;
 
-    // Extract QUIC port using get_decodable (as per Ream's implementation)
+    // Extract QUIC port using get_decodable
     // The "quic" key is decoded as u16 automatically by get_decodable
     let port = enr
         .get_decodable::<u16>("quic")

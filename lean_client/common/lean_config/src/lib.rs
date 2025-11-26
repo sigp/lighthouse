@@ -1,6 +1,6 @@
 mod validators;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,6 +24,8 @@ pub struct LeanClientPaths {
     pub validators_path: PathBuf,
     pub nodes_path: PathBuf,
     pub node_id: String,
+    pub node_key_path: PathBuf,
+    pub genesis_json_path: Option<PathBuf>,
 }
 
 /// Runtime resources required by the lean client services.
@@ -31,6 +33,7 @@ pub struct LeanClientResources<E: EthSpec> {
     pub slot_clock: SystemTimeSlotClock,
     pub db: Arc<BeaconNodeBackend<E>>,
     pub validator_key_pair: ValidatorKeyPair,
+    pub validator_index: u64,
     pub keystore: KeyStore,
     pub network_config: NetworkConfig,
 }
@@ -43,6 +46,8 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
         validators_path,
         nodes_path,
         node_id,
+        node_key_path,
+        genesis_json_path,
     } = paths;
 
     std::fs::create_dir_all(&data_dir)
@@ -90,7 +95,30 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     let mut genesis_state = LeanState::<E>::genesis_default().generate_genesis(validators);
 
     let current_time = current_unix_timestamp()?;
-    genesis_state.config.genesis_time = current_time;
+    
+    if let Some(path) = genesis_json_path {
+        let genesis_json_bytes = std::fs::read(&path)
+            .map_err(|e| format!("Failed to read genesis.json from {:?}: {}", path, e))?;
+        let genesis_json: serde_json::Value = serde_json::from_slice(&genesis_json_bytes)
+            .map_err(|e| format!("Failed to parse genesis.json: {}", e))?;
+        
+        if let Some(time_val) = genesis_json.get("genesis_time") {
+             let time_u64 = if let Some(time_str) = time_val.as_str() {
+                 time_str.parse::<u64>().map_err(|e| format!("Failed to parse genesis_time string: {}", e))?
+             } else if let Some(time_u64) = time_val.as_u64() {
+                 time_u64
+             } else {
+                 return Err("genesis_time in genesis.json is not a string or number".to_string());
+             };
+             genesis_state.config.genesis_time = time_u64;
+             info!("Using genesis time from genesis.json: {}", time_u64);
+        } else {
+             info!("genesis.json does not contain genesis_time, using current time: {}", current_time);
+             genesis_state.config.genesis_time = current_time;
+        }
+    } else {
+        genesis_state.config.genesis_time = current_time;
+    }
 
     info!(
         slot = genesis_state.slot.0,
@@ -111,9 +139,16 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     );
 
     let validator_assignments = validator_config.validator_assignments();
-    let (start_index, _end_index) = validator_assignments
+    let (start_index, end_index) = validator_assignments
         .get(&node_id)
         .ok_or_else(|| format!("Node ID '{}' not found in validator config", node_id))?;
+
+    if *start_index >= *end_index {
+        return Err(format!(
+            "Node ID '{}' has no validators assigned (start={}, end={})",
+            node_id, start_index, end_index
+        ));
+    }
 
     info!(
         node_id = node_id,
@@ -127,17 +162,26 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
         "Found validator assignment for node"
     );
 
-    let validator_key_pair = keystore.load_key_pair(*start_index).map_err(|e| {
+    if end_index - start_index != 1 {
+        return Err(format!(
+            "Node ID '{}' must be assigned to exactly one validator, found range [{} , {})",
+            node_id, start_index, end_index
+        ));
+    }
+
+    let validator_index = *start_index;
+
+    let validator_key_pair = keystore.load_key_pair(validator_index).map_err(|e| {
         format!(
             "Failed to load keystore for validator index {}: {}",
-            start_index, e
+            validator_index, e
         )
     })?;
 
     info!(
-        validator_index = start_index,
+        validator_index,
         keystore_dir = ?keystore_dir,
-        "Loaded XMSS key pair from keystore"
+        "Loaded XMSS key pair for validator"
     );
 
     let config_info = load_network_files(&config_path, &nodes_path)
@@ -161,14 +205,38 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
         "Lean node configuration loaded"
     );
 
-    let network_config =
-        NetworkConfig::new(listen_port).with_bootstrap_nodes(config_info.bootstrap_enrs);
+    let node_key_bytes = load_node_key(&node_key_path)?;
+
+    let network_config = NetworkConfig::new(listen_port)
+        .with_bootstrap_nodes(config_info.bootstrap_enrs)
+        .with_node_key(node_key_bytes);
 
     Ok(LeanClientResources {
         slot_clock,
         db,
         validator_key_pair,
+        validator_index,
         keystore,
         network_config,
     })
+}
+
+fn load_node_key(path: &Path) -> Result<Vec<u8>, String> {
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read libp2p private key from {:?}: {}", path, e))?;
+    let trimmed = contents.trim();
+    if trimmed.is_empty() {
+        return Err(format!("Libp2p private key file {:?} is empty", path));
+    }
+    let hex_str = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    let key_bytes = hex::decode(hex_str)
+        .map_err(|e| format!("Invalid hex in libp2p private key {:?}: {}", path, e))?;
+    if key_bytes.len() != 32 {
+        return Err(format!(
+            "Libp2p private key {:?} must be 32 bytes, found {} bytes",
+            path,
+            key_bytes.len()
+        ));
+    }
+    Ok(key_bytes)
 }

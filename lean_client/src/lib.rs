@@ -22,6 +22,7 @@ pub struct ProductionLeanClient<E: EthSpec> {
     slot_clock: SystemTimeSlotClock,
     db: Arc<LeanBackend<E>>,
     validator_key_pair: Option<ValidatorKeyPair>,
+    validator_index: u64,
     keystore: Option<KeyStore>,
     network_config: NetworkConfig,
 }
@@ -37,6 +38,7 @@ impl<E: EthSpec> ProductionLeanClient<E> {
             slot_clock: resources.slot_clock,
             db: resources.db,
             validator_key_pair: Some(resources.validator_key_pair),
+            validator_index: resources.validator_index,
             keystore: Some(resources.keystore),
             network_config: resources.network_config,
         })
@@ -73,6 +75,7 @@ impl<E: EthSpec> ProductionLeanClient<E> {
             network_recv_rx,
             network_send_tx,
             self.db.clone(),
+            self.validator_index,
             validator_key_pair,
             keystore,
         );

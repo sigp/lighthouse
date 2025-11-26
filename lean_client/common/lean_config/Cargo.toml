@@ -14,3 +14,6 @@ slot_clock = { workspace = true }
 store = { workspace = true, features = ["redb"] }
 tracing = { workspace = true }
 types = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

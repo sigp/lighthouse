@@ -5145,12 +5145,15 @@ dependencies = [
 name = "lean_config"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "lean_consensus",
  "lean_genesis",
  "lean_keystore",
  "lean_network",
  "lean_network_config",
  "lean_store",
+ "serde",
+ "serde_json",
  "slot_clock",
  "store",
  "tracing",
