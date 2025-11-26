@@ -110,6 +110,7 @@ Validator
 VC
 VCs
 VPN
+VSCode
 WalletConnect
 Withdrawable
 WSL
