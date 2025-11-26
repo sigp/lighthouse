@@ -80,9 +80,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
 
     pub fn head_monitor_rx(
         mut self,
-        head_monitor_rx: Arc<Mutex<mpsc::Receiver<HeadEvent>>>,
+        head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
     ) -> Self {
-        self.head_monitor_rx = Some(head_monitor_rx);
+        self.head_monitor_rx = head_monitor_rx;
         self
     }
     pub fn build(self) -> Result<AttestationService<S, T>, String> {

@@ -439,7 +439,6 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         self.slot_clock = Some(slot_clock);
     }
 
-
     /// This the head monitor channel that streams events from all the beacon node that the
     /// validator client is connected in the `BeaconNodeFallback`. This is also initialize the
     /// beacon_head_cache under the assumption the beacon_head_cache will always be needed when
