@@ -426,6 +426,16 @@ mod tests {
         })
     }
 
+    fn merkle_leaves_strategy_min_depth(
+        max_depth: usize,
+        min_depth: usize,
+    ) -> impl Strategy<Value = (Vec<u64>, usize)> {
+        (min_depth..=max_depth).prop_flat_map(|depth| {
+            let max_leaves = 2usize.pow(depth as u32);
+            (proptest::collection::vec(any::<u64>(), 0..=max_leaves), Just(depth))
+        })
+    }
+
     proptest::proptest! {
         /// Check that we can:
         /// 1. Build a MerkleTree from arbitrary leaves and an arbitrary depth.
@@ -447,7 +457,7 @@ mod tests {
         }
 
         #[test]
-        fn proptest_push_leaf_and_verify((int_leaves, depth) in merkle_leaves_strategy(TEST_MAX_DEPTH).prop_filter("depth >= 1", |(_, d)| *d >= 1)) {
+        fn proptest_push_leaf_and_verify((int_leaves, depth) in merkle_leaves_strategy_min_depth(TEST_MAX_DEPTH, 1)) {
             let leaves_iter = int_leaves.into_iter().map(H256::from_low_u64_be);
             let mut merkle_tree = MerkleTree::create(&[], depth);
 
