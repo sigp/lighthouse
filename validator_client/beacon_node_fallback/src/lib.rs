@@ -656,7 +656,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
-        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.as_ref()]);
+        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.server().redacted()]);
 
         // There exists a race condition where `func` may be called when the candidate is
         // actually not ready. We deem this an acceptable inefficiency.
@@ -668,7 +668,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
                     error = ?e,
                     "Request to beacon node failed"
                 );
-                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.as_ref()]);
+                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.server().redacted()]);
                 Err((candidate.to_string(), Error::RequestFailed(e)))
             }
         }

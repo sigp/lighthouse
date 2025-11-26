@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use derivative::Derivative;
+use educe::Educe;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -55,8 +55,8 @@ pub enum Error {
 }
 
 /// Wraps a `LightClientFinalityUpdate` that has been verified for propagation on the gossip network.
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedLightClientFinalityUpdate<T: BeaconChainTypes> {
     light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
     seen_timestamp: Duration,

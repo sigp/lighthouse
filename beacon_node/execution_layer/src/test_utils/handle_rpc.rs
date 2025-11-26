@@ -252,7 +252,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 Some(
                     ctx.execution_block_generator
                         .write()
-                        .new_payload(request.into()),
+                        .new_payload(request.try_into().unwrap()),
                 )
             } else {
                 None
@@ -361,98 +361,107 @@ pub async fn handle_rpc<E: EthSpec>(
             }
 
             match method {
-                ENGINE_GET_PAYLOAD_V1 => {
-                    Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
+                ENGINE_GET_PAYLOAD_V1 => Ok(serde_json::to_value(
+                    JsonExecutionPayload::try_from(response).unwrap(),
+                )
+                .unwrap()),
+                ENGINE_GET_PAYLOAD_V2 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Bellatrix(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseBellatrix {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                            })
+                            .unwrap()
+                        }
+                        JsonExecutionPayload::Capella(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseCapella {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
                 }
-                ENGINE_GET_PAYLOAD_V2 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::Bellatrix(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseBellatrix {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                        })
-                        .unwrap()
-                    }
-                    JsonExecutionPayload::Capella(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseCapella {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                        })
-                        .unwrap()
-                    }
-                    _ => unreachable!(),
-                }),
                 // From v3 onwards, we use the getPayload version only for the corresponding
                 // ExecutionPayload version. So we return an error if the ExecutionPayload version
                 // we get does not correspond to the getPayload version.
-                ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::Deneb(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseDeneb {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V3 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                        })
-                        .unwrap()
-                    }
-                    _ => unreachable!(),
-                }),
-                ENGINE_GET_PAYLOAD_V4 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::Electra(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseElectra {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V4 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                            // TODO(electra): add EL requests in mock el
-                            execution_requests: Default::default(),
-                        })
-                        .unwrap()
-                    }
-                    _ => unreachable!(),
-                }),
-                ENGINE_GET_PAYLOAD_V5 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::Fulu(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseFulu {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V5 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                            execution_requests: Default::default(),
-                        })
-                        .unwrap()
-                    }
-                    JsonExecutionPayload::Gloas(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseGloas {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V5 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                            execution_requests: Default::default(),
-                        })
-                        .unwrap()
-                    }
-                    _ => unreachable!(),
-                }),
+                ENGINE_GET_PAYLOAD_V3 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Deneb(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseDeneb {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V3 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
+                }
+                ENGINE_GET_PAYLOAD_V4 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Electra(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseElectra {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V4 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                // TODO(electra): add EL requests in mock el
+                                execution_requests: Default::default(),
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
+                }
+                ENGINE_GET_PAYLOAD_V5 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Fulu(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseFulu {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V5 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                execution_requests: Default::default(),
+                            })
+                            .unwrap()
+                        }
+                        JsonExecutionPayload::Gloas(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseGloas {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V5 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                execution_requests: Default::default(),
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
+                }
                 _ => unreachable!(),
             }
         }
@@ -644,7 +653,8 @@ pub async fn handle_rpc<E: EthSpec>(
                             transactions: payload.transactions().clone(),
                             withdrawals: payload.withdrawals().ok().cloned(),
                         };
-                        let json_payload_body = JsonExecutionPayloadBodyV1::from(payload_body);
+                        let json_payload_body: JsonExecutionPayloadBodyV1<E> =
+                            payload_body.try_into().unwrap();
                         response.push(Some(json_payload_body));
                     }
                     None => response.push(None),

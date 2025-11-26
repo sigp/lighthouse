@@ -134,8 +134,7 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
     if let Some(ref beacon_url) = beacon_url {
         for validator in &validators_to_display {
             let beacon_node = BeaconNodeHttpClient::new(
-                SensitiveUrl::parse(beacon_url.as_ref())
-                    .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+                beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
             );
 

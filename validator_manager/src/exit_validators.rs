@@ -191,8 +191,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         // Only publish the voluntary exit if the --beacon-node flag is present
         if let Some(ref beacon_url) = beacon_url {
             let beacon_node = BeaconNodeHttpClient::new(
-                SensitiveUrl::parse(beacon_url.as_ref())
-                    .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+                beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
             );
 
@@ -399,7 +398,7 @@ mod test {
                 })
                 .collect();
 
-            let beacon_url = SensitiveUrl::parse(self.beacon_node.client.as_ref()).unwrap();
+            let beacon_url = self.beacon_node.client.server().clone();
 
             let validators_to_exit = index_of_validators_to_exit
                 .iter()
