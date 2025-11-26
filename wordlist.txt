@@ -2,6 +2,7 @@ allocator
 APIs
 ARMv
 AUR
+Autocomplete
 Backends
 Backfilling
 Beaconcha
