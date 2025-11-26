@@ -157,13 +157,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         let executor = self.executor.clone();
 
+        let unaggregated_attestation_due = self
+            .chain_spec
+            .get_unaggregated_attestation_due()
+            .map_err(|_| "Failed to get unaggregated attestation due duration".to_string())?;
+
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    sleep(
-                        duration_to_next_slot + self.chain_spec.get_unaggregated_attestation_due(),
-                    )
-                    .await;
+                    sleep(duration_to_next_slot + unaggregated_attestation_due).await;
 
                     if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
                         crit!(error = e, "Failed to spawn attestation tasks")

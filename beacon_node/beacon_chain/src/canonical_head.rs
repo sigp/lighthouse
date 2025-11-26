@@ -1460,7 +1460,10 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
         // Determine whether the block has been set as head too late for proper attestation
         // production.
-        let late_head = attestable_delay >= spec.get_unaggregated_attestation_due();
+        let late_head = attestable_delay
+            >= spec
+                .get_unaggregated_attestation_due()
+                .unwrap_or(block_delay_total);
 
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.

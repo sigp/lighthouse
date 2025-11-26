@@ -75,6 +75,7 @@ pub enum Error<T> {
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ValidatorStatuses(BeaconStateError),
+    ChainSpecError(String),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -725,7 +726,9 @@ where
             }));
         }
 
-        let attestation_threshold = spec.get_unaggregated_attestation_due();
+        let attestation_threshold = spec.get_unaggregated_attestation_due().map_err(|_| {
+            Error::ChainSpecError("Failed to get unaggregated attestation due duration".to_string())
+        })?;
 
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval = block_delay < attestation_threshold;
