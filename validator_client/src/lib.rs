@@ -516,12 +516,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
+            .head_monitor_rx(head_monitor_rx)
             .chain_spec(context.eth2_config.spec.clone())
             .disable(config.disable_attesting);
-
-        if let Some(head_monitor_rx) = head_monitor_rx {
-            attestation_builder = attestation_builder.head_monitor_rx(head_monitor_rx);
-        }
 
         let attestation_service = attestation_builder.build()?;
 
