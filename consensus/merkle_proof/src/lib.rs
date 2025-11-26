@@ -422,7 +422,10 @@ mod tests {
     fn merkle_leaves_strategy(max_depth: usize) -> impl Strategy<Value = (Vec<u64>, usize)> {
         (0..=max_depth).prop_flat_map(|depth| {
             let max_leaves = 2usize.pow(depth as u32);
-            (proptest::collection::vec(any::<u64>(), 0..=max_leaves), Just(depth))
+            (
+                proptest::collection::vec(any::<u64>(), 0..=max_leaves),
+                Just(depth),
+            )
         })
     }
 
@@ -432,7 +435,10 @@ mod tests {
     ) -> impl Strategy<Value = (Vec<u64>, usize)> {
         (min_depth..=max_depth).prop_flat_map(|depth| {
             let max_leaves = 2usize.pow(depth as u32);
-            (proptest::collection::vec(any::<u64>(), 0..=max_leaves), Just(depth))
+            (
+                proptest::collection::vec(any::<u64>(), 0..=max_leaves),
+                Just(depth),
+            )
         })
     }
 
