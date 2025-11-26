@@ -87,6 +87,7 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub genesis_delay: u64,
+    // TODO deprecate seconds_per_slot
     pub seconds_per_slot: u64,
     pub slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
