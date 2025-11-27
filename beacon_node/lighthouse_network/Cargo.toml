@@ -72,6 +72,5 @@ features = [
 [dev-dependencies]
 async-channel = { workspace = true }
 logging = { workspace = true }
-quickcheck = { workspace = true }
-quickcheck_macros = { workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }
