@@ -99,9 +99,6 @@ LOCALE_VAL = C
 # Set UTC timezone for consistent time handling across builds
 TZ_VAL = UTC
 
-# Default profile 
-PROFILE ?= release
-
 # Features for reproducible builds
 FEATURES_REPRODUCIBLE = $(CROSS_FEATURES),jemalloc-unprefixed
 
