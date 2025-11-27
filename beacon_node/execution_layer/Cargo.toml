@@ -8,13 +8,13 @@ edition = { workspace = true }
 alloy-consensus = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
+alloy-rpc-types-eth = { workspace = true }
 arc-swap = "1.6.0"
 builder_client = { path = "../builder_client" }
 bytes = { workspace = true }
 eth2 = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
-ethers-core = { workspace = true }
 fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
 hash-db = "0.15.2"

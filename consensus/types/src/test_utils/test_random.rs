@@ -115,7 +115,7 @@ where
             }
         }
 
-        output.into()
+        output.try_into().unwrap()
     }
 }
 

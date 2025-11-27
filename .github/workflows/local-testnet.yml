@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   dockerfile-ubuntu:
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -31,7 +31,7 @@ jobs:
           retention-days: 3
 
   run-local-testnet:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     needs: dockerfile-ubuntu
     steps:
       - uses: actions/checkout@v5
@@ -89,7 +89,7 @@ jobs:
           ${{ steps.assertoor_test_result.outputs.failed_test_details }}
           EOF
           )
-          
+
           echo "Test Result:  $test_result"
           echo "$test_status"
           if ! [ "$test_result" == "success" ]; then
@@ -100,7 +100,7 @@ jobs:
 
   doppelganger-protection-success-test:
     needs: dockerfile-ubuntu
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -136,7 +136,7 @@ jobs:
 
   doppelganger-protection-failure-test:
     needs: dockerfile-ubuntu
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -173,7 +173,7 @@ jobs:
   # Tests checkpoint syncing to a live network (current fork) and a running devnet (usually next scheduled fork)
   checkpoint-sync-test:
     name: checkpoint-sync-test-${{ matrix.network }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     needs: dockerfile-ubuntu
     if: contains(github.event.pull_request.labels.*.name, 'syncing')
     continue-on-error: true
@@ -216,7 +216,7 @@ jobs:
   # Test syncing from genesis on a local testnet. Aims to cover forward syncing both short and long distances.
   genesis-sync-test:
     name: genesis-sync-test-${{ matrix.fork }}-${{ matrix.offline_secs }}s
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     needs: dockerfile-ubuntu
     strategy:
       matrix:
@@ -259,7 +259,7 @@ jobs:
   # a PR is safe to merge. New jobs should be added here.
   local-testnet-success:
     name: local-testnet-success
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
     needs: [
       'dockerfile-ubuntu',
       'run-local-testnet',
@@ -272,4 +272,4 @@ jobs:
       - name: Check that success job is dependent on all others
         run: |
           exclude_jobs='checkpoint-sync-test'
-          ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success "$exclude_jobs" 
+          ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success "$exclude_jobs"

@@ -8,7 +8,7 @@ use crate::per_block_processing::{
     verify_proposer_slashing,
 };
 use arbitrary::Arbitrary;
-use derivative::Derivative;
+use educe::Educe;
 use smallvec::{SmallVec, smallvec};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -39,11 +39,11 @@ pub trait TransformPersist {
 ///
 /// The inner `op` field is private, meaning instances of this type can only be constructed
 /// by calling `validate`.
-#[derive(Derivative, Debug, Clone, Arbitrary)]
-#[derivative(
+#[derive(Educe, Debug, Clone, Arbitrary)]
+#[educe(
     PartialEq,
     Eq,
-    Hash(bound = "T: TransformPersist + std::hash::Hash, E: EthSpec")
+    Hash(bound(T: TransformPersist + std::hash::Hash, E: EthSpec))
 )]
 #[arbitrary(bound = "T: TransformPersist + Arbitrary<'arbitrary>, E: EthSpec")]
 pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
