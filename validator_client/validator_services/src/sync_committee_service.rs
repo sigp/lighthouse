@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use types::{
     ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
     SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
@@ -139,6 +139,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
+    #[instrument(name = "sync_committee_duty_cycle", skip_all)]
     async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
@@ -233,6 +234,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 
     /// Publish sync committee signatures.
+    #[instrument(skip_all, fields(%slot, ?beacon_block_root))]
     async fn publish_sync_committee_signatures(
         &self,
         slot: Slot,
@@ -334,6 +336,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         }
     }
 
+    #[instrument(skip_all, fields(%slot, ?beacon_block_root, %subnet_id))]
     async fn publish_sync_committee_aggregate_for_subnet(
         &self,
         slot: Slot,

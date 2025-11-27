@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
@@ -243,6 +243,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     ///
     /// The given `validator_duties` should already be filtered to only contain those that match
     /// `slot` and `committee_index`. Critical errors will be logged if this is not the case.
+    #[instrument(
+        name = "attestation_duty_cycle",
+        skip_all,
+        fields(%slot, %committee_index)
+    )]
     async fn publish_attestations_and_aggregates(
         self,
         slot: Slot,
@@ -328,6 +333,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     ///
     /// Only one `Attestation` is downloaded from the BN. It is then cloned and signed by each
     /// validator and the list of individually-signed `Attestation` objects is returned to the BN.
+    #[instrument(skip_all, fields(%slot, %committee_index))]
     async fn produce_and_publish_attestations(
         &self,
         slot: Slot,
@@ -523,6 +529,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// Only one aggregated `Attestation` is downloaded from the BN. It is then cloned and signed
     /// by each validator and the list of individually-signed `SignedAggregateAndProof` objects is
     /// returned to the BN.
+    #[instrument(skip_all, fields(slot = %attestation_data.slot, %committee_index))]
     async fn produce_and_publish_aggregates(
         &self,
         attestation_data: &AttestationData,
