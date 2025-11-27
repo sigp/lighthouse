@@ -3,6 +3,7 @@ name = "lighthouse_network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
+autotests = false
 
 [features]
 libp2p-websocket = []
@@ -74,3 +75,7 @@ async-channel = { workspace = true }
 logging = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "lighthouse_network_tests"
+path = "tests/main.rs"
