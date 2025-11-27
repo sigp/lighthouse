@@ -23,6 +23,7 @@ use educe::Educe;
 use futures::Stream;
 use futures_util::StreamExt;
 use libp2p_identity::PeerId;
+use lighthouse_version::VERSION;
 pub use reqwest;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response,
@@ -154,8 +155,20 @@ impl fmt::Display for BeaconNodeHttpClient {
 
 impl BeaconNodeHttpClient {
     pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
+        let mut headers = HeaderMap::new();
+
+        // Add User-Agent header to identify the client
+        if let Ok(user_agent) = HeaderValue::from_str(VERSION) {
+            headers.insert(reqwest::header::USER_AGENT, user_agent);
+        }
+
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             timeouts,
         }

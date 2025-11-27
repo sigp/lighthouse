@@ -3147,6 +3147,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libp2p-identity",
+ "lighthouse_version",
  "mediatype",
  "multiaddr",
  "pretty_reqwest_error",
