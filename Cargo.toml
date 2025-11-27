@@ -279,13 +279,6 @@ lto = "fat"
 codegen-units = 1
 incremental = false
 
-[profile.reproducible]
-inherits = "release"
-debug = false
-panic = "abort"
-codegen-units = 1
-overflow-checks = true
-
 [profile.release-debug]
 inherits = "release"
 debug = true
