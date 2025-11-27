@@ -213,6 +213,9 @@ pub struct Discovery<E: EthSpec> {
 
     spec: Arc<ChainSpec>,
 
+    /// Whether prefix-based attestation subnet peer discovery is enabled.
+    prefix_search_enabled: bool,
+
     /// Mapping from attestation subnet IDs to DHT key prefixes.
     /// Used for deterministic subnet peer discovery to target specific regions of the DHT keyspace
     /// when searching for subnet peers.
@@ -350,6 +353,7 @@ impl<E: EthSpec> Discovery<E> {
             update_ports,
             enr_dir,
             spec: Arc::new(spec.clone()),
+            prefix_search_enabled: config.prefix_search_enabled,
             prefix_mapping: PrefixMapping::new(spec.clone()),
         })
     }
@@ -398,30 +402,32 @@ impl<E: EthSpec> Discovery<E> {
         );
 
         for subnet in subnets_to_discover {
-            // TODO: Add `prefix_search_for_subnet` param to the config.
-            let query_target = match subnet.subnet {
-                Subnet::Attestation(subnet_id) => {
-                    match self.prefix_mapping.get_prefixed_node_ids(&subnet_id) {
-                        Ok(node_ids) if node_ids.is_empty() => {
-                            warn!(
-                                ?subnet_id,
-                                "No NodeIds provided for prefix search, falling back to random search."
-                            );
-                            QueryTarget::Random
-                        }
-                        Ok(node_ids) => QueryTarget::Prefix(node_ids),
-                        Err(error) => {
-                            warn!(
-                                ?error,
-                                ?subnet_id,
-                                "Failed to get NodeIds for prefix search, falling back to random search."
-                            );
-                            QueryTarget::Random
-                        }
+            let query_target = if self.prefix_search_enabled
+                && let Subnet::Attestation(subnet_id) = &subnet.subnet
+            {
+                // Use prefix-based peer discovery for attestation subnets.
+                match self.prefix_mapping.get_prefixed_node_ids(subnet_id) {
+                    Ok(node_ids) if node_ids.is_empty() => {
+                        warn!(
+                            ?subnet_id,
+                            "No NodeIds provided for prefix search, falling back to random search."
+                        );
+                        QueryTarget::Random
+                    }
+                    Ok(node_ids) => QueryTarget::Prefix(node_ids),
+                    Err(error) => {
+                        warn!(
+                            ?error,
+                            ?subnet_id,
+                            "Failed to get NodeIds for prefix search, falling back to random search."
+                        );
+                        QueryTarget::Random
                     }
                 }
-                Subnet::SyncCommittee(_) | Subnet::DataColumn(_) => QueryTarget::Random,
+            } else {
+                QueryTarget::Random
             };
+
             self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0, query_target);
         }
     }

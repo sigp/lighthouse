@@ -506,6 +506,14 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("prefix-search")
+                .long("prefix-search")
+                .help("Enable prefix-based peer discovery for attestation subnets. Disabled by default.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
         /* REST API related arguments */
         .arg(
             Arg::new("http")

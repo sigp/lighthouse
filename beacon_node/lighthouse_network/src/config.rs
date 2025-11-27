@@ -140,6 +140,9 @@ pub struct Config {
 
     /// Flag for advertising a fake CGC to peers for testing ONLY.
     pub advertise_false_custody_group_count: Option<u64>,
+
+    /// Whether prefix-based attestation subnet peer discovery is enabled.
+    pub prefix_search_enabled: bool,
 }
 
 impl Config {
@@ -364,6 +367,7 @@ impl Default for Config {
             inbound_rate_limiter_config: None,
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
             advertise_false_custody_group_count: None,
+            prefix_search_enabled: false,
         }
     }
 }

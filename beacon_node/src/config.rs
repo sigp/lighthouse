@@ -1491,6 +1491,10 @@ pub fn set_network_config(
             })?;
     }
 
+    if parse_flag(cli_args, "enable-prefix-search") {
+        config.prefix_search_enabled = true;
+    }
+
     Ok(())
 }
 
