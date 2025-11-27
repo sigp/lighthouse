@@ -7,10 +7,12 @@ use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
     mock_execution_layer_from_parts, test_spec,
+};
+use beacon_chain::test_utils::{
+    SyncCommitteeStrategy, fork_name_from_env, generate_data_column_indices_rand_order,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
@@ -1561,7 +1563,7 @@ async fn proposer_duties_from_head_fulu() {
 
     // Compute the proposer duties at the next epoch from the head
     let next_epoch = head_state.next_epoch().unwrap();
-    let (_indices, dependent_root, _, fork) =
+    let (_indices, dependent_root, legacy_dependent_root, _, fork) =
         compute_proposer_duties_from_head(next_epoch, &harness.chain).unwrap();
 
     assert_eq!(
@@ -1570,6 +1572,8 @@ async fn proposer_duties_from_head_fulu() {
             .proposer_shuffling_decision_root_at_epoch(next_epoch, head_block_root.into(), spec)
             .unwrap()
     );
+    assert_ne!(dependent_root, legacy_dependent_root);
+    assert_eq!(legacy_dependent_root, Hash256::from(head_block_root));
     assert_eq!(fork, head_state.fork());
 }
 
@@ -1617,7 +1621,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     assert_eq!(head_state.current_epoch(), gloas_fork_epoch - 1);
 
     // Compute the proposer duties at the fork epoch from the head.
-    let (indices, dependent_root, _, fork) =
+    let (indices, dependent_root, legacy_dependent_root, _, fork) =
         compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
 
     assert_eq!(
@@ -1630,6 +1634,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
             )
             .unwrap()
     );
+    assert_ne!(dependent_root, legacy_dependent_root);
     assert_ne!(fork, head_state.fork());
     assert_eq!(fork, spec.fork_at_epoch(gloas_fork_epoch));
 
@@ -1639,7 +1644,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
         .add_attested_blocks_at_slots(head_state, head_state_root, &gloas_slots, &all_validators)
         .await;
 
-    let (no_lookahead_indices, no_lookahead_dependent_root, _, no_lookahead_fork) =
+    let (no_lookahead_indices, no_lookahead_dependent_root, _, _, no_lookahead_fork) =
         compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
 
     assert_eq!(no_lookahead_indices, indices);
@@ -2700,7 +2705,7 @@ async fn weak_subjectivity_sync_easy() {
     let num_initial_slots = E::slots_per_epoch() * 11;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 #[tokio::test]
@@ -2708,7 +2713,7 @@ async fn weak_subjectivity_sync_single_block_batches() {
     let num_initial_slots = E::slots_per_epoch() * 11;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, Some(1)).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, Some(1), true).await
 }
 
 #[tokio::test]
@@ -2722,7 +2727,7 @@ async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
             slot <= checkpoint_slot - 3 || slot > checkpoint_slot
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 #[tokio::test]
@@ -2736,7 +2741,7 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
             slot <= checkpoint_slot || slot > checkpoint_slot + 3
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 // Regression test for https://github.com/sigp/lighthouse/issues/4817
@@ -2748,7 +2753,7 @@ async fn weak_subjectivity_sync_skips_at_genesis() {
     let end_slot = E::slots_per_epoch() * 4;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 // Checkpoint sync from the genesis state.
@@ -2761,13 +2766,24 @@ async fn weak_subjectivity_sync_from_genesis() {
     let end_slot = E::slots_per_epoch() * 2;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(0);
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
+}
+
+// Test checkpoint sync without providing blobs - backfill should fetch them.
+#[tokio::test]
+async fn weak_subjectivity_sync_without_blobs() {
+    let start_slot = 4;
+    let end_slot = E::slots_per_epoch() * 4;
+    let slots = (start_slot..end_slot).map(Slot::new).collect();
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, false).await
 }
 
 async fn weak_subjectivity_sync_test(
     slots: Vec<Slot>,
     checkpoint_slot: Slot,
     backfill_batch_size: Option<usize>,
+    provide_blobs: bool,
 ) {
     // Build an initial chain on one harness, representing a synced node with full history.
     let num_final_blocks = E::slots_per_epoch() * 2;
@@ -2869,7 +2885,11 @@ async fn weak_subjectivity_sync_test(
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
-            wss_blobs_opt.clone(),
+            if provide_blobs {
+                wss_blobs_opt.clone()
+            } else {
+                None
+            },
             genesis_state,
         )
         .unwrap()
@@ -2878,17 +2898,10 @@ async fn weak_subjectivity_sync_test(
         .shutdown_sender(shutdown_tx)
         .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
+        .ordered_custody_column_indices(generate_data_column_indices_rand_order::<E>())
         .rng(Box::new(StdRng::seed_from_u64(42)))
         .build()
         .expect("should build");
-    beacon_chain
-        .data_availability_checker
-        .custody_context()
-        .init_ordered_data_columns_from_custody_groups(
-            (0..spec.number_of_custody_groups).collect(),
-            &spec,
-        )
-        .unwrap();
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
@@ -3152,6 +3165,10 @@ async fn weak_subjectivity_sync_test(
             .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
+        assert_eq!(
+            state_root,
+            beacon_chain.state_root_at_slot(slot).unwrap().unwrap()
+        );
         assert_eq!(state.slot(), slot);
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
@@ -3182,6 +3199,8 @@ async fn weak_subjectivity_sync_test(
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
 }
 
+// This test prunes data columns from epoch 0 and then tries to re-import them via
+// the same code paths that custody backfill sync imports data columns
 #[tokio::test]
 async fn test_import_historical_data_columns_batch() {
     let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
@@ -3189,6 +3208,7 @@ async fn test_import_historical_data_columns_batch() {
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
     let start_slot = Epoch::new(0).start_slot(E::slots_per_epoch()) + 1;
     let end_slot = Epoch::new(0).end_slot(E::slots_per_epoch());
+    let cgc = 128;
 
     let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
 
@@ -3208,14 +3228,16 @@ async fn test_import_historical_data_columns_batch() {
 
     let mut data_columns_list = vec![];
 
+    // Get all data columns for epoch 0
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             data_columns_list.push(data_column);
         }
     }
+
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3227,6 +3249,7 @@ async fn test_import_historical_data_columns_batch() {
 
     harness.advance_slot();
 
+    // Prune data columns
     harness
         .chain
         .store
@@ -3238,29 +3261,44 @@ async fn test_import_historical_data_columns_batch() {
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
+    // Assert that data columns no longer exist for epoch 0
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
         assert!(data_columns.is_none())
     }
 
+    // Re-import deleted data columns
     harness
         .chain
-        .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
         .unwrap();
+
     let block_root_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
+    // Assert that data columns now exist for epoch 0
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some())
+        if !harness
+            .get_block(block_root.into())
+            .unwrap()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .is_empty()
+        {
+            let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+            assert!(data_columns.is_some())
+        };
     }
 }
 
 // This should verify that a data column sidecar containing mismatched block roots should fail to be imported.
+// This also covers any test cases related to data columns with incorrect/invalid/mismatched block roots.
 #[tokio::test]
 async fn test_import_historical_data_columns_batch_mismatched_block_root() {
     let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
@@ -3268,6 +3306,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
     let start_slot = Slot::new(1);
     let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+    let cgc = 128;
 
     let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
 
@@ -3287,12 +3326,13 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 
     let mut data_columns_list = vec![];
 
+    // Get all data columns from start_slot to end_slot
+    // and mutate the data columns with an invalid block root
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
 
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
             if data_column.index % 2 == 0 {
                 data_column.signed_block_header.message.body_root = Hash256::ZERO;
@@ -3301,6 +3341,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
             data_columns_list.push(Arc::new(data_column));
         }
     }
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3312,6 +3353,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 
     harness.advance_slot();
 
+    // Prune blobs
     harness
         .chain
         .store
@@ -3323,17 +3365,20 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
+    // Assert there are no columns between start_slot and end_slot
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
         assert!(data_columns.is_none())
     }
 
+    // Attempt to import data columns with invalid block roots and expect a failure
     let error = harness
         .chain
         .import_historical_data_column_batch(
             start_slot.epoch(E::slots_per_epoch()),
             data_columns_list,
+            cgc,
         )
         .unwrap_err();
 
@@ -3347,11 +3392,16 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 // be imported.
 #[tokio::test]
 async fn test_import_historical_data_columns_batch_no_block_found() {
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = test_spec::<E>();
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
     let start_slot = Slot::new(1);
     let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+    let cgc = 128;
 
     let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
 
@@ -3374,14 +3424,15 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
 
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
             data_column.signed_block_header.message.body_root = Hash256::ZERO;
             data_columns_list.push(Arc::new(data_column));
         }
     }
+
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3412,7 +3463,7 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
 
     let error = harness
         .chain
-        .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
         .unwrap_err();
 
     assert!(matches!(
@@ -4108,6 +4159,12 @@ async fn deneb_prune_blobs_no_finalization() {
 /// Check that blob pruning does not fail trying to prune across the fork boundary.
 #[tokio::test]
 async fn prune_blobs_across_fork_boundary() {
+    // This test covers earlier forks and only need to be executed once.
+    // Note: this test is quite expensive (building a chain to epoch 15) and we should revisit this
+    if fork_name_from_env() != Some(ForkName::latest_stable()) {
+        return;
+    }
+
     let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
     let deneb_fork_epoch = Epoch::new(4);
@@ -4124,6 +4181,7 @@ async fn prune_blobs_across_fork_boundary() {
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness.execution_block_generator().set_min_blob_count(1);
 
     let blocks_to_deneb_finalization = E::slots_per_epoch() * 7;
     let blocks_to_electra_finalization = E::slots_per_epoch() * 4;
@@ -4279,7 +4337,7 @@ async fn prune_blobs_across_fork_boundary() {
             // Fulu fork epochs
             // Pruning should have been triggered
             assert!(store.get_blob_info().oldest_blob_slot <= Some(oldest_slot));
-            // Oldest blost slot should never be greater than the first fulu slot
+            // Oldest blob slot should never be greater than the first fulu slot
             let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
             assert!(store.get_blob_info().oldest_blob_slot <= Some(fulu_first_slot));
             // Blobs should not exist post-Fulu
@@ -4764,7 +4822,7 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
     check_data_column_existence(&harness, oldest_data_column_slot, harness.head_slot(), true);
 }
 
-/// Check tat there are data column sidecars (or not) at every slot in the range.
+/// Check that there are data column sidecars (or not) at every slot in the range.
 fn check_data_column_existence(
     harness: &TestHarness,
     start_slot: Slot,

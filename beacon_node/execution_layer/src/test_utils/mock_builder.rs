@@ -40,7 +40,7 @@ use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
-pub const DEFAULT_GAS_LIMIT: u64 = 45_000_000;
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 pub const DEFAULT_BUILDER_PRIVATE_KEY: &str =
     "607a11b45a7219cc61a3d9c5fd08c7eebd602a6a19a977f8d3771d5711a550f2";
 
@@ -842,7 +842,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .beacon_client
             .get_beacon_blocks::<E>(BlockId::Finalized)
             .await
-            .map_err(|_| "couldn't get finalized block".to_string())?
+            .map_err(|e| format!("couldn't get finalized block: {e:?}"))?
             .ok_or_else(|| "missing finalized block".to_string())?
             .data()
             .message()
@@ -855,7 +855,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .beacon_client
             .get_beacon_blocks::<E>(BlockId::Justified)
             .await
-            .map_err(|_| "couldn't get justified block".to_string())?
+            .map_err(|e| format!("couldn't get justified block: {e:?}"))?
             .ok_or_else(|| "missing justified block".to_string())?
             .data()
             .message()

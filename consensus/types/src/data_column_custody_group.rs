@@ -42,7 +42,7 @@ pub fn get_custody_groups(
 ///
 /// # Returns
 /// Vector of custody group indices in computation order or error if parameters are invalid
-pub fn get_custody_groups_ordered(
+fn get_custody_groups_ordered(
     raw_node_id: [u8; 32],
     custody_group_count: u64,
     spec: &ChainSpec,
@@ -74,6 +74,27 @@ pub fn get_custody_groups_ordered(
     }
 
     Ok(custody_groups)
+}
+
+/// Returns a deterministically ordered list of custody columns assigned to a node,
+/// preserving the order in which they were computed during iteration.
+///
+/// # Arguments
+/// * `raw_node_id` - 32-byte node identifier
+/// * `spec` - Chain specification containing custody parameters
+pub fn compute_ordered_custody_column_indices<E: EthSpec>(
+    raw_node_id: [u8; 32],
+    spec: &ChainSpec,
+) -> Result<Vec<ColumnIndex>, DataColumnCustodyGroupError> {
+    let all_custody_groups_ordered =
+        get_custody_groups_ordered(raw_node_id, spec.number_of_custody_groups, spec)?;
+
+    let mut ordered_custody_columns = vec![];
+    for custody_index in all_custody_groups_ordered {
+        let columns = compute_columns_for_custody_group::<E>(custody_index, spec)?;
+        ordered_custody_columns.extend(columns);
+    }
+    Ok(ordered_custody_columns)
 }
 
 /// Returns the columns that are associated with a given custody group.

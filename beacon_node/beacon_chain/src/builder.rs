@@ -40,9 +40,10 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
+use types::data_column_custody_group::CustodyIndex;
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
+    Epoch, EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -102,6 +103,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     node_custody_type: NodeCustodyType,
+    ordered_custody_column_indices: Option<Vec<CustodyIndex>>,
     rng: Option<Box<dyn RngCore + Send>>,
 }
 
@@ -141,6 +143,7 @@ where
             task_executor: None,
             validator_monitor_config: None,
             node_custody_type: NodeCustodyType::Fullnode,
+            ordered_custody_column_indices: None,
             rng: None,
         }
     }
@@ -647,6 +650,16 @@ where
         self
     }
 
+    /// Sets the ordered custody column indices for this node.
+    /// This is used to determine the data columns the node is required to custody.
+    pub fn ordered_custody_column_indices(
+        mut self,
+        ordered_custody_column_indices: Vec<ColumnIndex>,
+    ) -> Self {
+        self.ordered_custody_column_indices = Some(ordered_custody_column_indices);
+        self
+    }
+
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
@@ -740,6 +753,9 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
+        let ordered_custody_column_indices = self
+            .ordered_custody_column_indices
+            .ok_or("Cannot build without ordered custody column indices")?;
         let rng = self.rng.ok_or("Cannot build without an RNG")?;
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
@@ -942,11 +958,16 @@ where
                 custody,
                 self.node_custody_type,
                 head_epoch,
+                ordered_custody_column_indices,
                 &self.spec,
             )
         } else {
             (
-                CustodyContext::new(self.node_custody_type, &self.spec),
+                CustodyContext::new(
+                    self.node_custody_type,
+                    ordered_custody_column_indices,
+                    &self.spec,
+                ),
                 None,
             )
         };
@@ -1220,7 +1241,9 @@ fn build_data_columns_from_blobs<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{EphemeralHarnessType, get_kzg};
+    use crate::test_utils::{
+        EphemeralHarnessType, generate_data_column_indices_rand_order, get_kzg,
+    };
     use ethereum_hashing::hash;
     use genesis::{
         DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state,
@@ -1272,6 +1295,9 @@ mod test {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
+            .ordered_custody_column_indices(
+                generate_data_column_indices_rand_order::<MinimalEthSpec>(),
+            )
             .build()
             .expect("should build");
 

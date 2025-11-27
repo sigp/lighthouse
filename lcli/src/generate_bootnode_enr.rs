@@ -43,7 +43,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
         &enr_key,
         &config,
         &enr_fork_id,
-        None,
+        spec.custody_requirement,
         genesis_fork_digest,
         spec,
     )

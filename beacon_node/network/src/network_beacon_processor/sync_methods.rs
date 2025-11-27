@@ -426,6 +426,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         batch_id: CustodyBackfillBatchId,
         downloaded_columns: DataColumnSidecarList<T::EthSpec>,
+        expected_cgc: u64,
     ) {
         let _guard = debug_span!(
             SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS,
@@ -435,10 +436,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         .entered();
 
         let sent_columns = downloaded_columns.len();
-        let result = match self
-            .chain
-            .import_historical_data_column_batch(batch_id.epoch, downloaded_columns)
-        {
+        let result = match self.chain.import_historical_data_column_batch(
+            batch_id.epoch,
+            downloaded_columns,
+            expected_cgc,
+        ) {
             Ok(imported_columns) => {
                 metrics::inc_counter_by(
                     &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL,
@@ -802,6 +804,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
+                    HistoricalBlockError::MissingOldestBlockRoot { slot } => {
+                        warn!(
+                            %slot,
+                            error = "missing_oldest_block_root",
+                            "Backfill batch processing error"
+                        );
+                        // This is an internal error, do not penalize the peer.
+                        None
+                    }
+
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
                             error = "pubkey_cache_timeout",

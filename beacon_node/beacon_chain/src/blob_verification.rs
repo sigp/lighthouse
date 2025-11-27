@@ -1,4 +1,4 @@
-use derivative::Derivative;
+use educe::Educe;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -245,8 +245,8 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedBlob<T, O> {
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
 /// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedBlob<E: EthSpec> {
     blob: Arc<BlobSidecar<E>>,
