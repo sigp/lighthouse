@@ -140,7 +140,7 @@ eth2_network_config = { path = "common/eth2_network_config" }
 eth2_wallet = { path = "crypto/eth2_wallet" }
 ethereum_hashing = "0.7.0"
 ethereum_serde_utils = "0.8.0"
-ethereum_ssz = "0.10.0"
+ethereum_ssz = { version = "0.10.0", features = ["context_deserialize"] }
 ethereum_ssz_derive = "0.10.0"
 execution_layer = { path = "beacon_node/execution_layer" }
 exit-future = "0.2"
@@ -178,7 +178,7 @@ malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
 merkle_proof = { path = "consensus/merkle_proof" }
 metrics = { path = "common/metrics" }
-milhouse = { version = "0.8", default-features = false }
+milhouse = { version = "0.9", default-features = false, features = ["context_deserialize"] }
 mockall = "0.13"
 mockall_double = "0.3"
 mockito = "1.5.0"
@@ -228,7 +228,7 @@ slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
-ssz_types = "0.14.0"
+ssz_types = { version = "0.14.0", features = ["context_deserialize"] }
 state_processing = { path = "consensus/state_processing" }
 store = { path = "beacon_node/store" }
 strum = { version = "0.24", features = ["derive"] }

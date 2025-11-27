@@ -1233,7 +1233,7 @@ dependencies = [
  "educe",
  "eth2",
  "eth2_network_config",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -1488,7 +1488,7 @@ dependencies = [
  "alloy-primitives",
  "arbitrary",
  "blst",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "fixed_bytes",
@@ -2076,21 +2076,19 @@ checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
 name = "context_deserialize"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8af5929fa85d5e9775a2674a7d8653386d87d9046ec01955bb88eda06db09fe"
+checksum = "5c5f9ea0a0ae2de4943f5ca71590b6dbd0b952475f0a0cafb30a470cec78c8b9"
 dependencies = [
  "context_deserialize_derive",
- "milhouse",
  "serde",
- "ssz_types",
 ]
 
 [[package]]
 name = "context_deserialize_derive"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1128f0946e42aebda0fb69b8b25d07d68e6c685141cae63ce2af030f593d26e2"
+checksum = "5c57b2db1e4e3ed804dcc49894a144b68fe6c754b8f545eb1dda7ad3c7dbe7e6"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -3179,7 +3177,7 @@ version = "0.2.0"
 dependencies = [
  "base64 0.13.1",
  "bls",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "hex",
  "num-bigint",
  "serde",
@@ -3279,6 +3277,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethereum_hashing"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5aa93f58bb1eb3d1e556e4f408ef1dac130bad01ac37db4e7ade45de40d1c86a"
+dependencies = [
+ "cpufeatures",
+ "ring",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "ethereum_serde_utils"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3293,12 +3302,13 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dcddb2554d19cde19b099fadddde576929d7a4d0c1cd3512d1fd95cf174375c"
+checksum = "7e8cd8c4f47dfb947dbfe3cdf2945ae1da808dbedc592668658e827a12659ba1"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
+ "context_deserialize",
  "ethereum_serde_utils",
  "itertools 0.13.0",
  "serde",
@@ -3309,9 +3319,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz_derive"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a657b6b3b7e153637dc6bdc6566ad9279d9ee11a15b12cfb24a2e04360637e9f"
+checksum = "78d247bc40823c365a62e572441a8f8b12df03f171713f06bc76180fcd56ab71"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -3793,7 +3803,7 @@ dependencies = [
 name = "genesis"
 version = "0.2.0"
 dependencies = [
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "ethereum_ssz",
  "int_to_bytes",
  "merkle_proof",
@@ -4907,7 +4917,7 @@ dependencies = [
  "c-kzg",
  "criterion",
  "educe",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -4949,7 +4959,7 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "eth2_wallet",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "ethereum_ssz",
  "execution_layer",
  "hex",
@@ -5462,7 +5472,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_network_config",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "futures",
  "initialized_validators",
  "lighthouse_network",
@@ -5832,7 +5842,7 @@ name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
  "alloy-primitives",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "fixed_bytes",
  "quickcheck",
  "quickcheck_macros",
@@ -5871,14 +5881,15 @@ dependencies = [
 
 [[package]]
 name = "milhouse"
-version = "0.7.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bdb104e38d3a8c5ffb7e9d2c43c522e6bcc34070edbadba565e722f0dee56c7"
+checksum = "259dd9da2ae5e0278b95da0b7ecef9c18c309d0a2d9e6db57ed33b9e8910c5e7"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
+ "context_deserialize",
  "educe",
- "ethereum_hashing",
+ "ethereum_hashing 0.8.0",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.13.0",
@@ -8574,11 +8585,12 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.12.2"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "704671195db617afa3d919da8f220f2535f20d0fa8dad96a1c27a38a5f8f6e9c"
+checksum = "1fc20a89bab2dabeee65e9c9eb96892dc222c23254b401e1319b85efd852fa31"
 dependencies = [
  "arbitrary",
+ "context_deserialize",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "itertools 0.14.0",
@@ -8603,7 +8615,7 @@ dependencies = [
  "beacon_chain",
  "bls",
  "educe",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "int_to_bytes",
@@ -8755,7 +8767,7 @@ version = "0.2.0"
 dependencies = [
  "alloy-primitives",
  "criterion",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "fixed_bytes",
 ]
 
@@ -9476,12 +9488,12 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee44f4cef85f88b4dea21c0b1f58320bdf35715cf56d840969487cff00613321"
+checksum = "2db21caa355767db4fd6129876e5ae278a8699f4a6959b1e3e7aff610b532d52"
 dependencies = [
  "alloy-primitives",
- "ethereum_hashing",
+ "ethereum_hashing 0.8.0",
  "ethereum_ssz",
  "smallvec",
  "typenum",
@@ -9489,11 +9501,11 @@ dependencies = [
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bee2ea1551f90040ab0e34b6fb7f2fa3bad8acc925837ac654f2c78a13e3089"
+checksum = "711cc655fcbb48384a87dc2bf641b991a15c5ad9afc3caa0b1ab1df3b436f70f"
 dependencies = [
- "darling 0.20.11",
+ "darling 0.21.3",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -9545,7 +9557,7 @@ dependencies = [
  "criterion",
  "educe",
  "eth2_interop_keypairs",
- "ethereum_hashing",
+ "ethereum_hashing 0.7.0",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
