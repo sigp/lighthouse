@@ -1,15 +1,12 @@
 use crate::BeaconNodeFallback;
-use std::collections::HashMap;
-use tokio::sync::RwLock;
-
-use types::EthSpec;
-
 use eth2::types::{EventKind, EventTopic, SseHead};
-use tracing::{info, warn};
-
 use futures::StreamExt;
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{info, warn};
+use types::EthSpec;
 
 type CacheHashMap = HashMap<usize, SseHead>;
 
