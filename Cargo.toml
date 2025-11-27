@@ -201,9 +201,8 @@ parking_lot = "0.12"
 paste = "1"
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 prometheus = { version = "0.13", default-features = false }
+proptest = "1"
 proto_array = { path = "consensus/proto_array" }
-quickcheck = "1"
-quickcheck_macros = "1"
 quote = "1"
 r2d2 = "0.8"
 rand = "0.9.0"
