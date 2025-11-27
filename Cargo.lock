@@ -1233,7 +1233,7 @@ dependencies = [
  "educe",
  "eth2",
  "eth2_network_config",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -1488,7 +1488,7 @@ dependencies = [
  "alloy-primitives",
  "arbitrary",
  "blst",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "fixed_bytes",
@@ -3167,7 +3167,7 @@ version = "0.2.0"
 dependencies = [
  "base64 0.13.1",
  "bls",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "hex",
  "num-bigint",
  "serde",
@@ -3253,17 +3253,6 @@ dependencies = [
  "eth2_wallet",
  "lockfile",
  "tempfile",
-]
-
-[[package]]
-name = "ethereum_hashing"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c853bd72c9e5787f8aafc3df2907c2ed03cff3150c3acd94e2e53a98ab70a8ab"
-dependencies = [
- "cpufeatures",
- "ring",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3793,7 +3782,7 @@ dependencies = [
 name = "genesis"
 version = "0.2.0"
 dependencies = [
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "int_to_bytes",
  "merkle_proof",
@@ -4907,7 +4896,7 @@ dependencies = [
  "c-kzg",
  "criterion",
  "educe",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -4949,7 +4938,7 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "eth2_wallet",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "execution_layer",
  "hex",
@@ -5462,7 +5451,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_network_config",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "futures",
  "initialized_validators",
  "lighthouse_network",
@@ -5831,7 +5820,7 @@ name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
  "alloy-primitives",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "fixed_bytes",
  "proptest",
  "safe_arith",
@@ -5877,7 +5866,7 @@ dependencies = [
  "arbitrary",
  "context_deserialize",
  "educe",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.13.0",
@@ -8581,7 +8570,7 @@ dependencies = [
  "beacon_chain",
  "bls",
  "educe",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "int_to_bytes",
@@ -8733,7 +8722,7 @@ version = "0.2.0"
 dependencies = [
  "alloy-primitives",
  "criterion",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "fixed_bytes",
 ]
 
@@ -9459,7 +9448,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2db21caa355767db4fd6129876e5ae278a8699f4a6959b1e3e7aff610b532d52"
 dependencies = [
  "alloy-primitives",
- "ethereum_hashing 0.8.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "smallvec",
  "typenum",
@@ -9523,7 +9512,7 @@ dependencies = [
  "criterion",
  "educe",
  "eth2_interop_keypairs",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
