@@ -472,7 +472,6 @@ where
     }
 
     /// Starts the networking stack.
-    #[instrument(name = "start_networking_stack", skip_all)]
     pub async fn network(
         mut self,
         config: Arc<NetworkConfig>,

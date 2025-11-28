@@ -15,7 +15,7 @@ use slasher::{DatabaseBackendOverride, Slasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use store::database::interface::BeaconNodeBackend;
-use tracing::{info, instrument, warn};
+use tracing::{info, warn};
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
@@ -49,7 +49,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// Starts a new beacon node `Client` in the given `environment`.
     ///
     /// Client behaviour is defined by the given `client_config`.
-    #[instrument(name = "start_beacon_node", skip_all)]
     pub async fn new(
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
