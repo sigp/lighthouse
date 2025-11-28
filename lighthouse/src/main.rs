@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{Level, info};
+use tracing::{Level, info, warn};
 use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -730,7 +730,7 @@ fn run<E: EthSpec>(
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        tracing::warn!(
+        warn!(
             advice = "If you get a SIGILL, please try Lighthouse portable build",
             "CPU seems incompatible with optimized Lighthouse build"
         );
