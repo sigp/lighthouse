@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 use types::{BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
@@ -334,6 +334,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         let res = self
             .validator_store
             .sign_block(*validator_pubkey, unsigned_block, slot)
+            .instrument(info_span!("sign_block"))
             .await;
 
         let signed_block = match res {
