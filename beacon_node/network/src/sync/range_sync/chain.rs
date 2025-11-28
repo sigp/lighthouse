@@ -1278,7 +1278,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .iter()
             .filter(|&(_epoch, batch)| in_buffer(batch))
             .count()
-            > BATCH_BUFFER_SIZE as usize
+            >= BATCH_BUFFER_SIZE as usize
         {
             return None;
         }
