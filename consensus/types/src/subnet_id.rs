@@ -143,7 +143,7 @@ impl SubnetId {
             let subnets = Self::compute_attestation_subnets(node_id_bytes, spec);
 
             for subnet in subnets {
-                mapping.entry(subnet).or_insert_with(Vec::new).push(prefix);
+                mapping.entry(subnet).or_default().push(prefix);
             }
         }
 
