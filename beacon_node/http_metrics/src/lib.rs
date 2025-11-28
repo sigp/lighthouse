@@ -114,11 +114,15 @@ pub async fn serve<T: BeaconChainTypes>(
         config.listen_port,
     )?;
 
+    let version = lighthouse_version::version_with_platform();
+
     let router = Router::new()
         .route("/metrics", get(metrics_handler::<T>))
         .with_state(ctx.clone())
         .layer(cors_layer)
-        .layer(middleware::from_fn(add_server_header));
+        .layer(middleware::from_fn(move |req, next| {
+            add_server_header(version.clone(), req, next)
+        }));
 
     let address = SocketAddr::new(config.listen_addr, config.listen_port);
     let server = Server::builder()

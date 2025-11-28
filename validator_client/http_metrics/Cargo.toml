@@ -9,6 +9,7 @@ axum = { workspace = true }
 axum_utils = { workspace = true }
 health_metrics = { workspace = true }
 lighthouse_validator_store = { workspace = true }
+lighthouse_version = { workspace = true }
 logging = { workspace = true }
 malloc_utils = { workspace = true }
 metrics = { workspace = true }

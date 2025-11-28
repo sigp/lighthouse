@@ -116,10 +116,14 @@ pub async fn serve<E: EthSpec>(
         ));
     }
 
+    let version = lighthouse_version::version_with_platform();
+
     let router = Router::new()
         .route("/metrics", get(metrics_handler::<E>))
         .with_state(ctx.clone())
-        .layer(middleware::from_fn(add_server_header));
+        .layer(middleware::from_fn(move |req, next| {
+            add_server_header(version.clone(), req, next)
+        }));
 
     let cors_layer = build_cors_layer(
         config.allow_origin.as_deref(),
