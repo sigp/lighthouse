@@ -354,15 +354,10 @@ where
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
 
-                // `BlobSidecar` is no longer used from Fulu onwards (superseded by `DataColumnSidecar`),
-                // which will be fetched via rpc instead (unimplemented).
-                let is_before_fulu = !spec
-                    .fork_name_at_slot::<E>(anchor_block.slot())
-                    .fulu_enabled();
-                let anchor_blobs = if is_before_fulu && anchor_block.message().body().has_blobs() {
+                // Providing blobs is optional now and not providing them is recommended.
+                // Backfill can handle downloading the blobs or columns for the checkpoint block.
+                let anchor_blobs = if let Some(anchor_blobs_bytes) = anchor_blobs_bytes {
                     let max_blobs_len = spec.max_blobs_per_block(anchor_block.epoch()) as usize;
-                    let anchor_blobs_bytes = anchor_blobs_bytes
-                        .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
                     Some(
                         BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes, max_blobs_len)
                             .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
