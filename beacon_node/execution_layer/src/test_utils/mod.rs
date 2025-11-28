@@ -22,7 +22,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use tracing::info;
-use types::{ChainSpec, EthSpec, ExecutionBlockHash, Uint256};
+use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
 use crate::EngineCapabilities;
@@ -114,7 +114,7 @@ pub struct MockServer<E: EthSpec> {
 }
 
 impl<E: EthSpec> MockServer<E> {
-    pub fn unit_testing(chain_spec: Arc<ChainSpec>) -> Self {
+    pub fn unit_testing() -> Self {
         Self::new(
             &runtime::Handle::current(),
             JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
@@ -126,7 +126,6 @@ impl<E: EthSpec> MockServer<E> {
             None, // FIXME(electra): should this be the default?
             None, // FIXME(fulu): should this be the default?
             None, // FIXME(gloas): should this be the default?
-            chain_spec,
             None,
         )
     }
@@ -134,7 +133,6 @@ impl<E: EthSpec> MockServer<E> {
     pub fn new_with_config(
         handle: &runtime::Handle,
         config: MockExecutionConfig,
-        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         create_test_tracing_subscriber();
@@ -161,7 +159,6 @@ impl<E: EthSpec> MockServer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
-            spec,
             kzg,
         );
 
@@ -226,7 +223,6 @@ impl<E: EthSpec> MockServer<E> {
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
-        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
@@ -243,7 +239,6 @@ impl<E: EthSpec> MockServer<E> {
                 osaka_time,
                 amsterdam_time,
             },
-            spec,
             kzg,
         )
     }
