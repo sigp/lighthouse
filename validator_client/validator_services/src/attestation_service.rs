@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
@@ -446,7 +446,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         // Execute all the futures in parallel, collecting any successful results.
         let (ref attestations, ref validator_indices): (Vec<_>, Vec<_>) = join_all(signing_futures)
-            .instrument(info_span!("sign_attestations", count = validator_duties.len()))
+            .instrument(info_span!(
+                "sign_attestations",
+                count = validator_duties.len()
+            ))
             .await
             .into_iter()
             .flatten()
@@ -495,7 +498,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     .post_beacon_pool_attestations_v2::<S::E>(single_attestations, fork_name)
                     .await
             })
-            .instrument(info_span!("publish_attestations", count = attestations.len()))
+            .instrument(info_span!(
+                "publish_attestations",
+                count = attestations.len()
+            ))
             .await
         {
             Ok(()) => info!(
@@ -628,7 +634,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         });
 
         // Execute all the futures in parallel, collecting any successful results.
-        let aggregator_count = validator_duties.iter().filter(|d| d.selection_proof.is_some()).count();
+        let aggregator_count = validator_duties
+            .iter()
+            .filter(|d| d.selection_proof.is_some())
+            .count();
         let signed_aggregate_and_proofs = join_all(signing_futures)
             .instrument(info_span!("sign_aggregates", count = aggregator_count))
             .await
@@ -660,7 +669,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                             .await
                     }
                 })
-                .instrument(info_span!("publish_aggregates", count = signed_aggregate_and_proofs.len()))
+                .instrument(info_span!(
+                    "publish_aggregates",
+                    count = signed_aggregate_and_proofs.len()
+                ))
                 .await
             {
                 Ok(()) => {
