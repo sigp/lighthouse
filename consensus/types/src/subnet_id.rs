@@ -123,6 +123,13 @@ impl SubnetId {
             .map(move |idx| SubnetId::new((node_id_prefix + idx as u64) % attestation_subnet_count))
     }
 
+    /// Computes a mapping from attestation subnet IDs to the node ID prefixes that subscribe
+    /// to each subnet.
+    ///
+    /// Returns a `HashMap` where:
+    /// - Keys are subnet IDs
+    /// - Values are vectors of node ID prefixes (as `i32`) that subscribe to that subnet
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_attestation_subnet_prefix_mapping(
         spec: &ChainSpec,
     ) -> HashMap<SubnetId, Vec<i32>> {
@@ -130,7 +137,8 @@ impl SubnetId {
         let mut mapping: HashMap<SubnetId, Vec<i32>> = HashMap::new();
 
         for prefix in 0..2_i32.pow(prefix_bits) {
-            let prefixed_node_id = U256::from(prefix) << (256 - prefix_bits);
+            let shift_amount = NODE_ID_BITS.saturating_sub(prefix_bits);
+            let prefixed_node_id = U256::from(prefix) << shift_amount;
             let node_id_bytes = prefixed_node_id.to_be_bytes::<32>();
             let subnets = Self::compute_attestation_subnets(node_id_bytes, spec);
 
@@ -240,7 +248,8 @@ mod tests {
         for (subnet_id, prefixes) in mapping {
             // Check whether the prefixes are mapped to the correct subnet_id.
             for prefix in prefixes {
-                let prefixed_node_id = U256::from(prefix) << (256 - prefix_bits);
+                let shift_amount = NODE_ID_BITS.saturating_sub(prefix_bits);
+                let prefixed_node_id = U256::from(prefix) << shift_amount;
                 let mut computed_subnets =
                     SubnetId::compute_attestation_subnets(prefixed_node_id.to_be_bytes(), &spec);
                 assert!(computed_subnets.contains(&subnet_id));
