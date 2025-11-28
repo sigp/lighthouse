@@ -8,8 +8,8 @@ pub use blob_sidecar::{
 };
 pub use data_column_custody_group::{
     CustodyIndex, DataColumnCustodyGroupError, compute_columns_for_custody_group,
-    compute_subnets_for_node, compute_subnets_from_custody_group, get_custody_groups,
-    get_custody_groups_ordered,
+    compute_ordered_custody_column_indices, compute_subnets_for_node,
+    compute_subnets_from_custody_group, get_custody_groups,
 };
 pub use data_column_sidecar::{
     Cell, ColumnIndex, DataColumn, DataColumnSidecar, DataColumnSidecarError,

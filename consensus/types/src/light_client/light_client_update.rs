@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::ArithError;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -51,15 +51,15 @@ type NextSyncCommitteeBranchElectra = FixedVector<Hash256, NextSyncCommitteeProo
         derive(
             Debug,
             Clone,
-            PartialEq,
             Serialize,
             Deserialize,
-            Derivative,
+            Educe,
             Decode,
             Encode,
             TestRandom,
             TreeHash,
         ),
+        educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",

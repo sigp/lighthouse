@@ -4,17 +4,21 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use derivative::Derivative;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 
 use crate::{core::ChainSpec, data::ColumnIndex};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Copy, Derivative, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derivative(Debug = "transparent")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct DataColumnSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
+
+impl fmt::Debug for DataColumnSubnetId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
 
 impl DataColumnSubnetId {
     pub fn new(id: u64) -> Self {

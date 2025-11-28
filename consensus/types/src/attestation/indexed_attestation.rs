@@ -5,7 +5,7 @@ use std::{
 
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
-use derivative::Derivative;
+use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -32,11 +32,11 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName, test_ut
             Decode,
             Encode,
             TestRandom,
-            Derivative,
+            Educe,
             TreeHash,
         ),
         context_deserialize(ForkName),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -50,7 +50,8 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName, test_ut
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, Derivative, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
+#[educe(PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]

@@ -1,5 +1,5 @@
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use derivative::Derivative;
+use educe::Educe;
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
@@ -35,9 +35,9 @@ use crate::{
             Decode,
             TreeHash,
             TestRandom,
-            Derivative,
+            Educe,
         ),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -65,8 +65,8 @@ use crate::{
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec", untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]

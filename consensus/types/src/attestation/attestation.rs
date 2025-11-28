@@ -5,7 +5,7 @@ use std::{
 
 use bls::{AggregateSignature, SecretKey, Signature};
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use derivative::Derivative;
+use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector};
@@ -50,11 +50,11 @@ impl From<ssz_types::Error> for Error {
             Decode,
             Encode,
             TestRandom,
-            Derivative,
+            Educe,
             TreeHash,
         ),
         context_deserialize(ForkName),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -71,7 +71,8 @@ impl From<ssz_types::Error> for Error {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, Derivative, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
+#[educe(PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
@@ -604,18 +605,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
 */
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Decode,
-    Encode,
-    TestRandom,
-    Derivative,
-    TreeHash,
-    PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TestRandom, TreeHash, PartialEq)]
 #[context_deserialize(ForkName)]
 pub struct SingleAttestation {
     #[serde(with = "serde_utils::quoted_u64")]

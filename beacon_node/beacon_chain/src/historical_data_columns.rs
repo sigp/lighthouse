@@ -54,6 +54,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         epoch: Epoch,
         historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
+        expected_cgc: u64,
     ) -> Result<usize, HistoricalDataColumnError> {
         let mut total_imported = 0;
         let mut ops = vec![];
@@ -88,11 +89,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .get_data_column(&block_root, &data_column.index)?
                         .is_some()
                     {
-                        debug!(
-                            block_root = ?block_root,
-                            column_index = data_column.index,
-                            "Skipping data column import as identical data column exists"
-                        );
                         continue;
                     }
                     if block_root != data_column.block_root() {
@@ -136,7 +132,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.data_availability_checker
             .custody_context()
-            .update_and_backfill_custody_count_at_epoch(epoch);
+            .update_and_backfill_custody_count_at_epoch(epoch, expected_cgc);
 
         self.safely_backfill_data_column_custody_info(epoch)
             .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;

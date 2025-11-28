@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bls::Signature;
 use context_deserialize::context_deserialize;
-use derivative::Derivative;
+use educe::Educe;
 use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
@@ -43,11 +43,9 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
 #[serde(bound = "E: EthSpec")]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]

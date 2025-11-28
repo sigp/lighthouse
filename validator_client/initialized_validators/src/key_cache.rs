@@ -291,7 +291,7 @@ mod tests {
     #[tokio::test]
     async fn test_encryption() {
         let mut key_cache = KeyCache::new();
-        let keypairs = vec![Keypair::random(), Keypair::random()];
+        let keypairs = [Keypair::random(), Keypair::random()];
         let uuids = vec![Uuid::from_u128(1), Uuid::from_u128(2)];
         let passwords = vec![
             PlainText::from(vec![1, 2, 3, 4, 5, 6]),

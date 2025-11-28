@@ -2,16 +2,15 @@ use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use bls::Signature;
 use context_deserialize::context_deserialize;
-use derivative::Derivative;
-use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Kzg, KzgCommitment, KzgProof};
+use educe::Educe;
+use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Blob as KzgBlob, Kzg, KzgCommitment, KzgProof};
 use merkle_proof::{MerkleTreeError, merkle_root_from_branch, verify_merkle_proof};
 use rand::Rng;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
-use ssz_types::VariableList;
+use ssz_types::{FixedVector, RuntimeFixedVector, RuntimeVariableList, VariableList};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -20,11 +19,11 @@ use crate::{
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
     },
-    core::{ChainSpec, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList, Slot},
+    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
     data::Blob,
     execution::AbstractExecPayload,
     fork::ForkName,
-    kzg_ext::{KzgBlob, KzgProofs},
+    kzg_ext::KzgProofs,
     state::BeaconStateError,
     test_utils::TestRandom,
 };
@@ -56,12 +55,10 @@ impl Ord for BlobIdentifier {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 pub struct BlobSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,

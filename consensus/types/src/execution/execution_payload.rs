@@ -1,5 +1,5 @@
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use derivative::Derivative;
+use educe::Educe;
 use fixed_bytes::Uint256;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
@@ -37,10 +37,10 @@ pub type Transactions<E> = VariableList<
             Decode,
             TreeHash,
             TestRandom,
-            Derivative,
+            Educe,
         ),
         context_deserialize(ForkName),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -64,8 +64,8 @@ pub type Transactions<E> = VariableList<
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]

@@ -298,28 +298,28 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
                 let speed = speedo.slots_per_second();
                 let display_speed = speed.is_some_and(|speed| speed != 0.0);
-
+                let est_time_in_secs = if let (Some(da_boundary_epoch), Some(original_slot)) = (
+                    beacon_chain.get_column_da_boundary(),
+                    original_earliest_data_column_slot,
+                ) {
+                    let target = original_slot.saturating_sub(
+                        da_boundary_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    );
+                    speedo.estimated_time_till_slot(target)
+                } else {
+                    None
+                };
                 if display_speed {
                     info!(
                         distance,
                         speed = sync_speed_pretty(speed),
-                        est_time =
-                            estimated_time_pretty(beacon_chain.get_column_da_boundary().and_then(
-                                |da_boundary| speedo.estimated_time_till_slot(
-                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch())
-                                )
-                            )),
+                        est_time = estimated_time_pretty(est_time_in_secs),
                         "Downloading historical data columns"
                     );
                 } else {
                     info!(
                         distance,
-                        est_time =
-                            estimated_time_pretty(beacon_chain.get_column_da_boundary().and_then(
-                                |da_boundary| speedo.estimated_time_till_slot(
-                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch())
-                                )
-                            )),
+                        est_time = estimated_time_pretty(est_time_in_secs),
                         "Downloading historical data columns"
                     );
                 }
@@ -369,8 +369,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
                     Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
+                    Ok(ExecutionStatus::Valid(hash)) => {
+                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
+                        format!("{} (verified)", hash)
+                    }
                     Ok(ExecutionStatus::Optimistic(hash)) => {
+                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",

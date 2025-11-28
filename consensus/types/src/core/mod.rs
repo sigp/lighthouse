@@ -9,8 +9,6 @@ mod graffiti;
 mod non_zero_usize;
 mod preset;
 mod relative_epoch;
-mod runtime_fixed_vector;
-mod runtime_var_list;
 mod signing_data;
 mod slot_data;
 #[macro_use]
@@ -34,8 +32,6 @@ pub use preset::{
     FuluPreset, GloasPreset,
 };
 pub use relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
-pub use runtime_fixed_vector::RuntimeFixedVector;
-pub use runtime_var_list::{RuntimeVariableList, runtime_vec_tree_hash_root};
 pub use signing_data::{SignedRoot, SigningData};
 pub use slot_data::SlotData;
 pub use slot_epoch::{Epoch, Slot};

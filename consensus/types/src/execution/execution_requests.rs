@@ -1,6 +1,6 @@
 use alloy_primitives::Bytes;
 use context_deserialize::context_deserialize;
-use derivative::Derivative;
+use educe::Educe;
 use ethereum_hashing::{DynamicContext, Sha256Context};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -31,10 +31,10 @@ pub type ConsolidationRequests<E> =
     arbitrary(bound = "E: EthSpec")
 )]
 #[derive(
-    Debug, Derivative, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Debug, Educe, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 #[serde(bound = "E: EthSpec")]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 pub struct ExecutionRequests<E: EthSpec> {
     pub deposits: DepositRequests<E>,

@@ -3,6 +3,7 @@ name = "slasher"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
+autotests = false
 
 [features]
 default = ["lmdb"]
@@ -14,7 +15,7 @@ portable = ["types/portable"]
 [dependencies]
 bincode = { workspace = true }
 byteorder = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 filesystem = { workspace = true }
@@ -43,3 +44,7 @@ types = { workspace = true }
 maplit = { workspace = true }
 rayon = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "slasher_tests"
+path = "tests/main.rs"

@@ -109,12 +109,12 @@ fn beacon_nodes_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(
-                config.beacon_nodes[0].full.to_string(),
+                config.beacon_nodes[0].expose_full().to_string(),
                 "http://localhost:1001/"
             );
             assert_eq!(config.beacon_nodes[0].to_string(), "http://localhost:1001/");
             assert_eq!(
-                config.beacon_nodes[1].full.to_string(),
+                config.beacon_nodes[1].expose_full().to_string(),
                 "https://project:secret@infura.io/"
             );
             assert_eq!(config.beacon_nodes[1].to_string(), "https://infura.io/");
@@ -505,7 +505,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.validator_store.gas_limit == Some(45_000_000)));
+        .with_config(|config| assert!(config.validator_store.gas_limit == Some(60_000_000)));
 }
 #[test]
 fn gas_limit_flag() {

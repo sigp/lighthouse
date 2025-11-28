@@ -126,8 +126,8 @@ pub mod execution_requests {
 
 pub mod data_column_custody_group {
     pub use crate::data::{
-        CustodyIndex, compute_columns_for_custody_group, compute_subnets_for_node,
-        compute_subnets_from_custody_group, get_custody_groups, get_custody_groups_ordered,
+        CustodyIndex, compute_columns_for_custody_group, compute_ordered_custody_column_indices,
+        compute_subnets_for_node, compute_subnets_from_custody_group, get_custody_groups,
     };
 }
 

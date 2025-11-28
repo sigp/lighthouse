@@ -1,5 +1,5 @@
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use derivative::Derivative;
+use educe::Educe;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -18,7 +18,7 @@ use crate::{
     variants(Base, Electra),
     variant_attributes(
         derive(
-            Derivative,
+            Educe,
             Debug,
             Clone,
             Serialize,
@@ -29,7 +29,7 @@ use crate::{
             TestRandom,
         ),
         context_deserialize(ForkName),
-        derivative(PartialEq, Eq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec"),
         cfg_attr(
             feature = "arbitrary",
@@ -44,8 +44,8 @@ use crate::{
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative)]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Educe)]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
@@ -59,8 +59,8 @@ pub struct AttesterSlashing<E: EthSpec> {
 /// This is a copy of the `AttesterSlashing` enum but with `Encode` and `Decode` derived
 /// using the `union` behavior for the purposes of persistence on disk. We use a separate
 /// type so that we don't accidentally use this non-spec encoding in consensus objects.
-#[derive(Debug, Clone, Encode, Decode, Derivative)]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Encode, Decode, Educe)]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[ssz(enum_behaviour = "union")]
 pub enum AttesterSlashingOnDisk<E: EthSpec> {
     Base(AttesterSlashingBase<E>),

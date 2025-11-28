@@ -5,7 +5,7 @@
 //! reads when fork choice requires the validator balances of the justified state.
 
 use crate::{BeaconSnapshot, metrics};
-use derivative::Derivative;
+use educe::Educe;
 use fork_choice::ForkChoiceStore;
 use proto_array::JustifiedBalances;
 use safe_arith::ArithError;
@@ -127,10 +127,10 @@ impl BalancesCache {
 
 /// Implements `fork_choice::ForkChoiceStore` in order to provide a persistent backing to the
 /// `fork_choice::ForkChoice` struct.
-#[derive(Debug, Derivative)]
-#[derivative(PartialEq(bound = "E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>"))]
+#[derive(Debug, Educe)]
+#[educe(PartialEq(bound(E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>)))]
 pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     store: Arc<HotColdDB<E, Hot, Cold>>,
     balances_cache: BalancesCache,
     time: Slot,

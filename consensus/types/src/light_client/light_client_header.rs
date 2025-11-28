@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use context_deserialize::{ContextDeserialize, context_deserialize};
-use derivative::Derivative;
+use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
@@ -28,15 +28,15 @@ use crate::{
         derive(
             Debug,
             Clone,
-            PartialEq,
             Serialize,
             Deserialize,
-            Derivative,
+            Educe,
             Decode,
             Encode,
             TestRandom,
             TreeHash,
         ),
+        educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",

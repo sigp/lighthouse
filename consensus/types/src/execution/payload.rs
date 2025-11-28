@@ -1,11 +1,10 @@
-use std::{borrow::Cow, fmt::Debug, hash::Hash};
-
-use derivative::Derivative;
+use educe::Educe;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use std::{borrow::Cow, fmt::Debug, hash::Hash};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -175,9 +174,9 @@ pub trait AbstractExecPayload<E: EthSpec>:
             Decode,
             TestRandom,
             TreeHash,
-            Derivative,
+            Educe,
         ),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -187,8 +186,8 @@ pub trait AbstractExecPayload<E: EthSpec>:
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
-        derive(Debug, Derivative, TreeHash),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        derive(Debug, Educe, TreeHash),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayload),
@@ -207,8 +206,8 @@ pub trait AbstractExecPayload<E: EthSpec>:
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Educe)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct FullPayload<E: EthSpec> {
@@ -551,9 +550,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
             Decode,
             TestRandom,
             TreeHash,
-            Derivative,
+            Educe,
         ),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -563,8 +562,8 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
-        derive(Debug, Derivative, TreeHash),
-        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        derive(Debug, Educe, TreeHash),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayloadHeader),
@@ -582,8 +581,8 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Educe)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BlindedPayload<E: EthSpec> {

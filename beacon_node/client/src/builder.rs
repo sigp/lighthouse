@@ -28,6 +28,7 @@ use execution_layer::ExecutionLayer;
 use execution_layer::test_utils::generate_genesis_header;
 use futures::channel::mpsc::Receiver;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
+use lighthouse_network::identity::Keypair;
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
@@ -41,8 +42,8 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
-use tracing::{debug, info, warn};
-use types::data_column_custody_group::get_custody_groups_ordered;
+use tracing::{debug, info, instrument, warn};
+use types::data_column_custody_group::compute_ordered_custody_column_indices;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
     SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
@@ -150,10 +151,12 @@ where
 
     /// Initializes the `BeaconChainBuilder`. The `build_beacon_chain` method will need to be
     /// called later in order to actually instantiate the `BeaconChain`.
+    #[instrument(skip_all)]
     pub async fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
         config: ClientConfig,
+        node_id: [u8; 32],
     ) -> Result<Self, String> {
         let store = self.store.clone();
         let chain_spec = self.chain_spec.clone();
@@ -191,6 +194,11 @@ where
             Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
+        let ordered_custody_column_indices =
+            compute_ordered_custody_column_indices::<E>(node_id, &spec).map_err(|e| {
+                format!("Failed to compute ordered custody column indices: {:?}", e)
+            })?;
+
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .store(store)
             .task_executor(context.executor.clone())
@@ -203,6 +211,7 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .node_custody_type(config.chain.node_custody_type)
+            .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
@@ -345,10 +354,11 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let anchor_blobs = if anchor_block.message().body().has_blobs() {
+
+                // Providing blobs is optional now and not providing them is recommended.
+                // Backfill can handle downloading the blobs or columns for the checkpoint block.
+                let anchor_blobs = if let Some(anchor_blobs_bytes) = anchor_blobs_bytes {
                     let max_blobs_len = spec.max_blobs_per_block(anchor_block.epoch()) as usize;
-                    let anchor_blobs_bytes = anchor_blobs_bytes
-                        .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
                     Some(
                         BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes, max_blobs_len)
                             .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
@@ -409,7 +419,11 @@ where
 
                 debug!("Downloaded finalized block");
 
-                let blobs = if block.message().body().has_blobs() {
+                // `get_blob_sidecars` API is deprecated from Fulu and may not be supported by all servers
+                let is_before_fulu = !spec
+                    .fork_name_at_slot::<E>(finalized_block_slot)
+                    .fulu_enabled();
+                let blobs = if is_before_fulu && block.message().body().has_blobs() {
                     debug!("Downloading finalized blobs");
                     if let Some(response) = remote
                         .get_blob_sidecars::<E>(BlockId::Root(block_root), None, &spec)
@@ -453,7 +467,11 @@ where
     }
 
     /// Starts the networking stack.
-    pub async fn network(mut self, config: Arc<NetworkConfig>) -> Result<Self, String> {
+    pub async fn network(
+        mut self,
+        config: Arc<NetworkConfig>,
+        local_keypair: Keypair,
+    ) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -481,11 +499,10 @@ where
             context.executor,
             libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
+            local_keypair,
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
-
-        init_custody_context(beacon_chain, &network_globals)?;
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
@@ -597,6 +614,7 @@ where
     ///
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
+    #[instrument(name = "build_client", skip_all)]
     pub fn build(
         mut self,
     ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
@@ -788,21 +806,6 @@ where
     }
 }
 
-fn init_custody_context<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    network_globals: &NetworkGlobals<T::EthSpec>,
-) -> Result<(), String> {
-    let node_id = network_globals.local_enr().node_id().raw();
-    let spec = &chain.spec;
-    let custody_groups_ordered =
-        get_custody_groups_ordered(node_id, spec.number_of_custody_groups, spec)
-            .map_err(|e| format!("Failed to compute custody groups: {:?}", e))?;
-    chain
-        .data_availability_checker
-        .custody_context()
-        .init_ordered_data_columns_from_custody_groups(custody_groups_ordered, spec)
-}
-
 impl<TSlotClock, E, THotStore, TColdStore>
     ClientBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
@@ -812,6 +815,7 @@ where
     TColdStore: ItemStore<E> + 'static,
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
+    #[instrument(skip_all)]
     pub fn build_beacon_chain(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context

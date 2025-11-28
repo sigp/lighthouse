@@ -1,6 +1,5 @@
 use std::fmt;
 
-use derivative::Derivative;
 use fixed_bytes::FixedBytesExtended;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -9,10 +8,15 @@ use ssz::{Decode, DecodeError, Encode};
 use crate::{Hash256, test_utils::TestRandom};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Derivative)]
-#[derivative(Debug = "transparent")]
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
 #[serde(transparent)]
 pub struct ExecutionBlockHash(#[serde(with = "serde_utils::b256_hex")] pub Hash256);
+
+impl fmt::Debug for ExecutionBlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
 
 impl ExecutionBlockHash {
     pub fn zero() -> Self {
