@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use strum::IntoStaticStr;
-use tracing::{Span, debug, instrument, warn};
+use tracing::{Span, debug, error, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of

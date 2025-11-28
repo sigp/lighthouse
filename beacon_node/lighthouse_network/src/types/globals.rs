@@ -9,7 +9,7 @@ use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{debug, error};
 use types::data_column_custody_group::{compute_subnets_from_custody_group, get_custody_groups};
 use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
 
