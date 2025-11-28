@@ -226,4 +226,172 @@ mod tests {
             Origin::Any => panic!("Expected Exact variant, got Any"),
         }
     }
+
+    struct HttpConfig {
+        allow_origin: Option<String>,
+        listen_addr: IpAddr,
+        listen_port: u16,
+    }
+
+    #[test]
+    fn default_config() {
+        let config = HttpConfig {
+            allow_origin: None,
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        );
+        assert!(layer.is_ok());
+    }
+
+    #[test]
+    fn wildcard_origin() {
+        // lighthouse bn --http-allow-origin "*"
+        let config = HttpConfig {
+            allow_origin: Some("*".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        );
+        assert!(layer.is_ok());
+    }
+
+    #[test]
+    fn single_origin() {
+        // lighthouse bn --http-allow-origin "http://localhost:3000"
+        let config = HttpConfig {
+            allow_origin: Some("http://localhost:3000".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        );
+        assert!(layer.is_ok());
+    }
+
+    #[test]
+    fn multiple_origins() {
+        // lighthouse bn --http-allow-origin "http://localhost:3000,https://example.com"
+        let config = HttpConfig {
+            allow_origin: Some("http://localhost:3000,https://example.com".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        );
+        assert!(layer.is_ok());
+    }
+
+    #[test]
+    fn ipv6_listen_address() {
+        let config = HttpConfig {
+            allow_origin: None,
+            listen_addr: "::1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        );
+        assert!(layer.is_ok());
+    }
+
+    #[test]
+    fn invalid_origin_missing_scheme() {
+        let config = HttpConfig {
+            allow_origin: Some("localhost:3000".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        );
+        assert!(layer.is_err());
+    }
+
+    #[test]
+    fn invalid_origin_in_list() {
+        let config = HttpConfig {
+            allow_origin: Some("http://localhost:3000,invalid,https://example.com".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        );
+        assert!(layer.is_err());
+    }
+
+    #[tokio::test]
+    async fn verify_cors_layer() {
+        use axum::{Router, routing::get};
+        use http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let config = HttpConfig {
+            allow_origin: Some("http://localhost:3000".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let cors_layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        )
+        .unwrap();
+
+        async fn handler() -> &'static str {
+            "test"
+        }
+
+        let app = Router::new().route("/", get(handler)).layer(cors_layer);
+
+        // Preflight request
+        let request = Request::builder()
+            .method("OPTIONS")
+            .uri("/")
+            .header("Origin", "http://localhost:3000")
+            .header("Access-Control-Request-Method", "GET")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        // Verify CORS header matches origin
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "http://localhost:3000"
+        );
+    }
 }
