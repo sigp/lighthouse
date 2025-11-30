@@ -155,7 +155,6 @@ impl Kzg {
         kzg_commitments: &[KzgCommitment],
         kzg_proofs: &[KzgProof],
     ) -> Result<(), Error> {
-        println!("yyy {:?}",  blobs.len());
         let commitments_bytes = kzg_commitments
             .iter()
             .map(|comm| Bytes48::from(*comm))
@@ -171,10 +170,8 @@ impl Kzg {
             &commitments_bytes,
             &proofs_bytes,
         )? {
-            println!("FAILED");
             Err(Error::KzgVerificationFailed)
         } else {
-            println!("SUCCESS");
             Ok(())
         }
     }

@@ -89,7 +89,7 @@ async fn rpc_blobs_with_invalid_header_signature() {
         )
         .await
         .unwrap();
-    
+
     assert_eq!(
         availability,
         AvailabilityProcessingStatus::MissingComponents(slot, block_root)

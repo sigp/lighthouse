@@ -2468,12 +2468,10 @@ where
                 } else {
                     RpcBlock::new_maybe_available(Some(block_root), block, None, Some(columns))?
                 }
+            } else if is_available {
+                RpcBlock::new_available(Some(block_root), block, None, None)?
             } else {
-                if is_available {
-                    RpcBlock::new_available(Some(block_root), block, None, None)?
-                } else {
-                    RpcBlock::new_maybe_available(Some(block_root), block, None, None)?
-                }
+                RpcBlock::new_maybe_available(Some(block_root), block, None, None)?
             }
         } else {
             let blobs = blob_items

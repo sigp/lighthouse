@@ -377,10 +377,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
-            println!("BLOBS REQUURED");
-            
-            return if let Some(blob_list) = blobs {
-                println!("{:?}", blob_list.len());
+            return if let Some(blob_list) = blobs
+                && blob_list.len() == block.num_expected_blobs()
+            {
                 verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
                     .map_err(AvailabilityCheckError::InvalidBlobs)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
