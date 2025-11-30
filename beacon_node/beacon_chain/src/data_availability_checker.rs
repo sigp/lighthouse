@@ -2,7 +2,8 @@ use crate::blob_verification::{
     GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
 };
 use crate::block_verification_types::{
-    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
+    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, AvailableRpcBlock,
+    MaybeAvailableRpcBlock, RpcBlock,
 };
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
@@ -366,14 +367,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .remove_pre_execution_block(block_root);
     }
 
-    /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
-    /// include the fully available block.
-    ///
-    /// WARNING: This function assumes all required blobs are already present, it does NOT
-    ///          check if there are any missing blobs.
-    pub fn verify_kzg_for_rpc_block(
+    pub fn verify_kzg_for_maybe_available_rpc_block(
         &self,
-        block: RpcBlock<T::EthSpec>,
+        block: MaybeAvailableRpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
@@ -426,6 +422,81 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             blobs_available_timestamp: None,
             spec: self.spec.clone(),
         }))
+    }
+
+    pub fn verify_kzg_for_available_rpc_block(
+        &self,
+        block: AvailableRpcBlock<T::EthSpec>,
+    ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
+        let (block_root, block, blobs, data_columns) = block.deconstruct();
+
+        if self.blobs_required_for_block(&block) {
+            return if let Some(blob_list) = blobs {
+                verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
+                    .map_err(AvailabilityCheckError::InvalidBlobs)?;
+                Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                    block_root,
+                    block,
+                    blob_data: AvailableBlockData::Blobs(blob_list),
+                    blobs_available_timestamp: None,
+                    spec: self.spec.clone(),
+                }))
+            } else {
+                return Err(AvailabilityCheckError::MissingBlobs);
+            };
+        }
+
+        if self.data_columns_required_for_block(&block) {
+            return if let Some(data_column_list) = data_columns {
+                verify_kzg_for_data_column_list(
+                    data_column_list
+                        .iter()
+                        .map(|custody_column| custody_column.as_data_column()),
+                    &self.kzg,
+                )
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
+                Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                    block_root,
+                    block,
+                    blob_data: AvailableBlockData::DataColumns(
+                        data_column_list
+                            .into_iter()
+                            .map(|d| d.clone_arc())
+                            .collect(),
+                    ),
+                    blobs_available_timestamp: None,
+                    spec: self.spec.clone(),
+                }))
+            } else {
+                return Err(AvailabilityCheckError::MissingCustodyColumns);
+            };
+        }
+        Ok(MaybeAvailableBlock::Available(AvailableBlock {
+            block_root,
+            block,
+            blob_data: AvailableBlockData::NoData,
+            blobs_available_timestamp: None,
+            spec: self.spec.clone(),
+        }))
+    }
+
+    /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
+    /// include the fully available block.
+    ///
+    /// WARNING: This function assumes all required blobs are already present, it does NOT
+    ///          check if there are any missing blobs.
+    pub fn verify_kzg_for_rpc_block(
+        &self,
+        block: RpcBlock<T::EthSpec>,
+    ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
+        match block {
+            RpcBlock::Available(available_rpc_block) => {
+                self.verify_kzg_for_available_rpc_block(available_rpc_block)
+            }
+            RpcBlock::MaybeAvailable(maybe_available_rpc_block) => {
+                self.verify_kzg_for_maybe_available_rpc_block(maybe_available_rpc_block)
+            }
+        }
     }
 
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`

@@ -40,11 +40,57 @@ pub struct MaybeAvailableRpcBlock<E: EthSpec> {
     block: RpcBlockInner<E>,
 }
 
+impl<E: EthSpec> MaybeAvailableRpcBlock<E> {
+    #[allow(clippy::type_complexity)]
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Hash256,
+        Arc<SignedBeaconBlock<E>>,
+        Option<BlobSidecarList<E>>,
+        Option<CustodyDataColumnList<E>>,
+    ) {
+        let block_root = self.block_root;
+        match self.block {
+            RpcBlockInner::Block(block) => (block_root, block.clone(), None, None),
+            RpcBlockInner::BlockAndBlobs(block, blobs) => {
+                (block_root, block.clone(), Some(blobs.clone()), None)
+            }
+            RpcBlockInner::BlockAndCustodyColumns(block, data_columns) => {
+                (block_root, block.clone(), None, Some(data_columns.clone()))
+            }
+        }
+    }
+}
+
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
 pub struct AvailableRpcBlock<E: EthSpec> {
     block_root: Hash256,
     block: RpcBlockInner<E>,
+}
+
+impl<E: EthSpec> AvailableRpcBlock<E> {
+    #[allow(clippy::type_complexity)]
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Hash256,
+        Arc<SignedBeaconBlock<E>>,
+        Option<BlobSidecarList<E>>,
+        Option<CustodyDataColumnList<E>>,
+    ) {
+        let block_root = self.block_root;
+        match self.block {
+            RpcBlockInner::Block(block) => (block_root, block.clone(), None, None),
+            RpcBlockInner::BlockAndBlobs(block, blobs) => {
+                (block_root, block.clone(), Some(blobs.clone()), None)
+            }
+            RpcBlockInner::BlockAndCustodyColumns(block, data_columns) => {
+                (block_root, block.clone(), None, Some(data_columns.clone()))
+            }
+        }
+    }
 }
 
 impl<E: EthSpec> Debug for RpcBlock<E> {
