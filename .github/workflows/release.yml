@@ -67,6 +67,24 @@ jobs:
               run: rustup update stable
 
             # ==============================
+            # Debian build dependencies
+            # ==============================
+
+            - name: Install Debian build dependencies
+              if: endsWith(matrix.arch, '-deb')
+              run: |
+                sudo apt-get update
+                sudo apt-get install -y libclang-dev cmake ${{ matrix.gcc_package }}
+
+            - name: Install Rust target for Debian builds
+              if: endsWith(matrix.arch, '-deb')
+              run: rustup target add ${{ matrix.rust_target }}
+
+            - name: Install cargo-deb
+              if: endsWith(matrix.arch, '-deb')
+              run: cargo install cargo-deb
+
+            # ==============================
             #       Builds - Binaries
             # ==============================
 
@@ -89,6 +107,38 @@ jobs:
             - name: Build Lighthouse for aarch64-apple-darwin
               if:   matrix.arch == 'aarch64-apple-darwin'
               run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
+
+            # ==============================
+            #       Builds - Debian Packages
+            # ==============================
+
+            - name: Build reproducible Debian package
+              if: endsWith(matrix.arch, '-deb')
+              run: |
+                make deb-cargo RUST_TARGET=${{ matrix.rust_target }} PROFILE=${{ matrix.profile }}
+
+            - name: Find and prepare Debian package
+              if: endsWith(matrix.arch, '-deb')
+              run: |
+                VERSION=${{ needs.extract-version.outputs.VERSION }}
+                DEB_FILE=$(find target/${{ matrix.rust_target }}/debian -name "*.deb" | head -1)
+                if [ -n "$DEB_FILE" ]; then
+                  # Create standardized filename to match existing pattern
+                  ARCH_SHORT=$(echo "${{ matrix.rust_target }}" | cut -d'-' -f1)
+                  NEW_NAME="lighthouse-${{ needs.extract-version.outputs.VERSION }}-${ARCH_SHORT}.deb"
+                  cp "$DEB_FILE" "$NEW_NAME"
+                  echo "DEB_PACKAGE=$NEW_NAME" >> $GITHUB_ENV
+                  
+                  # Generate checksums  
+                  sha256sum "$NEW_NAME" > "$NEW_NAME.sha256"
+                  sha512sum "$NEW_NAME" > "$NEW_NAME.sha512"
+                  
+                  echo "Debian package built: $NEW_NAME"
+                  echo "Size: $(du -h "$NEW_NAME" | cut -f1)"
+                else
+                  echo "❌ No .deb package found"
+                  exit 1
+                fi
 
             # ==============================
             #       Builds - Debian Packages
@@ -145,6 +195,20 @@ jobs:
                     done;\
                   done
                   mv *tar.gz* ..
+
+            # ==============================
+            #       Debian Package Artifacts
+            # ==============================
+
+            - name: Sign Debian package
+              if: endsWith(matrix.arch, '-deb')
+              env:
+                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+              run: |
+                  export GPG_TTY=$(tty)
+                  echo "$GPG_SIGNING_KEY" | gpg --batch --import
+                  echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab "$DEB_PACKAGE"
 
             # ==============================
             #       Debian Package Artifacts

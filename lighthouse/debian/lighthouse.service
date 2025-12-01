@@ -4,29 +4,13 @@ After=network.target
 Wants=network.target
 
 [Service]
-Type=simple
-User=lighthouse
-Group=lighthouse
-Restart=always
-RestartSec=5
-TimeoutStopSec=180
-Environment="RUST_LOG=info"
-ExecStart=/usr/bin/lighthouse \
-    bn \
-    --checkpoint-sync-url https://sync-mainnet.beaconcha.in \
-    --execution-endpoint http://localhost:8551 \
-    --execution-jwt /etc/jwt.hex \
-    --suggested-fee-recipient 0x0 \
-    --always-prepare-payload \
-    --prepare-payload-lookahead 8000 \
-    --disable-deposit-contract-sync \
-    --http \
-    --port 9000 \
-    --http-port 3500 \
-    --metrics \
-    --metrics-address 127.0.0.1 \
-    --metrics-port 5054 \
-    --datadir /mnt/data/lighthouse
+Type=exec
+DynamicUser=yes
+StateDirectory=lighthouse
+ExecStart=/usr/bin/lighthouse bn \
+          --execution-endpoint http://localhost:8551 \
+          --execution-jwt-secret-key 0000000000000000000000000000000000000000000000000000000000000000
+          --datadir %S/lighthouse
 
 [Install]
 WantedBy=default.target
