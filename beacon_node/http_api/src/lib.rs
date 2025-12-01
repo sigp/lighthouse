@@ -46,11 +46,12 @@ pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
+use eth2::StatusCode;
 use eth2::types::{
     self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, StateId as CoreStateId,
-    ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody, ValidatorStatus,
-    ValidatorsRequestBody,
+    ForkChoiceExtraData, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest,
+    StateId as CoreStateId, ValidatorBalancesRequestBody, ValidatorId,
+    ValidatorIdentitiesRequestBody, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -103,7 +104,6 @@ use version::{
     unsupported_version_rejection,
 };
 use warp::Reply;
-use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
 use warp::{Filter, Rejection, http::Response};
@@ -3033,12 +3033,38 @@ pub fn serve<T: BeaconChainTypes>(
                                     .execution_status
                                     .block_hash()
                                     .map(|block_hash| block_hash.into_root()),
+                                extra_data: ForkChoiceExtraData {
+                                    target_root: node.target_root,
+                                    justified_root: node.justified_checkpoint.root,
+                                    finalized_root: node.finalized_checkpoint.root,
+                                    unrealized_justified_root: node
+                                        .unrealized_justified_checkpoint
+                                        .map(|checkpoint| checkpoint.root),
+                                    unrealized_finalized_root: node
+                                        .unrealized_finalized_checkpoint
+                                        .map(|checkpoint| checkpoint.root),
+                                    unrealized_justified_epoch: node
+                                        .unrealized_justified_checkpoint
+                                        .map(|checkpoint| checkpoint.epoch),
+                                    unrealized_finalized_epoch: node
+                                        .unrealized_finalized_checkpoint
+                                        .map(|checkpoint| checkpoint.epoch),
+                                    execution_status: node.execution_status.to_string(),
+                                    best_child: node
+                                        .best_child
+                                        .and_then(|index| proto_array.nodes.get(index))
+                                        .map(|child| child.root),
+                                    best_descendant: node
+                                        .best_descendant
+                                        .and_then(|index| proto_array.nodes.get(index))
+                                        .map(|descendant| descendant.root),
+                                },
                             }
                         })
                         .collect::<Vec<_>>();
                     Ok(ForkChoice {
-                        justified_checkpoint: proto_array.justified_checkpoint,
-                        finalized_checkpoint: proto_array.finalized_checkpoint,
+                        justified_checkpoint: beacon_fork_choice.justified_checkpoint(),
+                        finalized_checkpoint: beacon_fork_choice.finalized_checkpoint(),
                         fork_choice_nodes,
                     })
                 })
@@ -4071,7 +4097,7 @@ pub fn serve<T: BeaconChainTypes>(
                 convert_rejection(rx.await.unwrap_or_else(|_| {
                     Ok(warp::reply::with_status(
                         warp::reply::json(&"No response from channel"),
-                        eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
                     )
                     .into_response())
                 }))

@@ -9,9 +9,12 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     IntoGossipVerifiedBlock, NotifyExecutionLayer, build_blob_data_column_sidecars,
 };
-use eth2::types::{
-    BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
-    PublishBlockRequest, SignedBlockContents,
+use eth2::{
+    StatusCode,
+    types::{
+        BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs,
+        FullPayloadContents, PublishBlockRequest, SignedBlockContents,
+    },
 };
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
@@ -25,14 +28,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{Span, debug, debug_span, error, info, instrument, warn};
+use tracing::{Span, debug, debug_span, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
     DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
     FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
-use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
 
 pub type UnverifiedBlobs<T> = Option<(
@@ -80,7 +82,7 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
     name = SPAN_PUBLISH_BLOCK,
     level = "info",
     skip_all,
-    fields(?block_root, ?validation_level, provenance = tracing::field::Empty)
+    fields(block_root = field::Empty, ?validation_level, block_slot = field::Empty, provenance = field::Empty)
 )]
 pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     block_root: Option<Hash256>,
@@ -103,12 +105,16 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     } else {
         "builder"
     };
-    let current_span = Span::current();
-    current_span.record("provenance", provenance);
 
     let block = unverified_block.inner_block();
+    let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
-    debug!(slot = %block.slot(), "Signed block received in HTTP API");
+    let current_span = Span::current();
+    current_span.record("provenance", provenance);
+    current_span.record("block_root", field::display(block_root));
+    current_span.record("block_slot", field::display(block.slot()));
+
+    debug!("Signed block received in HTTP API");
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -152,12 +158,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     // Gossip verify the block and blobs/data columns separately.
     let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
-    let block_root = block_root.unwrap_or_else(|| {
-        gossip_verified_block_result.as_ref().map_or_else(
-            |_| block.canonical_root(),
-            |verified_block| verified_block.block_root,
-        )
-    });
 
     let should_publish_block = gossip_verified_block_result.is_ok();
     if BroadcastValidation::Gossip == validation_level && should_publish_block {
@@ -304,14 +304,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                         message: "duplicate block".to_string(),
                         stacktraces: vec![],
                     }),
-                    duplicate_status_code,
+                    warp_utils::status_code::convert(duplicate_status_code)?,
                 )
                 .into_response())
             }
         }
-        Err(BlockError::DuplicateImportStatusUnknown(root)) => {
+        Err(BlockError::DuplicateImportStatusUnknown(_)) => {
             debug!(
-                block_root = ?root,
                 slot = %block.slot(),
                 "Block previously seen"
             );

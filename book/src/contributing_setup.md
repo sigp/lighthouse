@@ -71,6 +71,47 @@ $ cargo nextest run -p safe_arith
      Summary [ 0.012s] 8 tests run: 8 passed, 0 skipped
 ```
 
+### Integration tests
+
+Due to the size and complexity of the test suite, Lighthouse uses a pattern that differs from how
+[integration tests are usually defined](https://doc.rust-lang.org/rust-by-example/testing/integration_testing.html).
+This pattern helps manage large test suites more effectively and ensures tests only run in release
+mode to avoid stack overflow issues.
+
+#### The "main pattern"
+
+For packages with integration tests that require more than one file, Lighthouse uses the following
+structure:
+
+- A `main.rs` file is defined at `package/tests/main.rs` that declares other test files as modules
+- In `package/Cargo.toml`, integration tests are explicitly configured:
+
+    ```toml
+    [package]
+    autotests = false
+
+    [[test]]
+    name = "package_tests"
+    path = "tests/main.rs"
+    ```
+
+#### Rust Analyzer configuration
+
+This pattern, combined with `#![cfg(not(debug_assertions))]` directives in test files (which
+prevent tests from running in debug mode), causes Rust Analyzer to not provide IDE services like
+autocomplete and error checking in integration test files by default.
+
+To enable IDE support for these test files, configure Rust Analyzer to disable debug assertions.
+For VSCode users, this is already configured in the repository's `.vscode/settings.json` file:
+
+```json
+{
+    "rust-analyzer.cargo.cfgs": [
+        "!debug_assertions"
+    ]
+}
+```
+
 ### test_logger
 
 The test_logger, located in `/common/logging/` can be used to create a `Logger` that by

@@ -3057,11 +3057,11 @@ impl ApiTester {
 
         assert_eq!(
             result.justified_checkpoint,
-            expected_proto_array.justified_checkpoint
+            beacon_fork_choice.justified_checkpoint()
         );
         assert_eq!(
             result.finalized_checkpoint,
-            expected_proto_array.finalized_checkpoint
+            beacon_fork_choice.finalized_checkpoint()
         );
 
         let expected_fork_choice_nodes: Vec<ForkChoiceNode> = expected_proto_array
@@ -3088,6 +3088,32 @@ impl ApiTester {
                         .execution_status
                         .block_hash()
                         .map(|block_hash| block_hash.into_root()),
+                    extra_data: ForkChoiceExtraData {
+                        target_root: node.target_root,
+                        justified_root: node.justified_checkpoint.root,
+                        finalized_root: node.finalized_checkpoint.root,
+                        unrealized_justified_root: node
+                            .unrealized_justified_checkpoint
+                            .map(|checkpoint| checkpoint.root),
+                        unrealized_finalized_root: node
+                            .unrealized_finalized_checkpoint
+                            .map(|checkpoint| checkpoint.root),
+                        unrealized_justified_epoch: node
+                            .unrealized_justified_checkpoint
+                            .map(|checkpoint| checkpoint.epoch),
+                        unrealized_finalized_epoch: node
+                            .unrealized_finalized_checkpoint
+                            .map(|checkpoint| checkpoint.epoch),
+                        execution_status: node.execution_status.to_string(),
+                        best_child: node
+                            .best_child
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|child| child.root),
+                        best_descendant: node
+                            .best_descendant
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|descendant| descendant.root),
+                    },
                 }
             })
             .collect();
