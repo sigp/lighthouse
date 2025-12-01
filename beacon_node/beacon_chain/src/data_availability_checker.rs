@@ -544,10 +544,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for block in blocks {
+            let is_available = match block {
+                RpcBlock::Available(_) => true,
+                RpcBlock::MaybeAvailable(_) => false,
+            };
+
             let (block_root, block, blobs, data_columns) = block.deconstruct();
 
             let maybe_available_block = if self.blobs_required_for_block(&block) {
-                if let Some(blobs) = blobs {
+                if let Some(blobs) = blobs
+                    && blobs.len() == block.num_expected_blobs()
+                {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
@@ -556,10 +563,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
+                    if is_available {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
                     MaybeAvailableBlock::AvailabilityPending { block_root, block }
                 }
             } else if self.data_columns_required_for_block(&block) {
-                if let Some(data_columns) = data_columns {
+                if let Some(data_columns) = data_columns
+                    && data_columns.len() == T::EthSpec::number_of_columns()
+                {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
@@ -570,6 +582,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
+                    if is_available {
+                        return Err(AvailabilityCheckError::MissingCustodyColumns);
+                    }
                     MaybeAvailableBlock::AvailabilityPending { block_root, block }
                 }
             } else {
