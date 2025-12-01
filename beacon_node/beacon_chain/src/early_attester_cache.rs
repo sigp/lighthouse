@@ -3,6 +3,7 @@ use crate::{BeaconChainError as Error, metrics};
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
+use tracing::instrument;
 use types::*;
 
 /// Stores the minimal amount of data required to compute the committee length for any committee at any
@@ -162,6 +163,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     /// - There is a cache `item` present.
     /// - If `request_slot` is in the same epoch as `item.epoch`.
     /// - If `request_index` does not exceed `item.committee_count`.
+    #[instrument(skip_all, fields(%request_slot, %request_index), level = "debug")]
     pub fn try_attest(
         &self,
         request_slot: Slot,

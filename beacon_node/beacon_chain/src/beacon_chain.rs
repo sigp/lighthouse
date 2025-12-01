@@ -88,6 +88,7 @@ use futures::channel::mpsc::Sender;
 use itertools::Itertools;
 use itertools::process_results;
 use kzg::Kzg;
+use lighthouse_tracing::SPAN_PRODUCE_UNAGGREGATED_ATTESTATION;
 use logging::crit;
 use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
@@ -1840,6 +1841,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return an error if the `request_slot` is too far behind the head state.
+    #[instrument(name = SPAN_PRODUCE_UNAGGREGATED_ATTESTATION, skip_all, fields(%request_slot, %request_index), level = "debug")]
     pub fn produce_unaggregated_attestation(
         &self,
         request_slot: Slot,
@@ -1888,6 +1890,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let target;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
+        let head_span = debug_span!("attestation_production_head_scrape").entered();
         // The following braces are to prevent the `cached_head` Arc from being held for longer than
         // required. It also helps reduce the diff for a very large PR (#3244).
         {
@@ -1961,6 +1964,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
         }
+        drop(head_span);
         drop(head_timer);
 
         // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
@@ -1985,9 +1989,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
          *  If the justified checkpoint and committee length from the head are suitable for this
          *  attestation, use them. If not, use the database, which will hit the state cache.
          */
-
-        let cache_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS);
         let (justified_checkpoint, committee_len) =
             if let Some((justified_checkpoint, committee_len)) = current_epoch_attesting_info {
                 // The head state is in the same epoch as the attestation, so there is no more
@@ -2018,7 +2019,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .len(),
                 )
             };
-        drop(cache_timer);
 
         Ok(Attestation::<T::EthSpec>::empty_for_signing(
             request_index,
