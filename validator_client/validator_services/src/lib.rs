@@ -1,3 +1,4 @@
+pub mod attestation_data_service;
 pub mod attestation_service;
 pub mod block_service;
 pub mod duties_service;

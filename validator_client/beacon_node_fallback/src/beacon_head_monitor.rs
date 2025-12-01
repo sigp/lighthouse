@@ -106,7 +106,9 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
         let stream_fut = async move {
             while let Some(event_result) = head_event_stream.next().await {
                 if let Ok(EventKind::Head(head)) = event_result {
-                    head_cache_ref.insert(candidate.index, head.clone()).await;
+                    head_cache_ref
+                        .insert(candidate.beacon_node.index, head.clone())
+                        .await;
 
                     if !head_cache_ref.is_latest(&head).await {
                         continue;
@@ -114,7 +116,7 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
 
                     if sender_tx
                         .send(HeadEvent {
-                            beacon_node_index: candidate.index,
+                            beacon_node_index: candidate.beacon_node.index,
                         })
                         .await
                         .is_err()

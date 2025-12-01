@@ -436,7 +436,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 let mut beacon_nodes = Vec::new();
                 for node in &*block_filter.beacon_nodes.candidates.read().await {
                     beacon_nodes.push(CandidateInfo {
-                        index: node.index,
+                        index: node.beacon_node.index,
                         endpoint: node.beacon_node.to_string(),
                         health: *node.health.read().await,
                     });
@@ -447,7 +447,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let mut proposer_nodes = Vec::new();
                     for node in &*proposer_nodes_list.candidates.read().await {
                         proposer_nodes.push(CandidateInfo {
-                            index: node.index,
+                            index: node.beacon_node.index,
                             endpoint: node.beacon_node.to_string(),
                             health: *node.health.read().await,
                         });

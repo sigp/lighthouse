@@ -304,6 +304,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 url.clone(),
                 beacon_node_http_client,
                 timeouts,
+                i,
             ))
         };
 
@@ -326,8 +327,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // the node in `--beacon_nodes`.
         let candidates = beacon_nodes
             .into_iter()
-            .enumerate()
-            .map(|(index, node)| CandidateBeaconNode::new(node, index))
+            .map(CandidateBeaconNode::new)
             .collect();
 
         let proposer_nodes_num = proposer_nodes.len();
@@ -335,8 +335,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // the node in `--proposer_nodes`.
         let proposer_candidates = proposer_nodes
             .into_iter()
-            .enumerate()
-            .map(|(index, node)| CandidateBeaconNode::new(node, index))
+            .map(CandidateBeaconNode::new)
             .collect();
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
@@ -712,7 +711,7 @@ async fn init_from_beacon_node<E: EthSpec>(
             .first_success(|node| async move { node.get_beacon_genesis().await })
             .await
         {
-            Ok(genesis) => break genesis.data,
+            Ok((genesis, _)) => break genesis.data,
             Err(errors) => {
                 // Search for a 404 error which indicates that genesis has not yet
                 // occurred.

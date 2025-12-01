@@ -322,6 +322,7 @@ impl ApiTester {
         let client = BeaconNodeHttpClient::new(
             beacon_url,
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+            0,
         );
 
         Self {
@@ -410,6 +411,7 @@ impl ApiTester {
             ))
             .unwrap(),
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+            0,
         );
 
         Self {

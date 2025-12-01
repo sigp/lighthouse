@@ -133,6 +133,7 @@ async fn beacon_node_liveness<T: 'static + SlotClock>(
                 }
             })
             .await
+            .map(|(data, _)| data)
             .unwrap_or_else(|e| {
                 crit!(
                     error = %e,
@@ -168,6 +169,7 @@ async fn beacon_node_liveness<T: 'static + SlotClock>(
             }
         })
         .await
+        .map(|(data, _)| data)
         .unwrap_or_else(|e| {
             crit!(
                 error = %e,

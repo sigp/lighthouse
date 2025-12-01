@@ -22,3 +22,8 @@ tree_hash = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }
+
+[dev-dependencies]
+mockito = { workspace = true }
+regex = { workspace = true }
+serde_json = { workspace = true }

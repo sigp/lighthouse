@@ -211,14 +211,13 @@ impl Serialize for CandidateInfo {
 /// for a query.
 #[derive(Clone, Debug)]
 pub struct CandidateBeaconNode {
-    pub index: usize,
     pub beacon_node: BeaconNodeHttpClient,
     pub health: Arc<RwLock<Result<BeaconNodeHealth, CandidateError>>>,
 }
 
 impl PartialEq for CandidateBeaconNode {
     fn eq(&self, other: &Self) -> bool {
-        self.index == other.index && self.beacon_node == other.beacon_node
+        self.beacon_node == other.beacon_node
     }
 }
 
@@ -226,9 +225,8 @@ impl Eq for CandidateBeaconNode {}
 
 impl CandidateBeaconNode {
     /// Instantiate a new node.
-    pub fn new(beacon_node: BeaconNodeHttpClient, index: usize) -> Self {
+    pub fn new(beacon_node: BeaconNodeHttpClient) -> Self {
         Self {
-            index,
             beacon_node,
             health: Arc::new(RwLock::new(Err(CandidateError::Uninitialized))),
         }
@@ -283,7 +281,7 @@ impl CandidateBeaconNode {
                     };
 
                     let new_health = BeaconNodeHealth::from_status(
-                        self.index,
+                        self.beacon_node.index,
                         sync_distance,
                         head,
                         optimistic_status,
@@ -492,7 +490,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             }
 
             candidate_info.push(CandidateInfo {
-                index: candidate.index,
+                index: candidate.beacon_node.index,
                 endpoint: candidate.beacon_node.to_string(),
                 health,
             });
@@ -524,7 +522,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             .into_iter()
             .enumerate()
             .map(|(index, url)| {
-                CandidateBeaconNode::new(BeaconNodeHttpClient::new(url, timeouts.clone()), index)
+                CandidateBeaconNode::new(BeaconNodeHttpClient::new(url, timeouts.clone(), index))
             })
             .collect();
 
@@ -640,7 +638,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
 
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
     /// Otherwise, return all the errors encountered along the way.
-    pub async fn first_success<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
+    pub async fn first_success<F, O, Err, R>(&self, func: F) -> Result<(O, usize), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -695,7 +693,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         &self,
         preferred_index: Option<usize>,
         func: F,
-    ) -> Result<O, Errors<Err>>
+    ) -> Result<(O, usize), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<O, Err>>,
@@ -704,7 +702,9 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         // Try the preferred beacon node first if it exists
         if let Some(preferred_idx) = preferred_index
             && let candidates = self.candidates.read().await
-            && let Some(preferred_candidate) = candidates.iter().find(|c| c.index == preferred_idx)
+            && let Some(preferred_candidate) = candidates
+                .iter()
+                .find(|c| c.beacon_node.index == preferred_idx)
         {
             let preferred_node = preferred_candidate.beacon_node.clone();
             drop(candidates);
@@ -725,7 +725,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     async fn run_on_candidate<F, R, Err, O>(
         candidate: BeaconNodeHttpClient,
         func: F,
-    ) -> Result<O, (String, Error<Err>)>
+    ) -> Result<(O, usize), (String, Error<Err>)>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -736,7 +736,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         // There exists a race condition where `func` may be called when the candidate is
         // actually not ready. We deem this an acceptable inefficiency.
         match func(candidate.clone()).await {
-            Ok(val) => Ok(val),
+            Ok(val) => Ok((val, candidate.index)),
             Err(e) => {
                 debug!(
                     node = %candidate,
@@ -884,8 +884,9 @@ mod tests {
             let beacon_node = BeaconNodeHttpClient::new(
                 SensitiveUrl::parse(&format!("http://example_{index}.com")).unwrap(),
                 Timeouts::set_all(Duration::from_secs(index as u64)),
+                index,
             );
-            CandidateBeaconNode::new(beacon_node, index)
+            CandidateBeaconNode::new(beacon_node)
         }
 
         let candidate_1 = new_candidate(1);
@@ -988,11 +989,10 @@ mod tests {
         index: usize,
         spec: &ChainSpec,
     ) -> (MockBeaconNode<E>, CandidateBeaconNode) {
-        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
+        let mut mock_beacon_node = MockBeaconNode::<E>::new(index).await;
         mock_beacon_node.mock_config_spec(spec);
 
-        let beacon_node =
-            CandidateBeaconNode::new(mock_beacon_node.beacon_api_client.clone(), index);
+        let beacon_node = CandidateBeaconNode::new(mock_beacon_node.beacon_api_client.clone());
 
         (mock_beacon_node, beacon_node)
     }
