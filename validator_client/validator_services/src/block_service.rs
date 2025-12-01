@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
@@ -320,6 +320,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
     async fn sign_and_publish_block(
         &self,
         proposer_fallback: ProposerFallback<T>,
@@ -333,6 +334,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         let res = self
             .validator_store
             .sign_block(*validator_pubkey, unsigned_block, slot)
+            .instrument(info_span!("sign_block"))
             .await;
 
         let signed_block = match res {
@@ -389,6 +391,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
+    #[instrument(
+        name = "block_proposal_duty_cycle",
+        skip_all,
+        fields(%slot, ?validator_pubkey)
+    )]
     async fn publish_block(
         self,
         slot: Slot,
@@ -483,6 +490,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn publish_signed_block_contents(
         &self,
         signed_block: &SignedBlock<S::E>,
@@ -518,6 +526,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok::<_, BlockError>(())
     }
 
+    #[instrument(skip_all, fields(%slot))]
     async fn get_validator_block(
         beacon_node: &BeaconNodeHttpClient,
         slot: Slot,
