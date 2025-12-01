@@ -1,9 +1,8 @@
 #![cfg(test)]
 
-mod common;
-
+use crate::common;
 use crate::common::spec_with_all_forks_enabled;
-use common::{Protocol, build_tracing_subscriber};
+use crate::common::{Protocol, build_tracing_subscriber};
 use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{NetworkEvent, ReportSource, Response};

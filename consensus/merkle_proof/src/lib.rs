@@ -413,50 +413,70 @@ impl From<InvalidSnapshot> for MerkleTreeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quickcheck::TestResult;
-    use quickcheck_macros::quickcheck;
 
-    /// Check that we can:
-    /// 1. Build a MerkleTree from arbitrary leaves and an arbitrary depth.
-    /// 2. Generate valid proofs for all of the leaves of this MerkleTree.
-    #[quickcheck]
-    fn quickcheck_create_and_verify(int_leaves: Vec<u64>, depth: usize) -> TestResult {
-        if depth > MAX_TREE_DEPTH || int_leaves.len() > 2usize.pow(depth as u32) {
-            return TestResult::discard();
-        }
+    use proptest::prelude::*;
 
-        let leaves: Vec<_> = int_leaves.into_iter().map(H256::from_low_u64_be).collect();
-        let merkle_tree = MerkleTree::create(&leaves, depth);
-        let merkle_root = merkle_tree.hash();
+    // Limit test depth to avoid generating huge trees. Depth 10 = 1024 max leaves.
+    const TEST_MAX_DEPTH: usize = 10;
 
-        let proofs_ok = (0..leaves.len()).all(|i| {
-            let (leaf, branch) = merkle_tree
-                .generate_proof(i, depth)
-                .expect("should generate proof");
-            leaf == leaves[i] && verify_merkle_proof(leaf, &branch, depth, i, merkle_root)
-        });
-
-        TestResult::from_bool(proofs_ok)
+    fn merkle_leaves_strategy(max_depth: usize) -> impl Strategy<Value = (Vec<u64>, usize)> {
+        (0..=max_depth).prop_flat_map(|depth| {
+            let max_leaves = 2usize.pow(depth as u32);
+            (
+                proptest::collection::vec(any::<u64>(), 0..=max_leaves),
+                Just(depth),
+            )
+        })
     }
 
-    #[quickcheck]
-    fn quickcheck_push_leaf_and_verify(int_leaves: Vec<u64>, depth: usize) -> TestResult {
-        if depth == 0 || depth > MAX_TREE_DEPTH || int_leaves.len() > 2usize.pow(depth as u32) {
-            return TestResult::discard();
+    fn merkle_leaves_strategy_min_depth(
+        max_depth: usize,
+        min_depth: usize,
+    ) -> impl Strategy<Value = (Vec<u64>, usize)> {
+        (min_depth..=max_depth).prop_flat_map(|depth| {
+            let max_leaves = 2usize.pow(depth as u32);
+            (
+                proptest::collection::vec(any::<u64>(), 0..=max_leaves),
+                Just(depth),
+            )
+        })
+    }
+
+    proptest::proptest! {
+        /// Check that we can:
+        /// 1. Build a MerkleTree from arbitrary leaves and an arbitrary depth.
+        /// 2. Generate valid proofs for all of the leaves of this MerkleTree.
+        #[test]
+        fn proptest_create_and_verify((int_leaves, depth) in merkle_leaves_strategy(TEST_MAX_DEPTH)) {
+            let leaves: Vec<_> = int_leaves.into_iter().map(H256::from_low_u64_be).collect();
+            let merkle_tree = MerkleTree::create(&leaves, depth);
+            let merkle_root = merkle_tree.hash();
+
+            let proofs_ok = (0..leaves.len()).all(|i| {
+                let (leaf, branch) = merkle_tree
+                    .generate_proof(i, depth)
+                    .expect("should generate proof");
+                leaf == leaves[i] && verify_merkle_proof(leaf, &branch, depth, i, merkle_root)
+            });
+
+            proptest::prop_assert!(proofs_ok);
         }
 
-        let leaves_iter = int_leaves.into_iter().map(H256::from_low_u64_be);
-        let mut merkle_tree = MerkleTree::create(&[], depth);
+        #[test]
+        fn proptest_push_leaf_and_verify((int_leaves, depth) in merkle_leaves_strategy_min_depth(TEST_MAX_DEPTH, 1)) {
+            let leaves_iter = int_leaves.into_iter().map(H256::from_low_u64_be);
+            let mut merkle_tree = MerkleTree::create(&[], depth);
 
-        let proofs_ok = leaves_iter.enumerate().all(|(i, leaf)| {
-            assert_eq!(merkle_tree.push_leaf(leaf, depth), Ok(()));
-            let (stored_leaf, branch) = merkle_tree
-                .generate_proof(i, depth)
-                .expect("should generate proof");
-            stored_leaf == leaf && verify_merkle_proof(leaf, &branch, depth, i, merkle_tree.hash())
-        });
+            let proofs_ok = leaves_iter.enumerate().all(|(i, leaf)| {
+                assert_eq!(merkle_tree.push_leaf(leaf, depth), Ok(()));
+                let (stored_leaf, branch) = merkle_tree
+                    .generate_proof(i, depth)
+                    .expect("should generate proof");
+                stored_leaf == leaf && verify_merkle_proof(leaf, &branch, depth, i, merkle_tree.hash())
+            });
 
-        TestResult::from_bool(proofs_ok)
+            proptest::prop_assert!(proofs_ok);
+        }
     }
 
     #[test]
