@@ -1167,9 +1167,10 @@ mod tests {
 
         // Request with preferred_index=1 (beacon_node_2)
         let result = beacon_node_fallback
-            .first_success_from_index(Some(1), |client| async move {
-                client.get_node_version().await
-            })
+            .first_success_from_index(
+                Some(1),
+                |client| async move { client.get_node_version().await },
+            )
             .await;
 
         // Should succeed since beacon_node_2 is online
@@ -1199,9 +1200,10 @@ mod tests {
 
         // Request with preferred_index=1 (beacon_node_2), but it's offline
         let result = beacon_node_fallback
-            .first_success_from_index(Some(1), |client| async move {
-                client.get_node_version().await
-            })
+            .first_success_from_index(
+                Some(1),
+                |client| async move { client.get_node_version().await },
+            )
             .await;
 
         // Should succeed by falling back to beacon_node_1
@@ -1211,7 +1213,7 @@ mod tests {
         mock2.expect(1).assert();
         // since the result was ok we can safely assume that the fallback first_success
         // behaviour succeeded instead of checking if either of mock1/mock3 received hits
-   }
+    }
 
     #[tokio::test]
     async fn first_success_from_index_with_none_falls_back_to_first_success() {
@@ -1232,9 +1234,10 @@ mod tests {
 
         // Request with preferred_index=None
         let result = beacon_node_fallback
-            .first_success_from_index(None, |client| async move {
-                client.get_node_version().await
-            })
+            .first_success_from_index(
+                None,
+                |client| async move { client.get_node_version().await },
+            )
             .await;
 
         // Should succeed with beacon_node_3 in the first pass
@@ -1263,9 +1266,10 @@ mod tests {
 
         // Request with preferred_index=1, but all nodes are offline
         let result = beacon_node_fallback
-            .first_success_from_index(Some(1), |client| async move {
-                client.get_node_version().await
-            })
+            .first_success_from_index(
+                Some(1),
+                |client| async move { client.get_node_version().await },
+            )
             .await;
 
         // Should fail since all nodes are offline
