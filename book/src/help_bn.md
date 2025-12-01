@@ -509,14 +509,11 @@ Flags:
           Serves the RESTful HTTP API server over TLS. This feature is currently
           experimental.
       --ignore-ws-check
-          The Weak Subjectivity Period is the the maximum time a node can be
-          offline and still safely sync back to the canonical chain without the
-          risk of falling victim to long-range attacks. For more information
-          please read this blog post:
+          Using this flag allows a node to run in a state that may expose it to
+          long-range attacks. For more information please read this blog post:
           https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity
           If you understand the risks, you can use this flag to disable the Weak
-          Subjectivity check at startup, allowing users to run a node whose
-          current head snapshot is outside the Weak Subjectivity Period.
+          Subjectivity check at startup.
       --import-all-attestations
           Import and aggregate all attestations, regardless of validator
           subscriptions. This will only import attestations from
