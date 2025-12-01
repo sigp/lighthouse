@@ -1408,9 +1408,10 @@ pub fn cli_app() -> Command {
             Arg::new("ignore-ws-check")
                 .long("ignore-ws-check")
                 .help("The Weak Subjectivity Period is the the maximum time a node can be offline and still \
-                safely sync back to the canonical chain without the risk of falling victim to long-range attacks. \
-                This flag disables the Weak Subjectivity check at startup, allowing users to run a node whose current head snapshot \
-                is outside the Weak Subjectivity Period. It is unsafe to disable the Weak Subjectivity check at startup.")
+                    safely sync back to the canonical chain without the risk of falling victim to long-range attacks. \
+                    For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, you can use this flag to disable the Weak Subjectivity check at startup, \
+                    allowing users to run a node whose current head snapshot is outside the Weak Subjectivity Period.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)

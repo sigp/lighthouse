@@ -860,16 +860,15 @@ where
                 warn!(
                     head_slot=%head_state.slot(),
                     %current_slot,
-                    "The current head state is outside the weak subjectivity period. It is highly recommended to purge your db and \
-                    checkpoint sync. You are currently running a node that is susceptible to long range attacks. For more information please \
+                    "The current head state is outside the weak subjectivity period. You are currently running a node that is susceptible to long range attacks. \
+                    It is highly recommended to purge your db and checkpoint sync. For more information please \
                     read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
                 )
             }
             return Err(
-                "The current head state is outside the weak subjectivity period. It is highly recommended to purge your db and \
-                checkpoint sync. It is possible to ignore this error with the --ignore-ws-check flag, but this could make the node \
-                susceptible to long range attacks. For more information please read this blog post: \
-                https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity".to_string()
+                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
             );
         }
 
