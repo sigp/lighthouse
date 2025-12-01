@@ -132,7 +132,7 @@ Returns information regarding the health of the host machine.
 
 | Property          | Specification                              |
 |-------------------|--------------------------------------------|
-| Path              | `/lighthouse/ui/health`                       |
+| Path              | `/lighthouse/ui/health`                    |
 | Method            | GET                                        |
 | Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
@@ -178,7 +178,7 @@ Returns the graffiti that will be used for the next block proposal of each valid
 
 | Property          | Specification                              |
 |-------------------|--------------------------------------------|
-| Path              | `/lighthouse/ui/graffiti`                    |
+| Path              | `/lighthouse/ui/graffiti`                  |
 | Method            | GET                                        |
 | Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |

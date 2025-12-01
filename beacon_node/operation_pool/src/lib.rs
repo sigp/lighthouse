@@ -782,6 +782,7 @@ impl<E: EthSpec + Default> PartialEq for OperationPool<E> {
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()
+            && *self.bls_to_execution_changes.read() == *other.bls_to_execution_changes.read()
     }
 }
 

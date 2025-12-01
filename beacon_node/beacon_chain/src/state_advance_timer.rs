@@ -363,24 +363,30 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         // For epochs *greater than* the Fulu fork epoch, we have also determined the proposer
         // shuffling for the next epoch.
         let next_epoch = state.next_epoch()?;
-        let next_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
-            next_epoch,
-            head_block_root,
-            &beacon_chain.spec,
-        )?;
-        beacon_chain.with_proposer_cache(
-            next_epoch_decision_root,
-            next_epoch,
-            |_| Ok(()),
-            || {
-                debug!(
-                    shuffling_decision_root = ?next_epoch_decision_root,
-                    epoch = %next_epoch,
-                    "Computing next epoch proposer shuffling in state advance"
-                );
-                Ok::<_, Error>((advanced_state_root, state.clone()))
-            },
-        )?;
+        let next_epoch_decision_slot = beacon_chain
+            .spec
+            .proposer_shuffling_decision_slot::<T::EthSpec>(next_epoch);
+
+        if state.slot() > next_epoch_decision_slot {
+            let next_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
+                next_epoch,
+                head_block_root,
+                &beacon_chain.spec,
+            )?;
+            beacon_chain.with_proposer_cache(
+                next_epoch_decision_root,
+                next_epoch,
+                |_| Ok(()),
+                || {
+                    debug!(
+                        shuffling_decision_root = ?next_epoch_decision_root,
+                        epoch = %next_epoch,
+                        "Computing next epoch proposer shuffling in state advance"
+                    );
+                    Ok::<_, Error>((advanced_state_root, state.clone()))
+                },
+            )?;
+        }
 
         // Update the attester cache.
         let shuffling_id =

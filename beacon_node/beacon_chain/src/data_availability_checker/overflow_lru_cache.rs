@@ -823,6 +823,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 mod test {
     use super::*;
 
+    use crate::test_utils::generate_data_column_indices_rand_order;
     use crate::{
         blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
@@ -1023,7 +1024,11 @@ mod test {
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
-        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode, &spec));
+        let custody_context = Arc::new(CustodyContext::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<E>(),
+            &spec,
+        ));
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(
                 capacity_non_zero,
@@ -1279,7 +1284,7 @@ mod pending_components_tests {
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let spec = test_spec::<E>();
         let (block, blobs_vec) =
-            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng, &spec);
+            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
         let max_len = spec.max_blobs_per_block(block.epoch()) as usize;
         let mut blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
             RuntimeFixedVector::default(max_len);
