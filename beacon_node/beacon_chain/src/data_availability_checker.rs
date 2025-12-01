@@ -390,7 +390,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             };
         }
         if self.data_columns_required_for_block(&block) {
-            return if let Some(data_column_list) = data_columns.as_ref() {
+            return if let Some(data_column_list) = data_columns.as_ref()
+                && data_column_list.len() == T::EthSpec::number_of_columns()
+            {
                 verify_kzg_for_data_column_list(
                     data_column_list
                         .iter()
