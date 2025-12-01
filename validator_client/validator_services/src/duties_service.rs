@@ -715,7 +715,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                         )
                         .await
                 })
-                .await?;
+                .await;
 
             let fee_recipient = duties_service
                 .validator_store
@@ -727,7 +727,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                         .to_string()
                 });
             match download_result {
-                Ok(response) => {
+                Ok(Some(response)) => {
                     info!(
                         ?pubkey,
                         validator_index = response.data.index,
