@@ -437,12 +437,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             Some((attestation_data, _)) => attestation_data,
             None => {
                 let mut attestation_data_service = self.attestation_data_service.write().await;
-                attestation_data_service
+                let attestation_data = attestation_data_service
                     .download_data(&slot, candidate_beacon_node)
                     .await
-                    .map(|(data, _)| data)?
+                    .map(|(data, _)| data)?;
+                drop(attestation_data_service);
+                attestation_data
             }
         };
+
+        info!(?attestation_data, "GOT ATTESTATION DATA");
 
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;
