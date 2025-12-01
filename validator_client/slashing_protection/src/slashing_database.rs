@@ -11,6 +11,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
+use tracing::instrument;
 use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
@@ -639,6 +640,7 @@ impl SlashingDatabase {
     /// to prevent concurrent checks and inserts from resulting in slashable data being inserted.
     ///
     /// This is the safe, externally-callable interface for checking attestations.
+    #[instrument(skip_all, level = "debug")]
     pub fn check_and_insert_attestation(
         &self,
         validator_pubkey: &PublicKeyBytes,
