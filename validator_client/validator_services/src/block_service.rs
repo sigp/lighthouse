@@ -172,14 +172,13 @@ impl<T: SlotClock> ProposerFallback<T> {
 
         match (beacon_nodes_result, &self.proposer_nodes) {
             // The non-proposer node call succeed, return the result.
-            (Ok((data, _)), _) => Ok(data),
+            (Ok(data), _) => Ok(data),
             // The non-proposer node call failed, but we don't have any proposer nodes. Return an error.
             (Err(e), None) => Err(e),
             // The non-proposer node call failed, try the same call on the proposer nodes.
             (Err(_), Some(proposer_nodes)) => proposer_nodes
                 .first_success(func)
                 .await
-                .map(|(data, _)| data),
         }
     }
 }

@@ -636,9 +636,19 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             .collect()
     }
 
+    /// A wrapper for `first_success_with_index` when the beacon node `index` is not needed.
+    pub async fn first_success<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
+    where
+        F: Fn(BeaconNodeHttpClient) -> R,
+        R: Future<Output = Result<O, Err>>,
+        Err: Debug,
+    {
+        self.first_success_with_index(func).await.map(|(val, _)| val)
+    }
+
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
     /// Otherwise, return all the errors encountered along the way.
-    pub async fn first_success<F, O, Err, R>(&self, func: F) -> Result<(O, usize), Errors<Err>>
+    pub async fn first_success_with_index<F, O, Err, R>(&self, func: F) -> Result<(O, usize), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -712,13 +722,13 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             match Self::run_on_candidate(preferred_node, &func).await {
                 Ok(val) => return Ok(val),
                 Err(_) => {
-                    return self.first_success(func).await;
+                    return self.first_success_with_index(func).await;
                 }
             }
         }
 
         // Fall back to normal first_success behavior
-        self.first_success(func).await
+        self.first_success_with_index(func).await
     }
 
     /// Run the future `func` on `candidate` while reporting metrics.

@@ -187,7 +187,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             .await;
 
         let block_root = match response {
-            Ok((block, _)) => block.data.root,
+            Ok(block) => block.data.root,
             Err(errs) => {
                 warn!(
                     errors = errs.to_string(),
@@ -378,8 +378,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     error = %e,
                     "Failed to produce sync contribution"
                 )
-            })
-            .map(|(data, _)| data)?
+            })?
             .ok_or_else(|| {
                 crit!(%slot, ?beacon_block_root, "No aggregate contribution found");
             })?

@@ -437,7 +437,7 @@ pub async fn poll_sync_committee_duties_for_period<S: ValidatorStore, T: SlotClo
         .await;
 
     let duties = match duties_response {
-        Ok((res, _)) => res.data,
+        Ok(res) => res.data,
         Err(e) => {
             warn!(
                 sync_committee_period,
@@ -557,7 +557,7 @@ pub async fn make_sync_selection_proof<S: ValidatorStore, T: SlotClock>(
             .await;
 
         match middleware_response {
-            Ok((mut response, _)) => {
+            Ok(mut response) => {
                 let Some(response_data) = response.data.pop() else {
                     error!(
                         validator_index = duty.validator_index,

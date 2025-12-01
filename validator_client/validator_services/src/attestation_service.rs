@@ -670,7 +670,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             })
             .instrument(info_span!("fetch_aggregate_attestation"))
             .await
-            .map(|(data, _)| data)
             .map_err(|e| e.to_string())?;
 
         // Create futures to produce the signed aggregated attestations.
@@ -752,7 +751,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     count = signed_aggregate_and_proofs.len()
                 ))
                 .await
-                .map(|(data, _)| data)
             {
                 Ok(()) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {

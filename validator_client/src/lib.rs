@@ -711,7 +711,7 @@ async fn init_from_beacon_node<E: EthSpec>(
             .first_success(|node| async move { node.get_beacon_genesis().await })
             .await
         {
-            Ok((genesis, _)) => break genesis.data,
+            Ok(genesis) => break genesis.data,
             Err(errors) => {
                 // Search for a 404 error which indicates that genesis has not yet
                 // occurred.

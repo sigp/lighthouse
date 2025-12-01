@@ -179,7 +179,6 @@ async fn make_selection_proof<S: ValidatorStore + 'static, T: SlotClock>(
             .await;
 
         let response_data = middleware_response
-            .map(|(data, _)| data)
             .map_err(|e| {
                 Error::FailedToProduceSelectionProof(ValidatorStoreError::Middleware(e.to_string()))
             })?
@@ -716,7 +715,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                         )
                         .await
                 })
-                .await;
+                .await?;
 
             let fee_recipient = duties_service
                 .validator_store
@@ -728,7 +727,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                         .to_string()
                 });
             match download_result {
-                Ok((Some(response), _)) => {
+                Ok(response) => {
                     info!(
                         ?pubkey,
                         validator_index = response.data.index,
@@ -746,7 +745,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                 }
                 // This is not necessarily an error, it just means the validator is not yet known to
                 // the beacon chain.
-                Ok((None, _)) => {
+                Ok(None) => {
                     if let Some(current_slot) = current_slot_opt {
                         let next_poll_slot = current_slot.saturating_add(S::E::slots_per_epoch());
                         duties_service
@@ -1203,7 +1202,6 @@ async fn post_validator_duties_attester<S: ValidatorStore, T: SlotClock + 'stati
                 .await
         })
         .await
-        .map(|(data, _)| data)
         .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))
 }
 
@@ -1489,7 +1487,7 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
             .await;
 
         match download_result {
-            Ok((response, _)) => {
+            Ok(response) => {
                 let dependent_root = response.dependent_root;
 
                 let relevant_duties = response
