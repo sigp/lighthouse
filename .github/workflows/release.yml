@@ -181,7 +181,7 @@ jobs:
             # =======================================================================
             # Upload artifacts - Binaries (existing)
             # =======================================================================
-    
+
             - name: Upload artifact
               if: ${{ !endsWith(matrix.arch, '-deb') }}
               uses: actions/upload-artifact@v4
