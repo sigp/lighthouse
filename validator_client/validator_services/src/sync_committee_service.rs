@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{
     ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
     SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
@@ -208,7 +208,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .publish_sync_committee_signatures(slot, block_root, validator_duties)
                     .map(|_| ())
                     .await
-            },
+            }
+            .instrument(info_span!("sync_committee_signature_publish", %slot)),
             "sync_committee_signature_publish",
         );
 
@@ -225,7 +226,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     )
                     .map(|_| ())
                     .await
-            },
+            }
+            .instrument(info_span!("sync_committee_aggregate_publish", %slot)),
             "sync_committee_aggregate_publish",
         );
 
@@ -233,6 +235,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 
     /// Publish sync committee signatures.
+    #[instrument(skip_all, fields(%slot, ?beacon_block_root))]
     async fn publish_sync_committee_signatures(
         &self,
         slot: Slot,
@@ -277,6 +280,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         // Execute all the futures in parallel, collecting any successful results.
         let committee_signatures = &join_all(signature_futures)
+            .instrument(info_span!(
+                "sign_sync_signatures",
+                count = validator_duties.len()
+            ))
             .await
             .into_iter()
             .flatten()
@@ -288,6 +295,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .post_beacon_pool_sync_committee_signatures(committee_signatures)
                     .await
             })
+            .instrument(info_span!(
+                "publish_sync_signatures",
+                count = committee_signatures.len()
+            ))
             .await
             .map_err(|e| {
                 error!(
@@ -328,7 +339,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                         )
                         .map(|_| ())
                         .await
-                },
+                }
+                .instrument(info_span!("publish_sync_committee_aggregate_for_subnet", %slot, ?beacon_block_root, %subnet_id)),
                 "sync_committee_aggregate_publish_subnet",
             );
         }
@@ -357,6 +369,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .get_validator_sync_committee_contribution(&sync_contribution_data)
                     .await
             })
+            .instrument(info_span!("fetch_sync_contribution"))
             .await
             .map_err(|e| {
                 crit!(
@@ -372,6 +385,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             .data;
 
         // Create futures to produce signed contributions.
+        let aggregator_count = subnet_aggregators.len();
         let signature_futures = subnet_aggregators.into_iter().map(
             |(aggregator_index, aggregator_pk, selection_proof)| async move {
                 match self
@@ -405,6 +419,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         // Execute all the futures in parallel, collecting any successful results.
         let signed_contributions = &join_all(signature_futures)
+            .instrument(info_span!(
+                "sign_sync_contributions",
+                count = aggregator_count
+            ))
             .await
             .into_iter()
             .flatten()
@@ -417,6 +435,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .post_validator_contribution_and_proofs(signed_contributions)
                     .await
             })
+            .instrument(info_span!(
+                "publish_sync_contributions",
+                count = signed_contributions.len()
+            ))
             .await
             .map_err(|e| {
                 error!(
