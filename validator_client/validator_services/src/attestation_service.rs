@@ -195,39 +195,43 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
         let attestation_service = self.clone();
 
-        let attestation_data_handle = self.inner.executor.spawn_handle(
-            async move {
-                let attestation_data = attestation_service
-                    .beacon_nodes
-                    .first_success(|beacon_node| async move {
-                        let _timer = validator_metrics::start_timer_vec(
-                            &validator_metrics::ATTESTATION_SERVICE_TIMES,
-                            &[validator_metrics::ATTESTATIONS_HTTP_GET],
-                        );
-                        beacon_node
-                            .get_validator_attestation_data(slot, 0)
-                            .await
-                            .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
-                            .map(|result| result.data)
-                    })
-                    .await
-                    .map_err(|e| e.to_string())?;
+        let attestation_data_handle = self
+            .inner
+            .executor
+            .spawn_handle(
+                async move {
+                    let attestation_data = attestation_service
+                        .beacon_nodes
+                        .first_success(|beacon_node| async move {
+                            let _timer = validator_metrics::start_timer_vec(
+                                &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                                &[validator_metrics::ATTESTATIONS_HTTP_GET],
+                            );
+                            beacon_node
+                                .get_validator_attestation_data(slot, 0)
+                                .await
+                                .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
+                                .map(|result| result.data)
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?;
 
-                attestation_service
-                    .publish_attestations(slot, &attestation_duties, attestation_data.clone())
-                    .await
-                    .map_err(|e| {
-                        crit!(
-                            error = format!("{:?}", e),
-                            slot = slot.as_u64(),
-                            "Error during attestation routine"
-                        );
-                        e
-                    })?;
-                Ok::<AttestationData, String>(attestation_data)
-            },
-            "attestation publish",
-        );
+                    attestation_service
+                        .publish_attestations(slot, &attestation_duties, attestation_data.clone())
+                        .await
+                        .map_err(|e| {
+                            crit!(
+                                error = format!("{:?}", e),
+                                slot = slot.as_u64(),
+                                "Error during attestation routine"
+                            );
+                            e
+                        })?;
+                    Ok::<AttestationData, String>(attestation_data)
+                },
+                "get_attestation_data",
+            )
+            .ok_or("Failed to spawn attestation data task")?;
 
         // If a validator needs to publish an aggregate attestation, they must do so at 2/3
         // through the slot. This delay triggers at this time
@@ -253,11 +257,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         self.inner.executor.spawn(
             async move {
                 // Log an error if the handle fails and return, skipping aggregates
-                let Some(attestation_data) =
-                    async { attestation_data_handle?.await.ok()?.and_then(Result::ok) }.await
-                else {
-                    error!(slot = slot.as_u64(), "Failed to spawn attestation task");
-                    return;
+                let attestation_data = match attestation_data_handle.await {
+                    Ok(Some(Ok(data))) => data,
+                    Ok(Some(Err(err))) => {
+                        error!(?err, "Attestation production failed");
+                        return;
+                    }
+                    Ok(None) | Err(_) => {
+                        info!("Aborting attestation production due to shutdown");
+                        return;
+                    }
                 };
 
                 // For each committee index for this slot:
