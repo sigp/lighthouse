@@ -136,39 +136,7 @@ jobs:
                   echo "Debian package built: $NEW_NAME"
                   echo "Size: $(du -h "$NEW_NAME" | cut -f1)"
                 else
-                  echo "❌ No .deb package found"
-                  exit 1
-                fi
-
-            # ==============================
-            #       Builds - Debian Packages
-            # ==============================
-
-            - name: Build reproducible Debian package
-              if: endsWith(matrix.arch, '-deb')
-              run: |
-                make deb-cargo RUST_TARGET=${{ matrix.rust_target }} PROFILE=${{ matrix.profile }}
-
-            - name: Find and prepare Debian package
-              if: endsWith(matrix.arch, '-deb')
-              run: |
-                VERSION=${{ needs.extract-version.outputs.VERSION }}
-                DEB_FILE=$(find target/${{ matrix.rust_target }}/debian -name "*.deb" | head -1)
-                if [ -n "$DEB_FILE" ]; then
-                  # Create standardized filename to match existing pattern
-                  ARCH_SHORT=$(echo "${{ matrix.rust_target }}" | cut -d'-' -f1)
-                  NEW_NAME="lighthouse-${{ needs.extract-version.outputs.VERSION }}-${ARCH_SHORT}.deb"
-                  cp "$DEB_FILE" "$NEW_NAME"
-                  echo "DEB_PACKAGE=$NEW_NAME" >> $GITHUB_ENV
-                  
-                  # Generate checksums  
-                  sha256sum "$NEW_NAME" > "$NEW_NAME.sha256"
-                  sha512sum "$NEW_NAME" > "$NEW_NAME.sha512"
-                  
-                  echo "Debian package built: $NEW_NAME"
-                  echo "Size: $(du -h "$NEW_NAME" | cut -f1)"
-                else
-                  echo "❌ No .deb package found"
+                  echo "No .deb package found"
                   exit 1
                 fi
 
@@ -210,26 +178,12 @@ jobs:
                   echo "$GPG_SIGNING_KEY" | gpg --batch --import
                   echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab "$DEB_PACKAGE"
 
-            # ==============================
-            #       Debian Package Artifacts
-            # ==============================
-
-            - name: Sign Debian package
-              if: endsWith(matrix.arch, '-deb')
-              env:
-                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
-                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-              run: |
-                  export GPG_TTY=$(tty)
-                  echo "$GPG_SIGNING_KEY" | gpg --batch --import
-                  echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab "$DEB_PACKAGE"
-
             # =======================================================================
             # Upload artifacts - Binaries (existing)
             # =======================================================================
     
             - name: Upload artifact
-              if: !endsWith(matrix.arch, '-deb')
+              if: ${{ !endsWith(matrix.arch, '-deb') }}
               uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
@@ -237,7 +191,7 @@ jobs:
                   compression-level: 0
 
             - name: Upload signature
-              if: !endsWith(matrix.arch, '-deb')
+              if: ${{ !endsWith(matrix.arch, '-deb') }}
               uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
