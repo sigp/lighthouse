@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
@@ -319,6 +319,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
     async fn sign_and_publish_block(
         &self,
         proposer_fallback: ProposerFallback<T>,
@@ -332,6 +333,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         let res = self
             .validator_store
             .sign_block(*validator_pubkey, unsigned_block, slot)
+            .instrument(info_span!("sign_block"))
             .await;
 
         let signed_block = match res {
@@ -389,6 +391,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 
     async fn get_validator_block_and_publish_block(
+    #[instrument(
+        name = "block_proposal_duty_cycle",
+        skip_all,
+        fields(%slot, ?validator_pubkey)
+    )]
+    async fn publish_block(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
@@ -529,6 +537,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn publish_signed_block_contents(
         &self,
         signed_block: &SignedBlock<S::E>,
@@ -562,6 +571,71 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             }
         }
         Ok::<_, BlockError>(())
+    }
+
+    #[instrument(skip_all, fields(%slot))]
+    async fn get_validator_block(
+        beacon_node: &BeaconNodeHttpClient,
+        slot: Slot,
+        randao_reveal_ref: &SignatureBytes,
+        graffiti: Option<Graffiti>,
+        proposer_index: Option<u64>,
+        builder_boost_factor: Option<u64>,
+    ) -> Result<UnsignedBlock<S::E>, BlockError> {
+        let block_response = match beacon_node
+            .get_validator_blocks_v3_ssz::<S::E>(
+                slot,
+                randao_reveal_ref,
+                graffiti.as_ref(),
+                builder_boost_factor,
+            )
+            .await
+        {
+            Ok((ssz_block_response, _)) => ssz_block_response,
+            Err(e) => {
+                warn!(
+                    slot = slot.as_u64(),
+                    error = %e,
+                    "Beacon node does not support SSZ in block production, falling back to JSON"
+                );
+
+                let (json_block_response, _) = beacon_node
+                    .get_validator_blocks_v3::<S::E>(
+                        slot,
+                        randao_reveal_ref,
+                        graffiti.as_ref(),
+                        builder_boost_factor,
+                    )
+                    .await
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!(
+                            "Error from beacon node when producing block: {:?}",
+                            e
+                        ))
+                    })?;
+
+                // Extract ProduceBlockV3Response (data field of the struct ForkVersionedResponse)
+                json_block_response.data
+            }
+        };
+
+        let (block_proposer, unsigned_block) = match block_response {
+            eth2::types::ProduceBlockV3Response::Full(block) => {
+                (block.block().proposer_index(), UnsignedBlock::Full(block))
+            }
+            eth2::types::ProduceBlockV3Response::Blinded(block) => {
+                (block.proposer_index(), UnsignedBlock::Blinded(block))
+            }
+        };
+
+        info!(slot = slot.as_u64(), "Received unsigned block");
+        if proposer_index != Some(block_proposer) {
+            return Err(BlockError::Recoverable(
+                "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
+            ));
+        }
+
+        Ok::<_, BlockError>(unsigned_block)
     }
 }
 
