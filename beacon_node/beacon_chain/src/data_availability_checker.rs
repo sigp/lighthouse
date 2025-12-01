@@ -570,7 +570,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 }
             } else if self.data_columns_required_for_block(&block) {
                 if let Some(data_columns) = data_columns
-                    && data_columns.len() == T::EthSpec::number_of_columns()
                 {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
