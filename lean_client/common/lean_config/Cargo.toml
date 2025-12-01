@@ -10,6 +10,8 @@ lean_keystore = { workspace = true }
 lean_network = { workspace = true }
 lean_network_config = { workspace = true }
 lean_store = { workspace = true }
+ethereum_ssz = "0.10.0"
+tree_hash = { workspace = true }
 slot_clock = { workspace = true }
 store = { workspace = true, features = ["redb"] }
 tracing = { workspace = true }

@@ -1,9 +1,10 @@
 //! Key generation functionality using hash-sig Rust crate
 
-use crate::key_storage::{KeyStore, KeyStoreError, ValidatorKeyPair, PublicKey, PrivateKey, XmssTree};
+use crate::key_storage::{KeyStore, KeyStoreError, ValidatorKeyPair, PublicKey, PrivateKey};
 use crate::HashSigKeyConfig;
-use hashsig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
-use hashsig::signature::SignatureScheme;
+use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
+use leansig::signature::SignatureScheme;
+use leansig::serialization::Serializable;
 use rand::{rngs::StdRng, SeedableRng};
 use std::path::PathBuf;
 use std::convert::TryInto;
@@ -142,34 +143,43 @@ fn generate_xmss_key_pair(
 
     // Generate key pair using the SIGTopLevelTargetSumLifetime32Dim64Base8 scheme
     // Activation epoch starts at 0, and the key is active for num_active_epochs epochs
-    let (_public_key, _secret_key) =
+    let (public_key_raw, secret_key_raw) =
         SIGTopLevelTargetSumLifetime32Dim64Base8::key_gen(&mut rng, 0, num_active_epochs as usize);
 
-    // TODO: Properly extract root, parameter, and prf_key from the generated XMSS keys
-    // For now, create placeholder structures to allow compilation
-    let public_key = PublicKey {
-        root: vec![0; 8],
-        parameter: vec![0; 5],
-    };
+    let _public_key_bytes = public_key_raw.to_bytes();
+    let _private_key_bytes = secret_key_raw.to_bytes();
 
-    let private_key = PrivateKey {
-        prf_key: vec![0; 32],
-        parameter: vec![0; 5],
-        activation_epoch: 0,
-        num_active_epochs,
-        top_tree: XmssTree {
-            depth: 32,
-            lowest_layer: 16,
-            layers: vec![],
-        },
-    };
+    let public_key_json = serde_json::to_string(&public_key_raw).map_err(|e| {
+        KeyGenerationError::HashSigError(format!("Failed to serialize lean-sig public key to JSON: {}", e))
+    })?;
+    let private_key_json = serde_json::to_string(&secret_key_raw).map_err(|e| {
+        KeyGenerationError::HashSigError(format!("Failed to serialize lean-sig secret key to JSON: {}", e))
+    })?;
+
+    let public_key: PublicKey = serde_json::from_str(&public_key_json).map_err(|e| {
+        KeyGenerationError::HashSigError(format!(
+            "Failed to convert lean-sig public key into lean format: {}",
+            e
+        ))
+    })?;
+    let private_key: PrivateKey = serde_json::from_str(&private_key_json).map_err(|e| {
+        KeyGenerationError::HashSigError(format!(
+            "Failed to convert lean-sig secret key into lean format: {}",
+            e
+        ))
+    })?;
 
     debug!(
         validator_index,
         num_active_epochs, "Generated XMSS key pair"
     );
 
-    Ok(ValidatorKeyPair::new(public_key, private_key))
+    Ok(ValidatorKeyPair::with_serialized(
+        public_key,
+        private_key,
+        public_key_json,
+        private_key_json,
+    ))
 }
 
 #[cfg(test)]

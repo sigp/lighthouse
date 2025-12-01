@@ -306,6 +306,7 @@ lean_keystore = { path = "lean_client/keystore" }
 lean_genesis = { path = "lean_client/common/lean_genesis" }
 lean_config = { path = "lean_client/common/lean_config" }
 lean_network_config = { path = "lean_client/common/lean_network_config" }
+leansig = { git = "https://github.com/leanEthereum/leanSig" }
 
 
 [profile.maxperf]

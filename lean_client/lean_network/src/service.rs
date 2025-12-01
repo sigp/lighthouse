@@ -1,12 +1,13 @@
 use crate::config::NetworkConfig;
-use crate::topics::{ATTESTATION_TOPIC, BLOCK_TOPIC};
+use crate::topics::{self, Topic};
 use futures::StreamExt;
 use lean_consensus::attestation::SignedAttestation;
 use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
 use libp2p::identity::{self, Keypair};
 use libp2p::{
-    Multiaddr, PeerId, Swarm, Transport, gossipsub,
+    gossipsub,
     swarm::{NetworkBehaviour, SwarmEvent},
+    Multiaddr, PeerId, Swarm, Transport,
 };
 use ssz::{Decode, Encode};
 use std::collections::VecDeque;
@@ -50,7 +51,10 @@ pub struct NetworkService<E: EthSpec> {
     bootstrap_nodes: VecDeque<BootstrapNode>,
     /// Interval between bootstrap node retry attempts (in seconds)
     bootstrap_retry_interval: Duration,
+    /// Network name used for topic encoding
+    network_name: String,
 }
+
 
 impl<E: EthSpec> NetworkService<E> {
     pub fn new(
@@ -62,6 +66,7 @@ impl<E: EthSpec> NetworkService<E> {
             listen_port,
             bootstrap_nodes: bootstrap_node_strings,
             node_key,
+            network_name,
         } = config;
 
         let local_key = match node_key {
@@ -119,44 +124,51 @@ impl<E: EthSpec> NetworkService<E> {
 
         swarm.listen_on(listen_addr)?;
 
-        // Subscribe to gossipsub topics
-        let block_topic = gossipsub::IdentTopic::new(BLOCK_TOPIC);
-        let attestation_topic = gossipsub::IdentTopic::new(ATTESTATION_TOPIC);
-
-        swarm
-            .behaviour_mut()
-            .gossipsub
-            .subscribe(&block_topic)
-            .map_err(|e| format!("Failed to subscribe to block topic: {}", e))?;
-
-        swarm
-            .behaviour_mut()
-            .gossipsub
-            .subscribe(&attestation_topic)
-            .map_err(|e| format!("Failed to subscribe to attestation topic: {}", e))?;
-
-        info!(
-            "Subscribed to gossipsub topics: {:?}",
-            vec![BLOCK_TOPIC, ATTESTATION_TOPIC]
-        );
+        let encoded_topics = topics::get_topics(&network_name);
+        info!("Subscribing to gossipsub topics: {:?}", encoded_topics);
+        for topic_str in encoded_topics.iter() {
+            let topic = gossipsub::IdentTopic::new(topic_str.clone());
+            swarm
+                .behaviour_mut()
+                .gossipsub
+                .subscribe(&topic)
+                .map_err(|e| format!("Failed to subscribe to topic {}: {}", topic_str, e))?;
+        }
 
         // Initialize bootstrap nodes cache
         let mut bootstrap_nodes = VecDeque::new();
-        for bootstrap_addr_str in bootstrap_node_strings.iter() {
-            match bootstrap_addr_str.parse::<Multiaddr>() {
-                Ok(multiaddr) => {
+        for bootstrap_addr_raw in bootstrap_node_strings.iter() {
+            let bootstrap_addr_str = bootstrap_addr_raw.trim();
+
+            let multiaddr = if bootstrap_addr_str.starts_with("enr:") {
+                match crate::bootstrap::parse_enr_to_multiaddr(bootstrap_addr_str) {
+                    Ok(multiaddr) => multiaddr,
+                    Err(e) => {
+                        warn!("Invalid bootstrap ENR {}: {}", bootstrap_addr_str, e);
+                        continue;
+                    }
+                }
+            } else {
+                match bootstrap_addr_str.parse::<Multiaddr>() {
+                    Ok(multiaddr) => multiaddr,
+                    Err(e) => {
+                        warn!(
+                            "Invalid bootstrap node address {}: {}",
+                            bootstrap_addr_str, e
+                        );
+                        continue;
+                    }
+                }
+            };
+
+            if let Some(peer_in_addr) = peer_id_from_multiaddr(multiaddr.clone()) {
+                if peer_in_addr != local_peer_id {
                     bootstrap_nodes.push_back(BootstrapNode {
                         multiaddr,
                         last_attempt: None,
                         attempt_count: 0,
                         connected: false,
                     });
-                }
-                Err(e) => {
-                    warn!(
-                        "Invalid bootstrap node address {}: {}",
-                        bootstrap_addr_str, e
-                    );
                 }
             }
         }
@@ -172,26 +184,22 @@ impl<E: EthSpec> NetworkService<E> {
             network_send,
             bootstrap_nodes,
             bootstrap_retry_interval: Duration::from_secs(5), // Retry every 5 seconds
+            network_name,
         })
     }
 
     /// Decode message based on topic and create appropriate NetworkMessage
     fn decode_network_message(&self, topic: &str, data: &[u8]) -> Option<NetworkMessage<E>> {
-        // Topic format is typically: /eth2/{fork_digest}/{topic_name}/{encoding}
-        // e.g., /eth2/4a26c58b/lean_attestation/ssz_snappy
-        if topic.contains("lean_attestation") || topic.contains("attestation") {
-            match SignedAttestation::from_ssz_bytes(data) {
-                Ok(signed_attestation) => {
-                    debug!("Successfully decoded signed lean attestation from network");
-                    Some(NetworkMessage::Attestation(Arc::new(signed_attestation)))
-                }
-                Err(e) => {
-                    warn!("Failed to decode signed lean attestation: {:?}", e);
-                    None
-                }
+        let base_topic = match topics::parse_topic_name(topic, &self.network_name) {
+            Some(name) => name,
+            None => {
+                debug!("Unknown topic format: {}", topic);
+                return None;
             }
-        } else if topic.contains("lean_block") || topic.contains("block") {
-            match SignedLeanBlockWithAttestation::from_ssz_bytes(data) {
+        };
+
+        match base_topic {
+            Topic::Block => match SignedLeanBlockWithAttestation::from_ssz_bytes(data) {
                 Ok(block) => {
                     debug!("Successfully decoded lean block from network");
                     Some(NetworkMessage::Block(Arc::new(block)))
@@ -200,10 +208,17 @@ impl<E: EthSpec> NetworkService<E> {
                     warn!("Failed to decode lean block: {:?}", e);
                     None
                 }
-            }
-        } else {
-            debug!("Unknown topic type: {}", topic);
-            None
+            },
+            Topic::Attestation => match SignedAttestation::from_ssz_bytes(data) {
+                Ok(signed_attestation) => {
+                    debug!("Successfully decoded signed lean attestation from network");
+                    Some(NetworkMessage::Attestation(Arc::new(signed_attestation)))
+                }
+                Err(e) => {
+                    warn!("Failed to decode signed lean attestation: {:?}", e);
+                    None
+                }
+            },
         }
     }
 
@@ -244,10 +259,9 @@ impl<E: EthSpec> NetworkService<E> {
                             );
 
                             // Decode the message based on topic
-                            if let Some(network_msg) = self.decode_network_message(
-                                &message.topic.to_string(),
-                                &message.data
-                            ) {
+                            if let Some(network_msg) =
+                                self.decode_network_message(message.topic.as_str(), &message.data)
+                            {
                                 match &network_msg {
                                     NetworkMessage::Attestation(_) => {
                                         info!("Forwarding attestation to attestation service");
@@ -305,32 +319,36 @@ impl<E: EthSpec> NetworkService<E> {
 
     /// Publishes a message to the gossipsub network
     async fn publish_message(&mut self, msg: NetworkMessage<E>) {
-        let (topic_name, data) = match &msg {
+        let (topic_variant, data) = match &msg {
             NetworkMessage::Attestation(signed_attestation) => {
                 info!(
                     slot = signed_attestation.message.attestation_data.slot.0,
                     validator_id = signed_attestation.message.validator_id,
                     "Publishing attestation to network"
                 );
-                ("lean_attestation", signed_attestation.as_ssz_bytes())
+                (Topic::Attestation, signed_attestation.as_ssz_bytes())
             }
             NetworkMessage::Block(block) => {
                 info!(
                     slot = block.message.block.slot.0,
                     "Publishing block to network"
                 );
-                ("lean_block", block.as_ssz_bytes())
+                (Topic::Block, block.as_ssz_bytes())
             }
         };
 
         // Create gossipsub topic
-        let topic = gossipsub::IdentTopic::new(topic_name);
+        let encoded_topic = topics::encode_topic(&self.network_name, topic_variant);
+        let topic = gossipsub::IdentTopic::new(encoded_topic.clone());
 
         // Publish to gossipsub
         if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-            warn!("Failed to publish message to gossipsub: {:?}", e);
+            warn!(
+                "Failed to publish message to gossipsub topic {}: {:?}",
+                encoded_topic, e
+            );
         } else {
-            debug!("Successfully published message to topic: {}", topic_name);
+            debug!("Successfully published message to topic: {}", encoded_topic);
         }
     }
 
@@ -430,5 +448,12 @@ impl<E: EthSpec> NetworkService<E> {
                 .find(|s| s.parse::<u16>().is_ok())
                 .unwrap_or(""),
         )
+    }
+}
+    fn peer_id_from_multiaddr( mut addr: Multiaddr) -> Option<PeerId> {
+    if let Some(libp2p::multiaddr::Protocol::P2p(mh)) = addr.pop() {
+        PeerId::from_multihash(mh.into()).ok()
+    } else {
+        None
     }
 }

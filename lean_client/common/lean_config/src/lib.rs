@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lean_consensus::lean_state::LeanState;
+use ssz::Decode;
+use tree_hash::TreeHash;
 use lean_genesis::ValidatorConfig;
 use lean_keystore::{DEFAULT_KEYS_DIR, KeyStore, ValidatorKeyPair};
 use lean_network::NetworkConfig;
@@ -15,7 +17,7 @@ use store::database::interface::BeaconNodeBackend;
 use tracing::info;
 use types::{EthSpec, Slot, milhouse};
 
-use validators::{build_validators, current_unix_timestamp};
+use validators::build_validators;
 
 /// Input paths and identifiers required to build the lean client runtime.
 pub struct LeanClientPaths {
@@ -89,48 +91,100 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
         );
     }
 
-    let validators_list = build_validators(all_key_pairs)?;
-    let validators = milhouse::List::new(validators_list)
-        .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
-    let mut genesis_state = LeanState::<E>::genesis_default().generate_genesis(validators);
+    // Try to load genesis state from genesis.ssz if it exists
+    let genesis_ssz_path = genesis_json_path.as_ref().and_then(|json_path| {
+        json_path
+            .parent()
+            .map(|parent| parent.join("genesis.ssz"))
+    });
 
-    let current_time = current_unix_timestamp()?;
-    
+    let mut genesis_state = if let Some(ssz_path) = &genesis_ssz_path {
+        if ssz_path.exists() {
+            info!(
+                "Found genesis.ssz file at {:?}, attempting to load",
+                ssz_path
+            );
+            let ssz_bytes = std::fs::read(ssz_path)
+                .map_err(|e| format!("Failed to read genesis.ssz from {:?}: {}", ssz_path, e))?;
+
+            match LeanState::<E>::from_ssz_bytes(&ssz_bytes) {
+                Ok(state) => {
+                    info!(
+                        "Successfully loaded genesis state from SSZ: slot={}, validators={}, genesis_time={}, genesis_root={:?}",
+                        state.slot.0,
+                        state.validators.len(),
+                        state.config.genesis_time,
+                        state.latest_block_header.tree_hash_root()
+                    );
+                    state
+                }
+                Err(e) => {
+                    info!(
+                        "Failed to decode genesis.ssz ({:?}), generating fresh genesis state instead",
+                        e
+                    );
+                    let validators_list = build_validators(all_key_pairs)?;
+                    let validators = milhouse::List::new(validators_list)
+                        .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
+                    LeanState::<E>::genesis_default().generate_genesis(validators)
+                }
+            }
+        } else {
+            info!("genesis.ssz not found, generating fresh genesis state");
+            let validators_list = build_validators(all_key_pairs)?;
+            let validators = milhouse::List::new(validators_list)
+                .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
+            LeanState::<E>::genesis_default().generate_genesis(validators)
+        }
+    } else {
+        info!("No genesis path provided, generating fresh genesis state");
+        let validators_list = build_validators(all_key_pairs)?;
+        let validators = milhouse::List::new(validators_list)
+            .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
+        LeanState::<E>::genesis_default().generate_genesis(validators)
+    };
+
+    // Override genesis_time from genesis.json if provided
     if let Some(path) = genesis_json_path {
         let genesis_json_bytes = std::fs::read(&path)
             .map_err(|e| format!("Failed to read genesis.json from {:?}: {}", path, e))?;
         let genesis_json: serde_json::Value = serde_json::from_slice(&genesis_json_bytes)
             .map_err(|e| format!("Failed to parse genesis.json: {}", e))?;
-        
-        if let Some(time_val) = genesis_json.get("genesis_time") {
-             let time_u64 = if let Some(time_str) = time_val.as_str() {
-                 time_str.parse::<u64>().map_err(|e| format!("Failed to parse genesis_time string: {}", e))?
-             } else if let Some(time_u64) = time_val.as_u64() {
-                 time_u64
-             } else {
-                 return Err("genesis_time in genesis.json is not a string or number".to_string());
-             };
-             genesis_state.config.genesis_time = time_u64;
-             info!("Using genesis time from genesis.json: {}", time_u64);
-        } else {
-             info!("genesis.json does not contain genesis_time, using current time: {}", current_time);
-             genesis_state.config.genesis_time = current_time;
+
+        if let Some(config) = genesis_json.get("config") {
+            if let Some(time_val) = config.get("genesis_time") {
+                let time_u64 = if let Some(time_str) = time_val.as_str() {
+                    time_str
+                        .parse::<u64>()
+                        .map_err(|e| format!("Failed to parse genesis_time string: {}", e))?
+                } else if let Some(time_u64) = time_val.as_u64() {
+                    time_u64
+                } else {
+                    return Err("genesis_time in config is not a string or number".to_string());
+                };
+                genesis_state.config.genesis_time = time_u64;
+                info!("Using genesis time from genesis.json config: {}", time_u64);
+            }
         }
-    } else {
-        genesis_state.config.genesis_time = current_time;
     }
+
+    let genesis_root = genesis_state.latest_block_header.tree_hash_root();
 
     info!(
         slot = genesis_state.slot.0,
         genesis_time = genesis_state.config.genesis_time,
         validators_count = genesis_state.validators.len(),
+        genesis_root = ?genesis_root,
         "Initialized genesis state with validators"
     );
 
     lean_store
         .save_state(&genesis_state)
         .map_err(|e| format!("Failed to save genesis state to database: {}", e))?;
-    info!("Saved genesis state to database");
+    info!(
+        genesis_root = ?genesis_root,
+        "Saved genesis state to database"
+    );
 
     let slot_clock = SystemTimeSlotClock::new(
         Slot::new(0),
@@ -196,7 +250,7 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
         .unwrap_or(9000);
 
     info!(
-        config = ?config_path,
+        config = ?config_info,
         validators = ?validators_path,
         nodes = ?nodes_path,
         listen_port,
@@ -207,7 +261,17 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
 
     let node_key_bytes = load_node_key(&node_key_path)?;
 
-    let network_config = NetworkConfig::new(listen_port)
+    let network_name = nodes_path
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .and_then(|name| name.to_str())
+        .unwrap_or("lean")
+        .to_string();
+
+    info!(network_name = %network_name, "Resolved network name");
+
+    let network_config = NetworkConfig::new(listen_port, network_name.clone())
         .with_bootstrap_nodes(config_info.bootstrap_enrs)
         .with_node_key(node_key_bytes);
 

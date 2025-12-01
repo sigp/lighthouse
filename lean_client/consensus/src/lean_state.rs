@@ -2,6 +2,7 @@ use crate::attestation::{Attestation, Checkpoint, Slot};
 
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
+use tracing::debug;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -12,7 +13,7 @@ use crate::validator::ValidatorIndex;
 use crate::lean_block::LeanBlockHeader;
 use milhouse::List;
 use types::VariableList;
-use types::{BitVector, EthSpec, Hash256};
+use types::{BitList, EthSpec, Hash256};
 
 #[derive(TreeHash, Encode, Decode)]
 pub struct LeanState<E: EthSpec> {
@@ -28,13 +29,13 @@ pub struct LeanState<E: EthSpec> {
     /// Justification tracking fields.
     /// NOTE: The justification structure may need refinement based on final spec requirements.
     /// Current implementation uses:
-    /// - `justified_slots`: BitVector tracking which slots are justified
+    /// - `justified_slots`: BitList tracking which slots are justified (matches zeam's Bitlist)
     /// - `justifications_roots`: List of checkpoint roots that have been justified
-    /// - `justifications_validators`: BitVector tracking validator participation in justifications
-    pub justified_slots: BitVector<E::HistoricalRootsLimit>,
+    /// - `justifications_validators`: BitList tracking validator participation in justifications (matches zeam's Bitlist)
+    pub justified_slots: BitList<E::HistoricalRootsLimit>,
     pub validators: List<Validator, E::ValidatorRegistryLimit>,
     pub justifications_roots: List<Hash256, E::HistoricalRootsLimit>,
-    pub justifications_validators: BitVector<E::JustificationValidators>,
+    pub justifications_validators: BitList<E::JustificationValidators>,
 }
 
 impl<E: EthSpec> LeanState<E> {
@@ -59,10 +60,10 @@ impl<E: EthSpec> LeanState<E> {
             latest_finalized: Checkpoint::default(),
             latest_block_header: genesis_header,
             historical_block_hashes: List::empty(),
-            justified_slots: BitVector::default(),
+            justified_slots: BitList::with_capacity(0).expect("Failed to create empty BitList"),
             validators: List::empty(),
             justifications_roots: List::empty(),
-            justifications_validators: BitVector::default(),
+            justifications_validators: BitList::with_capacity(0).expect("Failed to create empty BitList"),
         }
     }
 
@@ -86,10 +87,10 @@ impl<E: EthSpec> LeanState<E> {
             latest_finalized: Checkpoint::default(),
             latest_block_header: genesis_header,
             historical_block_hashes: List::empty(),
-            justified_slots: BitVector::default(),
+            justified_slots: BitList::with_capacity(0).expect("Failed to create empty BitList"),
             validators,
             justifications_roots: List::empty(),
-            justifications_validators: BitVector::default(),
+            justifications_validators: BitList::with_capacity(0).expect("Failed to create empty BitList"),
         }
     }
 
@@ -98,7 +99,7 @@ impl<E: EthSpec> LeanState<E> {
     }
     pub fn get_justifications(
         &self,
-    ) -> Result<HashMap<Hash256, BitVector<E::HistoricalRootsLimit>>, String> {
+    ) -> Result<HashMap<Hash256, BitList<E::HistoricalRootsLimit>>, String> {
         if self.justifications_roots.is_empty() {
             return Ok(HashMap::new());
         }
@@ -112,7 +113,8 @@ impl<E: EthSpec> LeanState<E> {
                 let start = i * validator_count;
                 let end = (i + 1) * validator_count;
 
-                let mut justifications = BitVector::<E::HistoricalRootsLimit>::default();
+                let mut justifications = BitList::<E::HistoricalRootsLimit>::with_capacity(validator_count)
+                    .map_err(|e| format!("Failed to create BitList with capacity {}: {:?}", validator_count, e))?;
                 for (bit_idx, global_idx) in (start..end).enumerate() {
                     let bit_value =
                         self.justifications_validators
@@ -132,7 +134,7 @@ impl<E: EthSpec> LeanState<E> {
     pub fn with_justification(
         &mut self,
         root: Hash256,
-        validator_justifications: &BitVector<E::HistoricalRootsLimit>,
+        validator_justifications: &BitList<E::HistoricalRootsLimit>,
     ) -> Result<(), String> {
         let validator_count = self.validators.len();
 
@@ -236,6 +238,10 @@ impl<E: EthSpec> LeanState<E> {
         if is_genesis_parent {
             self.latest_justified.root = parent_root;
             self.latest_finalized.root = parent_root;
+            debug!(
+                genesis_root = ?parent_root,
+                "Genesis block finalized and justified"
+            );
         }
 
         let num_empty_slots = block.slot.0 - parent_header.slot.0 - 1;
@@ -316,6 +322,13 @@ impl<E: EthSpec> LeanState<E> {
                 if source.slot.0 + 1 == target.slot.0 && self.latest_justified.slot < target.slot {
                     self.latest_finalized = (*source).clone();
                     self.latest_justified = (*target).clone();
+                    debug!(
+                        finalized_slot = source.slot.0,
+                        finalized_root = ?source.root,
+                        justified_slot = target.slot.0,
+                        justified_root = ?target.root,
+                        "Chain finalized: consecutive justified checkpoints found"
+                    );
                 }
             } else if source_is_justified {
                 while self.justified_slots.len() <= target_slot_int {

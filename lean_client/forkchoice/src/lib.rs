@@ -1,4 +1,5 @@
 pub mod helpers;
+pub mod proto_array;
 
 pub use helpers::get_fork_choice_head;
 

@@ -14,8 +14,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 thiserror = "1"
-hashsig = { git = "https://github.com/b-wagn/hash-sig", branch = "main" }
-bincode = { workspace = true }
+leansig = { git = "https://github.com/leanEthereum/leanSig" }
+ethereum_ssz = "0.10.0"
+ethereum_ssz_derive = "0.10.0"
 rand = "0.9"
 
 [dev-dependencies]

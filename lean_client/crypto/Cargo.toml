@@ -6,9 +6,9 @@ edition = "2024"
 
 [dependencies]
 alloy-primitives = { workspace = true }
-ethereum_ssz = { workspace = true }
-ethereum_ssz_derive = { workspace = true }
+ethereum_ssz = "0.10.0"
+ethereum_ssz_derive = "0.10.0"
 tree_hash = { workspace = true }
-hashsig = { git = "https://github.com/b-wagn/hash-sig", branch = "main" }
-bincode = { workspace = true }
+leansig = { git = "https://github.com/leanEthereum/leanSig" }
+lean_keystore = { path = "../keystore" }
 

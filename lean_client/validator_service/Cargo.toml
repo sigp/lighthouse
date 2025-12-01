@@ -4,10 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-bincode = { workspace = true }
-ethereum_ssz = { workspace = true }
+ethereum_ssz = "0.10.0"
+ethereum_ssz_derive = "0.10.0"
 futures = { workspace = true }
-hashsig = { git = "https://github.com/b-wagn/hash-sig", branch = "main" }
+leansig = { git = "https://github.com/leanEthereum/leanSig" }
 lean_consensus = { workspace = true }
 lean_crypto = { workspace = true }
 lean_forkchoice = { workspace = true }

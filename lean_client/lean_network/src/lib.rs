@@ -6,4 +6,4 @@ mod topics;
 pub use bootstrap::load_bootstrap_nodes;
 pub use config::NetworkConfig;
 pub use service::{NetworkMessage, NetworkService};
-pub use topics::{ATTESTATION_TOPIC, BLOCK_TOPIC, get_topics};
+pub use topics::{Topic, get_topics};

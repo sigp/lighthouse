@@ -1,3 +1,6 @@
+use leansig::serialization::Serializable;
+use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
+use leansig::signature::SignatureScheme;
 use ssz::{Decode, DecodeError, Encode};
 use tree_hash::TreeHash;
 
@@ -47,8 +50,6 @@ impl Signature {
     /// # Returns
     /// `true` if the signature is valid, `false` otherwise
     pub fn verify(&self, public_key: &[u8], epoch: u64, message: &[u8]) -> bool {
-        use hashsig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
-        use hashsig::signature::SignatureScheme;
 
         // Validate input lengths
         if self.bytes.is_empty() || public_key.is_empty() || message.len() != 32 {
@@ -63,14 +64,14 @@ impl Signature {
 
         // Deserialize the public key
         let public_key_deserialized: <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::PublicKey =
-            match bincode::deserialize(public_key) {
+            match <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::PublicKey::from_bytes(public_key) {
                 Ok(pk) => pk,
                 Err(_) => return false,
             };
 
         // Deserialize the signature
         let signature_deserialized: <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::Signature =
-            match bincode::deserialize(&self.bytes) {
+            match <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::Signature::from_bytes(&self.bytes) {
                 Ok(sig) => sig,
                 Err(_) => return false,
             };

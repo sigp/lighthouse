@@ -78,7 +78,7 @@ impl<E: EthSpec> ProductionLeanClient<E> {
             self.validator_index,
             validator_key_pair,
             keystore,
-        );
+        )?;
 
         self.context
             .executor

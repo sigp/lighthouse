@@ -8,7 +8,7 @@ enr = { version = "0.13", features = ["ed25519", "k256"] }
 futures = { workspace = true }
 gossipsub = { workspace = true }
 lean_consensus = { workspace = true }
-ethereum_ssz = { workspace = true }
+ethereum_ssz = "0.10.0"
 libp2p-identity = { version = "0.2", features = ["secp256k1", "ed25519"] }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }

@@ -6,6 +6,7 @@
 //! Key generation uses the `b-wagn/hash-sig` Rust crate
 //! with scheme: SIGTopLevelTargetSumLifetime32Dim64Base8
 
+pub mod codec;
 mod key_generation;
 mod key_storage;
 

@@ -104,7 +104,7 @@ pub fn load_bootstrap_nodes<P: AsRef<Path>>(nodes_path: P) -> Result<Vec<String>
 /// - Uses standard ENR fields: ip4/ip6 for IP addresses
 /// - Uses get_decodable("quic") for QUIC port
 /// - Falls back to udp4/udp6 if quic port is not available
-fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
+pub fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
     // ENR format: enr:-IW4Q...
     let enr = enr_str
         .parse::<enr::Enr<enr::CombinedKey>>()

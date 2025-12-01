@@ -867,8 +867,8 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing",
  "ethereum_serde_utils",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "execution_layer",
  "fork_choice",
  "futures",
@@ -1153,7 +1153,7 @@ dependencies = [
  "blst",
  "ethereum_hashing",
  "ethereum_serde_utils",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "fixed_bytes",
  "hex",
  "rand 0.9.0",
@@ -1200,7 +1200,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "eth2_network_config",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "hex",
  "lighthouse_network",
  "log",
@@ -1233,7 +1233,7 @@ name = "builder_client"
 version = "0.1.0"
 dependencies = [
  "eth2",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "lighthouse_version",
  "mockito",
  "reqwest 0.11.27",
@@ -1524,7 +1524,7 @@ dependencies = [
  "clap",
  "dirs",
  "eth2_network_config",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "hex",
  "serde",
  "serde_json",
@@ -1543,7 +1543,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_config",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "execution_layer",
  "futures",
  "genesis",
@@ -2224,7 +2224,7 @@ name = "deposit_contract"
 version = "0.2.0"
 dependencies = [
  "ethabi 16.0.0",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "hex",
  "reqwest 0.11.27",
  "serde_json",
@@ -2560,8 +2560,8 @@ dependencies = [
  "context_deserialize",
  "derivative",
  "eth2_network_config",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "execution_layer",
  "fork_choice",
  "fs2",
@@ -2884,8 +2884,8 @@ dependencies = [
  "enr",
  "eth2_keystore",
  "ethereum_serde_utils",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "futures",
  "futures-util",
  "libp2p-identity",
@@ -2968,7 +2968,7 @@ dependencies = [
  "bytes",
  "discv5",
  "eth2_config",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "kzg",
  "pretty_reqwest_error",
  "reqwest 0.11.27",
@@ -3139,10 +3139,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethereum_ssz"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e8cd8c4f47dfb947dbfe3cdf2945ae1da808dbedc592668658e827a12659ba1"
+dependencies = [
+ "alloy-primitives",
+ "ethereum_serde_utils",
+ "itertools 0.13.0",
+ "serde",
+ "serde_derive",
+ "smallvec",
+ "typenum",
+]
+
+[[package]]
 name = "ethereum_ssz_derive"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0dd55d08012b4e0dfcc92b8d6081234df65f2986ad34cc76eeed69c5e2ce7506"
+dependencies = [
+ "darling 0.20.10",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
+]
+
+[[package]]
+name = "ethereum_ssz_derive"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78d247bc40823c365a62e572441a8f8b12df03f171713f06bc76180fcd56ab71"
 dependencies = [
  "darling 0.20.10",
  "proc-macro2",
@@ -3367,7 +3394,7 @@ dependencies = [
  "bytes",
  "eth2",
  "ethereum_serde_utils",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "ethers-core",
  "fixed_bytes",
  "fork_choice",
@@ -3589,8 +3616,8 @@ name = "fork_choice"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "logging",
  "metrics",
  "proto_array",
@@ -3823,7 +3850,7 @@ name = "genesis"
 version = "0.2.0"
 dependencies = [
  "ethereum_hashing",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "int_to_bytes",
  "merkle_proof",
  "rayon",
@@ -4041,25 +4068,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.2",
-]
-
-[[package]]
-name = "hashsig"
-version = "0.1.0"
-source = "git+https://github.com/b-wagn/hash-sig?branch=main#7dd0694a0c732da49b9b1d2f630c11e9e0d70c14"
-dependencies = [
- "dashmap",
- "num-bigint",
- "num-traits",
- "p3-baby-bear",
- "p3-field",
- "p3-koala-bear",
- "p3-symmetric",
- "rand 0.9.0",
- "rayon",
- "serde",
- "sha3 0.10.8",
- "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -4317,7 +4325,7 @@ dependencies = [
  "either",
  "eth2",
  "ethereum_serde_utils",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "execution_layer",
  "futures",
  "genesis",
@@ -5052,8 +5060,8 @@ dependencies = [
  "derivative",
  "ethereum_hashing",
  "ethereum_serde_utils",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "hex",
  "rayon",
  "rust_eth_kzg",
@@ -5069,7 +5077,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -5093,7 +5101,7 @@ dependencies = [
  "eth2_network_config",
  "eth2_wallet",
  "ethereum_hashing",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "execution_layer",
  "hex",
  "lighthouse_network",
@@ -5122,7 +5130,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "environment",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "lean_config",
  "lean_consensus",
  "lean_genesis",
@@ -5145,6 +5153,7 @@ dependencies = [
 name = "lean_config"
 version = "0.1.0"
 dependencies = [
+ "ethereum_ssz 0.10.0",
  "hex",
  "lean_consensus",
  "lean_genesis",
@@ -5157,6 +5166,7 @@ dependencies = [
  "slot_clock",
  "store",
  "tracing",
+ "tree_hash",
  "types",
 ]
 
@@ -5164,8 +5174,8 @@ dependencies = [
 name = "lean_consensus"
 version = "0.1.0"
 dependencies = [
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.10.0",
+ "ethereum_ssz_derive 0.10.0",
  "fixed_bytes",
  "int_to_bytes",
  "lean_crypto",
@@ -5173,6 +5183,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tracing",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -5183,10 +5194,10 @@ name = "lean_crypto"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
- "bincode",
- "ethereum_ssz",
- "ethereum_ssz_derive",
- "hashsig",
+ "ethereum_ssz 0.10.0",
+ "ethereum_ssz_derive 0.10.0",
+ "lean_keystore",
+ "leansig",
  "tree_hash",
 ]
 
@@ -5194,7 +5205,7 @@ dependencies = [
 name = "lean_forkchoice"
 version = "0.1.0"
 dependencies = [
- "ethereum_ssz",
+ "ethereum_ssz 0.10.0",
  "lean_consensus",
  "parking_lot 0.12.3",
  "store",
@@ -5215,9 +5226,10 @@ dependencies = [
 name = "lean_keystore"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "clap",
- "hashsig",
+ "ethereum_ssz 0.10.0",
+ "ethereum_ssz_derive 0.10.0",
+ "leansig",
  "rand 0.9.0",
  "serde",
  "serde_json",
@@ -5232,7 +5244,7 @@ name = "lean_network"
 version = "0.1.0"
 dependencies = [
  "enr",
- "ethereum_ssz",
+ "ethereum_ssz 0.10.0",
  "futures",
  "lean_consensus",
  "libp2p",
@@ -5259,7 +5271,7 @@ dependencies = [
 name = "lean_store"
 version = "0.1.0"
 dependencies = [
- "ethereum_ssz",
+ "ethereum_ssz 0.10.0",
  "lean_consensus",
  "store",
  "types",
@@ -5269,22 +5281,43 @@ dependencies = [
 name = "lean_validator_service"
 version = "0.1.0"
 dependencies = [
- "bincode",
- "ethereum_ssz",
+ "ethereum_ssz 0.10.0",
+ "ethereum_ssz_derive 0.10.0",
  "futures",
- "hashsig",
  "lean_consensus",
  "lean_crypto",
  "lean_forkchoice",
  "lean_keystore",
  "lean_network",
  "lean_store",
+ "leansig",
  "slot_clock",
  "store",
  "tokio",
  "tracing",
  "tree_hash",
  "types",
+]
+
+[[package]]
+name = "leansig"
+version = "0.1.0"
+source = "git+https://github.com/leanEthereum/leanSig#f10dcbefac2502d356d93f686e8b4ecd8dc8840a"
+dependencies = [
+ "dashmap",
+ "ethereum_ssz 0.10.0",
+ "ethereum_ssz_derive 0.10.0",
+ "num-bigint",
+ "num-traits",
+ "p3-baby-bear",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-symmetric",
+ "rand 0.9.0",
+ "rayon",
+ "serde",
+ "sha3 0.10.8",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -5858,8 +5891,8 @@ dependencies = [
  "discv5",
  "either",
  "eth2",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "fnv",
  "futures",
  "hex",
@@ -6212,8 +6245,8 @@ dependencies = [
  "arbitrary",
  "educe",
  "ethereum_hashing",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "itertools 0.13.0",
  "parking_lot 0.12.3",
  "rayon",
@@ -6554,7 +6587,7 @@ dependencies = [
  "derivative",
  "eth2",
  "eth2_network_config",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "execution_layer",
  "fnv",
  "futures",
@@ -6988,8 +7021,8 @@ dependencies = [
  "beacon_chain",
  "bitvec 1.0.1",
  "derivative",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "itertools 0.10.5",
  "maplit",
  "metrics",
@@ -7027,7 +7060,7 @@ dependencies = [
 [[package]]
 name = "p3-baby-bear"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -7040,20 +7073,21 @@ dependencies = [
 [[package]]
 name = "p3-dft"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "itertools 0.14.0",
  "p3-field",
  "p3-matrix",
  "p3-maybe-rayon",
  "p3-util",
+ "spin 0.10.0",
  "tracing",
 ]
 
 [[package]]
 name = "p3-field"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "itertools 0.14.0",
  "num-bigint",
@@ -7068,7 +7102,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "p3-field",
  "p3-monty-31",
@@ -7080,7 +7114,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "itertools 0.14.0",
  "p3-field",
@@ -7095,12 +7129,12 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 
 [[package]]
 name = "p3-mds"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "p3-dft",
  "p3-field",
@@ -7112,7 +7146,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "itertools 0.14.0",
  "num-bigint",
@@ -7127,6 +7161,7 @@ dependencies = [
  "paste",
  "rand 0.9.0",
  "serde",
+ "spin 0.10.0",
  "tracing",
  "transpose",
 ]
@@ -7134,7 +7169,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -7146,7 +7181,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "itertools 0.14.0",
  "p3-field",
@@ -7156,7 +7191,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.3.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=2117e4b#2117e4baac83269ace80c2aa109cec053f703842"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=a33a312#a33a31274a5e78bb5fbe3f82ffd2c294e17fa830"
 dependencies = [
  "serde",
 ]
@@ -7764,8 +7799,8 @@ dependencies = [
 name = "proto_array"
 version = "0.2.0"
 dependencies = [
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "safe_arith",
  "serde",
  "serde_yaml",
@@ -9156,8 +9191,8 @@ dependencies = [
  "bincode",
  "byteorder",
  "derivative",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "filesystem",
  "flate2",
  "libmdbx",
@@ -9275,6 +9310,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
 name = "spki"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9302,7 +9346,7 @@ checksum = "704671195db617afa3d919da8f220f2535f20d0fa8dad96a1c27a38a5f8f6e9c"
 dependencies = [
  "arbitrary",
  "ethereum_serde_utils",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "itertools 0.14.0",
  "serde",
  "serde_derive",
@@ -9326,8 +9370,8 @@ dependencies = [
  "bls",
  "derivative",
  "ethereum_hashing",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.10.5",
@@ -9350,7 +9394,7 @@ name = "state_transition_vectors"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "state_processing",
  "tokio",
  "types",
@@ -9371,8 +9415,8 @@ dependencies = [
  "criterion",
  "db-key",
  "directory",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "itertools 0.10.5",
  "leveldb",
  "logging",
@@ -10217,7 +10261,7 @@ checksum = "ee44f4cef85f88b4dea21c0b1f58320bdf35715cf56d840969487cff00613321"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
- "ethereum_ssz",
+ "ethereum_ssz 0.9.0",
  "smallvec",
  "typenum",
 ]
@@ -10282,8 +10326,8 @@ dependencies = [
  "eth2_interop_keypairs",
  "ethereum_hashing",
  "ethereum_serde_utils",
- "ethereum_ssz",
- "ethereum_ssz_derive",
+ "ethereum_ssz 0.9.0",
+ "ethereum_ssz_derive 0.9.0",
  "fixed_bytes",
  "hex",
  "int_to_bytes",

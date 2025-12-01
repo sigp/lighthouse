@@ -3,6 +3,8 @@
 pub struct NetworkConfig {
     /// Port to listen on for network connections
     pub listen_port: u16,
+    /// Human-readable network name used in gossipsub topics
+    pub network_name: String,
     /// Bootstrap nodes
     pub bootstrap_nodes: Vec<String>,
     /// Raw libp2p private key bytes (secp256k1). Optional for generated identity.
@@ -13,6 +15,7 @@ impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             listen_port: 9000,
+            network_name: "lean".to_string(),
             bootstrap_nodes: vec![],
             node_key: None,
         }
@@ -20,9 +23,10 @@ impl Default for NetworkConfig {
 }
 
 impl NetworkConfig {
-    pub fn new(listen_port: u16) -> Self {
+    pub fn new(listen_port: u16, network_name: impl Into<String>) -> Self {
         Self {
             listen_port,
+            network_name: network_name.into(),
             bootstrap_nodes: vec![],
             node_key: None,
         }

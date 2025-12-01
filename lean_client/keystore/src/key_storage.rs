@@ -1,10 +1,18 @@
 //! Key storage and retrieval functionality
 
+use ssz::{Encode, Decode};
+use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
+use leansig::signature::SignatureScheme;
+use leansig::serialization::Serializable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
+
+type HashSigScheme = SIGTopLevelTargetSumLifetime32Dim64Base8;
+type HashSigSecretKey = <HashSigScheme as SignatureScheme>::SecretKey;
+type HashSigPublicKey = <HashSigScheme as SignatureScheme>::PublicKey;
 
 /// Error types for key storage operations
 #[derive(Debug, thiserror::Error)]
@@ -22,12 +30,21 @@ pub enum KeyStoreError {
 }
 
 /// Public key structure for XMSS keys
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ssz_derive::Encode, ssz_derive::Decode)]
 pub struct PublicKey {
     /// Root of the XMSS public key (8 u32 values)
     pub root: Vec<u32>,
     /// Parameter values for the XMSS key (5 u32 values)
     pub parameter: Vec<u32>,
+}
+
+impl PublicKey {
+    pub fn to_hashsig(&self) -> Result<HashSigPublicKey, String> {
+        let mut buf = Vec::new();
+        self.ssz_append(&mut buf);
+        HashSigPublicKey::from_bytes(&buf)
+            .map_err(|e| format!("Failed to parse SSZ bytes into lean-sig public key: {:?}", e))
+    }
 }
 
 /// XMSS tree layer structure
@@ -67,14 +84,35 @@ pub struct ValidatorKeyPair {
     pub public_key: PublicKey,
     /// Private key
     pub private_key: PrivateKey,
+    /// Original JSON for the public key
+    public_key_json: String,
+    /// Original JSON for the private key
+    private_key_json: String,
 }
 
 impl ValidatorKeyPair {
     /// Creates a new key pair from XMSS key structures
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Self {
+        let public_key_json =
+            serde_json::to_string(&public_key).expect("PublicKey should serialize to JSON");
+        let private_key_json =
+            serde_json::to_string(&private_key).expect("PrivateKey should serialize to JSON");
+
+        Self::with_serialized(public_key, private_key, public_key_json, private_key_json)
+    }
+
+    /// Construct from explicit JSON representations.
+    pub fn with_serialized(
+        public_key: PublicKey,
+        private_key: PrivateKey,
+        public_key_json: String,
+        private_key_json: String,
+    ) -> Self {
         Self {
             public_key,
             private_key,
+            public_key_json,
+            private_key_json,
         }
     }
 
@@ -86,6 +124,16 @@ impl ValidatorKeyPair {
     /// Gets the public key parameter
     pub fn public_key_parameter(&self) -> &[u32] {
         &self.public_key.parameter
+    }
+
+    /// Returns the raw JSON for the public key.
+    pub fn public_key_json(&self) -> &str {
+        &self.public_key_json
+    }
+
+    /// Returns the raw JSON for the private key.
+    pub fn private_key_json(&self) -> &str {
+        &self.private_key_json
     }
 
     /// Gets the private key PRF key
@@ -101,6 +149,26 @@ impl ValidatorKeyPair {
     /// Gets the number of active epochs
     pub fn num_active_epochs(&self) -> u64 {
         self.private_key.num_active_epochs
+    }
+
+    /// Decode the hash-sig public key into its native representation.
+    pub fn hashsig_public_key(&self) -> Result<HashSigPublicKey, String> {
+        serde_json::from_str(self.public_key_json()).map_err(|e| {
+            format!(
+                "Failed to parse hash-sig public key JSON for validator: {}",
+                e
+            )
+        })
+    }
+
+    /// Decode the hash-sig secret key into its native representation.
+    pub fn hashsig_secret_key(&self) -> Result<HashSigSecretKey, String> {
+        serde_json::from_str(self.private_key_json()).map_err(|e| {
+            format!(
+                "Failed to parse hash-sig secret key JSON for validator: {}",
+                e
+            )
+        })
     }
 }
 
@@ -187,7 +255,12 @@ impl KeyStore {
 
         info!(validator_index, "Loaded XMSS key pair for validator");
 
-        Ok(ValidatorKeyPair::new(public_key, private_key))
+        Ok(ValidatorKeyPair::with_serialized(
+            public_key,
+            private_key,
+            public_key_json,
+            private_key_json,
+        ))
     }
 
     /// Loads all key pairs from the key store directory
