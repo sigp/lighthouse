@@ -21,7 +21,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
     pub async fn new(index: usize) -> Self {
         // mock server logging
         let server = Server::new_async().await;
-        let beacon_api_client = BeaconNodeHttpClient::new(
+        let beacon_api_client = BeaconNodeHttpClient::new_with_index(
             SensitiveUrl::from_str(&server.url()).unwrap(),
             Timeouts::set_all(Duration::from_secs(1)),
             index,

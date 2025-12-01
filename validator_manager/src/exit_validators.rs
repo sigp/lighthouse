@@ -1,4 +1,3 @@
-use crate::common::DEFAULT_BEACON_NODE_INDEX;
 use crate::{DumpConfig, common::vc_http_client};
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -194,7 +193,6 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
             let beacon_node = BeaconNodeHttpClient::new(
                 beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
-                DEFAULT_BEACON_NODE_INDEX,
             );
 
             if beacon_node

@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 use types::{ChainSpec, EthSpec, PublicKeyBytes};
 
-use crate::common::DEFAULT_BEACON_NODE_INDEX;
 use crate::exit_validators::get_current_epoch;
 use crate::{DumpConfig, common::vc_http_client};
 
@@ -137,7 +136,6 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
             let beacon_node = BeaconNodeHttpClient::new(
                 beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
-                DEFAULT_BEACON_NODE_INDEX,
             );
 
             let validator_data = beacon_node

@@ -142,7 +142,7 @@ pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,
-    pub index: usize,
+    index: usize,
 }
 
 impl Eq for BeaconNodeHttpClient {}
@@ -154,7 +154,20 @@ impl fmt::Display for BeaconNodeHttpClient {
 }
 
 impl BeaconNodeHttpClient {
-    pub fn new(server: SensitiveUrl, timeouts: Timeouts, index: usize) -> Self {
+    pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            server,
+            timeouts,
+            index: 0,
+        }
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn new_with_index(server: SensitiveUrl, timeouts: Timeouts, index: usize) -> Self {
         Self {
             client: reqwest::Client::new(),
             server,

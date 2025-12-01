@@ -319,11 +319,8 @@ impl ValidatorsAndDeposits {
         }
 
         let bn_http_client = if let Some(bn_url) = bn_url {
-            let bn_http_client = BeaconNodeHttpClient::new(
-                bn_url,
-                Timeouts::set_all(BEACON_NODE_HTTP_TIMEOUT),
-                DEFAULT_BEACON_NODE_INDEX,
-            );
+            let bn_http_client =
+                BeaconNodeHttpClient::new(bn_url, Timeouts::set_all(BEACON_NODE_HTTP_TIMEOUT));
 
             /*
              * Print the version of the remote beacon node.

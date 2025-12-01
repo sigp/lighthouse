@@ -28,8 +28,6 @@ pub const COUNT_FLAG: &str = "count";
 /// 2. Weird enough to identify Lighthouse.
 const LIGHTHOUSE_DEPOSIT_CLI_VERSION: &str = "20.18.20";
 
-pub const DEFAULT_BEACON_NODE_INDEX: usize = 0;
-
 #[derive(Debug)]
 pub enum UploadError {
     InvalidPublicKey,

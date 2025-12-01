@@ -281,7 +281,7 @@ impl CandidateBeaconNode {
                     };
 
                     let new_health = BeaconNodeHealth::from_status(
-                        self.beacon_node.index,
+                        self.beacon_node.index(),
                         sync_distance,
                         head,
                         optimistic_status,
@@ -490,7 +490,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             }
 
             candidate_info.push(CandidateInfo {
-                index: candidate.beacon_node.index,
+                index: candidate.beacon_node.index(),
                 endpoint: candidate.beacon_node.to_string(),
                 health,
             });
@@ -522,7 +522,11 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             .into_iter()
             .enumerate()
             .map(|(index, url)| {
-                CandidateBeaconNode::new(BeaconNodeHttpClient::new(url, timeouts.clone(), index))
+                CandidateBeaconNode::new(BeaconNodeHttpClient::new_with_index(
+                    url,
+                    timeouts.clone(),
+                    index,
+                ))
             })
             .collect();
 
@@ -643,12 +647,17 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
-        self.first_success_with_index(func).await.map(|(val, _)| val)
+        self.first_success_with_index(func)
+            .await
+            .map(|(val, _)| val)
     }
 
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
     /// Otherwise, return all the errors encountered along the way.
-    pub async fn first_success_with_index<F, O, Err, R>(&self, func: F) -> Result<(O, usize), Errors<Err>>
+    pub async fn first_success_with_index<F, O, Err, R>(
+        &self,
+        func: F,
+    ) -> Result<(O, usize), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -714,7 +723,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             && let candidates = self.candidates.read().await
             && let Some(preferred_candidate) = candidates
                 .iter()
-                .find(|c| c.beacon_node.index == preferred_idx)
+                .find(|c| c.beacon_node.index() == preferred_idx)
         {
             let preferred_node = preferred_candidate.beacon_node.clone();
             drop(candidates);
@@ -746,7 +755,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         // There exists a race condition where `func` may be called when the candidate is
         // actually not ready. We deem this an acceptable inefficiency.
         match func(candidate.clone()).await {
-            Ok(val) => Ok((val, candidate.index)),
+            Ok(val) => Ok((val, candidate.index())),
             Err(e) => {
                 debug!(
                     node = %candidate,
@@ -891,7 +900,7 @@ mod tests {
         let execution_status = ExecutionEngineHealth::Healthy;
 
         fn new_candidate(index: usize) -> CandidateBeaconNode {
-            let beacon_node = BeaconNodeHttpClient::new(
+            let beacon_node = BeaconNodeHttpClient::new_with_index(
                 SensitiveUrl::parse(&format!("http://example_{index}.com")).unwrap(),
                 Timeouts::set_all(Duration::from_secs(index as u64)),
                 index,

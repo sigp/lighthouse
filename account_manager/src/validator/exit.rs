@@ -31,8 +31,6 @@ pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/validator_voluntary_exit.html";
 
-pub const DEFAULT_BEACON_NODE_INDEX: usize = 0;
-
 pub fn cli_app() -> Command {
     Command::new("exit")
         .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
@@ -105,7 +103,6 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
         Timeouts::set_all(Duration::from_secs(env.eth2_config.spec.seconds_per_slot)),
-        DEFAULT_BEACON_NODE_INDEX,
     );
 
     let eth2_network_config = env

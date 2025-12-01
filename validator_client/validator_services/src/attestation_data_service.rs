@@ -105,7 +105,7 @@ mod tests {
         let spec = Arc::new(MainnetEthSpec::default_spec());
         let url = SensitiveUrl::parse("http://localhost:5052").unwrap();
         let client =
-            eth2::BeaconNodeHttpClient::new(url, Timeouts::set_all(Duration::from_secs(1)), 0);
+            eth2::BeaconNodeHttpClient::new(url, Timeouts::set_all(Duration::from_secs(1)));
         let candidate = CandidateBeaconNode::new(client);
 
         let mut fallback =
@@ -146,8 +146,11 @@ mod tests {
             .create();
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
-        let client =
-            eth2::BeaconNodeHttpClient::new(url, Timeouts::set_all(Duration::from_secs(1)), index);
+        let client = eth2::BeaconNodeHttpClient::new_with_index(
+            url,
+            Timeouts::set_all(Duration::from_secs(1)),
+            index,
+        );
         let candidate = CandidateBeaconNode::new(client);
 
         (server, candidate)
@@ -168,8 +171,11 @@ mod tests {
             .create();
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
-        let client =
-            eth2::BeaconNodeHttpClient::new(url, Timeouts::set_all(Duration::from_secs(1)), index);
+        let client = eth2::BeaconNodeHttpClient::new_with_index(
+            url,
+            Timeouts::set_all(Duration::from_secs(1)),
+            index,
+        );
         let candidate = CandidateBeaconNode::new(client);
 
         (server, candidate)

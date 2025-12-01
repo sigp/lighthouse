@@ -38,7 +38,7 @@ pub fn run<E: EthSpec>(
         }
         (None, Some(beacon_url)) => {
             let state_id: StateId = parse_required(matches, "state-id")?;
-            let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT), 0);
+            let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT));
             executor
                 .handle()
                 .ok_or("shutdown in progress")?
