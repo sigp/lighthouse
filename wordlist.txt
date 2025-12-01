@@ -2,6 +2,7 @@ allocator
 APIs
 ARMv
 AUR
+autocomplete
 Backends
 Backfilling
 Beaconcha
@@ -110,6 +111,7 @@ Validator
 VC
 VCs
 VPN
+VSCode
 WalletConnect
 Withdrawable
 WSL
