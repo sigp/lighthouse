@@ -2012,7 +2012,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 (
                     state.current_justified_checkpoint(),
-                    state.get_committee_count_at_slot(request_slot)? as usize,
+                    state
+                        .get_beacon_committee(request_slot, request_index)?
+                        .committee
+                        .len(),
                 )
             };
         drop(cache_timer);
