@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use reqwest::{Client, header::ACCEPT};
 use std::path::PathBuf;
 use std::sync::Arc;
-use task_executor::TaskExecutor;
+use task_executor::{RayonPoolType, TaskExecutor};
 use tracing::instrument;
 use types::*;
 use url::Url;
@@ -181,13 +181,11 @@ impl SigningMethod {
                 // Spawn a blocking task to produce the signature. This avoids blocking the core
                 // tokio executor.
                 let signature = executor
-                    .spawn_blocking_handle(
-                        move || voting_keypair.sk.sign(signing_root),
-                        "local_keystore_signer",
-                    )
-                    .ok_or(Error::ShuttingDown)?
+                    .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                        voting_keypair.sk.sign(signing_root)
+                    })
                     .await
-                    .map_err(|e| Error::TokioJoin(e.to_string()))?;
+                    .map_err(|_| Error::ShuttingDown)?;
                 Ok(signature)
             }
             SigningMethod::Web3Signer {
