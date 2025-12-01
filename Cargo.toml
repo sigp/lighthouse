@@ -285,3 +285,6 @@ debug = true
 
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
+# FIXME(sproul): REMOVE patch
+# milhouse = { path = "../milhouse" }
+milhouse = { git = "https://github.com/sigp/milhouse", branch = "progressive-list" }

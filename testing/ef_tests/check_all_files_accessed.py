@@ -51,7 +51,6 @@ excluded_paths = [
     "tests/.*/fulu/ssz_static/MatrixEntry/.*",
     # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
     "tests/general/phase0/ssz_generic/progressive_bitlist",
-    "tests/general/phase0/ssz_generic/basic_progressive_list",
     "tests/general/phase0/ssz_generic/containers/.*/ProgressiveBitsStruct.*",
     "tests/general/phase0/ssz_generic/containers/.*/ProgressiveTestStruct.*",
     "tests/general/phase0/ssz_generic/progressive_containers/.*",

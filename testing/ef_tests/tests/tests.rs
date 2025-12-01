@@ -734,6 +734,11 @@ fn ssz_generic() {
 }
 
 #[test]
+fn ssz_generic_progressive() {
+    SszGenericHandler::<BasicProgressiveList>::default().run();
+}
+
+#[test]
 fn epoch_processing_justification_and_finalization() {
     EpochProcessingHandler::<MinimalEthSpec, JustificationAndFinalization>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, JustificationAndFinalization>::default().run();

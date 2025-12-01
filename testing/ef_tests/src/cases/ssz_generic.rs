@@ -10,7 +10,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, ForkName, VariableList, Vector};
+use types::{BitList, BitVector, FixedVector, ForkName, ProgressiveList, VariableList, Vector};
 
 #[derive(Debug, Clone, Deserialize)]
 #[context_deserialize(ForkName)]
@@ -155,6 +155,17 @@ impl Case for SszGeneric {
                     <>,
                     [elem_ty => primitive_type]
                     [length => typenum]
+                )?;
+            }
+            "basic_progressive_list" => {
+                let elem_ty = parts[1];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path, fork_name),
+                    ProgressiveList,
+                    <>,
+                    [elem_ty => primitive_type]
                 )?;
             }
             "bitlist" => {

@@ -293,6 +293,6 @@ pub use bls::{
 };
 pub use context_deserialize::{ContextDeserialize, context_deserialize};
 pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
-pub use milhouse::{self, List, Vector};
+pub use milhouse::{self, List, ProgressiveList, Vector};
 pub use ssz_types::{BitList, BitVector, FixedVector, VariableList, typenum, typenum::Unsigned};
 pub use superstruct::superstruct;

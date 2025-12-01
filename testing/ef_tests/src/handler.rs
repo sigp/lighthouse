@@ -1135,6 +1135,8 @@ impl<H: TypeName> Handler for SszGenericHandler<H> {
 // Supported SSZ generic handlers
 pub struct BasicVector;
 type_name!(BasicVector, "basic_vector");
+pub struct BasicProgressiveList;
+type_name!(BasicProgressiveList, "basic_progressive_list");
 pub struct Bitlist;
 type_name!(Bitlist, "bitlist");
 pub struct Bitvector;
