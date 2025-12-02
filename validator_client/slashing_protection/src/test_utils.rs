@@ -84,7 +84,12 @@ impl StreamTest<AttestationData> {
 
         for (i, test) in self.cases.iter().enumerate() {
             assert_eq!(
-                slashing_db.check_and_insert_attestation(&test.pubkey, &test.data, test.domain),
+                slashing_db.with_transaction(|txn| slashing_db.check_and_insert_attestation(
+                    &test.pubkey,
+                    &test.data,
+                    test.domain,
+                    txn
+                )),
                 test.expected,
                 "attestation {} not processed as expected",
                 i

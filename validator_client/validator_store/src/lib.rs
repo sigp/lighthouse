@@ -110,6 +110,12 @@ pub trait ValidatorStore: Send + Sync {
         current_epoch: Epoch,
     ) -> impl Future<Output = Result<(), Error<Self::Error>>> + Send;
 
+    #[allow(clippy::type_complexity)]
+    fn check_and_insert_attestations(
+        &self,
+        attestations: Vec<(Attestation<Self::E>, PublicKeyBytes)>,
+    ) -> Result<Vec<(Attestation<Self::E>, PublicKeyBytes)>, Error<Self::Error>>;
+
     fn sign_validator_registration_data(
         &self,
         validator_registration_data: ValidatorRegistrationData,

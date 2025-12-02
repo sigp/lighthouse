@@ -633,6 +633,35 @@ impl SlashingDatabase {
         self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)
     }
 
+    pub fn check_and_insert_attestations<'a>(
+        &self,
+        attestations: &'a [(&'a AttestationData, &'a PublicKeyBytes, bool)],
+        domain: Hash256,
+    ) -> Result<Vec<Result<Safe, NotSafe>>, NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+
+        let mut results = vec![];
+        for (attestation, validator_pubkey, requires_check) in attestations {
+            if !requires_check {
+                results.push(Ok(Safe::Valid));
+            } else {
+                let attestation_signing_root = attestation.signing_root(domain).into();
+                results.push(self.check_and_insert_attestation_signing_root(
+                    validator_pubkey,
+                    attestation.source.epoch,
+                    attestation.target.epoch,
+                    attestation_signing_root,
+                    &txn,
+                ));
+            }
+        }
+
+        txn.commit()?;
+
+        Ok(results)
+    }
+
     /// Check an attestation for slash safety, and if it is safe, record it in the database.
     ///
     /// The checking and inserting happen atomically and exclusively. We enforce exclusivity
@@ -644,6 +673,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKeyBytes,
         attestation: &AttestationData,
         domain: Hash256,
+        txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let attestation_signing_root = attestation.signing_root(domain).into();
         self.check_and_insert_attestation_signing_root(
@@ -651,6 +681,7 @@ impl SlashingDatabase {
             attestation.source.epoch,
             attestation.target.epoch,
             attestation_signing_root,
+            txn,
         )
     }
 
@@ -661,17 +692,15 @@ impl SlashingDatabase {
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
+        txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
-        let mut conn = self.conn_pool.get()?;
-        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         let safe = self.check_and_insert_attestation_signing_root_txn(
             validator_pubkey,
             att_source_epoch,
             att_target_epoch,
             att_signing_root,
-            &txn,
+            txn,
         )?;
-        txn.commit()?;
         Ok(safe)
     }
 
