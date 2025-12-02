@@ -1,5 +1,5 @@
+mod error;
 mod light_client_bootstrap;
-mod light_client_error;
 mod light_client_finality_update;
 mod light_client_header;
 mod light_client_optimistic_update;
@@ -7,6 +7,7 @@ mod light_client_update;
 
 pub mod consts;
 
+pub use error::LightClientError;
 pub use light_client_bootstrap::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
     LightClientBootstrapDeneb, LightClientBootstrapElectra, LightClientBootstrapFulu,
@@ -34,5 +35,3 @@ pub use light_client_update::{
     LightClientUpdateElectra, LightClientUpdateFulu, LightClientUpdateGloas,
     NextSyncCommitteeProofLen, NextSyncCommitteeProofLenElectra,
 };
-
-pub use light_client_error::LightClientError;
