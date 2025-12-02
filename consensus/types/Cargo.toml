@@ -75,7 +75,6 @@ tokio = { workspace = true }
 
 [lints.clippy]
 module_inception = "allow"
-module_name_repetitions = "allow"
 
 [[bench]]
 name = "benches"

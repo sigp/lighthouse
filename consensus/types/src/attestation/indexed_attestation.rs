@@ -213,7 +213,7 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
 mod tests {
     use super::*;
     use crate::{
-        Epoch, MainnetEthSpec,
+        core::{Epoch, MainnetEthSpec},
         test_utils::{SeedableRng, XorShiftRng},
     };
 
