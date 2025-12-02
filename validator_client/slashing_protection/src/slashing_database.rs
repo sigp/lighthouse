@@ -637,18 +637,17 @@ impl SlashingDatabase {
     #[instrument(name = "db_check_and_insert_attestations", level = "debug", skip_all)]
     pub fn check_and_insert_attestations<'a>(
         &self,
-        attestations: &'a [(&'a AttestationData, &'a PublicKeyBytes, bool)],
-        domain: Hash256,
+        attestations: &'a [(&'a AttestationData, &'a PublicKeyBytes, Hash256, bool)],
     ) -> Result<Vec<Result<Safe, NotSafe>>, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
 
         let mut results = vec![];
-        for (attestation, validator_pubkey, requires_check) in attestations {
+        for (attestation, validator_pubkey, domain, requires_check) in attestations {
             if !requires_check {
                 results.push(Ok(Safe::Valid));
             } else {
-                let attestation_signing_root = attestation.signing_root(domain).into();
+                let attestation_signing_root = attestation.signing_root(*domain).into();
                 results.push(self.check_and_insert_attestation_signing_root(
                     validator_pubkey,
                     attestation.source.epoch,

@@ -796,23 +796,21 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         let mut safe_attestations = vec![];
         let mut attestations_to_check = vec![];
 
-        // All attestations must be from the same epoch.
-        // FIXME(sproul): should we verify this?
-        let Some(signing_epoch) = attestations.first().map(|(att, _)| att.data().target.epoch)
-        else {
-            // Input is empty, result is empty.
-            return Ok(vec![]);
-        };
-        let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
-        let domain_hash = signing_context.domain_hash(&self.spec);
-
         // Split attestations into de-facto safe attestations (checked by web3signer's slashing
         // protection) and ones requiring checking against the slashing protection DB.
         for (attestation, validator_pubkey) in &attestations {
             let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
+            let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+            let domain_hash = signing_context.domain_hash(&self.spec);
+
             let requires_check = signing_method
                 .requires_local_slashing_protection(self.enable_web3signer_slashing_protection);
-            attestations_to_check.push((attestation.data(), validator_pubkey, requires_check));
+            attestations_to_check.push((
+                attestation.data(),
+                validator_pubkey,
+                domain_hash,
+                requires_check,
+            ));
         }
 
         // Batch check the attestations against the slashing protection DB while preserving the
@@ -821,7 +819,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         // If the DB transaction fails then we consider the entire batch slashable and discard it.
         let results = self
             .slashing_protection
-            .check_and_insert_attestations(&attestations_to_check, domain_hash)
+            .check_and_insert_attestations(&attestations_to_check)
             .map_err(Error::Slashable)?;
 
         for ((attestation, validator_pubkey), slashing_status) in
