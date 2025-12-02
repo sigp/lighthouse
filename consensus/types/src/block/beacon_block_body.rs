@@ -1145,12 +1145,12 @@ impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> ContextDeserialize<'de, F
 mod tests {
     mod base {
         use super::super::*;
-        use crate::MainnetEthSpec;
+        use crate::core::MainnetEthSpec;
         ssz_and_tree_hash_tests!(BeaconBlockBodyBase<MainnetEthSpec>);
     }
     mod altair {
         use super::super::*;
-        use crate::MainnetEthSpec;
+        use crate::core::MainnetEthSpec;
         ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<MainnetEthSpec>);
     }
 }

@@ -156,7 +156,7 @@ impl ForkContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BlobParameters, BlobSchedule, MainnetEthSpec};
+    use crate::core{BlobParameters, BlobSchedule, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 

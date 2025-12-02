@@ -944,7 +944,7 @@ pub mod ssz_tagged_signed_beacon_block_arc {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{MainnetEthSpec, block::EmptyBlock};
+    use crate::{core::MainnetEthSpec, block::EmptyBlock};
 
     #[test]
     fn add_remove_payload_roundtrip() {

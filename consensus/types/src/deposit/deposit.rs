@@ -5,7 +5,7 @@ use ssz_types::{FixedVector, typenum::U33};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::{Hash256, deposit::DepositData, fork::ForkName, test_utils::TestRandom};
+use crate::{core::Hash256, deposit::DepositData, fork::ForkName, test_utils::TestRandom};
 
 pub const DEPOSIT_TREE_DEPTH: usize = 32;
 

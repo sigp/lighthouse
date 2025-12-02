@@ -5,7 +5,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 
-use crate::{Hash256, test_utils::TestRandom};
+use crate::{core::Hash256, test_utils::TestRandom};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]

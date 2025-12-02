@@ -21,7 +21,7 @@ use alloy_rlp::RlpEncodable;
 use fixed_bytes::Uint256;
 use metastruct::metastruct;
 
-use crate::{Address, Hash64, Hash256, core::EthSpec, execution::ExecutionPayloadRef};
+use crate::{core::{Address, Hash64, Hash256, EthSpec}, execution::ExecutionPayloadRef};
 
 /// Execution block header as used for RLP encoding and Keccak hashing.
 ///

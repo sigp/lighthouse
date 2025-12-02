@@ -887,7 +887,7 @@ impl fmt::Display for BlockImportSource {
 mod tests {
     use super::*;
     use crate::{
-        MainnetEthSpec,
+        core::MainnetEthSpec,
         test_utils::{SeedableRng, XorShiftRng, test_ssz_tree_hash_pair_with},
     };
     use ssz::Encode;

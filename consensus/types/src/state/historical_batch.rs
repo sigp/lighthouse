@@ -31,7 +31,7 @@ pub struct HistoricalBatch<E: EthSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::core::MainnetEthSpec;
 
     pub type FoundationHistoricalBatch = HistoricalBatch<MainnetEthSpec>;
 

@@ -2589,7 +2589,7 @@ mod tests {
 #[cfg(test)]
 mod yaml_tests {
     use super::*;
-    use crate::MinimalEthSpec;
+    use crate::core::MinimalEthSpec;
     use paste::paste;
     use std::sync::Arc;
     use tempfile::NamedTempFile;
