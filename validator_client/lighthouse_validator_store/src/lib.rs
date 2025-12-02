@@ -800,6 +800,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         // protection) and ones requiring checking against the slashing protection DB.
         for (attestation, validator_pubkey) in &attestations {
             let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
+            let signing_epoch = attestation.data().target.epoch;
             let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
             let domain_hash = signing_context.domain_hash(&self.spec);
 
