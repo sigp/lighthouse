@@ -784,6 +784,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         Ok(())
     }
 
+    #[instrument(
+        name = "store_check_and_insert_attestations",
+        level = "debug",
+        skip_all
+    )]
     fn check_and_insert_attestations(
         &self,
         attestations: Vec<(Attestation<E>, PublicKeyBytes)>,
