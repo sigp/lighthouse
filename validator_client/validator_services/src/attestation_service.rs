@@ -217,7 +217,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         .map_err(|e| e.to_string())?;
 
                     attestation_service
-                        .publish_attestations(slot, &attestation_duties, attestation_data.clone())
+                        .sign_and_publish_attestations(
+                            slot,
+                            &attestation_duties,
+                            attestation_data.clone(),
+                        )
                         .await
                         .map_err(|e| {
                             crit!(
@@ -229,7 +233,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         })?;
                     Ok::<AttestationData, String>(attestation_data)
                 },
-                "get_attestation_data",
+                "unaggregated attestation production",
             )
             .ok_or("Failed to spawn attestation data task")?;
 
@@ -347,20 +351,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    /// Performs the first step of the attesting process: downloading `Attestation` objects,
-    /// signing them and returning them to the validator.
+    /// Performs the main steps of the attesting process: signing and publishing to the BN.
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/validator.md#attesting
+    /// https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/validator.md#attesting
     ///
     /// ## Detail
     ///
     /// The given `validator_duties` should already be filtered to only contain those that match
-    /// `slot` and `committee_index`. Critical errors will be logged if this is not the case.
-    ///
-    /// Only one `Attestation` is downloaded from the BN. It is then cloned and signed by each
-    /// validator and the list of individually-signed `Attestation` objects is returned to the BN.
+    /// `slot`. Critical errors will be logged if this is not the case.
     #[instrument(skip_all, fields(%slot, %attestation_data.beacon_block_root))]
-    async fn publish_attestations(
+    async fn sign_and_publish_attestations(
         &self,
         slot: Slot,
         validator_duties: &[DutyAndProof],
