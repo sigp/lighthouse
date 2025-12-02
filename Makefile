@@ -336,13 +336,13 @@ clean:
 .PHONY: deb-cargo
 deb-cargo: build-reproducible ## Build .deb package using cargo-deb with reproducible settings
 	@echo "Building .deb package with cargo-deb..."
-	
+	cargo install cargo-deb@3.6.0 --locked
 	cd lighthouse && \
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
 	CARGO_INCREMENTAL=$(CARGO_INCREMENTAL_VAL) \
 	LC_ALL=$(LOCALE_VAL) \
 	TZ=$(TZ_VAL) \
-	cargo deb --target $(RUST_TARGET) --no-build
+	cargo deb --target $(RUST_TARGET) --no-build --no-dbgsym --no-strip
 	
 	@echo "Package built successfully!"
 	@find target/$(RUST_TARGET)/debian -name "*.deb" -exec ls -la {} \;

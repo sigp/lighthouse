@@ -1,0 +1,126 @@
+# This workflow signs and publishes reproducible artifacts
+# It triggers when either Release Suite or docker-reproducible completes
+# But only proceeds when BOTH have completed successfully for the same tag
+
+name: release-reproducible
+
+on:
+  workflow_run:
+    workflows: [Release Suite, docker-reproducible]
+    types: [completed]
+
+jobs:
+  check-both-workflows:
+    name: verify both workflows completed
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      should_proceed: ${{ steps.check.outputs.should_proceed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check if both workflows completed successfully
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get the tag/branch from the triggering workflow
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          
+          # Only proceed for version tags
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "Not a version tag, skipping"
+            echo "should_proceed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Checking workflows for tag: $TAG"
+          echo "version=$TAG" >> $GITHUB_OUTPUT
+          
+          # Check Release Suite status
+          RELEASE_SUCCESS=$(gh api /repos/${{ github.repository }}/actions/workflows/release.yml/runs \
+            --jq ".workflow_runs[] | select(.head_branch == \"$TAG\" and .conclusion == \"success\") | .id" \
+            | head -1)
+          
+          # Check docker-reproducible status  
+          DOCKER_SUCCESS=$(gh api /repos/${{ github.repository }}/actions/workflows/docker-reproducible.yml/runs \
+            --jq ".workflow_runs[] | select(.head_branch == \"$TAG\" and .conclusion == \"success\") | .id" \
+            | head -1)
+          
+          if [[ -n "$RELEASE_SUCCESS" ]] && [[ -n "$DOCKER_SUCCESS" ]]; then
+            echo "Both workflows completed successfully for $TAG"
+            echo "  - Release Suite: run $RELEASE_SUCCESS"
+            echo "  - docker-reproducible: run $DOCKER_SUCCESS"
+            echo "should_proceed=true" >> $GITHUB_OUTPUT
+          else
+            echo "Waiting for both workflows to complete for $TAG"
+            [[ -z "$RELEASE_SUCCESS" ]] && echo "  - Release Suite: not completed"
+            [[ -z "$DOCKER_SUCCESS" ]] && echo "  - docker-reproducible: not completed"
+            echo "should_proceed=false" >> $GITHUB_OUTPUT
+          fi
+
+  sign-and-publish:
+    name: sign and publish reproducible artifacts
+    needs: check-both-workflows
+    if: needs.check-both-workflows.outputs.should_proceed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+    steps:
+      - name: Download reproducible artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: docker-reproducible.yml
+          name: reproducible-artifacts-${{ matrix.arch }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ needs.check-both-workflows.outputs.version }}
+
+      - name: Prepare artifacts for signing
+        run: |
+          VERSION=${{ needs.check-both-workflows.outputs.version }}
+          ARCH_SHORT=$(echo "${{ matrix.rust_target }}" | cut -d'-' -f1)
+          
+          # Rename binary and create tarball
+          mv lighthouse-${{ matrix.arch }} lighthouse-reproducible-${VERSION}-${{ matrix.rust_target }}
+          tar -czf lighthouse-reproducible-${VERSION}-${{ matrix.rust_target }}.tar.gz \
+            lighthouse-reproducible-${VERSION}-${{ matrix.rust_target }} --remove-files
+          
+          # Rename Debian package
+          mv lighthouse-${{ matrix.arch }}.deb lighthouse-${VERSION}-${ARCH_SHORT}-reproducible.deb
+
+      - name: Sign artifacts with GPG
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          export GPG_TTY=$(tty)
+          echo -n "$GPG_SIGNING_KEY" | base64 --decode | gpg --batch --import
+          
+          VERSION=${{ needs.check-both-workflows.outputs.version }}
+          ARCH_SHORT=$(echo "${{ matrix.rust_target }}" | cut -d'-' -f1)
+          
+          # Sign binary tarball
+          echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab \
+            lighthouse-reproducible-${VERSION}-${{ matrix.rust_target }}.tar.gz
+          
+          # Sign Debian package
+          echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab \
+            lighthouse-${VERSION}-${ARCH_SHORT}-reproducible.deb
+
+      - name: Upload reproducible artifacts to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ needs.check-both-workflows.outputs.version }}
+          
+          # Upload all signed artifacts and their signatures
+          gh release upload ${VERSION} \
+            lighthouse-reproducible-*.tar.gz* \
+            lighthouse-*-reproducible.deb*

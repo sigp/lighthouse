@@ -136,6 +136,23 @@ jobs:
           IMAGE_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
           docker push "$IMAGE_TAG"
 
+      - name: Extract artifacts for release
+        run: |
+          # Extract binary and .deb from verified image
+          docker create --name extract-${{ matrix.arch }} lighthouse-verify-2-${{ matrix.arch }}
+          docker cp extract-${{ matrix.arch }}:/lighthouse ./lighthouse-${{ matrix.arch }}
+          docker cp extract-${{ matrix.arch }}:/lighthouse.deb ./lighthouse-${{ matrix.arch }}.deb
+          docker rm extract-${{ matrix.arch }}
+
+      - name: Upload reproducible artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducible-artifacts-${{ matrix.arch }}
+          path: |
+            lighthouse-${{ matrix.arch }}
+            lighthouse-${{ matrix.arch }}.deb
+          retention-days: 1
+
       - name: Clean up local images
         run: |
           docker rmi lighthouse-verify-2-${{ matrix.arch }} || true
