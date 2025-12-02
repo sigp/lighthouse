@@ -474,7 +474,7 @@ impl BlockId {
                 )
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reconstruct_blobs(&chain.kzg, &data_columns, blob_indices, block, &chain.spec).map_err(
+            reconstruct_blobs(&chain.kzg, data_columns, blob_indices, block, &chain.spec).map_err(
                 |e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Error reconstructing data columns: {e:?}"
