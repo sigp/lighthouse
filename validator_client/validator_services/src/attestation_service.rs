@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
@@ -369,79 +369,82 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;
-        let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
-            let duty = &duty_and_proof.duty;
-            let attestation_data = attestation_data_ref;
+        let signing_futures = validator_duties.iter().map(|duty_and_proof| {
+            async move {
+                let duty = &duty_and_proof.duty;
+                let attestation_data = attestation_data_ref;
 
-            // Ensure that the attestation matches the duties.
-            if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
-                crit!(
-                    validator = ?duty.pubkey,
-                    duty_slot = %duty.slot,
-                    attestation_slot = %attestation_data.slot,
-                    duty_index = duty.committee_index,
-                    attestation_index = attestation_data.index,
-                    "Inconsistent validator duties during signing"
-                );
-                return None;
-            }
-
-            let mut attestation = match Attestation::empty_for_signing(
-                duty.committee_index,
-                duty.committee_length as usize,
-                attestation_data.slot,
-                attestation_data.beacon_block_root,
-                attestation_data.source,
-                attestation_data.target,
-                &self.chain_spec,
-            ) {
-                Ok(attestation) => attestation,
-                Err(err) => {
+                // Ensure that the attestation matches the duties.
+                if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
                     crit!(
                         validator = ?duty.pubkey,
-                        ?duty,
-                        ?err,
-                        "Invalid validator duties during signing"
+                        duty_slot = %duty.slot,
+                        attestation_slot = %attestation_data.slot,
+                        duty_index = duty.committee_index,
+                        attestation_index = attestation_data.index,
+                        "Inconsistent validator duties during signing"
                     );
                     return None;
                 }
-            };
 
-            match self
-                .validator_store
-                .sign_attestation(
-                    duty.pubkey,
-                    duty.validator_committee_index as usize,
-                    &mut attestation,
-                    current_epoch,
-                )
-                .await
-            {
-                Ok(()) => Some((attestation, duty.validator_index)),
-                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                    // A pubkey can be missing when a validator was recently
-                    // removed via the API.
-                    warn!(
-                        info = "a validator may have recently been removed from this VC",
-                        pubkey = ?pubkey,
-                        validator = ?duty.pubkey,
-                        committee_index = committee_index,
-                        slot = slot.as_u64(),
-                        "Missing pubkey for attestation"
-                    );
-                    None
-                }
-                Err(e) => {
-                    crit!(
-                        error = ?e,
-                        validator = ?duty.pubkey,
-                        committee_index,
-                        slot = slot.as_u64(),
-                        "Failed to sign attestation"
-                    );
-                    None
+                let mut attestation = match Attestation::empty_for_signing(
+                    duty.committee_index,
+                    duty.committee_length as usize,
+                    attestation_data.slot,
+                    attestation_data.beacon_block_root,
+                    attestation_data.source,
+                    attestation_data.target,
+                    &self.chain_spec,
+                ) {
+                    Ok(attestation) => attestation,
+                    Err(err) => {
+                        crit!(
+                            validator = ?duty.pubkey,
+                            ?duty,
+                            ?err,
+                            "Invalid validator duties during signing"
+                        );
+                        return None;
+                    }
+                };
+
+                match self
+                    .validator_store
+                    .sign_attestation(
+                        duty.pubkey,
+                        duty.validator_committee_index as usize,
+                        &mut attestation,
+                        current_epoch,
+                    )
+                    .await
+                {
+                    Ok(()) => Some((attestation, duty.validator_index)),
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        warn!(
+                            info = "a validator may have recently been removed from this VC",
+                            pubkey = ?pubkey,
+                            validator = ?duty.pubkey,
+                            committee_index = committee_index,
+                            slot = slot.as_u64(),
+                            "Missing pubkey for attestation"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        crit!(
+                            error = ?e,
+                            validator = ?duty.pubkey,
+                            committee_index,
+                            slot = slot.as_u64(),
+                            "Failed to sign attestation"
+                        );
+                        None
+                    }
                 }
             }
+            .instrument(Span::current())
         });
 
         // Execute all the futures in parallel, collecting any successful results.
