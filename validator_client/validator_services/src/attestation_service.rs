@@ -417,7 +417,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 )
                 .await
             {
-                Ok(()) => Some((attestation, duty.validator_index)),
+                Ok(()) => Some(((attestation, duty.pubkey), duty.validator_index)),
                 Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                     // A pubkey can be missing when a validator was recently
                     // removed via the API.
@@ -445,23 +445,40 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         });
 
         // Execute all the futures in parallel, collecting any successful results.
-        let (ref attestations, ref validator_indices): (Vec<_>, Vec<_>) = join_all(signing_futures)
-            .instrument(info_span!(
-                "sign_attestations",
-                count = validator_duties.len()
-            ))
-            .await
-            .into_iter()
-            .flatten()
-            .unzip();
+        let (signed_attestations, ref validator_indices): (Vec<_>, Vec<_>) =
+            join_all(signing_futures)
+                .instrument(info_span!(
+                    "sign_attestations",
+                    count = validator_duties.len()
+                ))
+                .await
+                .into_iter()
+                .flatten()
+                .unzip();
 
-        if attestations.is_empty() {
+        if signed_attestations.is_empty() {
             warn!("No attestations were published");
             return Ok(None);
         }
         let fork_name = self
             .chain_spec
             .fork_name_at_slot::<S::E>(attestation_data.slot);
+
+        // Check slashing protection.
+        let safe_attestations = match self
+            .validator_store
+            .check_and_insert_attestations(signed_attestations)
+        {
+            Ok(attestations) => attestations,
+            Err(e) => {
+                crit!(
+                    error = ?e,
+                    "Error checking attestation slashability",
+                );
+                return Ok(Some(attestation_data));
+            }
+        };
+        let safe_attestations = &safe_attestations;
 
         // Post the attestations to the BN.
         match self
@@ -472,10 +489,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     &[validator_metrics::ATTESTATIONS_HTTP_POST],
                 );
 
-                let single_attestations = attestations
+                let single_attestations = safe_attestations
                     .iter()
                     .zip(validator_indices)
-                    .filter_map(|(a, i)| {
+                    .filter_map(|((a, _), i)| {
                         match a.to_single_attestation_with_attester_index(*i) {
                             Ok(a) => Some(a),
                             Err(e) => {
@@ -500,12 +517,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             })
             .instrument(info_span!(
                 "publish_attestations",
-                count = attestations.len()
+                count = safe_attestations.len()
             ))
             .await
         {
             Ok(()) => info!(
-                count = attestations.len(),
+                count = safe_attestations.len(),
                 validator_indices = ?validator_indices,
                 head_block = ?attestation_data.beacon_block_root,
                 committee_index = attestation_data.index,
