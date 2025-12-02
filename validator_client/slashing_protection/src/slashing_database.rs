@@ -634,7 +634,7 @@ impl SlashingDatabase {
         self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)
     }
 
-    #[instrument(name = "db_check_and_insert_attestations", skip_all)]
+    #[instrument(name = "db_check_and_insert_attestations", level = "debug", skip_all)]
     pub fn check_and_insert_attestations<'a>(
         &self,
         attestations: &'a [(&'a AttestationData, &'a PublicKeyBytes, bool)],
