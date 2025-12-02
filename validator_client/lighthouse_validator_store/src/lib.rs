@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
     ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256,
@@ -242,6 +242,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
 
     /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
     /// by doppelganger protection.
+    #[instrument(skip_all, level = "debug")]
     fn doppelganger_checked_signing_method(
         &self,
         validator_pubkey: PublicKeyBytes,
@@ -745,6 +746,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         }
     }
 
+    #[instrument(skip_all)]
     async fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
