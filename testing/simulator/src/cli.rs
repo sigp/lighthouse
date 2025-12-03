@@ -146,4 +146,80 @@ pub fn cli_app() -> Command {
                         .help("Disables stdout logging."),
                 ),
         )
+        .subcommand(
+            Command::new("fork-revert-sim")
+                .about(
+                    "Runs a Beacon Chain simulation with `n` 'canonical' beacon nodes running \
+                    with correct config and `m` beacon nodes running with a 'stale' config, \
+                    where the next fork's epoch is not set. \
+                    Each one of the correct beacon nodes runs `v` validators. The stale nodes \
+                    are not validator clients. \
+                    Two epochs after the fork, when the canonical chain finalizes, the stale \
+                    nodes are shut down, updated, and restarted. \
+                    The nodes should revert back to the fork slot, then catch up with the \
+                    canonical chain.",
+                )
+                // Explanation for the default values: The simulation has to run a supermajority
+                // for the canon chain to finalize. While running >2 stale nodes so that they try
+                // to form they own network.
+                .arg(
+                    Arg::new("canonical-nodes")
+                        .short('n')
+                        .long("canonical nodes")
+                        .action(ArgAction::Set)
+                        .default_value("5")
+                        .help("Number of canonical beacon nodes"),
+                )
+                .arg(
+                    Arg::new("stale-nodes")
+                        .short('m')
+                        .long("stale nodes")
+                        .action(ArgAction::Set)
+                        .default_value("2")
+                        .help("Number of stale beacon nodes"),
+                )
+                .arg(
+                    Arg::new("validators-per-node")
+                        .short('v')
+                        .long("validators-per-node")
+                        .action(ArgAction::Set)
+                        .default_value("20")
+                        .help("Number of validators"),
+                )
+                .arg(
+                    Arg::new("speed-up-factor")
+                        .short('s')
+                        .long("speed-up-factor")
+                        .action(ArgAction::Set)
+                        .default_value("3")
+                        .help("Speed up factor. Please use a divisor of 12."),
+                )
+                .arg(
+                    Arg::new("debug-level")
+                        .short('d')
+                        .long("debug-level")
+                        .action(ArgAction::Set)
+                        .default_value("debug")
+                        .help("Set the severity level of the logs."),
+                )
+                .arg(
+                    Arg::new("continue-after-checks")
+                        .short('c')
+                        .long("continue_after_checks")
+                        .action(ArgAction::SetTrue)
+                        .help("Continue after checks (default false)"),
+                )
+                .arg(
+                    Arg::new("log-dir")
+                        .long("log-dir")
+                        .action(ArgAction::Set)
+                        .help("Set a path for logs of beacon nodes that run in this simulation."),
+                )
+                .arg(
+                    Arg::new("disable-stdout-logging")
+                        .long("disable-stdout-logging")
+                        .action(ArgAction::SetTrue)
+                        .help("Disables stdout logging."),
+                ),
+        )
 }
