@@ -122,8 +122,6 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
 
 - A varying time of "validator sweep" that take a few days. The "validator sweep" is the process of skimming through all eligible validators by index number for withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set.
 
-> Note: Ideal scenario assumes no block proposals are missed. This means a total of withdrawals of 7200 blocks/day × 16 withdrawals/block = 115200 withdrawals/day. Practical scenario assumes 1% of blocks are missed per day. As an example, if there are 700000 eligible validators, one would expect a waiting time of slightly more than 6 days.
-
 The total time taken is the summation of the above 3 waiting periods. After these waiting periods, you will receive the staked funds in your withdrawal address.
 
 The voluntary exit and full withdrawal process is summarized in the Figure below.
