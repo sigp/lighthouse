@@ -332,6 +332,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         for (column, peer) in faulty_peers {
                             failed_columns.insert(*column);
                             failed_peers.insert(*peer);
+                            self.participating_peers.insert(*peer);
                         }
 
                         // Only retry if peer failure **and** retries haven't been exceeded
@@ -361,6 +362,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             if !batch.is_expecting_request_id(&request_id) {
                 return Ok(());
             }
+            // Record the peer that participated in serving this batch (even if errored)
+            self.participating_peers.insert(*peer_id);
             debug!(batch_epoch = %batch_id, error = ?err, "Batch download failed");
             match batch.download_failed(Some(*peer_id)) {
                 Err(e) => self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0)),
@@ -409,6 +412,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
         match batch.download_completed(blocks, *peer_id) {
             Ok(_) => {
+                self.participating_peers.insert(*peer_id);
                 let awaiting_batches =
                     self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
                 debug!(
