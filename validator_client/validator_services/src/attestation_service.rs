@@ -479,20 +479,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .chain_spec
             .fork_name_at_slot::<S::E>(attestation_data.slot);
 
-        // Check slashing protection.
-        let safe_attestations = match self
-            .validator_store
-            .check_and_insert_attestations(signed_attestations)
-        {
-            Ok(attestations) => attestations,
-            Err(e) => {
-                crit!(
-                    error = ?e,
-                    "Error checking attestation slashability",
-                );
-                return Err("error checking slashability".into());
-            }
-        };
+        // Check slashing protection in a blocking thread (this is I/O bound).
+        let service = self.clone();
+        let safe_attestations = self
+            .inner
+            .executor
+            .spawn_blocking_handle(
+                move || {
+                    service
+                        .validator_store
+                        .check_and_insert_attestations(signed_attestations)
+                },
+                "check_and_insert_attestations",
+            )
+            .ok_or("shutting down")?
+            .await
+            .map_err(|e| format!("thread error checking slashability: {e:?}"))?
+            .map_err(|e| format!("error checking slashability: {e:?}"))?;
         let safe_attestations = &safe_attestations;
 
         // Post the attestations to the BN.
