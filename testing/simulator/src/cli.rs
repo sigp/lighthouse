@@ -149,34 +149,28 @@ pub fn cli_app() -> Command {
         .subcommand(
             Command::new("fork-revert-sim")
                 .about(
-                    "Runs a Beacon Chain simulation with `n` 'canonical' beacon nodes running \
-                    with correct config and `m` beacon nodes running with a 'stale' config, \
-                    where the next fork's epoch is not set. \
-                    Each one of the correct beacon nodes runs `v` validators. The stale nodes \
-                    are not validator clients. \
-                    Two epochs after the fork, when the canonical chain finalizes, the stale \
-                    nodes are shut down, updated, and restarted. \
-                    The nodes should revert back to the fork slot, then catch up with the \
-                    canonical chain.",
+                    "Runs a Beacon Chain simulation with `n` beacon node and validator clients, \
+                    each with `v` validators. \
+                    The simulation runs with a post-Merge Genesis using `mock-el`. \
+                    As the simulation runs, there are checks made to ensure that all components \
+                    are running correctly. If any of these checks fail, the simulation will \
+                    exit immediately.",
                 )
-                // Explanation for the default values: The simulation has to run a supermajority
-                // for the canon chain to finalize. While running >2 stale nodes so that they try
-                // to form they own network.
                 .arg(
-                    Arg::new("canonical-nodes")
+                    Arg::new("nodes")
                         .short('n')
-                        .long("canonical nodes")
-                        .action(ArgAction::Set)
-                        .default_value("5")
-                        .help("Number of canonical beacon nodes"),
-                )
-                .arg(
-                    Arg::new("stale-nodes")
-                        .short('m')
-                        .long("stale nodes")
+                        .long("nodes")
                         .action(ArgAction::Set)
                         .default_value("2")
-                        .help("Number of stale beacon nodes"),
+                        .help("Number of beacon nodes"),
+                )
+                .arg(
+                    Arg::new("proposer-nodes")
+                        .short('p')
+                        .long("proposer-nodes")
+                        .action(ArgAction::Set)
+                        .default_value("1")
+                        .help("Number of proposer-only beacon nodes"),
                 )
                 .arg(
                     Arg::new("validators-per-node")
