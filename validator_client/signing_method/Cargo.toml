@@ -12,6 +12,7 @@ parking_lot = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 task_executor = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
 validator_metrics = { workspace = true }
