@@ -13,7 +13,7 @@ participants:
     supernode: false
     validator_count: 0
 network_params:
-  slot_duration_ms: 6
+  slot_duration_ms: 6000
   electra_fork_epoch: 0
   preset: "minimal"
 additional_services:
