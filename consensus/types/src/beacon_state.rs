@@ -48,9 +48,9 @@ mod tests;
 pub const CACHED_EPOCHS: usize = 3;
 
 // Pre-electra WS calculations are not supported. On mainnet, pre-electra epochs are outside the weak subjectivity
-// period. The default pre-electra WS value is set to 5 to allow for the test case `revert_minority_fork_on_resume`
-// to pass. 5 is a small enough number to trigger the WS safety check pre-electra on mainnet.
-pub const DEFAULT_PRE_ELECTRA_WS_PERIOD: u64 = 5;
+// period. The default pre-electra WS value is set to 256 to allow for `basic-sim``, `fallback-sim`` test case `revert_minority_fork_on_resume`
+// to pass. 256 is a small enough number to trigger the WS safety check pre-electra on mainnet.
+pub const DEFAULT_PRE_ELECTRA_WS_PERIOD: u64 = 256;
 
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
