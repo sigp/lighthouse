@@ -1,3 +1,4 @@
+use crate::slashing_database::CheckSlashability;
 use crate::*;
 use tempfile::{TempDir, tempdir};
 use types::{AttestationData, BeaconBlockHeader, test_utils::generate_deterministic_keypair};
@@ -120,7 +121,14 @@ impl StreamTest<AttestationData> {
         let attestations_to_check = self
             .cases
             .iter()
-            .map(|test| (&test.data, &test.pubkey, test.domain, true))
+            .map(|test| {
+                (
+                    &test.data,
+                    &test.pubkey,
+                    test.domain,
+                    CheckSlashability::Yes,
+                )
+            })
             .collect::<Vec<_>>();
 
         let results = slashing_db

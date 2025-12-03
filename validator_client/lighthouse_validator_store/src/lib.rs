@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use signing_method::Error as SigningError;
 use signing_method::{SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
-    InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
+    CheckSlashability, InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
 };
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -804,13 +804,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
             let domain_hash = signing_context.domain_hash(&self.spec);
 
-            let requires_check = signing_method
-                .requires_local_slashing_protection(self.enable_web3signer_slashing_protection);
+            let check_slashability = if signing_method
+                .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+            {
+                CheckSlashability::Yes
+            } else {
+                CheckSlashability::No
+            };
             attestations_to_check.push((
                 attestation.data(),
                 validator_pubkey,
                 domain_hash,
-                requires_check,
+                check_slashability,
             ));
         }
 

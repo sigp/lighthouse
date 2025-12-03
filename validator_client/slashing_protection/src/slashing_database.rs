@@ -37,6 +37,17 @@ pub struct SlashingDatabase {
     conn_pool: Pool,
 }
 
+/// Whether to check slashability of a message.
+///
+/// The `No` variant MUST only be used if there is another source of slashing protection configured,
+/// e.g. web3signer's slashing protection.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum CheckSlashability {
+    #[default]
+    Yes,
+    No,
+}
+
 impl SlashingDatabase {
     /// Open an existing database at the given `path`, or create one if none exists.
     pub fn open_or_create(path: &Path) -> Result<Self, NotSafe> {
@@ -637,24 +648,32 @@ impl SlashingDatabase {
     #[instrument(name = "db_check_and_insert_attestations", level = "debug", skip_all)]
     pub fn check_and_insert_attestations<'a>(
         &self,
-        attestations: &'a [(&'a AttestationData, &'a PublicKeyBytes, Hash256, bool)],
+        attestations: &'a [(
+            &'a AttestationData,
+            &'a PublicKeyBytes,
+            Hash256,
+            CheckSlashability,
+        )],
     ) -> Result<Vec<Result<Safe, NotSafe>>, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
 
         let mut results = vec![];
-        for (attestation, validator_pubkey, domain, requires_check) in attestations {
-            if !requires_check {
-                results.push(Ok(Safe::Valid));
-            } else {
-                let attestation_signing_root = attestation.signing_root(*domain).into();
-                results.push(self.check_and_insert_attestation_signing_root(
-                    validator_pubkey,
-                    attestation.source.epoch,
-                    attestation.target.epoch,
-                    attestation_signing_root,
-                    &txn,
-                ));
+        for (attestation, validator_pubkey, domain, check_slashability) in attestations {
+            match check_slashability {
+                CheckSlashability::No => {
+                    results.push(Ok(Safe::Valid));
+                }
+                CheckSlashability::Yes => {
+                    let attestation_signing_root = attestation.signing_root(*domain).into();
+                    results.push(self.check_and_insert_attestation_signing_root(
+                        validator_pubkey,
+                        attestation.source.epoch,
+                        attestation.target.epoch,
+                        attestation_signing_root,
+                        &txn,
+                    ));
+                }
             }
         }
 
