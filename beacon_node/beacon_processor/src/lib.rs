@@ -674,7 +674,7 @@ pub enum WorkType {
 }
 
 impl<E: EthSpec> Work<E> {
-    fn str_id(&self) -> &'static str {
+    pub fn str_id(&self) -> &'static str {
         self.to_type().into()
     }
 

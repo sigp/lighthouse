@@ -323,6 +323,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn send_sync_message(&mut self, sync_message: SyncMessage<<T>::EthSpec>) {
+        self.network.send_sync_message(sync_message);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn block_lookups(&mut self) -> &mut BlockLookups<T> {
+        &mut self.block_lookups
+    }
+
+    #[cfg(test)]
     pub(crate) fn active_single_lookups(&self) -> Vec<super::block_lookups::BlockLookupSummary> {
         self.block_lookups.active_single_lookups()
     }

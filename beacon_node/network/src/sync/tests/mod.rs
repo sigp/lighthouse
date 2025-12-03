@@ -2,12 +2,15 @@ use crate::NetworkMessage;
 use crate::sync::SyncMessage;
 use crate::sync::manager::SyncManager;
 use crate::sync::range_sync::RangeSyncType;
+use crate::sync::tests::lookups::CompleteStrategy;
 use beacon_chain::builder::Witness;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::NetworkGlobals;
+use lighthouse_network::service::api_types::Id;
 use rand_chacha::ChaCha20Rng;
 use slot_clock::ManualSlotClock;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::{Arc, Once};
@@ -16,7 +19,7 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ChainSpec, ForkName, MinimalEthSpec as E};
+use types::{ChainSpec, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot};
 
 mod lookups;
 mod range;
@@ -64,11 +67,21 @@ struct TestRig {
     network_globals: Arc<NetworkGlobals<E>>,
     /// Beacon chain harness
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    /// External beacon chain harness to produce blocks that are not imported
+    external_harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     /// `rng` for generating test blocks and blobs.
     rng_08: rand_chacha_03::ChaCha20Rng,
     rng: ChaCha20Rng,
     fork_name: ForkName,
     spec: Arc<ChainSpec>,
+    runtime: tokio::runtime::Runtime,
+    /// Blocks that will be used in the test but may not be known to `harness` yet.
+    network_blocks_by_root: HashMap<Hash256, Arc<SignedBeaconBlock<E>>>,
+    network_blocks_by_slot: HashMap<Slot, Arc<SignedBeaconBlock<E>>>,
+    /// All seen lookups through the test run
+    seen_lookups: HashSet<(Id, Hash256)>,
+    /// Persistent config on how to complete request
+    complete_strategy: CompleteStrategy,
 }
 
 // Environment variable to read if `fork_from_env` feature is enabled.
