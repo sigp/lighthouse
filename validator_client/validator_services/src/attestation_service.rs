@@ -225,7 +225,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         .await
                         .map_err(|e| {
                             crit!(
-                                error = format!("{:?}", e),
+                                error = e,
                                 slot = slot.as_u64(),
                                 "Error during attestation routine"
                             );
@@ -490,7 +490,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     error = ?e,
                     "Error checking attestation slashability",
                 );
-                return Ok(Some(attestation_data));
+                return Err("error checking slashability".into());
             }
         };
         let safe_attestations = &safe_attestations;
