@@ -13,9 +13,7 @@ pub struct AttestationDataService<T> {
 
 impl<T: SlotClock> AttestationDataService<T> {
     pub fn new(beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
-        Self {
-            beacon_nodes,
-        }
+        Self { beacon_nodes }
     }
 
     pub async fn download_data(
@@ -78,25 +76,6 @@ mod tests {
         }
     }
 
-    fn create_test_beacon_node_fallback() -> BeaconNodeFallback<TestingSlotClock> {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
-        let url = SensitiveUrl::parse("http://localhost:5052").unwrap();
-        let client =
-            eth2::BeaconNodeHttpClient::new(url, Timeouts::set_all(Duration::from_secs(1)));
-        let candidate = CandidateBeaconNode::new(client);
-
-        let mut fallback =
-            BeaconNodeFallback::new(vec![candidate], FallbackConfig::default(), vec![], spec);
-
-        fallback.set_slot_clock(TestingSlotClock::new(
-            Slot::new(1),
-            Duration::from_secs(0),
-            Duration::from_secs(12),
-        ));
-
-        fallback
-    }
-
     // Helper to create a beacon node with mocked attestation endpoint
     async fn create_mocked_beacon_node(
         index: usize,
@@ -157,7 +136,6 @@ mod tests {
 
         (server, candidate)
     }
-
 
     #[tokio::test]
     async fn test_download_attestation_data() {

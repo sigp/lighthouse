@@ -63,9 +63,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
 
     pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes.clone());
-        self.attestation_data_service = Some(Arc::new(AttestationDataService::new(
-            beacon_nodes,
-        )));
+        self.attestation_data_service = Some(Arc::new(AttestationDataService::new(beacon_nodes)));
 
         self
     }
