@@ -142,3 +142,228 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{FixedBytesExtended, Hash256};
+
+    fn create_sse_head(slot: u64, block_root: u8) -> SseHead {
+        SseHead {
+            slot: types::Slot::new(slot),
+            block: Hash256::from_low_u64_be(block_root as u64),
+            state: Hash256::from_low_u64_be(block_root as u64),
+            epoch_transition: false,
+            previous_duty_dependent_root: Hash256::from_low_u64_be(block_root as u64),
+            current_duty_dependent_root: Hash256::from_low_u64_be(block_root as u64),
+            execution_optimistic: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_beacon_head_cache_insertion_and_retrieval() {
+        let cache = BeaconHeadCache::new();
+        let head_1 = create_sse_head(1, 1);
+        let head_2 = create_sse_head(2, 2);
+
+        cache.insert(0, head_1.clone()).await;
+        cache.insert(1, head_2.clone()).await;
+
+        assert_eq!(cache.get(0).await, Some(head_1));
+        assert_eq!(cache.get(1).await, Some(head_2));
+        assert_eq!(cache.get(2).await, None);
+    }
+
+    #[tokio::test]
+    async fn test_beacon_head_cache_update() {
+        let cache = BeaconHeadCache::new();
+        let head_old = create_sse_head(1, 1);
+        let head_new = create_sse_head(2, 2);
+
+        cache.insert(0, head_old).await;
+        cache.insert(0, head_new.clone()).await;
+
+        assert_eq!(cache.get(0).await, Some(head_new));
+    }
+
+    #[tokio::test]
+    async fn test_is_latest_with_higher_slot() {
+        let cache = BeaconHeadCache::new();
+        let head_1 = create_sse_head(1, 1);
+        let head_2 = create_sse_head(2, 2);
+        let head_3 = create_sse_head(3, 3);
+
+        cache.insert(0, head_1).await;
+        cache.insert(1, head_2).await;
+
+        assert!(cache.is_latest(&head_3).await);
+    }
+
+    #[tokio::test]
+    async fn test_is_latest_with_lower_slot() {
+        let cache = BeaconHeadCache::new();
+        let head_1 = create_sse_head(1, 1);
+        let head_2 = create_sse_head(2, 2);
+        let head_older = create_sse_head(1, 99);
+
+        cache.insert(0, head_1).await;
+        cache.insert(1, head_2).await;
+
+        assert!(!cache.is_latest(&head_older).await);
+    }
+
+    #[tokio::test]
+    async fn test_is_latest_with_equal_slot() {
+        let cache = BeaconHeadCache::new();
+        let head_1 = create_sse_head(5, 1);
+        let head_2 = create_sse_head(5, 2);
+        let head_equal = create_sse_head(5, 3);
+
+        cache.insert(0, head_1).await;
+        cache.insert(1, head_2).await;
+
+        assert!(cache.is_latest(&head_equal).await);
+    }
+
+    #[tokio::test]
+    async fn test_is_latest_empty_cache() {
+        let cache = BeaconHeadCache::new();
+        let head = create_sse_head(1, 1);
+
+        assert!(cache.is_latest(&head).await);
+    }
+
+    #[tokio::test]
+    async fn test_purge_cache_clears_all_entries() {
+        let cache = BeaconHeadCache::new();
+        let head_1 = create_sse_head(1, 1);
+        let head_2 = create_sse_head(2, 2);
+
+        cache.insert(0, head_1).await;
+        cache.insert(1, head_2).await;
+
+        assert!(cache.get(0).await.is_some());
+        assert!(cache.get(1).await.is_some());
+
+        cache.purge_cache().await;
+
+        assert!(cache.get(0).await.is_none());
+        assert!(cache.get(1).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_head_event_creation() {
+        let event = HeadEvent {
+            beacon_node_index: 42,
+        };
+        assert_eq!(event.beacon_node_index, 42);
+    }
+
+    #[tokio::test]
+    async fn test_cache_caches_multiple_heads_from_different_nodes() {
+        let cache = BeaconHeadCache::new();
+        let head_1 = create_sse_head(10, 1);
+        let head_2 = create_sse_head(5, 2);
+        let head_3 = create_sse_head(8, 3);
+
+        cache.insert(0, head_1.clone()).await;
+        cache.insert(1, head_2.clone()).await;
+        cache.insert(2, head_3.clone()).await;
+
+        // Verify all are stored
+        assert_eq!(cache.get(0).await, Some(head_1));
+        assert_eq!(cache.get(1).await, Some(head_2));
+        assert_eq!(cache.get(2).await, Some(head_3));
+
+        // The latest should be slot 10
+        let head_10 = create_sse_head(10, 99);
+        assert!(cache.is_latest(&head_10).await);
+
+        // Anything with slot > 10 should be latest
+        let head_11 = create_sse_head(11, 99);
+        assert!(cache.is_latest(&head_11).await);
+
+        // Anything with slot < 10 should not be latest
+        let head_9 = create_sse_head(9, 99);
+        assert!(!cache.is_latest(&head_9).await);
+    }
+
+    #[tokio::test]
+    async fn test_cache_handles_concurrent_operations() {
+        let cache = Arc::new(BeaconHeadCache::new());
+        let mut handles = vec![];
+
+        // Spawn multiple tasks that insert heads concurrently
+        for i in 0..10 {
+            let cache_clone = cache.clone();
+            let handle = tokio::spawn(async move {
+                let head = create_sse_head(i as u64, (i % 256) as u8);
+                cache_clone.insert(i, head).await;
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // Verify all heads are cached
+        for i in 0..10 {
+            assert!(cache.get(i).await.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_latest_after_cache_updates() {
+        let cache = BeaconHeadCache::new();
+
+        // Start with head at slot 5
+        let head_5 = create_sse_head(5, 1);
+        cache.insert(0, head_5.clone()).await;
+        assert!(cache.is_latest(&head_5).await);
+
+        // Add a higher slot
+        let head_10 = create_sse_head(10, 2);
+        cache.insert(1, head_10.clone()).await;
+
+        // head_5 should no longer be latest
+        assert!(!cache.is_latest(&head_5).await);
+        // head_10 should be latest
+        assert!(cache.is_latest(&head_10).await);
+
+        // Add an even higher slot
+        let head_15 = create_sse_head(15, 3);
+        cache.insert(2, head_15.clone()).await;
+
+        // head_10 should no longer be latest
+        assert!(!cache.is_latest(&head_10).await);
+        // head_15 should be latest
+        assert!(cache.is_latest(&head_15).await);
+    }
+
+    #[tokio::test]
+    async fn test_cache_default_is_empty() {
+        let cache = BeaconHeadCache::default();
+        assert!(cache.get(0).await.is_none());
+        assert!(cache.get(999).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_is_latest_with_multiple_same_slot_heads() {
+        let cache = BeaconHeadCache::new();
+        let head_slot_5_node1 = create_sse_head(5, 1);
+        let head_slot_5_node2 = create_sse_head(5, 2);
+        let head_slot_5_node3 = create_sse_head(5, 3);
+
+        cache.insert(0, head_slot_5_node1).await;
+        cache.insert(1, head_slot_5_node2).await;
+
+        // All heads with slot 5 should be considered latest
+        assert!(cache.is_latest(&head_slot_5_node3).await);
+
+        // But heads with slot 4 should not be latest
+        let head_slot_4 = create_sse_head(4, 4);
+        assert!(!cache.is_latest(&head_slot_4).await);
+    }
+}
