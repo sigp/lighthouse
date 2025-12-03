@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
@@ -28,7 +27,7 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> 
     executor: Option<TaskExecutor>,
     chain_spec: Option<Arc<ChainSpec>>,
     head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
-    attestation_data_service: Option<Arc<RwLock<AttestationDataService<T>>>>,
+    attestation_data_service: Option<Arc<AttestationDataService<T>>>,
     disable: bool,
 }
 
@@ -64,9 +63,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
 
     pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes.clone());
-        self.attestation_data_service = Some(Arc::new(RwLock::new(AttestationDataService::new(
+        self.attestation_data_service = Some(Arc::new(AttestationDataService::new(
             beacon_nodes,
-        ))));
+        )));
 
         self
     }
@@ -134,7 +133,7 @@ pub struct Inner<S, T> {
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
     head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
-    attestation_data_service: Arc<RwLock<AttestationDataService<T>>>,
+    attestation_data_service: Arc<AttestationDataService<T>>,
     disable: bool,
     latest_attested_slot: Mutex<Slot>,
 }
@@ -431,22 +430,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .ok_or("Unable to determine current slot from clock")?
             .epoch(S::E::slots_per_epoch());
 
-        let attestation_data_service = self.attestation_data_service.read().await;
-
-        let attestation_data = match attestation_data_service.get_cached_attestation_data(&slot) {
-            Some((attestation_data, _)) => attestation_data,
-            None => {
-                let mut attestation_data_service = self.attestation_data_service.write().await;
-                let attestation_data = attestation_data_service
-                    .download_data(&slot, candidate_beacon_node)
-                    .await
-                    .map(|(data, _)| data)?;
-                drop(attestation_data_service);
-                attestation_data
-            }
-        };
-
-        info!(?attestation_data, "GOT ATTESTATION DATA");
+        let attestation_data = self
+            .attestation_data_service
+            .download_data(&slot, candidate_beacon_node)
+            .await
+            .map(|(data, _)| data)?;
 
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;

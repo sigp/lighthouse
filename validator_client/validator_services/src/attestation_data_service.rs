@@ -8,42 +8,21 @@ use types::{AttestationData, Slot};
 /// The AttestationDataService is responsible for downloading and caching attestation data at a given slot.
 /// It also helps prevent us from re-downloading identical attestation data.
 pub struct AttestationDataService<T> {
-    attestation_data: Option<(Slot, AttestationData, usize)>,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
 }
 
 impl<T: SlotClock> AttestationDataService<T> {
     pub fn new(beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         Self {
-            attestation_data: None,
             beacon_nodes,
         }
     }
 
-    /// Get previously downloaded attestation data.
-    pub fn get_cached_attestation_data(
-        &self,
-        requested_slot: &Slot,
-    ) -> Option<(AttestationData, usize)> {
-        if let Some((cached_slot, attestation_data, node_index)) = &self.attestation_data
-            && cached_slot == requested_slot
-        {
-            return Some((attestation_data.clone(), *node_index));
-        }
-        None
-    }
-
     pub async fn download_data(
-        &mut self,
+        &self,
         request_slot: &Slot,
         candidate_beacon_node: Option<usize>,
     ) -> Result<(AttestationData, usize), String> {
-        // If we've already downloaded attestation data for `request_slot`, there's no need to re-download the data.
-        if let Some((attestation_data, node_index)) = self.get_cached_attestation_data(request_slot)
-        {
-            return Ok((attestation_data, node_index));
-        }
-
         let (attestation_data, node_index) = self
             .beacon_nodes
             .first_success_from_index(candidate_beacon_node, |beacon_node| async move {
@@ -60,8 +39,6 @@ impl<T: SlotClock> AttestationDataService<T> {
             .instrument(info_span!("fetch_attestation_data"))
             .await
             .map_err(|e| e.to_string())?;
-
-        self.attestation_data = Some((*request_slot, attestation_data.clone(), node_index));
 
         Ok((attestation_data, node_index))
     }
@@ -181,31 +158,6 @@ mod tests {
         (server, candidate)
     }
 
-    #[test]
-    fn test_new_service() {
-        let beacon_node_fallback = create_test_beacon_node_fallback();
-        let service =
-            AttestationDataService::<TestingSlotClock>::new(Arc::new(beacon_node_fallback));
-
-        assert!(service.attestation_data.is_none());
-        assert!(service.get_cached_attestation_data(&Slot::new(1)).is_none());
-    }
-
-    #[test]
-    fn test_get_cached_attestation_data_returns_cached() {
-        let beacon_node_fallback = create_test_beacon_node_fallback();
-        let mut service =
-            AttestationDataService::<TestingSlotClock>::new(Arc::new(beacon_node_fallback));
-
-        let slot = Slot::new(10);
-        let beacon_node_index = 0;
-        let attestation_data = create_attestation_data(slot, Epoch::new(0), Epoch::new(1));
-        service.attestation_data = Some((slot, attestation_data.clone(), beacon_node_index));
-
-        let cached = service.get_cached_attestation_data(&slot);
-        assert!(cached.is_some());
-        assert_eq!(cached.unwrap(), (attestation_data, beacon_node_index));
-    }
 
     #[tokio::test]
     async fn test_download_attestation_data() {
@@ -225,18 +177,12 @@ mod tests {
             Duration::from_secs(12),
         ));
 
-        let mut service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
+        let service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
         let result = service.download_data(&slot, None).await;
 
         // Verify download is successful
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), (attestation_data.clone(), 0));
-
-        // Verify data is cached after successful download
-        assert_eq!(
-            service.get_cached_attestation_data(&slot),
-            Some((attestation_data, 0))
-        );
     }
 
     #[tokio::test]
@@ -261,7 +207,7 @@ mod tests {
             Duration::from_secs(12),
         ));
 
-        let mut service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
+        let service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
         let result = service.download_data(&slot, None).await;
 
         // Verify all nodes offline
@@ -271,9 +217,6 @@ mod tests {
                 .unwrap_err()
                 .contains("Failed to produce attestation data")
         );
-
-        // Verify no data was cached since all nodes failed
-        assert_eq!(service.get_cached_attestation_data(&slot), None);
     }
 
     #[tokio::test]
@@ -302,17 +245,11 @@ mod tests {
             Duration::from_secs(12),
         ));
 
-        let mut service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
+        let service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
         let result = service.download_data(&slot, None).await;
 
         // Verify download is successful and we fell back to the next node
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), (attestation_data.clone(), 1));
-
-        // Verify data is cached after successful download
-        assert_eq!(
-            service.get_cached_attestation_data(&slot),
-            Some((attestation_data, 1))
-        );
     }
 }
