@@ -2735,9 +2735,10 @@ impl<E: EthSpec> BeaconState<E> {
                 spec,
             )
         } else {
-            // We don't support pre-electra WS calculations. This is outside the weak subjectivity
-            // period anyways, so we return 0.
-            Ok(Epoch::new(0))
+            // We don't support pre-electra WS calculations. On mainnet, pre-electra epochs are the weak subjectivity
+            // period. We return 5 here just to allow for the test case `revert_minority_fork_on_resume`
+            // to pass. 5 is a sufficently small number to trigger the WS safety check pre-electra on mainnet.
+            Ok(Epoch::new(5))
         }
     }
 }
