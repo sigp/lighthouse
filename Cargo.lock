@@ -8336,6 +8336,7 @@ dependencies = [
  "reqwest",
  "serde",
  "task_executor",
+ "tracing",
  "types",
  "url",
  "validator_metrics",
