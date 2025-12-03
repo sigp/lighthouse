@@ -6,7 +6,7 @@ use beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
     StateSkipConfig, WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
-    test_utils::{BeaconChainHarness, EphemeralHarnessType},
+    test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec},
 };
 use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
@@ -42,14 +42,11 @@ struct InvalidPayloadRig {
 
 impl InvalidPayloadRig {
     fn new() -> Self {
-        let spec = E::default_spec();
+        let spec = test_spec::<E>();
         Self::new_with_spec(spec)
     }
 
-    fn new_with_spec(mut spec: ChainSpec) -> Self {
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-
+    fn new_with_spec(spec: ChainSpec) -> Self {
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.into())
             .chain_config(ChainConfig {
