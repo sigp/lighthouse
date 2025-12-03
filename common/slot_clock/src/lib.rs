@@ -9,7 +9,6 @@ pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
 pub use types::Slot;
-use types::consts::bellatrix::INTERVALS_PER_SLOT;
 
 /// A clock that reports the current slot.
 ///
@@ -75,12 +74,6 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     fn now_with_past_tolerance(&self, tolerance: Duration) -> Option<Slot> {
         self.slot_of(self.now_duration()?.checked_sub(tolerance)?)
             .or_else(|| Some(self.genesis_slot()))
-    }
-
-    /// Returns the delay between the start of the slot and when partially aggregated `SyncCommitteeContribution` should be
-    /// produced.
-    fn sync_committee_contribution_production_delay(&self) -> Duration {
-        self.slot_duration() * 2 / INTERVALS_PER_SLOT as u32
     }
 
     /// Returns the `Duration` since the start of the current `Slot` at seconds precision. Useful in determining whether to apply proposer boosts.

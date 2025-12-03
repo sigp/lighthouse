@@ -3117,4 +3117,66 @@ mod yaml_tests {
             );
         }
     }
+
+    #[test]
+    fn test_slot_component_duration_calculations() {
+        let spec = ChainSpec::mainnet();
+
+        // Test unaggregated attestation (3333 bps = 33.33% of 12s = 4s)
+        let unagg_due = spec.get_unaggregated_attestation_due().unwrap();
+        assert_eq!(unagg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
+
+        // Test aggregate attestation (6667 bps = 66.67% of 12s = 8s)
+        let agg_due = spec.get_aggregate_attestation_due().unwrap();
+        assert_eq!(agg_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
+
+        // Test sync message (3333 bps = 33.33% of 12s = 4s)
+        let sync_msg_due = spec.get_sync_message_due().unwrap();
+        assert_eq!(sync_msg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
+
+        // Test contribution message (6667 bps = 66.67% of 12s = 8s)
+        let contribution_due = spec.get_contribution_message_due().unwrap();
+        assert_eq!(contribution_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
+
+        // Test slot duration
+        let slot_duration = spec.get_slot_duration();
+        assert_eq!(slot_duration, Duration::from_millis(12000));
+        assert_eq!(slot_duration, Duration::from_secs(spec.seconds_per_slot));
+
+        // Test edge cases with custom spec
+        let mut custom_spec = spec.clone();
+
+        // Edge case: 0 bps should give 0 duration
+        custom_spec.attestation_due_bps = 0;
+        let zero_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        assert_eq!(zero_due, Duration::from_millis(0));
+
+        // Edge case: 10000 bps (100%) should give full slot duration
+        custom_spec.attestation_due_bps = 10_000;
+        let full_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        assert_eq!(full_due, Duration::from_millis(12000));
+
+        // Edge case: 5000 bps (50%) should give half slot duration
+        custom_spec.attestation_due_bps = 5_000;
+        let half_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        assert_eq!(half_due, Duration::from_millis(6000));
+
+        // Test with different slot duration (Gnosis: 5s slots)
+        custom_spec.slot_duration_ms = 5000;
+        custom_spec.attestation_due_bps = 3333;
+        let gnosis_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        assert_eq!(gnosis_due, Duration::from_millis(1666)); // 5000 * 3333 / 10000
+
+        // Test with very small slot duration
+        custom_spec.slot_duration_ms = 1000; // 1 second
+        custom_spec.attestation_due_bps = 3333;
+        let small_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        assert_eq!(small_due, Duration::from_millis(333)); // 1000 * 3333 / 10000
+
+        // Test rounding behavior with non-divisible values
+        custom_spec.slot_duration_ms = 12000;
+        custom_spec.attestation_due_bps = 1; // 0.01%
+        let tiny_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
+    }
 }
