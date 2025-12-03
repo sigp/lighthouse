@@ -13,8 +13,9 @@ use state_processing::EpochProcessingError;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, ChainSpec, Checkpoint, EthSpec, ForkName,
-    Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, ChainSpec, Checkpoint,
+    DEFAULT_PRE_ELECTRA_WS_PERIOD, EthSpec, ForkName, Hash256, Keypair, MainnetEthSpec,
+    MinimalEthSpec, RelativeEpoch, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -1083,7 +1084,8 @@ async fn pseudo_finalize_with_lagging_split_update() {
 #[tokio::test]
 async fn test_compute_weak_subjectivity_period() {
     type E = MainnetEthSpec;
-    let expected_ws_period = 256;
+    let expected_ws_period_pre_electra = DEFAULT_PRE_ELECTRA_WS_PERIOD;
+    let expected_ws_period_post_electra = 256;
 
     // test Base variant
     let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
@@ -1092,7 +1094,7 @@ async fn test_compute_weak_subjectivity_period() {
 
     let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
 
-    assert_eq!(calculated_ws_period, expected_ws_period);
+    assert_eq!(calculated_ws_period, expected_ws_period_pre_electra);
 
     // test Electra variant
     let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
@@ -1101,5 +1103,5 @@ async fn test_compute_weak_subjectivity_period() {
 
     let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
 
-    assert_eq!(calculated_ws_period, expected_ws_period);
+    assert_eq!(calculated_ws_period, expected_ws_period_post_electra);
 }
