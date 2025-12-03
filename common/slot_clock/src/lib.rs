@@ -31,7 +31,6 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         }
     }
 
-    
     /// Indicates if the current time is prior to genesis time.
     ///
     /// Returns `None` if the system clock cannot be read.
