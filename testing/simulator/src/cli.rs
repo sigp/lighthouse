@@ -152,9 +152,11 @@ pub fn cli_app() -> Command {
                     "Runs a Beacon Chain simulation with `n` beacon node and validator clients, \
                     each with `v` validators. \
                     The simulation runs with a post-Merge Genesis using `mock-el`. \
-                    As the simulation runs, there are checks made to ensure that all components \
-                    are running correctly. If any of these checks fail, the simulation will \
-                    exit immediately.",
+                    `s` beacon nodes are started with incorrect fork config. They will diverge \
+                    from the canonical chain after a fork. After the canonical chain finalizes, \
+                    the stale nodes will be updated and restarted. \
+                    This simulation checks that the stale nodes are capable of reverting to the \
+                    fork, and catching up with the canonical chain.",
                 )
                 .arg(
                     Arg::new("nodes")
@@ -171,6 +173,14 @@ pub fn cli_app() -> Command {
                         .action(ArgAction::Set)
                         .default_value("1")
                         .help("Number of proposer-only beacon nodes"),
+                )
+                .arg(
+                    Arg::new("stale-nodes")
+                        .short('s')
+                        .long("stale-nodes")
+                        .action(ArgAction::Set)
+                        .default_value("1")
+                        .help("Number of stale beacon nodes"),
                 )
                 .arg(
                     Arg::new("validators-per-node")
