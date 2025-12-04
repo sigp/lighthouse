@@ -427,7 +427,7 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
             Self::BlockOnly {
                 block,
                 block_root: _,
-            } => &block,
+            } => block,
             Self::FullyAvailable(available_block) => available_block.block(),
         }
     }

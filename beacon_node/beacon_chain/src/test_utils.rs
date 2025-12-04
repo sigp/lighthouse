@@ -1,7 +1,6 @@
 use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, AvailableBlockData, RpcBlock};
 use crate::custody_context::NodeCustodyType;
-use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -2369,7 +2368,7 @@ where
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
-        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items, true)?;
+        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, true)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
@@ -2393,7 +2392,7 @@ where
         let (block, blob_items) = block_contents;
 
         let block_root = block.canonical_root();
-        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items, true)?;
+        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, true)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
@@ -2448,7 +2447,6 @@ where
     /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
     pub fn build_rpc_block_from_blobs(
         &self,
-        block_root: Hash256,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
         is_available: bool,

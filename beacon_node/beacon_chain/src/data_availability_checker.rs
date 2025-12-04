@@ -401,7 +401,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             }
         }
 
-        return Ok(MaybeAvailableBlock::Available(available_block));
+        Ok(MaybeAvailableBlock::Available(available_block))
     }
 
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
@@ -1111,7 +1111,7 @@ mod test {
             .iter()
             .filter_map(|block| match block {
                 RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
-                RpcBlock::BlockOnly { block, block_root } => None,
+                RpcBlock::BlockOnly { .. } => None,
             })
             .collect::<Vec<_>>();
 

@@ -1929,7 +1929,6 @@ mod deneb_only {
         block_verification_types::{AsBlock, RpcBlock},
         data_availability_checker::AvailabilityCheckError,
     };
-    use ssz_types::RuntimeVariableList;
     use std::collections::VecDeque;
 
     struct DenebTester {

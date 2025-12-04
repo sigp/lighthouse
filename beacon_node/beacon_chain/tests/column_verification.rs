@@ -80,7 +80,7 @@ async fn rpc_columns_with_invalid_header_signature() {
     // Process the block without blobs so that it doesn't become available.
     harness.advance_slot();
     let rpc_block = harness
-        .build_rpc_block_from_blobs(block_root, signed_block.clone(), None, false)
+        .build_rpc_block_from_blobs(signed_block.clone(), None, false)
         .unwrap();
     let availability = harness
         .chain

@@ -3040,7 +3040,7 @@ async fn weak_subjectivity_sync_test(
             AvailableBlock::__new_for_testing(
                 block_root,
                 Arc::new(corrupt_block),
-                data,
+                data.expect("Expect block data"),
                 Arc::new(spec),
             )
         };
