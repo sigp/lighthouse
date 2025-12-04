@@ -3,11 +3,13 @@ use crate::sync::SyncMessage;
 use crate::sync::manager::SyncManager;
 use crate::sync::range_sync::RangeSyncType;
 use crate::sync::tests::lookups::CompleteStrategy;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::Witness;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
-use lighthouse_network::NetworkGlobals;
-use lighthouse_network::service::api_types::Id;
+use lighthouse_network::rpc::RequestType;
+use lighthouse_network::service::api_types::{AppRequestId, Id};
+use lighthouse_network::{NetworkGlobals, PeerAction, PeerId, ReportSource};
 use rand_chacha::ChaCha20Rng;
 use slot_clock::ManualSlotClock;
 use std::collections::{HashMap, HashSet};
@@ -76,12 +78,27 @@ struct TestRig {
     spec: Arc<ChainSpec>,
     runtime: tokio::runtime::Runtime,
     /// Blocks that will be used in the test but may not be known to `harness` yet.
-    network_blocks_by_root: HashMap<Hash256, Arc<SignedBeaconBlock<E>>>,
-    network_blocks_by_slot: HashMap<Slot, Arc<SignedBeaconBlock<E>>>,
+    network_blocks_by_root: HashMap<Hash256, RpcBlock<E>>,
+    network_blocks_by_slot: HashMap<Slot, RpcBlock<E>>,
+    penalties: Vec<ReportedPenalty>,
     /// All seen lookups through the test run
-    seen_lookups: HashSet<(Id, Hash256)>,
+    seen_lookups: HashMap<Id, SeenLookup>,
+    /// Registry of all requests done by the test
+    requests: Vec<(RequestType<E>, AppRequestId)>,
     /// Persistent config on how to complete request
     complete_strategy: CompleteStrategy,
+}
+
+struct SeenLookup {
+    block_root: Hash256,
+    max_seen_peers: HashSet<PeerId>,
+}
+
+struct ReportedPenalty {
+    pub peer_id: PeerId,
+    pub action: PeerAction,
+    pub source: ReportSource,
+    pub msg: &'static str,
 }
 
 // Environment variable to read if `fork_from_env` feature is enabled.

@@ -518,8 +518,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        for (_, lookup) in self.single_block_lookups.iter_mut() {
+        for (id, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
+            if lookup.has_no_peers() {
+                debug!(%id, "Lookup has no peers");
+            }
         }
     }
 

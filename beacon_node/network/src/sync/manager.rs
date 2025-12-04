@@ -70,6 +70,7 @@ use slot_clock::SlotClock;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
+use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
@@ -90,7 +91,7 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 /// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
 const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 /// A message that can be sent to the sync manager thread.
 pub enum SyncMessage<E: EthSpec> {
     /// A useful peer has been discovered.
@@ -328,8 +329,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn block_lookups(&mut self) -> &mut BlockLookups<T> {
-        &mut self.block_lookups
+    pub(crate) fn block_lookups(&self) -> &BlockLookups<T> {
+        &self.block_lookups
     }
 
     #[cfg(test)]
@@ -522,16 +523,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// there is no way to guarantee that libp2p always emits a error along with
     /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
-        // Inject a Disconnected error on all requests associated with the disconnected peer
-        // to retry all batches/lookups
-        for sync_request_id in self.network.peer_disconnected(peer_id) {
-            self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
-        }
-
         // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
+
+        // Inject a Disconnected error on all requests associated with the disconnected peer
+        // to retry all batches/lookups. Only after removing the peer from the data structures to
+        // sending retry requests to the disconnecting peer.
+        for sync_request_id in self.network.peer_disconnected(peer_id) {
+            self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
+        }
 
         // Regardless of the outcome, we update the sync status.
         self.update_sync_state();
