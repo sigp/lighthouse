@@ -317,6 +317,99 @@ impl<E: EthSpec> LocalNetwork<E> {
         Ok(())
     }
 
+    /// Adds a beacon node to the network with a custom context, connecting to the 0'th beacon node via ENR.
+    /// This allows testing scenarios where a node has a misconfigured spec (e.g., wrong fork epochs).
+    ///
+    /// Note: This method cannot be used to add the first (boot) node to the network, as the bootnode
+    /// must use the network's canonical context to establish the correct genesis state.
+    pub async fn add_beacon_node_with_context(
+        &self,
+        mut beacon_config: ClientConfig,
+        mock_execution_config: MockExecutionConfig,
+        custom_context: RuntimeContext<E>,
+        is_proposer: bool,
+    ) -> Result<(), String> {
+        {
+            let read_lock = self.beacon_nodes.read();
+            let boot_node = read_lock.first().ok_or(
+                "Cannot add node with custom context as bootnode. Network must already exist.",
+            )?;
+
+            beacon_config.network.boot_nodes_enr.push(
+                boot_node
+                    .client
+                    .enr()
+                    .expect("Bootnode must have a network."),
+            );
+        }
+
+        let (beacon_node, execution_node) = self
+            .construct_beacon_node_with_context(
+                beacon_config,
+                mock_execution_config,
+                custom_context,
+                is_proposer,
+            )
+            .await?;
+
+        self.execution_nodes.write().push(execution_node);
+        if is_proposer {
+            self.proposer_nodes.write().push(beacon_node);
+        } else {
+            self.beacon_nodes.write().push(beacon_node);
+        }
+        Ok(())
+    }
+
+    async fn construct_beacon_node_with_context(
+        &self,
+        mut beacon_config: ClientConfig,
+        mut mock_execution_config: MockExecutionConfig,
+        custom_context: RuntimeContext<E>,
+        is_proposer: bool,
+    ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
+        let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
+
+        // Set config.
+        let libp2p_tcp_port = BOOTNODE_PORT + count;
+        let discv5_port = BOOTNODE_PORT + count;
+        beacon_config.network.set_ipv4_listening_address(
+            std::net::Ipv4Addr::UNSPECIFIED,
+            libp2p_tcp_port,
+            discv5_port,
+            QUIC_PORT + count,
+        );
+        beacon_config.network.enr_udp4_port = Some(discv5_port.try_into().unwrap());
+        beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
+        beacon_config.network.discv5_config.table_filter = |_| true;
+        beacon_config.network.proposer_only = is_proposer;
+
+        mock_execution_config.server_config.listen_port = EXECUTION_PORT + count;
+
+        // Construct execution node using the custom context.
+        let execution_node = LocalExecutionNode::new(
+            custom_context.service_context(format!("node_{}_el", count)),
+            mock_execution_config,
+        );
+
+        // Pair the beacon node and execution node.
+        beacon_config.execution_layer = Some(execution_layer::Config {
+            execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
+            default_datadir: execution_node.datadir.path().to_path_buf(),
+            secret_file: Some(execution_node.datadir.path().join("jwt.hex")),
+            ..Default::default()
+        });
+
+        // Construct beacon node using the custom context.
+        let beacon_node = LocalBeaconNode::production(
+            custom_context.service_context(format!("node_{}", count)),
+            beacon_config,
+        )
+        .await?;
+
+        Ok((beacon_node, execution_node))
+    }
+
     // Add a new node with a delay. This node will not have validators and is only used to test
     // sync.
     pub async fn add_beacon_node_with_delay(
