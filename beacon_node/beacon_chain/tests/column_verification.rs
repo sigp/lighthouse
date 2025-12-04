@@ -124,8 +124,8 @@ async fn verify_header_signature_fork_block_bug() {
     // but we're trying to verify a block from Fulu epoch
     let mut spec = test_spec::<E>();
 
-    // Only run this test if columns are enabled for FORK_NAME.
-    if !spec.is_fulu_scheduled() {
+    // Only run this test for FORK_NAME=fulu.
+    if !spec.is_fulu_scheduled() || spec.is_gloas_scheduled() {
         return;
     }
 
@@ -194,25 +194,17 @@ async fn verify_header_signature_fork_block_bug() {
     assert!(matches!(current_head_state, BeaconState::Electra(_)));
 
     // Now try to process columns for the fork block.
-    // The bug: verify_header_signature uses head_fork() which gets the fork from
+    // The bug: verify_header_signature previously used head_fork() which fetched the fork from
     // the head state (still Electra fork), but the block was signed with the Fulu fork version.
-    // This causes incorrect signature verification failure.
+    // This caused an incorrect signature verification failure.
     let data_column_sidecars =
         generate_data_column_sidecars_from_block(&signed_block, &harness.chain.spec);
 
-    let err = harness
+    // Now that the bug is fixed, the block should import.
+    let status = harness
         .chain
         .process_rpc_custody_columns(data_column_sidecars)
         .await
-        .expect_err("Should fail due to verify_header_signature bug");
-
-    // The bug causes this to fail with InvalidSignature even though the signature is actually valid
-    assert!(
-        matches!(
-            err,
-            BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
-        ),
-        "Expected InvalidSignature(ProposerSignature) error due to fork mismatch bug, got: {:?}",
-        err
-    );
+        .unwrap();
+    assert_eq!(status, AvailabilityProcessingStatus::Imported(block_root));
 }

@@ -2122,11 +2122,13 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
-    let head_fork = chain.canonical_head.cached_head().head_fork();
+    let fork = chain
+        .spec
+        .fork_at_epoch(header.message.slot.epoch(T::EthSpec::slots_per_epoch()));
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
-        &head_fork,
+        &fork,
         chain.genesis_validators_root,
         &chain.spec,
     ) {
