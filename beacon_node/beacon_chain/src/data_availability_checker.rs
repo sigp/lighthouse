@@ -875,6 +875,20 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
     }
 
+    pub fn new(
+        block: Arc<SignedBeaconBlock<E>>,
+        block_data: AvailableBlockData<E>,
+    ) -> Result<Self, AvailabilityCheckError> {
+        // check blob lengths match
+        // POSSIBLY - verify kzg - but probably not
+        // but this variant *should* ensure the data IS available
+        Ok(Self {
+            block_root: block.canonical_root(),
+            block,
+            blob_data: block_data,
+        })
+    }
+
     pub fn block(&self) -> &SignedBeaconBlock<E> {
         &self.block
     }
