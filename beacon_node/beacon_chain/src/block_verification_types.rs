@@ -1,16 +1,16 @@
+use crate::PayloadVerificationOutcome;
 use crate::data_availability_checker::AvailabilityCheckError;
-pub use crate::data_availability_checker::{AvailableBlock, AvailableBlockData, MaybeAvailableBlock};
-use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::{PayloadVerificationOutcome, get_block_root};
+pub use crate::data_availability_checker::{
+    AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
+};
 use educe::Educe;
-use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, ForkName,
-    Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -45,8 +45,8 @@ impl<E: EthSpec> Debug for RpcBlock<E> {
 impl<E: EthSpec> RpcBlock<E> {
     pub fn block_root(&self) -> Hash256 {
         match self {
-            RpcBlock::Available(available_block) => available_block.block_root,
-            RpcBlock::BlockOnly { block_root, .. } => block_root,
+            RpcBlock::FullyAvailable(available_block) => available_block.block_root(),
+            RpcBlock::BlockOnly { block_root, .. } => *block_root,
         }
     }
 
@@ -72,16 +72,20 @@ impl<E: EthSpec> RpcBlock<E> {
     }
 }
 
-
 impl<E: EthSpec> RpcBlock<E> {
-
     pub fn new(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: Option<AvailableBlockData<E>>,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         match block_data {
-            Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(block, block_data)?)),
-            None => Ok(RpcBlock::BlockOnly { block, block_root: block.canonical_root() }),
+            Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
+                block, block_data, spec,
+            )?)),
+            None => Ok(RpcBlock::BlockOnly {
+                block_root: block.canonical_root(),
+                block,
+            }),
         }
     }
 
@@ -100,16 +104,24 @@ impl<E: EthSpec> RpcBlock<E> {
     }
 
     pub fn n_blobs(&self) -> usize {
-        match self.rpc_block_inner() {
-            RpcBlockInner::Block(_) | RpcBlockInner::BlockAndCustodyColumns(_, _) => 0,
-            RpcBlockInner::BlockAndBlobs(_, blobs) => blobs.len(),
+        if let Some(block_data) = self.block_data() {
+            match block_data {
+                AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
+                AvailableBlockData::Blobs(blobs) => blobs.len(),
+            }
+        } else {
+            0
         }
     }
 
     pub fn n_data_columns(&self) -> usize {
-        match self.rpc_block_inner() {
-            RpcBlockInner::Block(_) | RpcBlockInner::BlockAndBlobs(_, _) => 0,
-            RpcBlockInner::BlockAndCustodyColumns(_, data_columns) => data_columns.len(),
+        if let Some(block_data) = self.block_data() {
+            match block_data {
+                AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
+                AvailableBlockData::DataColumns(columns) => columns.len(),
+            }
+        } else {
+            0
         }
     }
 }
@@ -411,17 +423,21 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match &self.rpc_block_inner() {
-            RpcBlockInner::Block(block) => block,
-            RpcBlockInner::BlockAndBlobs(block, _) => block,
-            RpcBlockInner::BlockAndCustodyColumns(block, _) => block,
+        match self {
+            Self::BlockOnly {
+                block,
+                block_root: _,
+            } => &block,
+            Self::FullyAvailable(available_block) => available_block.block(),
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match &self.rpc_block_inner() {
-            RpcBlockInner::Block(block) => block.clone(),
-            RpcBlockInner::BlockAndBlobs(block, _) => block.clone(),
-            RpcBlockInner::BlockAndCustodyColumns(block, _) => block.clone(),
+        match self {
+            RpcBlock::FullyAvailable(available_block) => available_block.block_cloned(),
+            RpcBlock::BlockOnly {
+                block,
+                block_root: _,
+            } => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {

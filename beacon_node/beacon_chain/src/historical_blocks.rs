@@ -155,26 +155,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
 
-            match &block_data {
-                AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(..) => {
-                    new_oldest_blob_slot = Some(block.slot());
+            if let Some(block_data) = block_data {
+                match &block_data {
+                    AvailableBlockData::NoData => todo!(),
+                    AvailableBlockData::Blobs(_) => new_oldest_blob_slot = Some(block.slot()),
+                    AvailableBlockData::DataColumns(_) => {
+                        new_oldest_data_column_slot = Some(block.slot())
+                    }
                 }
-                AvailableBlockData::DataColumns(_) => {
-                    new_oldest_data_column_slot = Some(block.slot());
-                }
-            }
 
-            // Store the blobs or data columns too
-            if let Some(op) = self
-                .get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
-                .map_err(|e| {
-                    HistoricalBlockError::StoreError(StoreError::DBError {
-                        message: format!("get_blobs_or_columns_store_op error {e:?}"),
-                    })
-                })?
-            {
-                blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
+                // Store the blobs or data columns too
+                if let Some(op) = self
+                    .get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
+                    .map_err(|e| {
+                        HistoricalBlockError::StoreError(StoreError::DBError {
+                            message: format!("get_blobs_or_columns_store_op error {e:?}"),
+                        })
+                    })?
+                {
+                    blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
+                }
             }
 
             // Store block roots, including at all skip slots in the freezer DB.

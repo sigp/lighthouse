@@ -1,5 +1,5 @@
 use crate::blob_verification::GossipVerifiedBlob;
-use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::block_verification_types::{AsBlock, AvailableBlockData, RpcBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::build_data_column_sidecars;
@@ -2424,8 +2424,8 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            // TODO(can refactor so we dont call new_avail a bunch)
-            return RpcBlock::new_available(Some(block_root), block, None, None).unwrap();
+            return RpcBlock::new(block, Some(AvailableBlockData::NoData), self.spec.clone())
+                .unwrap();
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2433,12 +2433,15 @@ where
             let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
             let custody_columns = columns
                 .into_iter()
-                .map(CustodyDataColumn::from_asserted_custody)
+                // TODO(investigate the custody data column conversion)
+                // .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_available(Some(block_root), block, None, Some(custody_columns)).unwrap()
+            let block_data = AvailableBlockData::new(None, Some(custody_columns));
+            RpcBlock::new(block, Some(block_data), self.spec.clone()).unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
-            RpcBlock::new_available(Some(block_root), block, blobs, None).unwrap()
+            let block_data = AvailableBlockData::new(blobs, None);
+            RpcBlock::new(block, Some(block_data), self.spec.clone()).unwrap()
         }
     }
 
@@ -2461,18 +2464,20 @@ where
                 let columns = generate_data_column_sidecars_from_block(&block, &self.spec)
                     .into_iter()
                     .filter(|d| sampling_columns.contains(&d.index))
-                    .map(CustodyDataColumn::from_asserted_custody)
+                    // TODO(investigate the custody data column conversion)
+                    // .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                // TODO(can combine these and clean it up)
                 if is_available {
-                    RpcBlock::new_available(Some(block_root), block, None, Some(columns))?
+                    let block_data: AvailableBlockData<E> =
+                        AvailableBlockData::new(None, Some(columns));
+                    RpcBlock::new(block, Some(block_data), self.spec.clone())?
                 } else {
-                    RpcBlock::new_maybe_available(Some(block_root), block, None, Some(columns))?
+                    RpcBlock::new(block, None, self.spec.clone())?
                 }
             } else if is_available {
-                RpcBlock::new_available(Some(block_root), block, None, None)?
+                RpcBlock::new(block, Some(AvailableBlockData::NoData), self.spec.clone())?
             } else {
-                RpcBlock::new_maybe_available(Some(block_root), block, None, None)?
+                RpcBlock::new(block, None, self.spec.clone())?
             }
         } else {
             let blobs = blob_items
@@ -2482,9 +2487,10 @@ where
                 .transpose()
                 .unwrap();
             if is_available {
-                RpcBlock::new_available(Some(block_root), block, blobs, None)?
+                let block_data: AvailableBlockData<E> = AvailableBlockData::new(blobs, None);
+                RpcBlock::new(block, Some(block_data), self.spec.clone())?
             } else {
-                RpcBlock::new_maybe_available(Some(block_root), block, blobs, None)?
+                RpcBlock::new(block, None, self.spec.clone())?
             }
         })
     }

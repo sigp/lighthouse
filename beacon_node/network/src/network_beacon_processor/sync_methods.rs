@@ -722,10 +722,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
+        let available_blocks = downloaded_blocks
+            .iter()
+            .filter_map(|rpc_block| match rpc_block {
+                RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
+                // TODO this shouldn't be possible here. the rpc block must be available. maybe log an error message just in case
+                RpcBlock::BlockOnly { .. } => None,
+            })
+            .collect::<Vec<_>>();
+
         let available_blocks = match self
             .chain
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(downloaded_blocks)
+            .verify_kzg_for_rpc_blocks(available_blocks)
         {
             Ok(blocks) => blocks
                 .into_iter()

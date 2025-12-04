@@ -2283,18 +2283,9 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.rig.log("parent_block_unknown_parent");
             let block = self.unknown_parent_block.take().unwrap();
-            let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
             self.block = block.clone();
-            let block = RpcBlock::new_maybe_available(
-                Some(block.canonical_root()),
-                block,
-                self.unknown_parent_blobs
-                    .take()
-                    .map(|vec| RuntimeVariableList::new(vec, max_len).unwrap()),
-                None,
-            )
-            .unwrap();
+            let block = RpcBlock::new(block, None, self.rig.spec.clone()).unwrap();
             self.rig.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Err(BlockError::ParentUnknown {

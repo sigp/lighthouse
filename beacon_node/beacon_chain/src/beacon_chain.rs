@@ -3976,22 +3976,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, block_data) = signed_block.deconstruct();
 
-        match self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data) {
-            Ok(Some(blobs_or_columns_store_op)) => {
-                ops.push(blobs_or_columns_store_op);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                error!(
-                    msg = "Restoring fork choice from disk",
-                    error = &e,
-                    ?block_root,
-                    "Failed to store data columns into the database"
-                );
-                return Err(self
-                    .handle_import_block_db_write_error(fork_choice)
-                    .err()
-                    .unwrap_or(BlockError::InternalError(e)));
+        if let Some(block_data) = block_data {
+            match self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data) {
+                Ok(Some(blobs_or_columns_store_op)) => {
+                    ops.push(blobs_or_columns_store_op);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    error!(
+                        msg = "Restoring fork choice from disk",
+                        error = &e,
+                        ?block_root,
+                        "Failed to store data columns into the database"
+                    );
+                    return Err(self
+                        .handle_import_block_db_write_error(fork_choice)
+                        .err()
+                        .unwrap_or(BlockError::InternalError(e)));
+                }
             }
         }
 
