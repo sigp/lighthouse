@@ -433,7 +433,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn verify_kzg_for_rpc_blocks(
         &self,
         available_blocks: Vec<AvailableBlock<T::EthSpec>>,
-    ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
+    ) -> Result<Vec<AvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(available_blocks.len());
         let all_blobs = available_blocks
             .iter()
@@ -471,7 +471,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 return Err(AvailabilityCheckError::MissingCustodyColumns);
             }
 
-            results.push(MaybeAvailableBlock::Available(available_block.clone()));
+            results.push(available_block);
         }
 
         Ok(results)

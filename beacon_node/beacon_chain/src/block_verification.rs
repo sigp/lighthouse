@@ -654,18 +654,18 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         })
         .unzip();
 
-    let maybe_available_blocks = chain
+    let available_blocks = chain
         .data_availability_checker
         .verify_kzg_for_rpc_blocks(blocks)?;
     // zip it back up
     let mut signature_verified_blocks = roots
         .into_iter()
-        .zip(maybe_available_blocks)
-        .map(|(block_root, maybe_available_block)| {
-            let consensus_context = ConsensusContext::new(maybe_available_block.slot())
-                .set_current_block_root(block_root);
+        .zip(available_blocks)
+        .map(|(block_root, available_block)| {
+            let consensus_context =
+                ConsensusContext::new(available_block.slot()).set_current_block_root(block_root);
             SignatureVerifiedBlock {
-                block: maybe_available_block,
+                block: MaybeAvailableBlock::Available(available_block),
                 block_root,
                 parent: None,
                 consensus_context,
