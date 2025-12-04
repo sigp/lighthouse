@@ -1103,6 +1103,12 @@ async fn generic_migration_test(
                 .sign_attestation(public_key, 0, &mut attestation, current_epoch)
                 .await
                 .unwrap();
+            let safe_attestations = tester1
+                .validator_store
+                .check_and_insert_attestations(vec![(attestation.clone(), public_key)])
+                .unwrap();
+            assert_eq!(safe_attestations.len(), 1);
+            assert_eq!(safe_attestations, vec![(attestation, public_key)]);
         }
 
         // Delete the selected keys from VC1.
@@ -1177,13 +1183,24 @@ async fn generic_migration_test(
         for (validator_index, mut attestation, should_succeed) in second_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
             let current_epoch = attestation.data().target.epoch;
-            match tester2
+            if tester2
                 .validator_store
                 .sign_attestation(public_key, 0, &mut attestation, current_epoch)
                 .await
+                .is_err()
             {
-                Ok(()) => assert!(should_succeed),
-                Err(e) => assert!(!should_succeed, "{:?}", e),
+                // Doppelganger protected.
+                assert!(!should_succeed);
+                continue;
+            }
+            let safe_attestations = tester2
+                .validator_store
+                .check_and_insert_attestations(vec![(attestation.clone(), public_key)])
+                .unwrap();
+            if should_succeed {
+                assert_eq!(safe_attestations[0], (attestation, public_key));
+            } else {
+                assert!(safe_attestations.is_empty());
             }
         }
     })
