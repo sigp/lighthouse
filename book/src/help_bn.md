@@ -531,6 +531,9 @@ Flags:
           permissions will be inherited from the parent folder.
       --metrics
           Enable the Prometheus metrics HTTP server. Disabled by default.
+      --prefix-search
+          Enable prefix-based peer discovery for attestation subnets. Disabled
+          by default.
       --private
           Prevents sending various client identification information.
       --proposer-only
