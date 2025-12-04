@@ -7,6 +7,7 @@
 //! Eventually it would be ideal to publish this crate on crates.io, however we have some local
 //! dependencies preventing this presently.
 
+pub mod beacon_response;
 pub mod error;
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
@@ -15,10 +16,14 @@ pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
 
+pub use beacon_response::{
+    BeaconResponse, EmptyMetadata, ExecutionOptimisticFinalizedBeaconResponse,
+    ExecutionOptimisticFinalizedMetadata, ForkVersionedResponse, UnversionedResponse,
+};
+
 pub use self::error::{Error, ok_or_error, success_or_error};
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
-use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
 use educe::Educe;
 use futures::Stream;
 use futures_util::StreamExt;

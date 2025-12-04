@@ -3125,6 +3125,7 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
+ "context_deserialize",
  "educe",
  "eip_3076",
  "either",
@@ -8547,6 +8548,7 @@ checksum = "1fc20a89bab2dabeee65e9c9eb96892dc222c23254b401e1319b85efd852fa31"
 dependencies = [
  "arbitrary",
  "context_deserialize",
+ "educe",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "itertools 0.14.0",
