@@ -31,7 +31,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, metrics, observed_aggregates::ObserveOutcome,
 };
 use bls::{PublicKeyBytes, verify_signature_sets};
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
@@ -49,7 +49,7 @@ use tree_hash_derive::TreeHash;
 use types::ChainSpec;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
-use types::sync_committee::Error as SyncCommitteeError;
+use types::sync_committee::SyncCommitteeError;
 use types::{
     AggregateSignature, BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
@@ -261,8 +261,8 @@ impl From<ContributionError> for Error {
 }
 
 /// Wraps a `SignedContributionAndProof` that has been verified for propagation on the gossip network.\
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     signed_aggregate: SignedContributionAndProof<T::EthSpec>,
     participant_pubkeys: Vec<PublicKeyBytes>,

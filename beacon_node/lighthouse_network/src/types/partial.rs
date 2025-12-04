@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 use std::fmt::Debug;
 use std::sync::Arc;
 use types::EthSpec;
-use types::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
+use types::data::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartialDataColumnSidecarMessage<E: EthSpec> {

@@ -8,7 +8,7 @@ use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use types::partial_data_column_sidecar::{
+use types::data::partial_data_column_sidecar::{
     CellBitmap, DanglingPartialDataColumn, PartialDataColumnSidecar,
 };
 use types::{
@@ -551,9 +551,7 @@ impl<E: EthSpec> EncodedPubsubMessage<E> {
         topic: IdentTopic,
     ) -> Result<(), PublishError> {
         match self {
-            EncodedPubsubMessage::Full(bytes) => {
-                gossipsub.publish(topic, bytes).map(|_| ())
-            }
+            EncodedPubsubMessage::Full(bytes) => gossipsub.publish(topic, bytes).map(|_| ()),
             EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => {
                 gossipsub.publish_partial(topic, partial)
             }
