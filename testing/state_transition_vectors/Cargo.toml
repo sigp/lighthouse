@@ -9,8 +9,8 @@ portable = ["beacon_chain/portable"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bls = { workspace = true }
 beacon_chain = { workspace = true }
+bls = { workspace = true }
 ethereum_ssz = { workspace = true }
 fixed_bytes = { workspace = true }
 state_processing = { workspace = true }

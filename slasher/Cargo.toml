@@ -40,8 +40,8 @@ strum = { workspace = true }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
-types = { workspace = true }
 typenum = { workspace = true }
+types = { workspace = true }
 
 [dev-dependencies]
 maplit = { workspace = true }

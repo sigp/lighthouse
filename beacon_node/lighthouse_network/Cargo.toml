@@ -51,8 +51,8 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-types = { workspace = true }
 typenum = { workspace = true }
+types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
 
 [dependencies.libp2p]
