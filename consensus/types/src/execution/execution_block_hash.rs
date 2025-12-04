@@ -1,0 +1,128 @@
+use std::fmt;
+
+use fixed_bytes::FixedBytesExtended;
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+use ssz::{Decode, DecodeError, Encode};
+
+use crate::{core::Hash256, test_utils::TestRandom};
+
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[serde(transparent)]
+pub struct ExecutionBlockHash(#[serde(with = "serde_utils::b256_hex")] pub Hash256);
+
+impl fmt::Debug for ExecutionBlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl ExecutionBlockHash {
+    pub fn zero() -> Self {
+        Self(Hash256::zero())
+    }
+
+    pub fn repeat_byte(b: u8) -> Self {
+        Self(Hash256::repeat_byte(b))
+    }
+
+    pub fn from_root(root: Hash256) -> Self {
+        Self(root)
+    }
+
+    pub fn into_root(self) -> Hash256 {
+        self.0
+    }
+}
+
+impl Encode for ExecutionBlockHash {
+    fn is_ssz_fixed_len() -> bool {
+        <Hash256 as Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <Hash256 as Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.0.ssz_bytes_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.0.ssz_append(buf)
+    }
+}
+
+impl Decode for ExecutionBlockHash {
+    fn is_ssz_fixed_len() -> bool {
+        <Hash256 as Decode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <Hash256 as Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        Hash256::from_ssz_bytes(bytes).map(Self)
+    }
+}
+
+impl tree_hash::TreeHash for ExecutionBlockHash {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        Hash256::tree_hash_type()
+    }
+
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+        self.0.tree_hash_packed_encoding()
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        Hash256::tree_hash_packing_factor()
+    }
+
+    fn tree_hash_root(&self) -> tree_hash::Hash256 {
+        self.0.tree_hash_root()
+    }
+}
+
+impl TestRandom for ExecutionBlockHash {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        Self(Hash256::random_for_test(rng))
+    }
+}
+
+impl std::str::FromStr for ExecutionBlockHash {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Hash256::from_str(s)
+            .map(Self)
+            .map_err(|e| format!("{:?}", e))
+    }
+}
+
+impl fmt::Display for ExecutionBlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<Hash256> for ExecutionBlockHash {
+    fn from(hash: Hash256) -> Self {
+        Self(hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_hash256() {
+        let hash = Hash256::random();
+        let ex_hash = ExecutionBlockHash::from(hash);
+
+        assert_eq!(ExecutionBlockHash(hash), ex_hash);
+    }
+}

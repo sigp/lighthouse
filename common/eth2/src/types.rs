@@ -19,9 +19,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use test_random_derive::TestRandom;
-use types::beacon_block_body::KzgCommitments;
 use types::test_utils::TestRandom;
 pub use types::*;
+
+// TODO(mac): Temporary module and re-export hack to expose old `consensus/types` via `eth2/types`.
+pub use crate::beacon_response::*;
+pub mod beacon_response {
+    pub use crate::beacon_response::*;
+}
 
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;

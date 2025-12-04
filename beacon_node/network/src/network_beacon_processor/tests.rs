@@ -33,6 +33,7 @@ use lighthouse_network::{
 };
 use matches::assert_matches;
 use slot_clock::SlotClock;
+use ssz_types::RuntimeVariableList;
 use std::collections::HashSet;
 use std::iter::Iterator;
 use std::sync::Arc;
@@ -42,8 +43,8 @@ use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
     DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    RuntimeVariableList, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit,
-    SingleAttestation, Slot, SubnetId,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;

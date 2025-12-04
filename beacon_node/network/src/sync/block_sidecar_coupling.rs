@@ -7,11 +7,12 @@ use lighthouse_network::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
 };
+use ssz_types::RuntimeVariableList;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{Span, debug};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, RuntimeVariableList, SignedBeaconBlock,
+    Hash256, SignedBeaconBlock,
 };
 
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
