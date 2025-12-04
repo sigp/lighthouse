@@ -1,9 +1,10 @@
+use bls::PublicKeyBytes;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 #[cfg(feature = "json")]
 use std::io;
-use types::{Epoch, Hash256, PublicKeyBytes, Slot};
+use types::{Epoch, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum Error {
@@ -170,9 +171,9 @@ impl Interchange {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fixed_bytes::FixedBytesExtended;
     use std::fs::File;
     use tempfile::tempdir;
-    use types::FixedBytesExtended;
 
     fn get_interchange() -> Interchange {
         Interchange {

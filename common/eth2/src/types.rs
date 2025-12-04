@@ -5,6 +5,8 @@ use crate::{
     CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
     EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
+use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
+use context_deserialize::ContextDeserialize;
 use enr::{CombinedKey, Enr};
 use mediatype::{MediaType, MediaTypeList, names};
 use multiaddr::Multiaddr;
@@ -18,6 +20,7 @@ use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use types::test_utils::TestRandom;
 pub use types::*;

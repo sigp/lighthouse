@@ -5,7 +5,7 @@ use std::{
 
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
-use ssz_types::typenum::{
+use typenum::{
     U0, U1, U2, U4, U8, U16, U17, U32, U64, U128, U256, U512, U625, U1024, U2048, U4096, U8192,
     U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728, U1073741824,
     U1099511627776, UInt, Unsigned, bit::B0,
@@ -625,7 +625,7 @@ impl EthSpec for GnosisEthSpec {
 #[cfg(test)]
 mod test {
     use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
-    use ssz_types::typenum::Unsigned;
+    use typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
         let spec = E::default_spec();

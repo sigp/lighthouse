@@ -24,6 +24,8 @@ pub use beacon_response::{
 pub use self::error::{Error, ok_or_error, success_or_error};
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
+use bls::SignatureBytes;
+use context_deserialize::ContextDeserialize;
 use educe::Educe;
 use futures::Stream;
 use futures_util::StreamExt;

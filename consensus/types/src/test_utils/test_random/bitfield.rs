@@ -1,5 +1,6 @@
 use smallvec::smallvec;
-use ssz_types::{BitList, BitVector, typenum::Unsigned};
+use ssz_types::{BitList, BitVector};
+use typenum::Unsigned;
 
 use crate::test_utils::TestRandom;
 

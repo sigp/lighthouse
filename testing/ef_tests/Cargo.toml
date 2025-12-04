@@ -33,8 +33,11 @@ serde_json = { workspace = true }
 serde_repr = { workspace = true }
 serde_yaml = { workspace = true }
 snap = { workspace = true }
+milhouse = { workspace = true }
+ssz_types = { workspace = true }
 state_processing = { workspace = true }
 swap_or_not_shuffle = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }

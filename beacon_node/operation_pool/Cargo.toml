@@ -9,6 +9,8 @@ portable = ["beacon_chain/portable"]
 
 [dependencies]
 bitvec = { workspace = true }
+bls = { workspace = true }
+fixed_bytes = { workspace = true }
 educe = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
@@ -20,7 +22,9 @@ rayon = { workspace = true }
 serde = { workspace = true }
 state_processing = { workspace = true }
 store = { workspace = true }
+superstruct = { workspace = true }
 types = { workspace = true }
+typenum = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }

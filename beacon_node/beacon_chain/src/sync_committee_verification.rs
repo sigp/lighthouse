@@ -30,6 +30,7 @@ use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, metrics, observed_aggregates::ObserveOutcome,
 };
+use bls::AggregateSignature;
 use bls::{PublicKeyBytes, verify_signature_sets};
 use educe::Educe;
 use safe_arith::ArithError;
@@ -51,7 +52,7 @@ use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
 use types::sync_committee::SyncCommitteeError;
 use types::{
-    AggregateSignature, BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
+    BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
     sync_committee_contribution::Error as ContributionError,
 };

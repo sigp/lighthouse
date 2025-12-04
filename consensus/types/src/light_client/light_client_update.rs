@@ -9,10 +9,10 @@ use ssz::{Decode, Encode};
 use ssz_derive::Decode;
 use ssz_derive::Encode;
 use ssz_types::FixedVector;
-use ssz_types::typenum::{U4, U5, U6, U7};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use typenum::{U4, U5, U6, U7};
 
 use crate::{
     block::SignedBlindedBeaconBlock,
@@ -574,7 +574,7 @@ fn compute_sync_committee_period_at_slot<E: EthSpec>(
 mod tests {
     use super::*;
     use crate::light_client::consts::*;
-    use ssz_types::typenum::Unsigned;
+    use typenum::Unsigned;
 
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]

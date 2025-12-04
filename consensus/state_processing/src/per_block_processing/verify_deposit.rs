@@ -1,5 +1,6 @@
 use super::errors::{BlockOperationError, DepositInvalid};
 use crate::per_block_processing::signature_sets::deposit_pubkey_signature_message;
+use bls::PublicKeyBytes;
 use merkle_proof::verify_merkle_proof;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;

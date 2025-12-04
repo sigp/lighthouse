@@ -165,14 +165,3 @@ pub mod application_domain {
 pub use crate::kzg_ext::consts::VERSIONED_HASH_VERSION_KZG;
 pub use crate::light_client::LightClientError as LightClientUpdateError;
 pub use crate::state::BeaconStateError as Error;
-
-pub use bls::{
-    AggregatePublicKey, AggregateSignature, Error as BlsError, Keypair, PUBLIC_KEY_BYTES_LEN,
-    PublicKey, PublicKeyBytes, SIGNATURE_BYTES_LEN, SecretKey, Signature, SignatureBytes,
-    get_withdrawal_credentials,
-};
-pub use context_deserialize::{ContextDeserialize, context_deserialize};
-pub use fixed_bytes::FixedBytesExtended;
-pub use milhouse::{self, List, Vector};
-pub use ssz_types::{BitList, BitVector, FixedVector, VariableList, typenum, typenum::Unsigned};
-pub use superstruct::superstruct;

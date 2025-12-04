@@ -9,6 +9,7 @@ default = ["lighthouse"]
 lighthouse = []
 
 [dependencies]
+bls = { workspace = true }
 context_deserialize = { workspace = true }
 educe = { workspace = true }
 eip_3076 = { workspace = true }
@@ -31,6 +32,7 @@ reqwest-eventsource = "0.6.0"
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+superstruct = { workspace = true }
 ssz_types = { workspace = true }
 test_random_derive = { path = "../../common/test_random_derive" }
 types = { workspace = true }
