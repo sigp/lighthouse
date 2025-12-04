@@ -545,7 +545,7 @@ impl<E: EthSpec> Tester<E> {
             .block_on_dangerous(
                 self.harness.chain.process_block(
                     block_root,
-                    RpcBlock::new_maybe_available(Some(block_root), block.clone(), None, None)
+                    RpcBlock::new(block.clone(), None, self.harness.chain.spec.clone())
                         .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
                     NotifyExecutionLayer::Yes,
                     BlockImportSource::Lookup,
@@ -638,7 +638,7 @@ impl<E: EthSpec> Tester<E> {
             .block_on_dangerous(
                 self.harness.chain.process_block(
                     block_root,
-                    RpcBlock::new_maybe_available(Some(block_root), block.clone(), None, None)
+                    RpcBlock::new(block.clone(), None, self.harness.chain.spec.clone())
                         .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
                     NotifyExecutionLayer::Yes,
                     BlockImportSource::Lookup,

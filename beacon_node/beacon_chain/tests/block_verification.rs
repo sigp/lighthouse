@@ -576,8 +576,7 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
-        let rpc_block =
-            RpcBlock::new_maybe_available(None, Arc::new(signed_block), None, None).unwrap();
+        let rpc_block = RpcBlock::new(Arc::new(signed_block), None, harness.spec.clone()).unwrap();
         let process_res = harness
             .chain
             .process_block(
@@ -1579,7 +1578,7 @@ async fn add_base_block_to_altair_chain() {
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
     let base_rpc_block =
-        RpcBlock::new_maybe_available(None, Arc::new(base_block.clone()), None, None).unwrap();
+        RpcBlock::new(Arc::new(base_block.clone()), None, harness.spec.clone()).unwrap();
     assert!(matches!(
         harness
             .chain
@@ -1603,9 +1602,7 @@ async fn add_base_block_to_altair_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![
-                    RpcBlock::new_maybe_available(None, Arc::new(base_block), None, None).unwrap()
-                ],
+                vec![RpcBlock::new(Arc::new(base_block), None, harness.spec.clone()).unwrap()],
                 NotifyExecutionLayer::Yes,
             )
             .await,
@@ -1719,7 +1716,7 @@ async fn add_altair_block_to_base_chain() {
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
     let altair_rpc_block =
-        RpcBlock::new_maybe_available(None, Arc::new(altair_block.clone()), None, None).unwrap();
+        RpcBlock::new(Arc::new(altair_block.clone()), None, harness.spec.clone()).unwrap();
     assert!(matches!(
         harness
             .chain
@@ -1743,10 +1740,7 @@ async fn add_altair_block_to_base_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![
-                    RpcBlock::new_maybe_available(None, Arc::new(altair_block), None, None)
-                        .unwrap()
-                ],
+                vec![RpcBlock::new(Arc::new(altair_block), None, harness.spec.clone()).unwrap()],
                 NotifyExecutionLayer::Yes
             )
             .await,
@@ -1809,8 +1803,7 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let rpc_block =
-        RpcBlock::new_maybe_available(Some(block_root), block.clone(), None, None).unwrap();
+    let rpc_block = RpcBlock::new(block.clone(), None, harness.spec.clone()).unwrap();
     let verified_block1 = rpc_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)

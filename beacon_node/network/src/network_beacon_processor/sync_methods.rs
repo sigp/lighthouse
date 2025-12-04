@@ -726,7 +726,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .iter()
             .filter_map(|rpc_block| match rpc_block {
                 RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
-                // TODO this shouldn't be possible here. the rpc block must be available. maybe log an error message just in case
+                // TODO filter and return error if this variant is found
                 RpcBlock::BlockOnly { .. } => None,
             })
             .collect::<Vec<_>>();

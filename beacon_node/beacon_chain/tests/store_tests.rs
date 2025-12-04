@@ -3544,7 +3544,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
     let invalid_fork_rpc_block =
-        RpcBlock::new_maybe_available(None, invalid_fork_block.clone(), None, None).unwrap();
+        RpcBlock::new(invalid_fork_block.clone(), None, harness.spec.clone()).unwrap();
     // Applying the invalid block should fail.
     let err = harness
         .chain
@@ -3561,7 +3561,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
 
     // Applying the valid block should succeed, but it should not become head.
     let valid_fork_rpc_block =
-        RpcBlock::new_maybe_available(None, valid_fork_block.clone(), None, None).unwrap();
+        RpcBlock::new(valid_fork_block.clone(), None, harness.spec.clone()).unwrap();
     harness
         .chain
         .process_block(
