@@ -171,10 +171,6 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
     let total_validator_count = validators_per_node * node_count;
     let genesis_delay = GENESIS_DELAY;
 
-    // Convenience variables. Update these values when adding a newer fork.
-    let latest_fork_version = spec.electra_fork_version;
-    let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
-
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
     spec.genesis_delay = genesis_delay;
@@ -374,45 +370,22 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
             // Wait until epoch 8 (4 epochs after restart, plenty of time)
             checks::epoch_delay(Epoch::new(8), slot_duration, slots_per_epoch).await;
 
-            println!("\nVerifying all nodes recovered and are in sync...");
+            // Verify all nodes are using correct Electra fork version
+            println!("Verifying all nodes are using correct Electra fork version...");
+            checks::verify_fork_version(
+                network.clone(),
+                Epoch::new(0), // Don't delay, check immediately (we're already past epoch 8)
+                slot_duration,
+                spec.electra_fork_version,
+            )
+            .await?;
+            println!("✓ All nodes using correct fork version");
 
-            // Get finalized checkpoint from canonical node
-            let canonical_finalized = network.beacon_nodes.read()[0]
-                .client
-                .beacon_chain()
-                .expect("should have beacon chain")
-                .head_snapshot()
-                .beacon_state
-                .finalized_checkpoint();
+            println!("\nVerifying all nodes finalized at same epoch...");
+            checks::verify_all_finalized_at(network.clone(), Epoch::new(6)).await?;
+            println!("✓ All nodes finalized at epoch 6");
 
-            println!(
-                "Canonical finalized checkpoint: epoch={}, root={:?}",
-                canonical_finalized.epoch, canonical_finalized.root
-            );
-
-            // Verify all nodes (including restarted stale nodes) have same finalized checkpoint
-            let total_nodes = network.beacon_node_count();
-            for i in 0..total_nodes {
-                let node_finalized = network.beacon_nodes.read()[i]
-                    .client
-                    .beacon_chain()
-                    .expect("should have beacon chain")
-                    .head_snapshot()
-                    .beacon_state
-                    .finalized_checkpoint();
-
-                if node_finalized.epoch != canonical_finalized.epoch
-                    || node_finalized.root != canonical_finalized.root
-                {
-                    return Err(format!(
-                        "Node {} has different finalized checkpoint: epoch={}, root={:?}",
-                        i, node_finalized.epoch, node_finalized.root
-                    ));
-                }
-                println!("  Node {} finalized: OK", i);
-            }
-
-            println!("\n✓ SUCCESS: All nodes recovered and are at the same finalized checkpoint!");
+            println!("\n✓ SUCCESS: All nodes recovered and are in sync!");
             println!("✓ Fork revert logic worked correctly");
 
             Ok::<(), String>(())
