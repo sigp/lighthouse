@@ -33,9 +33,13 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
+///
+/// Note: The datadir is persisted and will NOT be automatically cleaned up.
+/// Temporary directories accumulate in /tmp during development.
+/// Clean manually with: `rm -rf /tmp/lighthouse_node_test_rig*`
 pub struct LocalBeaconNode<E: EthSpec> {
     pub client: ProductionClient<E>,
-    pub datadir: TempDir,
+    pub datadir: PathBuf,
 }
 
 impl<E: EthSpec> LocalBeaconNode<E> {
@@ -46,14 +50,45 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
     ) -> Result<Self, String> {
-        // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
+        // Create unique temporary directory, then persist it by calling .keep()
+        // This gives us TempDir's collision-resistant naming while keeping the directory
         let datadir = TempBuilder::new()
             .prefix("lighthouse_node_test_rig")
             .tempdir()
-            .expect("should create temp directory for client datadir");
+            .map_err(|e| format!("Failed to create temp directory: {:?}", e))?
+            .keep();
 
-        client_config.set_data_dir(datadir.path().into());
-        client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
+        client_config.set_data_dir(datadir.clone());
+        client_config.network.network_dir = datadir.join("network");
+
+        timeout(
+            STARTUP_TIMEOUT,
+            ProductionBeaconNode::new(context, client_config),
+        )
+        .await
+        .map_err(|_| format!("Beacon node startup timed out after {:?}", STARTUP_TIMEOUT))?
+        .map(move |client| Self {
+            client: client.into_inner(),
+            datadir,
+        })
+    }
+
+    /// Starts a beacon node using an existing datadir (for restart scenarios).
+    ///
+    /// This is used when restarting a node that was previously shut down,
+    /// preserving its database state. Common use case: testing fork revert logic.
+    pub async fn production_with_datadir(
+        context: RuntimeContext<E>,
+        mut client_config: ClientConfig,
+        datadir: PathBuf,
+    ) -> Result<Self, String> {
+        // Verify the datadir exists
+        if !datadir.exists() {
+            return Err(format!("Datadir does not exist: {}", datadir.display()));
+        }
+
+        client_config.set_data_dir(datadir.clone());
+        client_config.network.network_dir = datadir.join("network");
 
         timeout(
             STARTUP_TIMEOUT,

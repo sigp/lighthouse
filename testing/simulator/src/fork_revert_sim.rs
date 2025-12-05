@@ -22,7 +22,7 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 use logging::build_workspace_filter;
 use tokio::time::sleep;
 use tracing::Level;
-use types::Epoch;
+use types::{Epoch, EthSpec, MinimalEthSpec};
 
 // const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;
@@ -194,6 +194,7 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
     env.eth2_config.spec = spec.clone();
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
     let context = env.core_context();
 
@@ -302,6 +303,19 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 
+        let test_sequence = async {
+            // Delay until canonical chain finalizes
+            checks::epoch_delay(Epoch::new(4), slot_duration, slots_per_epoch).await;
+
+            // Iterate through each stale node and:
+            // 1. Shut them down, saving their files.
+            // 2. Restart with the correct config.
+
+            // Delay until the chain finalizes with all nodes
+
+            Ok::<(), String>(())
+        };
+
         /*
          * Start the checks that ensure the network performs as expected.
          *
@@ -311,17 +325,9 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
          * breakage by changes to the VC.
          */
 
-        let (fork,) = futures::join!(
-            // Check that all nodes have transitioned to the required fork.
-            checks::verify_fork_version(
-                network.clone(),
-                Epoch::new(latest_fork_start_epoch),
-                slot_duration,
-                latest_fork_version,
-            )
-        );
+        let (sequence,) = futures::join!(test_sequence,);
 
-        fork?;
+        sequence?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.

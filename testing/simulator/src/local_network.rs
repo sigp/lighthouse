@@ -12,6 +12,7 @@ use sensitive_url::SensitiveUrl;
 use std::{
     net::Ipv4Addr,
     ops::Deref,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -572,5 +573,98 @@ impl<E: EthSpec> LocalNetwork<E> {
             "The genesis time has already passed since all nodes started. The node startup time \
             may have regressed, and the current `GENESIS_DELAY` is no longer sufficient.",
         )
+    }
+
+    /// Removes a beacon node from the network and returns its datadir path.
+    ///
+    /// The node is dropped (shut down) but its datadir is preserved for potential restart.
+    /// Returns the datadir PathBuf so it can be reused with `add_beacon_node_with_datadir()`.
+    ///
+    /// # Arguments
+    /// * `index` - Index in the beacon_nodes Vec (not including proposer nodes)
+    ///
+    /// # Panics
+    /// Panics if index is out of bounds
+    pub fn remove_beacon_node(&self, index: usize) -> PathBuf {
+        let mut nodes = self.beacon_nodes.write();
+        let node = nodes.remove(index);
+        node.datadir
+    }
+
+    /// Adds a beacon node back to the network using an existing datadir and updated context.
+    ///
+    /// This is used for restart scenarios where a node needs to be restarted with
+    /// different configuration (e.g., corrected fork epochs for fork revert testing).
+    ///
+    /// # Arguments
+    /// * `beacon_config` - Configuration for the restarted node
+    /// * `mock_execution_config` - Mock execution layer configuration
+    /// * `context` - Runtime context with updated spec/configuration
+    /// * `datadir` - Path to existing node datadir (from `remove_beacon_node()`)
+    pub async fn add_beacon_node_with_datadir(
+        &self,
+        mut beacon_config: ClientConfig,
+        mock_execution_config: MockExecutionConfig,
+        context: RuntimeContext<E>,
+        datadir: PathBuf,
+    ) -> Result<(), String> {
+        // Connect to bootnode
+        {
+            let read_lock = self.beacon_nodes.read();
+            let boot_node = read_lock
+                .first()
+                .ok_or("Cannot add node - network has no boot node")?;
+
+            beacon_config.network.boot_nodes_enr.push(
+                boot_node
+                    .client
+                    .enr()
+                    .expect("Bootnode must have a network."),
+            );
+        }
+
+        // Create execution node with same count-based port assignment
+        let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
+        let mut exec_config = mock_execution_config;
+        exec_config.server_config.listen_port = EXECUTION_PORT + count;
+
+        let execution_node = LocalExecutionNode::new(
+            context.service_context(format!("node_{}_el_restart", count)),
+            exec_config,
+        );
+
+        // Set up execution layer connection
+        beacon_config.execution_layer = Some(execution_layer::Config {
+            execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
+            default_datadir: execution_node.datadir.path().to_path_buf(),
+            secret_file: Some(execution_node.datadir.path().join("jwt.hex")),
+            ..Default::default()
+        });
+
+        // Set network ports
+        let libp2p_tcp_port = BOOTNODE_PORT + count;
+        let discv5_port = BOOTNODE_PORT + count;
+        beacon_config.network.set_ipv4_listening_address(
+            std::net::Ipv4Addr::UNSPECIFIED,
+            libp2p_tcp_port,
+            discv5_port,
+            QUIC_PORT + count,
+        );
+        beacon_config.network.enr_udp4_port = Some(discv5_port.try_into().unwrap());
+        beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
+        beacon_config.network.discv5_config.table_filter = |_| true;
+
+        // Create beacon node with existing datadir
+        let beacon_node = LocalBeaconNode::production_with_datadir(
+            context.service_context(format!("node_{}_restart", count)),
+            beacon_config,
+            datadir,
+        )
+        .await?;
+
+        self.execution_nodes.write().push(execution_node);
+        self.beacon_nodes.write().push(beacon_node);
+
+        Ok(())
     }
 }
