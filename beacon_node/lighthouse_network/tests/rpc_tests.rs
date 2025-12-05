@@ -7,7 +7,7 @@ use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{NetworkEvent, ReportSource, Response};
 use ssz::Encode;
-use ssz_types::VariableList;
+use ssz_types::{RuntimeVariableList, VariableList};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
@@ -17,7 +17,7 @@ use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
     EthSpec, FixedBytesExtended, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec,
-    RuntimeVariableList, Signature, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    Signature, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 type E = MinimalEthSpec;
