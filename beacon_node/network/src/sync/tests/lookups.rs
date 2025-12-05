@@ -215,8 +215,8 @@ impl TestRig {
 
         // Add genesis block for completeness
         let genesis_block = external_harness.get_head_block();
-        network_blocks_by_root.insert(genesis_block.canonical_root(), genesis_block.block_cloned());
-        network_blocks_by_slot.insert(genesis_block.slot(), genesis_block.block_cloned());
+        network_blocks_by_root.insert(genesis_block.canonical_root(), genesis_block.clone());
+        network_blocks_by_slot.insert(genesis_block.slot(), genesis_block);
 
         TestRig {
             beacon_processor_rx,
@@ -467,13 +467,13 @@ impl TestRig {
             .set_current_slot(self.external_harness.get_current_slot());
     }
 
-    fn get_last_block(&self) -> Arc<SignedBeaconBlock<E>> {
+    fn get_last_block(&self) -> &RpcBlock<E> {
         let (_, last_block) = self
             .network_blocks_by_root
             .iter()
             .max_by_key(|(_, block)| block.slot())
             .expect("no blocks");
-        last_block.block_cloned()
+        last_block
     }
 
     /// Trigger a lookup with the last created block
@@ -512,20 +512,30 @@ impl TestRig {
 
     fn trigger_with_last_unknown_block_parent(&mut self) {
         let peer_id = self.new_connected_peer();
-        let last_block = self.get_last_block();
+        let last_block = self.get_last_block().block_cloned();
         self.trigger_unknown_parent_block(peer_id, last_block);
     }
 
     fn trigger_with_last_unknown_blob_parent(&mut self) {
         let peer_id = self.new_connected_peer();
-        let last_block = self.get_last_block();
-        self.trigger_unknown_parent_blob(peer_id, blob);
+        let blob = self
+            .get_last_block()
+            .blobs()
+            .expect("no blobs")
+            .first()
+            .expect("empty blobs");
+        self.trigger_unknown_parent_blob(peer_id, blob.clone());
     }
 
     fn trigger_with_last_unknown_data_column_parent(&mut self) {
         let peer_id = self.new_connected_peer();
-        let last_block = self.get_last_block();
-        self.trigger_unknown_parent_data_column(peer_id, data_column);
+        let column = self
+            .get_last_block()
+            .custody_columns()
+            .expect("No custody columns")
+            .first()
+            .expect("empty columns");
+        self.trigger_unknown_parent_column(peer_id, column.as_data_column().clone());
     }
 
     // Post-test assertions
@@ -640,8 +650,16 @@ impl TestRig {
         self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root))
     }
 
-    fn trigger_unknown_parent_blob(&mut self, peer_id: PeerId, blob: BlobSidecar<E>) {
-        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob.into()));
+    fn trigger_unknown_parent_blob(&mut self, peer_id: PeerId, blob: Arc<BlobSidecar<E>>) {
+        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
+    }
+
+    fn trigger_unknown_parent_column(
+        &mut self,
+        peer_id: PeerId,
+        column: Arc<DataColumnSidecar<E>>,
+    ) {
+        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, column));
     }
 
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
@@ -1745,12 +1763,12 @@ macro_rules! run_lookups_tests_for_depths {
 
                 #[test]
                 fn [<bad_peer_empty_data_response_depth_ $depth>]() {
-                    bad_peer_empty_response($depth);
+                    bad_peer_empty_data_response($depth);
                 }
 
                 #[test]
                 fn [<bad_peer_too_few_data_response_depth_ $depth>]() {
-                    bad_peer_too_few_response($depth);
+                    bad_peer_too_few_data_response($depth);
                 }
 
                 #[test]
