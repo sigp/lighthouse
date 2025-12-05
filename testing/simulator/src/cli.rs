@@ -163,23 +163,15 @@ pub fn cli_app() -> Command {
                         .short('n')
                         .long("nodes")
                         .action(ArgAction::Set)
-                        .default_value("2")
+                        .default_value("5")
                         .help("Number of beacon nodes"),
-                )
-                .arg(
-                    Arg::new("proposer-nodes")
-                        .short('p')
-                        .long("proposer-nodes")
-                        .action(ArgAction::Set)
-                        .default_value("1")
-                        .help("Number of proposer-only beacon nodes"),
                 )
                 .arg(
                     Arg::new("stale-nodes")
                         .short('s')
                         .long("stale-nodes")
                         .action(ArgAction::Set)
-                        .default_value("1")
+                        .default_value("2")
                         .help("Number of stale beacon nodes"),
                 )
                 .arg(

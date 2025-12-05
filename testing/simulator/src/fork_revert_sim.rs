@@ -45,11 +45,6 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing nodes default")
         .parse::<usize>()
         .expect("missing nodes default");
-    let proposer_nodes = subcommand_matches
-        .get_one::<String>("proposer-nodes")
-        .unwrap_or(&String::from("0"))
-        .parse::<usize>()
-        .unwrap_or(0);
     let stale_node_count = subcommand_matches
         .get_one::<String>("stale-nodes")
         .expect("missing nodes default")
@@ -57,7 +52,6 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing nodes default");
     // extra beacon node added with delay
     let extra_nodes: usize = 1;
-    println!("PROPOSER-NODES: {}", proposer_nodes);
     let validators_per_node = subcommand_matches
         .get_one::<String>("validators-per-node")
         .expect("missing validators-per-node default")
@@ -80,7 +74,6 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
 
     println!("Fork Revert Simulator:");
     println!(" nodes: {}", node_count);
-    println!(" proposer-nodes: {}", proposer_nodes);
     println!(" stale-nodes: {}", stale_node_count);
     println!(" validators-per-node: {}", validators_per_node);
     println!(" speed-up-factor: {}", speed_up_factor);
@@ -89,13 +82,15 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" disable-stdout-logging: {}", disable_stdout_logging);
 
     // Generate the directories and keystores required for the validator clients.
-    let validator_files = (0..node_count)
+    // Include stale nodes in total count
+    let total_nodes_with_validators = node_count + stale_node_count;
+    let validator_files = (0..total_nodes_with_validators)
         .into_par_iter()
         .map(|i| {
             println!(
                 "Generating keystores for validator {} of {}",
                 i + 1,
-                node_count
+                total_nodes_with_validators
             );
 
             let indices =
@@ -211,7 +206,7 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
                     validator_count: total_validator_count,
                     node_count,
                     extra_nodes,
-                    proposer_nodes,
+                    proposer_nodes: 0,
                     genesis_delay,
                 },
                 context.clone(),
@@ -226,18 +221,35 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
                 .await?;
         }
 
-        /*
-         * One by one, add proposer nodes to the network.
-         */
-        for _ in 0..proposer_nodes {
-            println!("Adding a proposer node");
+        // Create stale spec and context before adding stale nodes
+        let mut stale_spec = (*spec).clone();
+        stale_spec.electra_fork_epoch = Some(Epoch::new(100));
+        let stale_spec = Arc::new(stale_spec);
+
+        let mut stale_context = context.clone();
+        stale_context.eth2_config.spec = stale_spec;
+
+        // Configure fixed HTTP ports for stale nodes so validators can reconnect after restart
+        const STALE_NODE_HTTP_PORT_BASE: u16 = 6000;
+
+        // Add stale nodes with fixed HTTP ports
+        for i in 0..stale_node_count {
+            let mut stale_config = beacon_config.clone();
+            // Set fixed HTTP port for this stale node
+            stale_config.http_api.listen_port = STALE_NODE_HTTP_PORT_BASE + i as u16;
+
             network
-                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), true)
+                .add_beacon_node_with_context(
+                    stale_config,
+                    mock_execution_config.clone(),
+                    stale_context.clone(),
+                    false,
+                )
                 .await?;
         }
 
         /*
-         * One by one, add validators to the network.
+         * Add validators to all nodes (canonical + proposer + stale).
          */
 
         let executor = context.executor.clone();
@@ -273,27 +285,6 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
-        // Create stale spec
-        let mut stale_spec = (*spec).clone();
-        stale_spec.electra_fork_epoch = Some(Epoch::new(100));
-        let stale_spec = Arc::new(stale_spec);
-
-        // Create stale context
-        let mut stale_context = context.clone();
-        stale_context.eth2_config.spec = stale_spec;
-
-        // Add stale nodes
-        for _ in 0..stale_node_count {
-            network
-                .add_beacon_node_with_context(
-                    beacon_config.clone(),
-                    mock_execution_config.clone(),
-                    stale_context.clone(),
-                    false,
-                )
-                .await?;
-        }
-
         // Set all payloads as valid. This effectively assumes the EL is infalliable.
         network.execution_nodes.write().iter().for_each(|node| {
             node.server.all_payloads_valid();
@@ -304,14 +295,125 @@ pub fn run_fork_revert_sim(matches: &ArgMatches) -> Result<(), String> {
         sleep(duration_to_genesis).await;
 
         let test_sequence = async {
-            // Delay until canonical chain finalizes
+            println!("Waiting for canonical chain to finalize past Electra fork...");
             checks::epoch_delay(Epoch::new(4), slot_duration, slots_per_epoch).await;
+            println!("Canonical chain finalized at epoch 4");
 
-            // Iterate through each stale node and:
-            // 1. Shut them down, saving their files.
-            // 2. Restart with the correct config.
+            // Verify chains have diverged
+            let canonical_head = network.beacon_nodes.read()[0]
+                .client
+                .beacon_chain()
+                .expect("should have beacon chain")
+                .head_snapshot()
+                .beacon_block_root;
 
-            // Delay until the chain finalizes with all nodes
+            let stale_head = network.beacon_nodes.read()[node_count]
+                .client
+                .beacon_chain()
+                .expect("should have beacon chain")
+                .head_snapshot()
+                .beacon_block_root;
+
+            if canonical_head == stale_head {
+                return Err(
+                    "Chains did not diverge! Stale and canonical heads are the same".to_string(),
+                );
+            }
+            println!("Verified: Chains have diverged");
+            println!("  Canonical head: {:?}", canonical_head);
+            println!("  Stale head: {:?}", stale_head);
+
+            println!("\nShutting down stale nodes to prepare for restart...");
+
+            // Shutdown stale nodes and preserve their datadirs
+            let mut stale_datadirs = Vec::new();
+            for i in (0..stale_node_count).rev() {
+                // Remove from end to avoid index shifting
+                let node_index = node_count + i;
+                println!("Removing stale node at index {}", node_index);
+                let datadir = network.remove_beacon_node(node_index);
+                println!("  Preserved datadir: {}", datadir.display());
+                stale_datadirs.push(datadir);
+            }
+
+            // Give nodes time to fully shutdown and release ports
+            println!("Waiting 2 seconds for clean shutdown...");
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            println!("\nRestarting stale nodes with CORRECT Electra epoch configuration...");
+
+            // Restart each stale node with canonical context (correct fork config)
+            // Reverse iterator to maintain original node order
+            for (i, datadir) in stale_datadirs.into_iter().rev().enumerate() {
+                println!("Restarting stale node {} with correct config", i);
+                println!("  Using datadir: {}", datadir.display());
+
+                // Create config with fixed HTTP port (same as before)
+                let mut restart_beacon_config = beacon_config.clone();
+                restart_beacon_config.http_api.listen_port = STALE_NODE_HTTP_PORT_BASE + i as u16;
+
+                network
+                    .add_beacon_node_with_datadir(
+                        restart_beacon_config,
+                        mock_execution_config.clone(),
+                        context.clone(), // Use canonical context (Electra epoch = 2)
+                        datadir,
+                    )
+                    .await
+                    .map_err(|e| format!("Failed to restart stale node {}: {}", i, e))?;
+
+                println!("  Successfully restarted stale node {}", i);
+            }
+
+            println!("\nAll stale nodes restarted. Waiting for network to stabilize...");
+
+            // Wait for restarted nodes to:
+            // 1. Trigger fork revert (revert to pre-Electra blocks)
+            // 2. Sync to canonical chain head
+            // 3. Participate in finalization
+            // Wait until epoch 8 (4 epochs after restart, plenty of time)
+            checks::epoch_delay(Epoch::new(8), slot_duration, slots_per_epoch).await;
+
+            println!("\nVerifying all nodes recovered and are in sync...");
+
+            // Get finalized checkpoint from canonical node
+            let canonical_finalized = network.beacon_nodes.read()[0]
+                .client
+                .beacon_chain()
+                .expect("should have beacon chain")
+                .head_snapshot()
+                .beacon_state
+                .finalized_checkpoint();
+
+            println!(
+                "Canonical finalized checkpoint: epoch={}, root={:?}",
+                canonical_finalized.epoch, canonical_finalized.root
+            );
+
+            // Verify all nodes (including restarted stale nodes) have same finalized checkpoint
+            let total_nodes = network.beacon_node_count();
+            for i in 0..total_nodes {
+                let node_finalized = network.beacon_nodes.read()[i]
+                    .client
+                    .beacon_chain()
+                    .expect("should have beacon chain")
+                    .head_snapshot()
+                    .beacon_state
+                    .finalized_checkpoint();
+
+                if node_finalized.epoch != canonical_finalized.epoch
+                    || node_finalized.root != canonical_finalized.root
+                {
+                    return Err(format!(
+                        "Node {} has different finalized checkpoint: epoch={}, root={:?}",
+                        i, node_finalized.epoch, node_finalized.root
+                    ));
+                }
+                println!("  Node {} finalized: OK", i);
+            }
+
+            println!("\n✓ SUCCESS: All nodes recovered and are at the same finalized checkpoint!");
+            println!("✓ Fork revert logic worked correctly");
 
             Ok::<(), String>(())
         };
