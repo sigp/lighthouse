@@ -17,7 +17,7 @@ use store::database::interface::BeaconNodeBackend;
 use tracing::info;
 use types::{EthSpec, Slot, milhouse};
 
-use validators::build_validators;
+use validators::{build_validators, build_validators_from_config};
 
 /// Input paths and identifiers required to build the lean client runtime.
 pub struct LeanClientPaths {
@@ -76,18 +76,21 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     let keystore_dir = validators_dir.join(DEFAULT_KEYS_DIR);
     let keystore = KeyStore::new(keystore_dir.clone());
 
-    let all_key_pairs = keystore
-        .load_all_key_pairs()
-        .map_err(|e| format!("Failed to load validators from keystore: {}", e))?;
+    // Load network config first to get validators from config.yaml
+    let config_info = load_network_files(&config_path, &nodes_path)
+        .map_err(|e| format!("Failed to load network config: {}", e))?;
+
+    // Build validators from config.yaml GENESIS_VALIDATORS instead of keystore
+    let validators_list = build_validators_from_config(&config_info.config_bytes)?;
 
     info!(
-        total_validators = all_key_pairs.len(),
-        "Loaded validators from keystore"
+        total_validators = validators_list.len(),
+        "Loaded validators from config.yaml"
     );
 
-    if all_key_pairs.is_empty() {
+    if validators_list.is_empty() {
         return Err(
-            "No validators found in keystore. Please generate validators first.".to_string(),
+            "No validators found in config.yaml GENESIS_VALIDATORS. Please check configuration.".to_string(),
         );
     }
 
@@ -123,7 +126,6 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
                         "Failed to decode genesis.ssz ({:?}), generating fresh genesis state instead",
                         e
                     );
-                    let validators_list = build_validators(all_key_pairs)?;
                     let validators = milhouse::List::new(validators_list)
                         .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
                     LeanState::<E>::genesis_default().generate_genesis(validators)
@@ -131,14 +133,12 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
             }
         } else {
             info!("genesis.ssz not found, generating fresh genesis state");
-            let validators_list = build_validators(all_key_pairs)?;
             let validators = milhouse::List::new(validators_list)
                 .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
             LeanState::<E>::genesis_default().generate_genesis(validators)
         }
     } else {
         info!("No genesis path provided, generating fresh genesis state");
-        let validators_list = build_validators(all_key_pairs)?;
         let validators = milhouse::List::new(validators_list)
             .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
         LeanState::<E>::genesis_default().generate_genesis(validators)
@@ -238,9 +238,6 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
         "Loaded XMSS key pair for validator"
     );
 
-    let config_info = load_network_files(&config_path, &nodes_path)
-        .map_err(|e| format!("Failed to load network config: {}", e))?;
-
     let listen_port = validator_config
         .validators
         .iter()
@@ -261,13 +258,7 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
 
     let node_key_bytes = load_node_key(&node_key_path)?;
 
-    let network_name = nodes_path
-        .parent()
-        .and_then(|p| p.parent())
-        .and_then(|p| p.file_name())
-        .and_then(|name| name.to_str())
-        .unwrap_or("lean")
-        .to_string();
+    let network_name = "devnet0".to_string();
 
     info!(network_name = %network_name, "Resolved network name");
 

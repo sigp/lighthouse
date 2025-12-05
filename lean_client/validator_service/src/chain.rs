@@ -13,13 +13,11 @@ use types::{EthSpec, FixedBytesExtended, Hash256, VariableList};
 
 /// Central coordinator for fork-choice state and database access.
 ///
-/// `LeanChain` mirrors the responsibilities of Zeam's `BeamChain`, maintaining an
-/// in-memory proto-array alongside persistent storage. The validator service
-/// delegates block/attestation integration and head updates to this struct.
+/// `LeanChain` maintains an in-memory proto-array alongside persistent storage.
+/// The validator service delegates block/attestation integration and head updates to this struct.
 ///
-/// Following the zeam pattern, states and blocks are cached in memory per root,
-/// avoiding database reads during block processing. The database is used for
-/// persistence only, with all hot-path operations using the in-memory caches.
+/// States and blocks are cached in memory per root, avoiding database reads during block processing.
+/// The database is used for persistence only, with all hot-path operations using the in-memory caches.
 pub struct LeanChain<E: EthSpec, D: KeyValueStore<E>> {
     store: LeanStore<E, D>,
     proto_array: ProtoArray,
@@ -33,8 +31,7 @@ pub struct LeanChain<E: EthSpec, D: KeyValueStore<E>> {
 impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
     /// Clones a state using SSZ serialization/deserialization.
     ///
-    /// This mirrors zeam's sszClone pattern, ensuring deep copies of all state fields
-    /// including complex types like milhouse::List and BitVector.
+    /// Ensures deep copies of all state fields including complex types like milhouse::List and BitVector.
     pub fn clone_state(state: &LeanState<E>) -> Result<LeanState<E>, String> {
         let bytes = state.as_ssz_bytes();
         LeanState::from_ssz_bytes(&bytes)

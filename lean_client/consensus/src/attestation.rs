@@ -25,9 +25,9 @@ pub struct Slot(pub u64);
 
 impl Slot {
     pub fn is_justifiable_after(self, finalized_slot: Slot) -> Result<(), String> {
-        if self >= finalized_slot {
+        if self <= finalized_slot {
             return Err(format!(
-                "candidate slot is must not be before finalized slot candidate={} finalized={}",
+                "candidate slot must not be equal to or before finalized slot candidate={} finalized={}",
                 self.0, finalized_slot.0
             ));
         }

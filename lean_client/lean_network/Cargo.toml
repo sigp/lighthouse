@@ -12,6 +12,8 @@ ethereum_ssz = "0.10.0"
 libp2p-identity = { version = "0.2", features = ["secp256k1", "ed25519"] }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
+sha2 = "0.10"
+snap = "1.1"
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

@@ -9,6 +9,8 @@ alloy-primitives = { workspace = true }
 ethereum_ssz = "0.10.0"
 ethereum_ssz_derive = "0.10.0"
 tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
+types = { workspace = true }
 leansig = { git = "https://github.com/leanEthereum/leanSig" }
 lean_keystore = { path = "../keystore" }
 

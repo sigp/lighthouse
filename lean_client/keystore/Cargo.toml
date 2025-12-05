@@ -3,9 +3,10 @@ name = "lean_keystore"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "generate_keys"
-path = "src/bin/generate_keys.rs"
+# Binary commented out - using library functions directly
+# [[bin]]
+# name = "generate_keys"
+# path = "src/bin/generate_keys.rs"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }

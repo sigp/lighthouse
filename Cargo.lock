@@ -5001,6 +5001,7 @@ dependencies = [
  "lean_store",
  "serde",
  "serde_json",
+ "serde_yaml",
  "slot_clock",
  "store",
  "tracing",
@@ -5037,6 +5038,8 @@ dependencies = [
  "lean_keystore",
  "leansig",
  "tree_hash",
+ "tree_hash_derive",
+ "types",
 ]
 
 [[package]]
@@ -5090,6 +5093,8 @@ dependencies = [
  "libp2p-identity",
  "serde",
  "serde_yaml",
+ "sha2 0.10.9",
+ "snap",
  "task_executor",
  "tokio",
  "tracing",

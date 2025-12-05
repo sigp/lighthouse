@@ -5,7 +5,7 @@ use types::Hash256;
 use types::{FixedVector, typenum::U52};
 
 use tree_hash_derive::TreeHash;
-#[derive(Clone, PartialEq, Decode, Encode, TreeHash)]
+#[derive(Clone, PartialEq, Decode, Encode, TreeHash, Debug)]
 pub struct Validator {
     pub pubkey: FixedVector<u8, U52>,
 }

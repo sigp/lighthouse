@@ -15,7 +15,7 @@ use milhouse::List;
 use types::VariableList;
 use types::{BitList, EthSpec, Hash256};
 
-#[derive(TreeHash, Encode, Decode)]
+#[derive(TreeHash, Encode, Decode, Debug)]
 pub struct LeanState<E: EthSpec> {
     pub config: Config,
     pub slot: Slot,
@@ -23,15 +23,7 @@ pub struct LeanState<E: EthSpec> {
     pub latest_block_header: LeanBlockHeader,
     pub latest_justified: Checkpoint,
     pub latest_finalized: Checkpoint,
-    /// Historical block hashes stored in the state.
-    /// Uses `E::HistoricalRootsLimit` from EthSpec for type-level size limits.
     pub historical_block_hashes: List<Hash256, E::HistoricalRootsLimit>,
-    /// Justification tracking fields.
-    /// NOTE: The justification structure may need refinement based on final spec requirements.
-    /// Current implementation uses:
-    /// - `justified_slots`: BitList tracking which slots are justified (matches zeam's Bitlist)
-    /// - `justifications_roots`: List of checkpoint roots that have been justified
-    /// - `justifications_validators`: BitList tracking validator participation in justifications (matches zeam's Bitlist)
     pub justified_slots: BitList<E::HistoricalRootsLimit>,
     pub validators: List<Validator, E::ValidatorRegistryLimit>,
     pub justifications_roots: List<Hash256, E::HistoricalRootsLimit>,
@@ -53,17 +45,34 @@ impl<E: EthSpec> LeanState<E> {
             .tree_hash_root(),
         };
 
+        // Initialize justified_slots with slot 0 marked as justified (genesis is always justified)
+        let mut justified_slots = BitList::with_capacity(1).expect("Failed to create justified_slots BitList");
+        justified_slots.set(0, true).expect("Failed to mark genesis as justified");
+
+        // Genesis root is the tree_hash of the genesis header
+        let genesis_root = genesis_header.tree_hash_root();
+
+        // Initialize justified and finalized checkpoints to genesis
+        let genesis_checkpoint = Checkpoint {
+            slot: Slot(0),
+            root: genesis_root,
+        };
+
         Self {
             config: genesis_config,
             slot: Slot(0),
-            latest_justified: Checkpoint::default(),
-            latest_finalized: Checkpoint::default(),
+            latest_justified: genesis_checkpoint.clone(),
+            latest_finalized: genesis_checkpoint,
             latest_block_header: genesis_header,
             historical_block_hashes: List::empty(),
-            justified_slots: BitList::with_capacity(0).expect("Failed to create empty BitList"),
+            // justified_slots: Genesis slot is marked as justified at initialization
+            // (spec: leanSpec/state.py:264-268)
+            // Length should always match historical_block_hashes.len()
+            justified_slots,
             validators: List::empty(),
             justifications_roots: List::empty(),
-            justifications_validators: BitList::with_capacity(0).expect("Failed to create empty BitList"),
+            // justifications_validators stores validator bits for each justification
+            justifications_validators: BitList::with_capacity(0).expect("Failed to create justifications_validators BitList"),
         }
     }
 
@@ -80,17 +89,34 @@ impl<E: EthSpec> LeanState<E> {
             .tree_hash_root(),
         };
 
+        // Initialize justified_slots with slot 0 marked as justified (genesis is always justified)
+        let mut justified_slots = BitList::with_capacity(1).expect("Failed to create justified_slots BitList");
+        justified_slots.set(0, true).expect("Failed to mark genesis as justified");
+
+        // Genesis root is the tree_hash of the genesis header
+        let genesis_root = genesis_header.tree_hash_root();
+
+        // Initialize justified and finalized checkpoints to genesis
+        let genesis_checkpoint = Checkpoint {
+            slot: Slot(0),
+            root: genesis_root,
+        };
+
         Self {
             config: genesis_config,
             slot: Slot(0),
-            latest_justified: Checkpoint::default(),
-            latest_finalized: Checkpoint::default(),
+            latest_justified: genesis_checkpoint.clone(),
+            latest_finalized: genesis_checkpoint,
             latest_block_header: genesis_header,
             historical_block_hashes: List::empty(),
-            justified_slots: BitList::with_capacity(0).expect("Failed to create empty BitList"),
+            // justified_slots: Genesis slot is marked as justified at initialization
+            // (spec: leanSpec/state.py:264-268)
+            // Length should always match historical_block_hashes.len()
+            justified_slots,
             validators,
             justifications_roots: List::empty(),
-            justifications_validators: BitList::with_capacity(0).expect("Failed to create empty BitList"),
+            // justifications_validators stores validator bits for each justification
+            justifications_validators: BitList::with_capacity(0).expect("Failed to create justifications_validators BitList"),
         }
     }
 
@@ -179,9 +205,13 @@ impl<E: EthSpec> LeanState<E> {
         Ok(())
     }
     pub fn process_slot(&mut self) -> Result<(), String> {
-        if self.latest_block_header.state_root == Hash256::ZERO {
-            self.latest_block_header.state_root = self.tree_hash_root();
-        }
+        // NOTE: We do NOT update latest_block_header.state_root here.
+        // The latest_block_header represents the parent block and should not be modified
+        // during empty slot processing. Its state_root is computed when processing
+        // that block and should remain constant.
+        //
+        // If we update it here, it changes the tree_hash of the header, which breaks
+        // parent_root validation in subsequent block processing.
 
         Ok(())
     }
@@ -205,6 +235,15 @@ impl<E: EthSpec> LeanState<E> {
     pub fn process_block_header(&mut self, block: &LeanBlock<E>) -> Result<(), String> {
         let parent_header = &self.latest_block_header;
         let parent_root = parent_header.tree_hash_root();
+
+        debug!(
+            block_slot = block.slot.0,
+            parent_header_slot = parent_header.slot.0,
+            parent_header_state_root = ?parent_header.state_root,
+            computed_parent_root = ?parent_root,
+            block_parent_root = ?block.parent_root,
+            "Processing block header - computing parent root"
+        );
 
         if block.slot != self.slot {
             return Err(format!(
@@ -246,22 +285,101 @@ impl<E: EthSpec> LeanState<E> {
 
         let num_empty_slots = block.slot.0 - parent_header.slot.0 - 1;
 
-        self.historical_block_hashes
-            .push(parent_root)
+        // Add parent root to historical_block_hashes (spec: leanSpec/state.py line 260)
+        self.historical_block_hashes.push(parent_root)
             .map_err(|e| format!("Failed to append parent root to historical hashes: {:?}", e))?;
 
-        self.justified_slots
-            .set(self.historical_block_hashes.len() - 1, is_genesis_parent)
-            .map_err(|e| format!("Failed to set justified slot: {:?}", e))?;
-
+        // Add ZERO_HASH for each empty slot (spec: leanSpec/state.py line 260)
         for _ in 0..num_empty_slots {
-            self.historical_block_hashes
-                .push(Hash256::ZERO)
+            self.historical_block_hashes.push(Hash256::ZERO)
                 .map_err(|e| format!("Failed to append ZERO_HASH for empty slot: {:?}", e))?;
-            self.justified_slots
-                .set(self.historical_block_hashes.len() - 1, false)
-                .map_err(|e| format!("Failed to set justified slot for empty slot: {:?}", e))?;
         }
+
+        // Force materialization of the list by serializing and deserializing it
+        // This ensures pending updates are flushed before tree_hash is called
+        let encoded_hashes = ssz::Encode::as_ssz_bytes(&self.historical_block_hashes);
+        self.historical_block_hashes = ssz::Decode::from_ssz_bytes(&encoded_hashes)
+            .map_err(|e| format!("Failed to rematerialize historical_block_hashes: {:?}", e))?;
+
+        debug!(
+            block_slot = block.slot.0,
+            parent_header_slot = parent_header.slot.0,
+            added_parent_root = ?parent_root,
+            num_empty_slots = num_empty_slots,
+            historical_hashes_len = self.historical_block_hashes.len(),
+            "Updated historical_block_hashes"
+        );
+
+        // Following the spec pattern: build new justified_slots by growing the BitList
+        // (spec: leanSpec/state.py lines 264-268)
+        //
+        // The spec pattern: justified_slots + [Boolean(is_genesis_parent)] + ([Boolean(False)] * num_empty_slots)
+        // This means justified_slots grows in parallel with historical_block_hashes.
+
+        let current_len = self.justified_slots.len();
+        let num_empty_slots_usize = num_empty_slots as usize;
+
+        // Calculate total size of new BitList
+        let new_len = current_len + 1 + num_empty_slots_usize;
+
+        // Create a fresh BitList with the exact final size needed
+        // We must create with the final size because .set() won't extend beyond capacity
+        let mut new_justified_slots =
+            BitList::with_capacity(new_len).map_err(|e| {
+                format!("Failed to create justified_slots BitList with capacity {}: {:?}", new_len, e)
+            })?;
+
+        // Only copy existing bits if there are any (avoid unnecessary work on first block)
+        if current_len > 0 {
+            for i in 0..current_len {
+                let bit_value = self.justified_slots.get(i).map_err(|e| {
+                    format!("Failed to read justified_slots bit at index {}: {:?}", i, e)
+                })?;
+                new_justified_slots.set(i, bit_value).map_err(|e| {
+                    format!("Failed to copy bit at index {}: {:?}", i, e)
+                })?;
+            }
+
+            debug!(
+                "Copied {} existing bits to new justified_slots BitList",
+                current_len
+            );
+        }
+
+        // Set the parent slot bit (justified only if it's the genesis block)
+        new_justified_slots
+            .set(current_len, is_genesis_parent)
+            .map_err(|e| {
+                format!("Failed to set parent bit in justified_slots: {:?}", e)
+            })?;
+
+        debug!(
+            "Set parent justified bit at index {}: is_genesis_parent={}",
+            current_len, is_genesis_parent
+        );
+
+        // Set false for each empty slot
+        for i in 0..num_empty_slots_usize {
+            new_justified_slots
+                .set(current_len + 1 + i, false)
+                .map_err(|e| {
+                    format!("Failed to set empty slot bit at index {}: {:?}", current_len + 1 + i, e)
+                })?;
+        }
+
+        debug!(
+            "Set {} empty slot bits (all false) in justified_slots",
+            num_empty_slots_usize
+        );
+
+        self.justified_slots = new_justified_slots;
+
+        debug!(
+            "Rebuilt justified_slots BitList: old_len={}, new_len={}, hist_block_hashes_len={}",
+            current_len,
+            self.justified_slots.len(),
+            self.historical_block_hashes.len()
+        );
 
         self.latest_block_header = LeanBlockHeader {
             slot: block.slot,
@@ -347,6 +465,17 @@ impl<E: EthSpec> LeanState<E> {
                     })?;
 
                 if target.slot > self.latest_justified.slot {
+                    // When we justify a new checkpoint, finalize the previous justified checkpoint
+                    // if it's at least 2 slots behind the new one (matches Ethereum finalization)
+                    if target.slot.0 >= self.latest_justified.slot.0 + 2 {
+                        self.latest_finalized = self.latest_justified.clone();
+                        debug!(
+                            finalized_slot = self.latest_justified.slot.0,
+                            finalized_root = ?self.latest_justified.root,
+                            "Chain finalized: previous justified checkpoint finalized after new justification"
+                        );
+                    }
+
                     self.latest_justified = (*target).clone();
                 }
             }

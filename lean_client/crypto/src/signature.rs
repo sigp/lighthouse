@@ -1,102 +1,61 @@
-use leansig::serialization::Serializable;
-use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
-use leansig::signature::SignatureScheme;
-use ssz::{Decode, DecodeError, Encode};
-use tree_hash::TreeHash;
+use ssz_derive::{Decode, Encode};
+use tree_hash_derive::TreeHash;
+use types::{FixedVector};
+use types::typenum::*;
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+/// XMSS signature size in bytes (3112 bytes)
+pub const SIGNATURE_SIZE: usize = 3112;
+
+/// Type alias for U3112 = U2048 + U1024 + U40
+type U3112 = Sum<Sum<U2048, U1024>, U40>;
+
+/// XMSS signature represented as fixed-size vector (3112 bytes)
+#[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, TreeHash)]
 pub struct Signature {
-    bytes: Vec<u8>,
+    bytes: FixedVector<u8, U3112>,
 }
 
 impl Signature {
-    /// Create a new signature from a byte vector.
-    pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        Self { bytes }
-    }
-
-    /// Create an empty signature (zero-length).
-    pub fn empty() -> Self {
-        Self { bytes: Vec::new() }
-    }
-
-    /// Returns true if this signature is empty (has no bytes).
-    pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
-    }
-
-    /// Get a reference to the signature bytes.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    /// Convert the signature to a byte vector.
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.bytes
-    }
-
-    /// Get the length of the signature in bytes.
-    pub fn len(&self) -> usize {
-        self.bytes.len()
-    }
-
-    /// Verify the signature using Generalized XMSS verification.
-    ///
-    /// # Parameters
-    /// - `public_key`: The public key bytes (XMSS root + parameter values)
-    /// - `epoch`: The epoch/slot number used for signature generation
-    /// - `message`: The message hash to verify (32 bytes)
-    ///
-    /// # Returns
-    /// `true` if the signature is valid, `false` otherwise
-    pub fn verify(&self, public_key: &[u8], epoch: u64, message: &[u8]) -> bool {
-
-        // Validate input lengths
-        if self.bytes.is_empty() || public_key.is_empty() || message.len() != 32 {
-            return false;
+    /// Create a new signature from a 3112-byte array
+    pub fn from_bytes(bytes: [u8; SIGNATURE_SIZE]) -> Self {
+        Self {
+            bytes: FixedVector::new(bytes.to_vec())
+                .expect("Fixed vector creation should not fail for correct size"),
         }
+    }
 
-        // Epoch must fit in u32 for XMSS
-        let epoch_u32 = match epoch.try_into() {
-            Ok(e) => e,
-            Err(_) => return false,
-        };
-
-        // Deserialize the public key
-        let public_key_deserialized: <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::PublicKey =
-            match <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::PublicKey::from_bytes(public_key) {
-                Ok(pk) => pk,
-                Err(_) => return false,
-            };
-
-        // Deserialize the signature
-        let signature_deserialized: <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::Signature =
-            match <SIGTopLevelTargetSumLifetime32Dim64Base8 as SignatureScheme>::Signature::from_bytes(&self.bytes) {
-                Ok(sig) => sig,
-                Err(_) => return false,
-            };
-
-        // Convert message to fixed-size array (32 bytes)
-        let mut message_array = [0u8; 32];
-        if message.len() == 32 {
-            message_array.copy_from_slice(message);
-        } else {
-            return false;
+    /// Create a signature from a byte slice (must be exactly SIGNATURE_SIZE bytes)
+    pub fn try_from_slice(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() != SIGNATURE_SIZE {
+            return Err(format!(
+                "Invalid signature length: expected {}, got {}",
+                SIGNATURE_SIZE,
+                bytes.len()
+            ));
         }
+        let vec = bytes.to_vec();
+        let fixed = FixedVector::new(vec)
+            .map_err(|e| format!("Failed to create fixed vector: {:?}", e))?;
+        Ok(Self { bytes: fixed })
+    }
 
-        // Verify the signature
-        SIGTopLevelTargetSumLifetime32Dim64Base8::verify(
-            &public_key_deserialized,
-            epoch_u32,
-            &message_array,
-            &signature_deserialized,
-        )
+    /// Get the signature as a slice
+    pub fn as_slice(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+
+    /// Create a zero-filled signature
+    pub fn zero() -> Self {
+        Self {
+            bytes: FixedVector::new(vec![0u8; SIGNATURE_SIZE])
+                .expect("Fixed vector creation should not fail for correct size"),
+        }
     }
 }
 
 impl Default for Signature {
     fn default() -> Self {
-        Self::empty()
+        Self::zero()
     }
 }
 
@@ -106,9 +65,7 @@ impl core::fmt::Display for Signature {
         for byte in self.bytes.iter().take(6) {
             write!(f, "{:02x}", byte)?;
         }
-        if self.bytes.len() > 6 {
-            write!(f, "...({} bytes)", self.bytes.len())?;
-        }
+        write!(f, "...({} bytes)", SIGNATURE_SIZE)?;
         Ok(())
     }
 }
@@ -119,15 +76,9 @@ impl core::hash::Hash for Signature {
     }
 }
 
-impl From<Vec<u8>> for Signature {
-    fn from(bytes: Vec<u8>) -> Self {
+impl From<[u8; SIGNATURE_SIZE]> for Signature {
+    fn from(bytes: [u8; SIGNATURE_SIZE]) -> Self {
         Self::from_bytes(bytes)
-    }
-}
-
-impl From<Signature> for Vec<u8> {
-    fn from(sig: Signature) -> Self {
-        sig.into_bytes()
     }
 }
 
@@ -137,48 +88,5 @@ impl AsRef<[u8]> for Signature {
     }
 }
 
-// SSZ Encoding/Decoding implementation for variable-length signatures
-impl Encode for Signature {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.bytes);
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        self.bytes.len()
-    }
-}
-
-impl Decode for Signature {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        Ok(Self {
-            bytes: bytes.to_vec(),
-        })
-    }
-}
-
-// TreeHash implementation for variable-length signatures
-impl TreeHash for Signature {
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::Vector
-    }
-
-    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
-        unreachable!("Vector should never be packed")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("Vector should never be packed")
-    }
-
-    fn tree_hash_root(&self) -> tree_hash::Hash256 {
-        tree_hash::merkle_root(&self.bytes, 0)
-    }
-}
+// SSZ Encoding/Decoding is derived from FixedVector implementation
+// TreeHash is also derived from FixedVector implementation

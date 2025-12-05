@@ -2,6 +2,7 @@ use lean_consensus::validator::Validator;
 use lean_keystore::ValidatorKeyPair;
 use std::collections::HashMap;
 use types::FixedVector;
+use serde_yaml;
 
 /// Build validator list from raw key pairs loaded from the keystore.
 pub fn build_validators(
@@ -16,27 +17,8 @@ pub fn build_validators(
             .get(&validator_index)
             .ok_or_else(|| format!("Validator index {} not found in key pairs", validator_index))?;
 
-        // Convert PublicKey to FixedVector<u8, U52>
-        let mut pubkey_bytes = Vec::with_capacity(52);
-
-        // Serialize root (8 u32 values = 32 bytes)
-        for &val in &key_pair.public_key.root {
-            pubkey_bytes.extend_from_slice(&val.to_le_bytes());
-        }
-
-        // Serialize parameter (5 u32 values = 20 bytes)
-        for &val in &key_pair.public_key.parameter {
-            pubkey_bytes.extend_from_slice(&val.to_le_bytes());
-        }
-
-        if pubkey_bytes.len() != 52 {
-            return Err(format!(
-                "Invalid public key size: expected 52 bytes, got {} bytes (root: {} u32, parameter: {} u32)",
-                pubkey_bytes.len(),
-                key_pair.public_key.root.len(),
-                key_pair.public_key.parameter.len()
-            ));
-        }
+        // PublicKey is already 52 bytes
+        let pubkey_bytes = key_pair.public_key.as_bytes().to_vec();
 
         let pubkey_fixed = FixedVector::new(pubkey_bytes).map_err(|e| {
             format!(
@@ -51,6 +33,66 @@ pub fn build_validators(
     }
 
     Ok(validators_list)
+}
+
+/// Build validator list from hex-encoded public keys in config.yaml GENESIS_VALIDATORS field.
+pub fn build_validators_from_config(config_bytes: &[u8]) -> Result<Vec<Validator>, String> {
+    let config: serde_yaml::Value = serde_yaml::from_slice(config_bytes)
+        .map_err(|e| format!("Failed to parse config.yaml: {}", e))?;
+
+    let genesis_validators = config
+        .get("GENESIS_VALIDATORS")
+        .or_else(|| config.get("genesis_validators"))
+        .ok_or_else(|| "GENESIS_VALIDATORS not found in config.yaml".to_string())?;
+
+    let validators_seq = genesis_validators.as_sequence().ok_or_else(|| {
+        "GENESIS_VALIDATORS must be a list".to_string()
+    })?;
+
+    let mut validators_list = Vec::new();
+
+    for (index, pubkey_val) in validators_seq.iter().enumerate() {
+        let pubkey_hex = pubkey_val.as_str().ok_or_else(|| {
+            format!("Validator {} must be a hex string", index)
+        })?;
+
+        let pubkey_bytes = hex_to_bytes52(pubkey_hex)
+            .map_err(|e| format!("Failed to parse validator {} pubkey: {}", index, e))?;
+
+        let pubkey_fixed = FixedVector::new(pubkey_bytes.to_vec()).map_err(|e| {
+            format!(
+                "Failed to create FixedVector from public key bytes: {:?}",
+                e
+            )
+        })?;
+
+        let validator = Validator {
+            pubkey: pubkey_fixed,
+        };
+        validators_list.push(validator);
+    }
+
+    Ok(validators_list)
+}
+
+/// Convert hex string to 52 bytes array
+fn hex_to_bytes52(hex_str: &str) -> Result<[u8; 52], String> {
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+
+    if hex_str.len() != 104 {  // 52 bytes * 2 hex chars per byte
+        return Err(format!(
+            "Invalid pubkey hex length: expected 104 chars, got {}",
+            hex_str.len()
+        ));
+    }
+
+    let mut bytes = [0u8; 52];
+    for i in 0..52 {
+        bytes[i] = u8::from_str_radix(&hex_str[i * 2..i * 2 + 2], 16)
+            .map_err(|e| format!("Invalid hex character: {}", e))?;
+    }
+
+    Ok(bytes)
 }
 
 /// Get current time in seconds since epoch.

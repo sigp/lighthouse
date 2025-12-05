@@ -5,17 +5,23 @@ use lean_consensus::attestation::SignedAttestation;
 use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
 use libp2p::identity::{self, Keypair};
 use libp2p::{
-    gossipsub,
+    gossipsub::{self, MessageId},
     swarm::{NetworkBehaviour, SwarmEvent},
     Multiaddr, PeerId, Swarm, Transport,
 };
+use sha2::{Digest, Sha256};
+use snap::raw::{Decoder as RawDecoder, Encoder as RawEncoder};
 use ssz::{Decode, Encode};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 use types::EthSpec;
+
+/// Domain prefix for valid snappy-compressed messages per Eth2 networking spec
+/// This is prepended to message data before hashing to create unique message IDs
+const MESSAGE_DOMAIN_VALID_SNAPPY: &[u8] = &[0x01, 0x00, 0x00, 0x00];
 
 #[derive(NetworkBehaviour)]
 pub struct LeanBehaviour {
@@ -98,7 +104,20 @@ impl<E: EthSpec> NetworkService<E> {
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
-            .validation_mode(gossipsub::ValidationMode::Strict)
+            .validation_mode(gossipsub::ValidationMode::None)
+            .message_id_fn(|message: &gossipsub::Message| {
+                // Use SHA256 hash of topic + data with domain prefix for message ID
+                // This matches the Eth2 networking spec for message deduplication
+                let topic_bytes = message.topic.as_str().as_bytes();
+                let mut digest = vec![];
+                digest.extend_from_slice(MESSAGE_DOMAIN_VALID_SNAPPY);
+                digest.extend_from_slice(&topic_bytes.len().to_le_bytes());
+                digest.extend_from_slice(topic_bytes);
+                digest.extend_from_slice(&message.data);
+
+                let hash = Sha256::digest(&digest);
+                MessageId::from(&hash[..20])
+            })
             .build()
             .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
 
@@ -189,6 +208,7 @@ impl<E: EthSpec> NetworkService<E> {
     }
 
     /// Decode message based on topic and create appropriate NetworkMessage
+    /// Messages are expected to be snappy-compressed
     fn decode_network_message(&self, topic: &str, data: &[u8]) -> Option<NetworkMessage<E>> {
         let base_topic = match topics::parse_topic_name(topic, &self.network_name) {
             Some(name) => name,
@@ -198,8 +218,17 @@ impl<E: EthSpec> NetworkService<E> {
             }
         };
 
+        // Decompress snappy-compressed message
+        let decompressed = match self.decompress_snappy(data) {
+            Ok(d) => d,
+            Err(e) => {
+                warn!("Failed to decompress snappy message: {}", e);
+                return None;
+            }
+        };
+
         match base_topic {
-            Topic::Block => match SignedLeanBlockWithAttestation::from_ssz_bytes(data) {
+            Topic::Block => match SignedLeanBlockWithAttestation::from_ssz_bytes(&decompressed) {
                 Ok(block) => {
                     debug!("Successfully decoded lean block from network");
                     Some(NetworkMessage::Block(Arc::new(block)))
@@ -209,7 +238,7 @@ impl<E: EthSpec> NetworkService<E> {
                     None
                 }
             },
-            Topic::Attestation => match SignedAttestation::from_ssz_bytes(data) {
+            Topic::Attestation => match SignedAttestation::from_ssz_bytes(&decompressed) {
                 Ok(signed_attestation) => {
                     debug!("Successfully decoded signed lean attestation from network");
                     Some(NetworkMessage::Attestation(Arc::new(signed_attestation)))
@@ -220,6 +249,24 @@ impl<E: EthSpec> NetworkService<E> {
                 }
             },
         }
+    }
+
+    /// Decompress raw (unframed) snappy-compressed data
+    /// Gossipsub uses raw snappy format per Eth2 networking spec
+    fn decompress_snappy(&self, data: &[u8]) -> Result<Vec<u8>, String> {
+        let mut decoder = RawDecoder::new();
+        decoder
+            .decompress_vec(data)
+            .map_err(|e| format!("Snappy decompression failed: {}", e))
+    }
+
+    /// Compress data using raw (unframed) snappy compression
+    /// Gossipsub uses raw snappy format per Eth2 networking spec
+    fn compress_snappy(&self, data: &[u8]) -> Result<Vec<u8>, String> {
+        let mut encoder = RawEncoder::new();
+        encoder
+            .compress_vec(data)
+            .map_err(|e| format!("Snappy compression failed: {}", e))
     }
 
     pub async fn start(mut self) {
@@ -251,11 +298,11 @@ impl<E: EthSpec> NetworkService<E> {
                         LeanBehaviourEvent::Gossipsub(gossipsub::Event::Message {
                             propagation_source,
                             message,
-                            ..
+                            message_id,
                         }) => {
                             debug!(
-                                "Received gossipsub message from {:?} on topic {:?}",
-                                propagation_source, message.topic
+                                "Received gossipsub message from {:?} on topic {:?}, message_id: {:?}",
+                                propagation_source, message.topic, message_id
                             );
 
                             // Decode the message based on topic
@@ -276,8 +323,14 @@ impl<E: EthSpec> NetworkService<E> {
                                 }
                             }
                         }
-                        _ => {
-                            debug!("Other behaviour event: {:?}", event);
+                        LeanBehaviourEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic }) => {
+                            debug!("Peer {:?} subscribed to topic: {:?}", peer_id, topic);
+                        }
+                        LeanBehaviourEvent::Gossipsub(gossipsub::Event::Unsubscribed { peer_id, topic }) => {
+                            debug!("Peer {:?} unsubscribed from topic: {:?}", peer_id, topic);
+                        }
+                        LeanBehaviourEvent::Gossipsub(other_gossipsub_event) => {
+                            trace!("Gossipsub behaviour event: {:?}", other_gossipsub_event);
                         }
                     }
                 }
@@ -337,12 +390,21 @@ impl<E: EthSpec> NetworkService<E> {
             }
         };
 
+        // Compress data using snappy before publishing (required by Eth2 networking spec)
+        let compressed_data = match self.compress_snappy(&data) {
+            Ok(compressed) => compressed,
+            Err(e) => {
+                warn!("Failed to compress message for publishing: {}", e);
+                return;
+            }
+        };
+
         // Create gossipsub topic
         let encoded_topic = topics::encode_topic(&self.network_name, topic_variant);
         let topic = gossipsub::IdentTopic::new(encoded_topic.clone());
 
         // Publish to gossipsub
-        if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+        if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, compressed_data) {
             warn!(
                 "Failed to publish message to gossipsub topic {}: {:?}",
                 encoded_topic, e

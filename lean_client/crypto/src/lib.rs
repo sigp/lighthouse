@@ -1,2 +1,2 @@
-mod signature;
+pub mod signature;
 pub use signature::Signature;

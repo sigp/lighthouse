@@ -29,21 +29,95 @@ pub enum KeyStoreError {
     DirectoryError(String),
 }
 
-/// Public key structure for XMSS keys
-#[derive(Debug, Clone, Serialize, Deserialize, ssz_derive::Encode, ssz_derive::Decode)]
+/// Public key structure for XMSS keys (52 bytes)
+/// Stores the public key as 52 raw bytes: root (32 bytes) + parameters (20 bytes)
+#[derive(Debug, Clone)]
 pub struct PublicKey {
-    /// Root of the XMSS public key (8 u32 values)
-    pub root: Vec<u32>,
-    /// Parameter values for the XMSS key (5 u32 values)
-    pub parameter: Vec<u32>,
+    /// Raw 52-byte public key (32 bytes root + 20 bytes parameters)
+    pub bytes: [u8; 52],
+}
+
+impl Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Serialize as legacy format for compatibility
+        #[derive(Serialize)]
+        struct LegacyPublicKey {
+            root: Vec<u32>,
+            parameter: Vec<u32>,
+        }
+
+        let root: Vec<u32> = self.bytes[0..32]
+            .chunks(4)
+            .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+
+        let parameter: Vec<u32> = self.bytes[32..52]
+            .chunks(4)
+            .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+
+        let legacy = LegacyPublicKey { root, parameter };
+        legacy.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for PublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Try to deserialize as legacy format (root + parameter)
+        #[derive(Deserialize)]
+        struct LegacyPublicKey {
+            root: Vec<u32>,
+            parameter: Vec<u32>,
+        }
+
+        let legacy = LegacyPublicKey::deserialize(deserializer)?;
+
+        if legacy.root.len() != 8 || legacy.parameter.len() != 5 {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid public key: expected 8 root values and 5 parameter values, got {} and {}",
+                legacy.root.len(),
+                legacy.parameter.len()
+            )));
+        }
+
+        let mut bytes = [0u8; 52];
+
+        // Encode root (8 u32 = 32 bytes) in little-endian
+        for (i, &val) in legacy.root.iter().enumerate() {
+            bytes[i * 4..(i + 1) * 4].copy_from_slice(&val.to_le_bytes());
+        }
+
+        // Encode parameter (5 u32 = 20 bytes) in little-endian
+        for (i, &val) in legacy.parameter.iter().enumerate() {
+            bytes[32 + i * 4..32 + (i + 1) * 4].copy_from_slice(&val.to_le_bytes());
+        }
+
+        Ok(PublicKey { bytes })
+    }
 }
 
 impl PublicKey {
+    /// Create a public key from raw 52 bytes
+    pub fn from_bytes(bytes: [u8; 52]) -> Self {
+        Self { bytes }
+    }
+
+    /// Convert to leansig HashSigPublicKey for verification
     pub fn to_hashsig(&self) -> Result<HashSigPublicKey, String> {
-        let mut buf = Vec::new();
-        self.ssz_append(&mut buf);
-        HashSigPublicKey::from_bytes(&buf)
-            .map_err(|e| format!("Failed to parse SSZ bytes into lean-sig public key: {:?}", e))
+        // The bytes are already in the correct format for leansig
+        HashSigPublicKey::from_bytes(&self.bytes)
+            .map_err(|e| format!("Failed to parse bytes into lean-sig public key: {:?}", e))
+    }
+
+    /// Get the raw 52 bytes
+    pub fn as_bytes(&self) -> &[u8; 52] {
+        &self.bytes
     }
 }
 
@@ -116,14 +190,9 @@ impl ValidatorKeyPair {
         }
     }
 
-    /// Gets the public key root
-    pub fn public_key_root(&self) -> &[u32] {
-        &self.public_key.root
-    }
-
-    /// Gets the public key parameter
-    pub fn public_key_parameter(&self) -> &[u32] {
-        &self.public_key.parameter
+    /// Gets the public key bytes
+    pub fn public_key_bytes(&self) -> &[u8; 52] {
+        &self.public_key.bytes
     }
 
     /// Returns the raw JSON for the public key.
@@ -355,6 +424,7 @@ impl KeyStore {
     /// Loads a public key from disk for verification purposes
     ///
     /// Reads the public key file for the given validator index.
+    /// Automatically converts from legacy format (root + parameter) to 52-byte format.
     pub fn load_public_key(&self, validator_index: u64) -> Result<PublicKey, KeyStoreError> {
         let public_key_path = self
             .base_dir
@@ -378,10 +448,16 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_key_pair() -> ValidatorKeyPair {
-        let public_key = PublicKey {
-            root: vec![1, 2, 3, 4, 5, 6, 7, 8],
-            parameter: vec![9, 10, 11, 12, 13],
-        };
+        // Create 52-byte public key (32 bytes root + 20 bytes parameter)
+        let mut bytes = [0u8; 52];
+        for i in 0..8 {
+            bytes[i*4..(i+1)*4].copy_from_slice(&(i as u32 + 1).to_le_bytes());
+        }
+        for i in 0..5 {
+            bytes[32 + i*4..32 + (i+1)*4].copy_from_slice(&(i as u32 + 9).to_le_bytes());
+        }
+
+        let public_key = PublicKey::from_bytes(bytes);
 
         let private_key = PrivateKey {
             prf_key: vec![1, 2, 3, 4, 5],
@@ -411,8 +487,7 @@ mod tests {
         // Load key pair
         let loaded = keystore.load_key_pair(0).unwrap();
 
-        assert_eq!(loaded.public_key_root(), &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(loaded.public_key_parameter(), &[9, 10, 11, 12, 13]);
+        assert_eq!(loaded.public_key_bytes().len(), 52);
         assert_eq!(loaded.private_key_prf(), &[1, 2, 3, 4, 5]);
         assert_eq!(loaded.activation_epoch(), 0);
     }
