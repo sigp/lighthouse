@@ -37,15 +37,14 @@ mod validators;
 mod version;
 
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
-use crate::utils::EthV1Filter;
+use crate::utils::{AnyVersionFilter, EthV1Filter};
 use crate::validator::post_validator_liveness_epoch;
 use crate::validator::*;
 use crate::version::beacon_response;
 use beacon::states;
 use beacon_chain::{
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    WhenSlotSkipped, attestation_verification::VerifiedAttestation,
-    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
+    BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
+    observed_operations::ObservationOutcome,
 };
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
@@ -53,18 +52,20 @@ use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::StatusCode;
+use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
-    ForkChoiceExtraData, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest,
-    StateId as CoreStateId, ValidatorId, ValidatorStatus,
+    ForkChoiceExtraData, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
-use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{Enr, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
+use lighthouse_network::Enr;
+use lighthouse_network::NetworkGlobals;
+use lighthouse_network::PeerId;
+use lighthouse_network::PubsubMessage;
 use lighthouse_version::version_with_platform;
 use logging::{SSELoggingComponents, crit};
-use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use network::{NetworkMessage, NetworkSenders};
 use network_utils::enr_ext::EnrExt;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
@@ -76,7 +77,6 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
 use std::collections::HashSet;
-use std::convert::Infallible;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -86,29 +86,23 @@ use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::{observe_nat, observe_system_health_bn};
 use task_spawner::{Priority, TaskSpawner};
-use tokio::sync::{
-    mpsc::{Sender, UnboundedSender},
-    oneshot,
-};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{
     StreamExt,
     wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconStateError, ChainSpec, Checkpoint,
-    ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256, ProposerPreparationData, ProposerSlashing,
-    SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttestationData, AttesterSlashing, BeaconStateError, Checkpoint, ConfigAndPreset,
+    Epoch, EthSpec, ForkName, Hash256, ProposerSlashing, SignedBlindedBeaconBlock,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation, Slot, SyncCommitteeMessage,
 };
 use version::{
-    ResponseIncludesVersion, V1, V2, V3, add_consensus_version_header, add_ssz_content_type_header,
+    ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
     unsupported_version_rejection,
 };
 use warp::Reply;
-use warp::filters::BoxedFilter;
 use warp::hyper::Body;
 use warp::sse::Event;
 use warp::{Filter, Rejection, http::Response};
@@ -375,7 +369,7 @@ pub fn serve<T: BeaconChainTypes>(
         .boxed();
 
     // Filter that enforces a single endpoint version and then discards the `EndpointVersion`.
-    let single_version: fn(EndpointVersion) -> EthV1Filter = |reqd: EndpointVersion| {
+    fn single_version(any_version: AnyVersionFilter, reqd: EndpointVersion) -> EthV1Filter {
         any_version
             .and_then(move |version| async move {
                 if version == reqd {
@@ -386,10 +380,10 @@ pub fn serve<T: BeaconChainTypes>(
             })
             .untuple_one()
             .boxed()
-    };
+    }
 
-    let eth_v1 = single_version(V1);
-    let eth_v2 = single_version(V2);
+    let eth_v1 = single_version(any_version.clone(), V1);
+    let eth_v2 = single_version(any_version.clone(), V2);
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -563,6 +557,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/genesis
     let get_beacon_genesis = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("genesis"))
         .and(warp::path::end())
@@ -586,6 +581,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_states_path = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("states"))
         .and(warp::path::param::<StateId>().or_else(|_| async {
@@ -662,6 +658,7 @@ pub fn serve<T: BeaconChainTypes>(
     // mechanism for arbitrary forwards block iteration, we only support iterating forwards along
     // the canonical chain.
     let get_beacon_headers = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("headers"))
         .and(warp::query::<api_types::HeadersQuery>())
@@ -758,6 +755,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/headers/{block_id}
     let get_beacon_headers_block_id = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("headers"))
         .and(warp::path::param::<BlockId>().or_else(|_| async {
@@ -813,6 +811,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST beacon/blocks
     let post_beacon_blocks = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
@@ -849,6 +848,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blocks_ssz = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
@@ -885,6 +885,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blocks_v2 = eth_v2
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
@@ -924,6 +925,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blocks_v2_ssz = eth_v2
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
@@ -967,6 +969,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST beacon/blinded_blocks
     let post_beacon_blinded_blocks = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(warp::path::end())
@@ -994,6 +997,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST beacon/blocks
     let post_beacon_blinded_blocks_ssz = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(warp::path::end())
@@ -1028,6 +1032,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blinded_blocks_v2 = eth_v2
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
@@ -1067,6 +1072,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let post_beacon_blinded_blocks_v2_ssz = eth_v2
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
@@ -1109,6 +1115,7 @@ pub fn serve<T: BeaconChainTypes>(
     });
 
     let beacon_blocks_path_v1 = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(block_id_or_err)
@@ -1116,6 +1123,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone());
 
     let beacon_blocks_path_any = any_version
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(block_id_or_err)
@@ -1241,6 +1249,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/blinded_blocks/{block_id}
     let get_beacon_blinded_block = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(block_id_or_err)
@@ -1293,6 +1302,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/blob_sidecars/{block_id}
     let get_blob_sidecars = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
@@ -1344,6 +1354,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET beacon/blobs/{block_id}
     let get_blobs = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("blobs"))
         .and(block_id_or_err)
@@ -1393,18 +1404,21 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_pool_path = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("pool"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
     let beacon_pool_path_v2 = eth_v2
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("pool"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
     let beacon_pool_path_any = any_version
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("pool"))
         .and(task_spawner_filter.clone())
@@ -1834,6 +1848,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let beacon_rewards_path = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("rewards"))
         .and(task_spawner_filter.clone())
@@ -1864,6 +1879,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let builder_states_path = eth_v1
+        .clone()
         .and(warp::path("builder"))
         .and(warp::path("states"))
         .and(chain_filter.clone());
@@ -1918,6 +1934,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_light_client_path = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("light_client"))
         .and(light_client_server_filter)
@@ -2070,6 +2087,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     let beacon_rewards_path = eth_v1
+        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("rewards"))
         .and(task_spawner_filter.clone())
@@ -2154,10 +2172,11 @@ pub fn serve<T: BeaconChainTypes>(
      * config
      */
 
-    let config_path = eth_v1.and(warp::path("config"));
+    let config_path = eth_v1.clone().and(warp::path("config"));
 
     // GET config/fork_schedule
     let get_config_fork_schedule = config_path
+        .clone()
         .and(warp::path("fork_schedule"))
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
@@ -2176,6 +2195,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET config/spec
     let get_config_spec = config_path
+        .clone()
         .and(warp::path("spec"))
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
@@ -2215,6 +2235,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/beacon/data_column_sidecars/{block_id}
     let get_debug_data_column_sidecars = eth_v1
+        .clone()
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
         .and(warp::path("data_column_sidecars"))
@@ -2264,6 +2285,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/beacon/states/{state_id}
     let get_debug_beacon_states = any_version
+        .clone()
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
         .and(warp::path("states"))
@@ -2339,6 +2361,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/beacon/heads
     let get_debug_beacon_heads = any_version
+        .clone()
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
         .and(warp::path("heads"))
@@ -2379,6 +2402,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/fork_choice
     let get_debug_fork_choice = eth_v1
+        .clone()
         .and(warp::path("debug"))
         .and(warp::path("fork_choice"))
         .and(warp::path::end())
@@ -2460,6 +2484,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/identity
     let get_node_identity = eth_v1
+        .clone()
         .and(warp::path("node"))
         .and(warp::path("identity"))
         .and(warp::path::end())
@@ -2490,6 +2515,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/version
     let get_node_version = eth_v1
+        .clone()
         .and(warp::path("node"))
         .and(warp::path("version"))
         .and(warp::path::end())
@@ -2503,6 +2529,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/syncing
     let get_node_syncing = eth_v1
+        .clone()
         .and(warp::path("node"))
         .and(warp::path("syncing"))
         .and(warp::path::end())
@@ -2564,6 +2591,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/health
     let get_node_health = eth_v1
+        .clone()
         .and(warp::path("node"))
         .and(warp::path("health"))
         .and(warp::path::end())
@@ -2612,6 +2640,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/peers/{peer_id}
     let get_node_peers_by_id = eth_v1
+        .clone()
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::param::<String>())
@@ -2666,6 +2695,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/peers
     let get_node_peers = eth_v1
+        .clone()
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::end())
@@ -2730,6 +2760,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET node/peer_count
     let get_node_peer_count = eth_v1
+        .clone()
         .and(warp::path("node"))
         .and(warp::path("peer_count"))
         .and(warp::path::end())
@@ -2774,7 +2805,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/duties/proposer/{epoch}
     let get_validator_duties_proposer = get_validator_duties_proposer(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2782,7 +2813,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blocks/{slot}
     let get_validator_blocks = get_validator_blocks(
-        any_version.clone(),
+        any_version.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2790,7 +2821,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blinded_blocks/{slot}
     let get_validator_blinded_blocks = get_validator_blinded_blocks(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2798,7 +2829,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/attestation_data?slot,committee_index
     let get_validator_attestation_data = get_validator_attestation_data(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2806,7 +2837,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = get_validator_aggregate_attestation(
-        any_version.clone(),
+        any_version.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2814,7 +2845,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/attester/{epoch}
     let post_validator_duties_attester = post_validator_duties_attester(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2822,7 +2853,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/sync/{epoch}
     let post_validator_duties_sync = post_validator_duties_sync(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2830,7 +2861,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/sync_committee_contribution
     let get_validator_sync_committee_contribution = get_validator_sync_committee_contribution(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2838,7 +2869,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/aggregate_and_proofs
     let post_validator_aggregate_and_proofs = post_validator_aggregate_and_proofs(
-        any_version.clone(),
+        any_version.clone().clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2846,7 +2877,7 @@ pub fn serve<T: BeaconChainTypes>(
     );
 
     let post_validator_contribution_and_proofs = post_validator_contribution_and_proofs(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2856,7 +2887,7 @@ pub fn serve<T: BeaconChainTypes>(
     // POST validator/beacon_committee_subscriptions
     let post_validator_beacon_committee_subscriptions =
         post_validator_beacon_committee_subscriptions(
-            eth_v1.clone(),
+            eth_v1.clone().clone(),
             chain_filter.clone(),
             validator_subscription_tx_filter.clone(),
             task_spawner_filter.clone(),
@@ -2864,7 +2895,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/prepare_beacon_proposer
     let post_validator_prepare_beacon_proposer = post_validator_prepare_beacon_proposer(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2873,13 +2904,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/register_validator
     let post_validator_register_validator = post_validator_register_validator(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         task_spawner_filter.clone(),
     );
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = post_validator_sync_committee_subscriptions(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         validator_subscription_tx_filter.clone(),
         task_spawner_filter.clone(),
@@ -2887,7 +2918,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/liveness/{epoch}
     let post_validator_liveness_epoch = post_validator_liveness_epoch(
-        eth_v1.clone(),
+        eth_v1.clone().clone(),
         chain_filter.clone(),
         task_spawner_filter.clone(),
     );
@@ -3448,6 +3479,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let get_events = eth_v1
+        .clone()
         .and(warp::path("events"))
         .and(warp::path::end())
         .and(multi_key_query::<api_types::EventQuery>())
