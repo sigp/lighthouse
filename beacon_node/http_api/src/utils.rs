@@ -7,7 +7,7 @@ use network::{NetworkMessage, ValidatorSubscriptionMessage};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, ForkName};
 use warp::Rejection;
 use warp::filters::BoxedFilter;
 
@@ -20,6 +20,7 @@ pub type TaskSpawnerFilter<T> = BoxedFilter<(TaskSpawner<<T as BeaconChainTypes>
 pub type ValidatorSubscriptionTxFilter = BoxedFilter<(Sender<ValidatorSubscriptionMessage>,)>;
 pub type NetworkTxFilter<T> =
     BoxedFilter<(UnboundedSender<NetworkMessage<<T as BeaconChainTypes>::EthSpec>>,)>;
+pub type OptionalConsensusVersionHeaderFilter = BoxedFilter<(Option<ForkName>,)>;
 
 pub fn from_meta_data<E: EthSpec>(
     meta_data: &RwLock<MetaData<E>>,
