@@ -1,7 +1,6 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
-use crate::partial_data_column_cache::PartialDataColumnCache;
 use crate::{
     network_beacon_processor::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
@@ -33,7 +32,6 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
 };
 use matches::assert_matches;
-use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use ssz_types::RuntimeVariableList;
 use std::collections::HashSet;
@@ -268,7 +266,6 @@ impl TestRig {
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send: beacon_processor_tx.clone(),
             duplicate_cache: duplicate_cache.clone(),
-            partial_data_column_cache: Mutex::new(PartialDataColumnCache::new()),
             chain: harness.chain.clone(),
             network_tx,
             sync_tx,
