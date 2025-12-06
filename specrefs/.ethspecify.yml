@@ -1,0 +1,434 @@
+version: v1.6.1
+style: full
+
+specrefs:
+  search_root: ..
+  auto_standardize_names: true
+  auto_add_missing_entries: true
+
+  files:
+    - configs.yml
+    - constants.yml
+    - containers.yml
+    - dataclasses.yml
+    - functions.yml
+    - presets.yml
+
+exceptions:
+  configs:
+    # Not implemented: gloas
+    - AGGREGATE_DUE_BPS_GLOAS#gloas
+    - ATTESTATION_DUE_BPS_GLOAS#gloas
+    - CONTRIBUTION_DUE_BPS_GLOAS#gloas
+    - MAX_REQUEST_PAYLOADS#gloas
+    - PAYLOAD_ATTESTATION_DUE_BPS#gloas
+    - SYNC_MESSAGE_DUE_BPS_GLOAS#gloas
+
+  constants:
+    # Not implemented: phase0
+    - BASIS_POINTS#phase0
+    - ENDIANNESS#phase0
+    - ENDIANNESS#phase0
+    - ETH_TO_GWEI#phase0
+    - ETH_TO_GWEI#phase0
+    - GENESIS_EPOCH#phase0
+    - JUSTIFICATION_BITS_LENGTH#phase0
+    - MAX_CONCURRENT_REQUESTS#phase0
+    - NODE_ID_BITS#phase0
+    - SAFETY_DECAY#phase0
+    - UINT64_MAX#phase0
+    - UINT64_MAX_SQRT#phase0
+
+    # Not implemented: altair
+    - G2_POINT_AT_INFINITY#altair
+    - MAX_REQUEST_LIGHT_CLIENT_UPDATES#altair
+
+    # Not implemented: bellatrix
+    - SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY#bellatrix
+
+    # Not implemented: deneb
+    - BLS_MODULUS#deneb
+    - BYTES_PER_COMMITMENT#deneb
+    - BYTES_PER_FIELD_ELEMENT#deneb
+    - BYTES_PER_PROOF#deneb
+    - FIAT_SHAMIR_PROTOCOL_DOMAIN#deneb
+    - G1_POINT_AT_INFINITY#deneb
+    - KZG_ENDIANNESS#deneb
+    - KZG_SETUP_G2_LENGTH#deneb
+    - KZG_SETUP_G2_MONOMIAL#deneb
+    - PRIMITIVE_ROOT_OF_UNITY#deneb
+    - RANDOM_CHALLENGE_KZG_BATCH_DOMAIN#deneb
+
+    # Not implemented: electra
+    - CONSOLIDATION_REQUEST_TYPE#electra
+    - DEPOSIT_REQUEST_TYPE#electra
+    - WITHDRAWAL_REQUEST_TYPE#electra
+
+    # Not implemented: fulu
+    - RANDOM_CHALLENGE_KZG_CELL_BATCH_DOMAIN#fulu
+    - UINT256_MAX#fulu
+
+    # Not implemented: gloas
+    - BUILDER_PAYMENT_THRESHOLD_DENOMINATOR#gloas
+    - BUILDER_PAYMENT_THRESHOLD_NUMERATOR#gloas
+    - BUILDER_WITHDRAWAL_PREFIX#gloas
+    - DOMAIN_BEACON_BUILDER#gloas
+    - DOMAIN_PTC_ATTESTER#gloas
+    - PAYLOAD_STATUS_EMPTY#gloas
+    - PAYLOAD_STATUS_FULL#gloas
+    - PAYLOAD_STATUS_PENDING#gloas
+
+  containers:
+    # Not implemented: phase0
+    - Eth1Block#phase0
+
+    # Not implemented: bellatrix
+    - PowBlock#bellatrix
+
+    # Not implemented: capella
+    - LightClientBootstrap#capella
+    - LightClientFinalityUpdate#capella
+    - LightClientOptimisticUpdate#capella
+    - LightClientUpdate#capella
+
+    # Not implemented: fulu
+    - MatrixEntry#fulu
+
+    # Not implemented: gloas
+    - BeaconBlockBody#gloas
+    - BeaconState#gloas
+    - BuilderPendingPayment#gloas
+    - BuilderPendingWithdrawal#gloas
+    - DataColumnSidecar#gloas
+    - ExecutionPayloadBid#gloas
+    - ExecutionPayloadEnvelope#gloas
+    - ExecutionPayloadHeader#gloas
+    - ForkChoiceNode#gloas
+    - IndexedPayloadAttestation#gloas
+    - PayloadAttestation#gloas
+    - PayloadAttestationData#gloas
+    - PayloadAttestationMessage#gloas
+    - SignedExecutionPayloadBid#gloas
+    - SignedExecutionPayloadEnvelope#gloas
+
+  dataclasses:
+    # Not implemented: phase0
+    - LatestMessage#phase0
+
+    # Not implemented: altair
+    - LightClientStore#altair
+
+    # Not implemented: bellatrix
+    - OptimisticStore#bellatrix
+
+    # Not implemented: capella
+    - LightClientStore#capella
+
+    # Not implemented: gloas
+    - LatestMessage#gloas
+    - Store#gloas
+
+  functions:
+    # Functions implemented by KZG library for EIP-4844
+    - bit_reversal_permutation#deneb
+    - blob_to_kzg_commitment#deneb
+    - blob_to_polynomial#deneb
+    - bls_field_to_bytes#deneb
+    - bytes_to_bls_field#deneb
+    - bytes_to_kzg_commitment#deneb
+    - bytes_to_kzg_proof#deneb
+    - compute_blob_kzg_proof#deneb
+    - compute_challenge#deneb
+    - compute_kzg_proof#deneb
+    - compute_kzg_proof_impl#deneb
+    - compute_powers#deneb
+    - compute_quotient_eval_within_domain#deneb
+    - compute_roots_of_unity#deneb
+    - evaluate_polynomial_in_evaluation_form#deneb
+    - g1_lincomb#deneb
+    - hash_to_bls_field#deneb
+    - is_power_of_two#deneb
+    - multi_exp#deneb
+    - reverse_bits#deneb
+    - validate_kzg_g1#deneb
+    - verify_blob_kzg_proof#deneb
+    - verify_blob_kzg_proof_batch#deneb
+    - verify_kzg_proof#deneb
+    - verify_kzg_proof_batch#deneb
+    - verify_kzg_proof_impl#deneb
+
+    # Functions implemented by KZG library for EIP-7594
+    - _fft_field#fulu
+    - add_polynomialcoeff#fulu
+    - cell_to_coset_evals#fulu
+    - compute_cells#fulu
+    - compute_cells_and_kzg_proofs#fulu
+    - compute_cells_and_kzg_proofs_polynomialcoeff#fulu
+    - compute_kzg_proof_multi_impl#fulu
+    - compute_verify_cell_kzg_proof_batch_challenge#fulu
+    - construct_vanishing_polynomial#fulu
+    - coset_evals_to_cell#fulu
+    - coset_fft_field#fulu
+    - coset_for_cell#fulu
+    - coset_shift_for_cell#fulu
+    - divide_polynomialcoeff#fulu
+    - evaluate_polynomialcoeff#fulu
+    - fft_field#fulu
+    - interpolate_polynomialcoeff#fulu
+    - multiply_polynomialcoeff#fulu
+    - polynomial_eval_to_coeff#fulu
+    - recover_cells_and_kzg_proofs#fulu
+    - recover_polynomialcoeff#fulu
+    - vanishing_polynomialcoeff#fulu
+    - verify_cell_kzg_proof_batch#fulu
+    - verify_cell_kzg_proof_batch_impl#fulu
+
+    # Not implemented: phase0
+    - bytes_to_uint64#phase0
+    - check_if_validator_active#phase0
+    - compute_new_state_root#phase0
+    - compute_pulled_up_tip#phase0
+    - compute_subscribed_subnet#phase0
+    - compute_subscribed_subnets#phase0
+    - compute_time_at_slot#phase0
+    - compute_weak_subjectivity_period#phase0
+    - filter_block_tree#phase0
+    - get_aggregate_and_proof#phase0
+    - get_aggregate_and_proof_signature#phase0
+    - get_aggregate_due_ms#phase0
+    - get_aggregate_signature#phase0
+    - get_attestation_component_deltas#phase0
+    - get_attestation_deltas#phase0
+    - get_attestation_due_ms#phase0
+    - get_attestation_signature#phase0
+    - get_attesting_balance#phase0
+    - get_block_signature#phase0
+    - get_checkpoint_block#phase0
+    - get_committee_assignment#phase0
+    - get_current_store_epoch#phase0
+    - get_eligible_validator_indices#phase0
+    - get_epoch_signature#phase0
+    - get_eth1_vote#phase0
+    - get_filtered_block_tree#phase0
+    - get_finality_delay#phase0
+    - get_head_deltas#phase0
+    - get_inactivity_penalty_deltas#phase0
+    - get_inclusion_delay_deltas#phase0
+    - get_matching_head_attestations#phase0
+    - get_matching_source_attestations#phase0
+    - get_matching_target_attestations#phase0
+    - get_proposer_head#phase0
+    - get_proposer_reorg_cutoff_ms#phase0
+    - get_proposer_reward#phase0
+    - get_proposer_score#phase0
+    - get_slot_component_duration_ms#phase0
+    - get_slot_signature#phase0
+    - get_slots_since_genesis#phase0
+    - get_source_deltas#phase0
+    - get_target_deltas#phase0
+    - get_unslashed_attesting_indices#phase0
+    - get_validator_from_deposit#phase0
+    - get_voting_source#phase0
+    - get_weight#phase0
+    - initialize_beacon_state_from_eth1#phase0
+    - integer_squareroot#phase0
+    - is_candidate_block#phase0
+    - is_ffg_competitive#phase0
+    - is_finalization_ok#phase0
+    - is_head_late#phase0
+    - is_head_weak#phase0
+    - is_parent_strong#phase0
+    - is_proposer#phase0
+    - is_proposing_on_time#phase0
+    - is_shuffling_stable#phase0
+    - is_slashable_attestation_data#phase0
+    - is_valid_genesis_state#phase0
+    - is_valid_merkle_branch#phase0
+    - is_within_weak_subjectivity_period#phase0
+    - on_tick_per_slot#phase0
+    - process_slots#phase0
+    - seconds_to_milliseconds#phase0
+    - state_transition#phase0
+    - store_target_checkpoint_state#phase0
+    - update_latest_messages#phase0
+    - update_unrealized_checkpoints#phase0
+    - voting_period_start_time#phase0
+    - xor#phase0
+
+    # Not implemented: altair
+    - apply_light_client_update#altair
+    - compute_merkle_proof#altair
+    - create_light_client_bootstrap#altair
+    - create_light_client_finality_update#altair
+    - create_light_client_optimistic_update#altair
+    - create_light_client_update#altair
+    - current_sync_committee_gindex_at_slot#altair
+    - eth_aggregate_pubkeys#altair
+    - finalized_root_gindex_at_slot#altair
+    - get_contribution_and_proof#altair
+    - get_contribution_and_proof_signature#altair
+    - get_contribution_due_ms#altair
+    - get_flag_index_deltas#altair
+    - get_inactivity_penalty_deltas#altair
+    - get_index_for_new_validator#altair
+    - get_next_sync_committee#altair
+    - get_safety_threshold#altair
+    - get_subtree_index#altair
+    - get_sync_committee_message#altair
+    - get_sync_committee_selection_proof#altair
+    - get_sync_message_due_ms#altair
+    - get_sync_subcommittee_pubkeys#altair
+    - get_unslashed_participating_indices#altair
+    - initialize_light_client_store#altair
+    - is_assigned_to_sync_committee#altair
+    - is_better_update#altair
+    - is_finality_update#altair
+    - is_next_sync_committee_known#altair
+    - is_sync_committee_aggregator#altair
+    - is_sync_committee_update#altair
+    - is_valid_light_client_header#altair
+    - is_valid_normalized_merkle_branch#altair
+    - next_sync_committee_gindex_at_slot#altair
+    - process_light_client_finality_update#altair
+    - process_light_client_optimistic_update#altair
+    - process_light_client_store_force_update#altair
+    - process_light_client_update#altair
+    - set_or_append_list#altair
+    - validate_light_client_update#altair
+
+    # Not implemented: bellatrix
+    - get_inactivity_penalty_deltas#bellatrix
+    - get_pow_block_at_terminal_total_difficulty#bellatrix
+    - get_terminal_pow_block#bellatrix
+    - is_execution_block#bellatrix
+    - is_optimistic_candidate_block#bellatrix
+    - latest_verified_ancestor#bellatrix
+    - should_override_forkchoice_update#bellatrix
+
+    # Not implemented: capella
+    - get_lc_execution_root#capella
+    - is_valid_light_client_header#capella
+    - upgrade_lc_bootstrap_to_capella#capella
+    - upgrade_lc_finality_update_to_capella#capella
+    - upgrade_lc_header_to_capella#capella
+    - upgrade_lc_optimistic_update_to_capella#capella
+    - upgrade_lc_store_to_capella#capella
+    - upgrade_lc_update_to_capella#capella
+
+    # Not implemented: deneb
+    - compute_signed_block_header#deneb
+    - compute_subnet_for_blob_sidecar#deneb
+    - get_blob_sidecars#deneb
+    - get_lc_execution_root#deneb
+    - get_validator_activation_churn_limit#deneb
+    - is_valid_light_client_header#deneb
+    - process_voluntary_exit#deneb
+    - upgrade_lc_bootstrap_to_deneb#deneb
+    - upgrade_lc_finality_update_to_deneb#deneb
+    - upgrade_lc_header_to_deneb#deneb
+    - upgrade_lc_optimistic_update_to_deneb#deneb
+    - upgrade_lc_store_to_deneb#deneb
+    - upgrade_lc_update_to_deneb#deneb
+
+    # Not implemented: electra
+    - apply_pending_deposit#electra
+    - compute_subnet_for_blob_sidecar#electra
+    - compute_weak_subjectivity_period#electra
+    - current_sync_committee_gindex_at_slot#electra
+    - finalized_root_gindex_at_slot#electra
+    - get_eth1_pending_deposit_count#electra
+    - get_eth1_vote#electra
+    - get_execution_requests#electra
+    - get_lc_execution_root#electra
+    - get_validator_from_deposit#electra
+    - is_within_weak_subjectivity_period#electra
+    - next_sync_committee_gindex_at_slot#electra
+    - normalize_merkle_branch#electra
+    - process_pending_deposits#electra
+    - process_voluntary_exit#electra
+    - upgrade_lc_bootstrap_to_electra#electra
+    - upgrade_lc_finality_update_to_electra#electra
+    - upgrade_lc_header_to_electra#electra
+    - upgrade_lc_optimistic_update_to_electra#electra
+    - upgrade_lc_store_to_electra#electra
+    - upgrade_lc_update_to_electra#electra
+
+    # Not implemented: fulu
+    - compute_matrix#fulu
+    - get_data_column_sidecars#fulu
+    - get_data_column_sidecars_from_block#fulu
+    - get_data_column_sidecars_from_column_sidecar#fulu
+
+    # Not implemented: gloas
+    - compute_balance_weighted_acceptance#gloas
+    - compute_balance_weighted_selection#gloas
+    - compute_proposer_indices#gloas
+    - get_aggregate_due_ms#gloas
+    - get_ancestor#gloas
+    - get_attestation_due_ms#gloas
+    - get_attestation_participation_flag_indices#gloas
+    - get_builder_payment_quorum_threshold#gloas
+    - get_checkpoint_block#gloas
+    - get_contribution_due_ms#gloas
+    - get_data_column_sidecars#gloas
+    - get_data_column_sidecars_from_block#gloas
+    - get_data_column_sidecars_from_column_sidecar#gloas
+    - get_execution_payload_bid_signature#gloas
+    - get_execution_payload_envelope_signature#gloas
+    - get_expected_withdrawals#gloas
+    - get_forkchoice_store#gloas
+    - get_head#gloas
+    - get_indexed_payload_attestation#gloas
+    - get_next_sync_committee_indices#gloas
+    - get_node_children#gloas
+    - get_parent_payload_status#gloas
+    - get_payload_attestation_due_ms#gloas
+    - get_payload_attestation_message_signature#gloas
+    - get_payload_status_tiebreaker#gloas
+    - get_pending_balance_to_withdraw#gloas
+    - get_ptc#gloas
+    - get_ptc_assignment#gloas
+    - get_sync_message_due_ms#gloas
+    - get_weight#gloas
+    - has_builder_withdrawal_credential#gloas
+    - has_compounding_withdrawal_credential#gloas
+    - is_attestation_same_slot#gloas
+    - is_builder_payment_withdrawable#gloas
+    - is_builder_withdrawal_credential#gloas
+    - is_merge_transition_complete#gloas
+    - is_parent_block_full#gloas
+    - is_parent_node_full#gloas
+    - is_payload_timely#gloas
+    - is_supporting_vote#gloas
+    - is_valid_indexed_payload_attestation#gloas
+    - notify_ptc_messages#gloas
+    - on_block#gloas
+    - on_execution_payload#gloas
+    - on_payload_attestation_message#gloas
+    - prepare_execution_payload#gloas
+    - process_attestation#gloas
+    - process_block#gloas
+    - process_builder_pending_payments#gloas
+    - process_epoch#gloas
+    - process_execution_payload#gloas
+    - process_execution_payload_bid#gloas
+    - process_operations#gloas
+    - process_payload_attestation#gloas
+    - process_proposer_slashing#gloas
+    - process_slot#gloas
+    - process_withdrawals#gloas
+    - should_extend_payload#gloas
+    - update_latest_messages#gloas
+    - upgrade_to_gloas#gloas
+    - validate_merge_block#gloas
+    - validate_on_attestation#gloas
+    - verify_data_column_sidecar#gloas
+    - verify_data_column_sidecar_inclusion_proof#gloas
+    - verify_execution_payload_bid_signature#gloas
+    - verify_execution_payload_envelope_signature#gloas
+
+  presets:
+    # Not implemented: gloas
+    - BUILDER_PENDING_WITHDRAWALS_LIMIT#gloas
+    - MAX_PAYLOAD_ATTESTATIONS#gloas
+    - PTC_SIZE#gloas
