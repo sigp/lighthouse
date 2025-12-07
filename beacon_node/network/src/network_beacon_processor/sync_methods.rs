@@ -224,8 +224,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
                 let publish_blobs = false;
-                self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root, publish_blobs)
-                    .await
+                if !self.chain.config.test_config.disable_fetch_blobs {
+                    self.fetch_engine_blobs_and_publish(
+                        signed_beacon_block,
+                        block_root,
+                        publish_blobs,
+                    )
+                    .await;
+                }
             }
             _ => {}
         }

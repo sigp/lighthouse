@@ -1,3 +1,4 @@
+use super::*;
 use crate::NetworkMessage;
 use crate::metrics::{
     SYNC_LOOKUP_COMPLETED, SYNC_LOOKUP_DROPPED, SYNCING_CHAINS_ADDED,
@@ -11,15 +12,17 @@ use crate::sync::{
     SyncMessage,
     manager::{BlockProcessType, BlockProcessingResult, SyncManager},
 };
+use itertools::Itertools;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::*;
-
 use crate::sync::block_lookups::common::ResponseType;
+use beacon_chain::chain_config::TestConfig;
+use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
-    AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
+    AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError, ChainConfig,
     PayloadVerificationOutcome, PayloadVerificationStatus,
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
@@ -133,6 +136,11 @@ impl TestRig {
     pub fn test_setup() -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
         let spec = Arc::new(test_spec::<E>());
+        let clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(12),
+        );
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
@@ -140,11 +148,15 @@ impl TestRig {
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .testing_slot_clock(TestingSlotClock::new(
-                Slot::new(0),
-                Duration::from_secs(0),
-                Duration::from_secs(12),
-            ))
+            .testing_slot_clock(clock.clone())
+            .chain_config(ChainConfig {
+                test_config: TestConfig {
+                    disable_crypto: true,
+                    disable_execution_payload_verification: true,
+                    disable_fetch_blobs: true,
+                },
+                ..Default::default()
+            })
             .build();
 
         // Initialise a new beacon chain
@@ -153,11 +165,9 @@ impl TestRig {
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .testing_slot_clock(TestingSlotClock::new(
-                Slot::new(0),
-                Duration::from_secs(0),
-                Duration::from_secs(12),
-            ))
+            .testing_slot_clock(clock)
+            // Make the external harness a supernode so all columns are available
+            .node_custody_type(NodeCustodyType::Supernode)
             .build();
 
         let chain = harness.chain.clone();
@@ -239,7 +249,6 @@ impl TestRig {
             external_harness,
             fork_name,
             spec,
-            runtime: tokio::runtime::Runtime::new().unwrap(),
             network_blocks_by_root,
             network_blocks_by_slot,
             penalties: <_>::default(),
@@ -249,13 +258,9 @@ impl TestRig {
         }
     }
 
-    fn runtime(&self) -> &tokio::runtime::Runtime {
-        &self.runtime
-    }
-
     // Network / external peers simulated behaviour
 
-    fn simulate(&mut self, complete_strategy: CompleteStrategy) {
+    async fn simulate(&mut self, complete_strategy: CompleteStrategy) {
         self.complete_strategy = complete_strategy;
 
         let mut i = 0;
@@ -322,8 +327,10 @@ impl TestRig {
             if let Ok(event) = self.beacon_processor_rx.try_recv() {
                 self.log(&format!("Tick {i}: beacon_processor event: {event:?}"));
                 match event.work {
-                    Work::RpcBlock { process_fn } => self.runtime.block_on(process_fn),
-                    Work::ChainSegment(process_fn) => self.runtime.block_on(process_fn),
+                    Work::RpcBlock { process_fn }
+                    | Work::RpcBlobs { process_fn }
+                    | Work::RpcCustodyColumn(process_fn)
+                    | Work::ChainSegment(process_fn) => process_fn.await,
                     Work::Reprocess(_) => {} // ignore
                     other => panic!("Unsupported Work event {}", other.str_id()),
                 }
@@ -382,6 +389,55 @@ impl TestRig {
                 self.send_rpc_blocks_response(req_id, peer_id, &blocks);
             }
 
+            (RequestType::BlobsByRoot(req), AppRequestId::Sync(req_id)) => {
+                let blobs = req
+                    .blob_ids
+                    .iter()
+                    .map(|id| {
+                        self.network_blocks_by_root
+                            .get(&id.block_root)
+                            .unwrap_or_else(|| {
+                                panic!("Test consumer requested unknown block: {id:?}")
+                            })
+                            .blobs()
+                            .unwrap_or_else(|| panic!("Block {id:?} has no blobs"))
+                            .iter()
+                            .find(|blob| blob.index == id.index)
+                            .unwrap_or_else(|| panic!("Blob id {id:?} not avail"))
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                self.send_rpc_blobs_response(req_id, peer_id, &blobs);
+            }
+
+            (RequestType::DataColumnsByRoot(req), AppRequestId::Sync(req_id)) => {
+                let columns = req
+                    .data_column_ids
+                    .iter()
+                    .flat_map(|id| {
+                        let block_columns = self
+                            .network_blocks_by_root
+                            .get(&id.block_root)
+                            .unwrap_or_else(|| {
+                                panic!("Test consumer requested unknown block: {id:?}")
+                            })
+                            .custody_columns()
+                            .unwrap_or_else(|| panic!("Block id {id:?} has no columns"));
+                        id.columns.iter().map(|index| {
+                            block_columns
+                                .iter()
+                                .find(|c| c.index() == *index)
+                                .unwrap_or_else(|| {
+                                    panic!("Column {index:?} {:?} not found", id.block_root)
+                                })
+                                .as_data_column()
+                                .clone()
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                self.send_rpc_columns_response(req_id, peer_id, &columns);
+            }
+
             (RequestType::BlocksByRange(req), AppRequestId::Sync(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
@@ -432,18 +488,83 @@ impl TestRig {
         });
     }
 
+    fn send_rpc_blobs_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        blobs: &[Arc<BlobSidecar<E>>],
+    ) {
+        let slots = blobs
+            .iter()
+            .map(|block| block.slot())
+            .unique()
+            .collect::<Vec<_>>();
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with blobs {slots:?}"
+        ));
+
+        for blob in blobs {
+            self.push_sync_message(SyncMessage::RpcBlob {
+                sync_request_id,
+                peer_id,
+                blob_sidecar: Some(blob.clone()),
+                seen_timestamp: D,
+            });
+        }
+        self.push_sync_message(SyncMessage::RpcBlob {
+            sync_request_id,
+            peer_id,
+            blob_sidecar: None,
+            seen_timestamp: D,
+        });
+    }
+
+    fn send_rpc_columns_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        columns: &[Arc<DataColumnSidecar<E>>],
+    ) {
+        let slots = columns
+            .iter()
+            .map(|block| block.slot())
+            .unique()
+            .collect::<Vec<_>>();
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with blobs {slots:?}"
+        ));
+
+        for column in columns {
+            self.push_sync_message(SyncMessage::RpcDataColumn {
+                sync_request_id,
+                peer_id,
+                data_column: Some(column.clone()),
+                seen_timestamp: D,
+            });
+        }
+        self.push_sync_message(SyncMessage::RpcDataColumn {
+            sync_request_id,
+            peer_id,
+            data_column: None,
+            seen_timestamp: D,
+        });
+    }
+
     // Preparation steps
 
-    fn build_chain(&mut self, block_count: usize) {
+    async fn build_chain(&mut self, block_count: usize) {
         let mut blocks = vec![];
 
         for i in 0..block_count {
             self.external_harness.advance_slot();
-            let block_root = self.runtime().block_on(self.external_harness.extend_chain(
-                1,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            ));
+            let block_root = self
+                .external_harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
             let block = self.external_harness.get_full_block(&block_root);
             let block_root = block.canonical_root();
             let block_slot = block.slot();
@@ -478,7 +599,7 @@ impl TestRig {
 
     /// Trigger a lookup with the last created block
     fn trigger_with_last_block(&mut self) {
-        let peer_id = self.new_connected_peer();
+        let peer_id = self.new_connected_supernode_peer();
         let last_block = self.get_last_block().canonical_root();
         self.trigger_unknown_block_from_attestation(last_block, peer_id);
     }
@@ -500,13 +621,13 @@ impl TestRig {
         self.trigger_unknown_block_from_attestation(block.canonical_root(), peer_id);
     }
 
-    fn trigger_with_single_block(&mut self) {
-        self.build_chain(1);
+    async fn trigger_with_single_block(&mut self) {
+        self.build_chain(1).await;
         self.trigger_with_last_block();
     }
 
-    fn build_chain_and_trigger_last_block(&mut self, block_count: usize) {
-        self.build_chain(block_count);
+    async fn build_chain_and_trigger_last_block(&mut self, block_count: usize) {
+        self.build_chain(block_count).await;
         self.trigger_with_last_block();
     }
 
@@ -1736,9 +1857,9 @@ macro_rules! run_lookups_tests_for_depths {
     ($($depth:literal),+ $(,)?) => {
         paste::paste! {
             $(
-                #[test]
-                fn [<happy_path_unknown_attestation_depth_ $depth>]() {
-                    happy_path_unknown_attestation($depth);
+                #[tokio::test]
+                async fn [<happy_path_unknown_attestation_depth_ $depth>]() {
+                    happy_path_unknown_attestation($depth).await;
                 }
 
                 #[test]
@@ -1808,59 +1929,60 @@ macro_rules! run_lookups_tests_for_depths {
 run_lookups_tests_for_depths!(1, 2);
 
 /// Assert that lookup sync succeeds with the happy case
-fn happy_path_unknown_attestation(depth: usize) {
+async fn happy_path_unknown_attestation(depth: usize) {
     let mut r = TestRig::test_setup();
     // We get attestation for a block descendant (depth) blocks of current head
-    r.build_chain_and_trigger_last_block(depth);
+    r.build_chain_and_trigger_last_block(depth).await;
     // Complete the request with good peer behaviour
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
-fn happy_path_unknown_block_parent(depth: usize) {
+async fn happy_path_unknown_block_parent(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain(depth);
+    r.build_chain(depth).await;
     r.trigger_with_last_unknown_block_parent();
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
 /// Assert that sync completes from a GossipUnknownParentBlob / UknownDataColumnParent
-fn happy_path_unknown_data_parent(depth: usize) {
+async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::test_setup_after_deneb() else {
         return;
     };
-    r.build_chain(depth);
+    r.build_chain(depth).await;
     if r.after_deneb() {
         r.trigger_with_last_unknown_data_column_parent();
     } else {
         r.trigger_with_last_unknown_blob_parent();
     }
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
 /// Assert that multiple trigger types don't create extra lookups
-fn happy_path_multiple_triggers(depth: usize) {
+async fn happy_path_multiple_triggers(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain(depth);
+    r.build_chain(depth).await;
     r.trigger_with_last_block();
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_blob_parent();
     r.trigger_with_last_unknown_data_column_parent();
     r.assert_single_lookups_count(depth);
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
 // Test bad behaviour of peers
 
 /// Assert that if peer responds with no blocks, we downscore, and retry the same lookup
-fn bad_peer_empty_block_response(depth: usize) {
+async fn bad_peer_empty_block_response(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain_and_trigger_last_block(depth);
+    r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that peer returns empty response once, then good behaviour
-    r.simulate(CompleteStrategy::new().return_no_blocks_once());
+    r.simulate(CompleteStrategy::new().return_no_blocks_once())
+        .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["NotEnoughResponsesReturned"]);
     r.assert_successful_lookup_sync();
@@ -1870,12 +1992,13 @@ fn bad_peer_empty_block_response(depth: usize) {
 }
 
 /// Assert that if peer responds with no blobs / columns, we downscore, and retry the same lookup
-fn bad_peer_empty_data_response(depth: usize) {
+async fn bad_peer_empty_data_response(depth: usize) {
     let Some(mut r) = TestRig::test_setup_after_deneb() else {
         return;
     };
-    r.build_chain_and_trigger_last_block(depth);
-    r.simulate(CompleteStrategy::new().return_no_data_once());
+    r.build_chain_and_trigger_last_block(depth).await;
+    r.simulate(CompleteStrategy::new().return_no_data_once())
+        .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["NotEnoughResponsesReturned"]);
     r.assert_successful_lookup_sync();
@@ -1884,12 +2007,13 @@ fn bad_peer_empty_data_response(depth: usize) {
 
 /// Assert that if peer responds with not enough blobs / columns, we downscore, and retry the same
 /// lookup
-fn bad_peer_too_few_data_response(depth: usize) {
+async fn bad_peer_too_few_data_response(depth: usize) {
     let Some(mut r) = TestRig::test_setup_after_deneb() else {
         return;
     };
-    r.build_chain_and_trigger_last_block(depth);
-    r.simulate(CompleteStrategy::new().return_too_few_data_once());
+    r.build_chain_and_trigger_last_block(depth).await;
+    r.simulate(CompleteStrategy::new().return_too_few_data_once())
+        .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["NotEnoughResponsesReturned"]);
     r.assert_successful_lookup_sync();
@@ -1897,10 +2021,11 @@ fn bad_peer_too_few_data_response(depth: usize) {
 }
 
 /// Assert that if peer responds with bad blocks, we downscore, and retry the same lookup
-fn bad_peer_wrong_block_response(depth: usize) {
+async fn bad_peer_wrong_block_response(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain_and_trigger_last_block(depth);
-    r.simulate(CompleteStrategy::new().return_wrong_blocks_once());
+    r.build_chain_and_trigger_last_block(depth).await;
+    r.simulate(CompleteStrategy::new().return_wrong_blocks_once())
+        .await;
     r.expect_penalties(&["UnrequestedBlockRoot"]);
     r.assert_successful_lookup_sync();
 
@@ -1908,12 +2033,13 @@ fn bad_peer_wrong_block_response(depth: usize) {
 }
 
 /// Assert that if peer responds with bad blobs / columns, we downscore, and retry the same lookup
-fn bad_peer_wrong_data_response(depth: usize) {
+async fn bad_peer_wrong_data_response(depth: usize) {
     let Some(mut r) = TestRig::test_setup_after_deneb() else {
         return;
     };
-    r.build_chain_and_trigger_last_block(depth);
-    r.simulate(CompleteStrategy::new().return_wrong_data_once());
+    r.build_chain_and_trigger_last_block(depth).await;
+    r.simulate(CompleteStrategy::new().return_wrong_data_once())
+        .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["NotEnoughResponsesReturned"]);
     r.assert_successful_lookup_sync();
@@ -1921,10 +2047,11 @@ fn bad_peer_wrong_data_response(depth: usize) {
 }
 
 /// Assert that on network error, we DON'T downscore, and retry the same lookup
-fn bad_peer_rpc_failure(depth: usize) {
+async fn bad_peer_rpc_failure(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain_and_trigger_last_block(depth);
-    r.simulate(CompleteStrategy::new().return_rpc_error(RPCError::UnsupportedProtocol));
+    r.build_chain_and_trigger_last_block(depth).await;
+    r.simulate(CompleteStrategy::new().return_rpc_error(RPCError::UnsupportedProtocol))
+        .await;
     r.expect_no_penalties();
     r.assert_successful_lookup_sync();
 }
@@ -1932,11 +2059,12 @@ fn bad_peer_rpc_failure(depth: usize) {
 // Test retry logic
 
 /// Assert that on too many download failures the lookup fails, but we can still sync
-fn too_many_download_failures(depth: usize) {
+async fn too_many_download_failures(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain_and_trigger_last_block(depth);
+    r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
-    r.simulate(CompleteStrategy::new().return_no_blocks_always());
+    r.simulate(CompleteStrategy::new().return_no_blocks_always())
+        .await;
     // We register multiple penalties, the lookup fails and sync does not progress
     r.expect_penalties(&["NotEnoughResponsesReturned"; 4]);
     r.assert_failed_lookup_sync();
@@ -1944,20 +2072,21 @@ fn too_many_download_failures(depth: usize) {
     // Trigger sync again for same block, and complete successfully.
     // Asserts that the lookup is not on a blacklist
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
 /// Assert that on too many processing failures the lookup fails, but we can still sync
-fn too_many_processing_failures(depth: usize) {
+async fn too_many_processing_failures(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain_and_trigger_last_block(depth);
+    r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
         CompleteStrategy::new().process_result(BlockProcessingResult::Err(
             BlockError::BlockSlotLimitReached,
         )),
-    );
+    )
+    .await;
     // We register multiple penalties, the lookup fails and sync does not progress
     r.expect_penalties(&["NotEnoughResponsesReturned"; 4]);
     r.assert_failed_lookup_sync();
@@ -1969,28 +2098,30 @@ fn too_many_processing_failures(depth: usize) {
     r.assert_successful_lookup_sync();
 }
 
-#[test]
+#[tokio::test]
 /// Assert that if the beacon processor returns Ignored ???
-fn test_single_block_lookup_ignored_response() {
+async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::test_setup();
-    r.build_chain_and_trigger_last_block(1);
+    r.build_chain_and_trigger_last_block(1).await;
     // Send an Ignored response, the request should be dropped
-    r.simulate(CompleteStrategy::new().process_result(BlockProcessingResult::Ignored));
+    r.simulate(CompleteStrategy::new().process_result(BlockProcessingResult::Ignored))
+        .await;
     // The block was not actually imported
     r.assert_head_slot(0);
     r.assert_successful_lookup_sync();
 }
 
 /// Assert that when peers disconnect the lookups are not dropped (kept with zero peers)
-fn peer_disconnected_then_rpc_error(depth: usize) {
+async fn peer_disconnected_then_rpc_error(depth: usize) {
     let mut r = TestRig::test_setup();
-    r.build_chain_and_trigger_last_block(depth);
+    r.build_chain_and_trigger_last_block(depth).await;
     r.assert_single_lookups_count(depth);
     // The peer disconnect event reaches sync before the rpc error.
     r.disconnect_all_peers();
     // The lookup is not removed as it can still potentially make progress.
     r.assert_single_lookups_count(depth);
-    r.simulate(CompleteStrategy::new().return_rpc_error(RPCError::Disconnected));
+    r.simulate(CompleteStrategy::new().return_rpc_error(RPCError::Disconnected))
+        .await;
 
     assert!(r.created_lookups() > 0, "no created lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
@@ -1999,18 +2130,18 @@ fn peer_disconnected_then_rpc_error(depth: usize) {
     r.assert_single_lookups_count(depth);
 }
 
-#[test]
+#[tokio::test]
 /// Assert that when creating multiple lookups their parent-child relation is discovered and we add
 /// peers recursively from child to parent.
-fn lookups_form_chain() {
+async fn lookups_form_chain() {
     let depth = 5;
     let mut r = TestRig::test_setup();
-    r.build_chain(depth);
+    r.build_chain(depth).await;
     for slot in (1..=depth).rev() {
         r.trigger_with_block_at_slot(slot as u64);
     }
     // TODO(tree-sync): Assert that there are `depth` disjoint chains
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
 
     // Assert that the peers are added to ancestor lookups,
@@ -2026,13 +2157,13 @@ fn lookups_form_chain() {
     }
 }
 
-#[test]
+#[tokio::test]
 /// Assert that if a lookup chain (by appending ancestors) is too long we drop it
-fn test_parent_lookup_too_deep_grow_ancestor_one() {
+async fn test_parent_lookup_too_deep_grow_ancestor_one() {
     let mut r = TestRig::test_setup();
-    r.build_chain(PARENT_DEPTH_TOLERANCE + 1);
+    r.build_chain(PARENT_DEPTH_TOLERANCE + 1).await;
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
 
     r.assert_head_slot(PARENT_DEPTH_TOLERANCE as u64 + 1);
     r.expect_no_penalties();
@@ -2055,12 +2186,12 @@ fn test_parent_lookup_too_deep_grow_ancestor_one() {
     assert_counter!(SYNCING_CHAINS_PROCESSED_BATCHES, &["Head"], 5);
 }
 
-#[test]
-fn test_parent_lookup_too_deep_grow_ancestor_zero() {
+#[tokio::test]
+async fn test_parent_lookup_too_deep_grow_ancestor_zero() {
     let mut r = TestRig::test_setup();
-    r.build_chain(PARENT_DEPTH_TOLERANCE);
+    r.build_chain(PARENT_DEPTH_TOLERANCE).await;
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
 
     r.assert_head_slot(PARENT_DEPTH_TOLERANCE as u64);
     r.expect_no_penalties();
@@ -2071,12 +2202,12 @@ fn test_parent_lookup_too_deep_grow_ancestor_zero() {
 // Regression test for https://github.com/sigp/lighthouse/pull/7118
 // 8042 UPDATE: block was previously added to the failed_chains cache, now it's inserted into the
 // ignored chains cache. The regression test still applies as the chaild lookup is not created
-#[test]
-fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
+#[tokio::test]
+async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     let mut r = TestRig::test_setup();
-    r.build_chain(PARENT_DEPTH_TOLERANCE + 2);
+    r.build_chain(PARENT_DEPTH_TOLERANCE + 2).await;
     r.trigger_with_block_at_slot(PARENT_DEPTH_TOLERANCE as u64 + 1);
-    r.simulate(CompleteStrategy::new().no_range_sync());
+    r.simulate(CompleteStrategy::new().no_range_sync()).await;
 
     // At this point, the chain should have been deemed too deep and pruned.
     // The tip root should have been inserted into ignored chains.
@@ -2094,16 +2225,16 @@ fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     r.expect_empty_network();
 }
 
-#[test]
+#[tokio::test]
 /// Assert that if a lookup chain (by appending tips) is too long we drop it
-fn test_parent_lookup_too_deep_grow_tip() {
+async fn test_parent_lookup_too_deep_grow_tip() {
     let depth = PARENT_DEPTH_TOLERANCE + 1;
     let mut r = TestRig::test_setup();
-    r.build_chain(depth);
+    r.build_chain(depth).await;
     for slot in (1..=depth).rev() {
         r.trigger_with_block_at_slot(slot as u64);
     }
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
 
     assert!(r.created_lookups() > 0, "no created lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
@@ -2182,9 +2313,9 @@ fn test_same_chain_race_condition() {
     rig.expect_no_active_lookups_empty_network();
 }
 
-#[test]
+#[tokio::test]
 /// Assert that if the lookup's block is in the da_checker we don't download it again
-fn block_in_da_checker_skips_download() {
+async fn block_in_da_checker_skips_download() {
     // Only in Deneb, as the block needs blobs to remain in the da_checker
     let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
@@ -2192,10 +2323,10 @@ fn block_in_da_checker_skips_download() {
     // Add block to da_checker
     // Complete test with happy path
     // Assert that there were no requests for blocks
-    r.build_chain(1);
+    r.build_chain(1).await;
     r.insert_block_to_da_checker(r.block_at_slot(1));
     r.trigger_with_block_at_slot(1);
-    r.simulate(CompleteStrategy::happy_path());
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
     assert_eq!(
         r.requests

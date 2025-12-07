@@ -121,6 +121,18 @@ pub struct ChainConfig {
     pub disable_get_blobs: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
     pub node_custody_type: NodeCustodyType,
+    /// TESTING ONLY: Disable certain functionality to speed up tests
+    pub test_config: TestConfig,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+pub struct TestConfig {
+    /// FOR TESTING ONLY: Disable crypto verification to speed up tests
+    pub disable_crypto: bool,
+    /// FOR TESTING ONLY: Disable execution engine verification to speed up tests
+    pub disable_execution_payload_verification: bool,
+    /// FOR TESTING ONLY: Disable fetch_blobs optimization
+    pub disable_fetch_blobs: bool,
 }
 
 impl Default for ChainConfig {
@@ -162,6 +174,11 @@ impl Default for ChainConfig {
             invalid_block_roots: HashSet::new(),
             disable_get_blobs: false,
             node_custody_type: NodeCustodyType::Fullnode,
+            test_config: TestConfig {
+                disable_crypto: false,
+                disable_execution_payload_verification: false,
+                disable_fetch_blobs: false,
+            },
         }
     }
 }

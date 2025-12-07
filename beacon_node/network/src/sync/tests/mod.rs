@@ -76,7 +76,6 @@ struct TestRig {
     rng: ChaCha20Rng,
     fork_name: ForkName,
     spec: Arc<ChainSpec>,
-    runtime: tokio::runtime::Runtime,
     /// Blocks that will be used in the test but may not be known to `harness` yet.
     network_blocks_by_root: HashMap<Hash256, RpcBlock<E>>,
     network_blocks_by_slot: HashMap<Slot, RpcBlock<E>>,

@@ -29,6 +29,7 @@ mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
+use crate::chain_config::TestConfig;
 use crate::data_availability_checker::error::Error;
 use crate::data_column_verification::{
     CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
@@ -86,6 +87,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     kzg: Arc<Kzg>,
     custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
+    disable_crypto: bool,
 }
 
 pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSidecarList<E>);
@@ -124,6 +126,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
+        test_config: &TestConfig,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
@@ -139,6 +142,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             kzg,
             custody_context,
             spec,
+            disable_crypto: test_config.disable_crypto,
         })
     }
 
@@ -378,8 +382,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs {
-                verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
-                    .map_err(AvailabilityCheckError::InvalidBlobs)?;
+                if !self.disable_crypto {
+                    verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
+                        .map_err(AvailabilityCheckError::InvalidBlobs)?;
+                }
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
@@ -393,13 +399,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
         if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list(
-                    data_column_list
-                        .iter()
-                        .map(|custody_column| custody_column.as_data_column()),
-                    &self.kzg,
-                )
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
+                if !self.disable_crypto {
+                    verify_kzg_for_data_column_list(
+                        data_column_list
+                            .iter()
+                            .map(|custody_column| custody_column.as_data_column()),
+                        &self.kzg,
+                    )
+                    .map_err(AvailabilityCheckError::InvalidColumn)?;
+                }
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
