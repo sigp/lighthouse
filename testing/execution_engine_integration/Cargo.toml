@@ -7,11 +7,11 @@ edition = { workspace = true }
 portable = ["types/portable"]
 
 [dependencies]
-alloy-network = "1.0"
+alloy-network = { workspace = true }
 alloy-primitives = { workspace = true }
-alloy-provider = "1.0"
+alloy-provider = { workspace = true }
 alloy-rpc-types-eth = { workspace = true }
-alloy-signer-local = "1.0"
+alloy-signer-local = { workspace = true }
 async-channel = { workspace = true }
 deposit_contract = { workspace = true }
 execution_layer = { workspace = true }
