@@ -18,12 +18,17 @@ use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use types::beacon_block_body::KzgCommitments;
 
 #[cfg(test)]
 use test_random_derive::TestRandom;
 #[cfg(test)]
 use types::test_utils::TestRandom;
+
+// TODO(mac): Temporary module and re-export hack to expose old `consensus/types` via `eth2/types`.
+pub use crate::beacon_response::*;
+pub mod beacon_response {
+    pub use crate::beacon_response::*;
+}
 
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
