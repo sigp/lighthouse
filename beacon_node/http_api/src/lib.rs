@@ -2118,9 +2118,12 @@ pub fn serve<T: BeaconChainTypes>(
                     let discovery_addresses = enr.multiaddr_p2p_udp();
                     Ok(api_types::GenericResponse::from(api_types::IdentityData {
                         peer_id: network_globals.local_peer_id().to_base58(),
-                        enr,
-                        p2p_addresses,
-                        discovery_addresses,
+                        enr: enr.to_base64(),
+                        p2p_addresses: p2p_addresses.iter().map(|a| a.to_string()).collect(),
+                        discovery_addresses: discovery_addresses
+                            .iter()
+                            .map(|a| a.to_string())
+                            .collect(),
                         metadata: utils::from_meta_data::<T::EthSpec>(
                             &network_globals.local_metadata,
                             &chain.spec,
