@@ -235,7 +235,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             }))
             .collect();
         if !messages.is_empty()
-            && let Err(err) = crate::publish_pubsub_messages(&sender_clone, messages)
+            && let Err(err) = crate::utils::publish_pubsub_messages(&sender_clone, messages)
         {
             warn!(?err, "Publishing data after block publish")
         }
