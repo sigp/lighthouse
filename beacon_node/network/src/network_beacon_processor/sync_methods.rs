@@ -730,7 +730,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             })
             .collect::<Vec<_>>();
 
-         match self
+        match self
             .chain
             .data_availability_checker
             .batch_verify_kzg_for_available_blocks(&available_blocks)

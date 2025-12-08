@@ -1112,7 +1112,8 @@ mod test {
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)
-        let verification_result = da_checker.batch_verify_kzg_for_available_blocks(&available_blocks);
+        let verification_result =
+            da_checker.batch_verify_kzg_for_available_blocks(&available_blocks);
 
         // THEN batch block verification should fail due to 128 invalid columns in the second block
         verification_result.expect_err("should have failed to verify blocks");
