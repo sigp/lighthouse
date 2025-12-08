@@ -423,18 +423,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
     }
 
-    /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
-    /// This is more efficient than calling `verify_kzg_for_rpc_block` in a loop as it does
-    /// all kzg verification at once
+    /// Performs batch kzg verification for a vector of `AvailableBlocks`. This is more efficient than
+    /// calling `verify_kzg_for_available_block` in a loop.
     ///
     /// WARNING: This function assumes all required blobs are already present, it does NOT
     ///          check if there are any missing blobs.
     #[instrument(skip_all)]
-    pub fn verify_kzg_for_rpc_blocks(
+    pub fn batch_verify_kzg_for_available_blocks(
         &self,
-        available_blocks: Vec<AvailableBlock<T::EthSpec>>,
-    ) -> Result<Vec<AvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
-        let mut results = Vec::with_capacity(available_blocks.len());
+        available_blocks: &Vec<AvailableBlock<T::EthSpec>>,
+    ) -> Result<(), AvailabilityCheckError> {
         let all_blobs = available_blocks
             .iter()
             .filter(|available_block| self.blobs_required_for_block(&available_block.block))
@@ -470,11 +468,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             } else if self.data_columns_required_for_block(&available_block.block) {
                 return Err(AvailabilityCheckError::MissingCustodyColumns);
             }
-
-            results.push(available_block);
         }
 
-        Ok(results)
+        Ok(())
     }
 
     /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
@@ -1116,7 +1112,7 @@ mod test {
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)
-        let verification_result = da_checker.verify_kzg_for_rpc_blocks(available_blocks);
+        let verification_result = da_checker.batch_verify_kzg_for_available_blocks(&available_blocks);
 
         // THEN batch block verification should fail due to 128 invalid columns in the second block
         verification_result.expect_err("should have failed to verify blocks");

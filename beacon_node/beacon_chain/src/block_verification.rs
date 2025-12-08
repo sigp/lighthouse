@@ -646,7 +646,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     )?;
 
     // unzip chain segment and verify kzg in bulk
-    let (roots, blocks): (Vec<_>, Vec<_>) = chain_segment
+    let (roots, available_blocks): (Vec<_>, Vec<_>) = chain_segment
         .into_iter()
         .filter_map(|(block_root, block)| match block {
             RpcBlock::FullyAvailable(available_block) => Some((block_root, available_block)),
@@ -654,9 +654,10 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         })
         .unzip();
 
-    let available_blocks = chain
+    chain
         .data_availability_checker
-        .verify_kzg_for_rpc_blocks(blocks)?;
+        .batch_verify_kzg_for_available_blocks(&available_blocks)?;
+
     // zip it back up
     let mut signature_verified_blocks = roots
         .into_iter()

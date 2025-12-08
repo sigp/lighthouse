@@ -730,10 +730,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             })
             .collect::<Vec<_>>();
 
-        let available_blocks = match self
+         match self
             .chain
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(available_blocks)
+            .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
             Ok(blocks) => blocks,
             Err(e) => match e {
