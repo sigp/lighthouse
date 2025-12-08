@@ -446,9 +446,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for available_block in available_blocks {
-            if self.blobs_required_for_block(&available_block.block) {
+            if self.blobs_required_for_block(&available_block.block)
+                && available_block.data().blobs_len() == 0
+            {
                 return Err(AvailabilityCheckError::MissingBlobs);
-            } else if self.data_columns_required_for_block(&available_block.block) {
+            } else if self.data_columns_required_for_block(&available_block.block)
+                && available_block.data().data_columns_len() == 0
+            {
                 return Err(AvailabilityCheckError::MissingCustodyColumns);
             }
         }
@@ -724,11 +728,27 @@ impl<E: EthSpec> AvailableBlockData<E> {
         }
     }
 
+    pub fn blobs_len(&self) -> usize {
+        if let Some(blobs) = self.blobs() {
+            blobs.len()
+        } else {
+            0
+        }
+    }
+
     pub fn data_columns(&self) -> Option<DataColumnSidecarList<E>> {
         match self {
             AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(_) => None,
             AvailableBlockData::DataColumns(data_columns) => Some(data_columns.clone()),
+        }
+    }
+
+    pub fn data_columns_len(&self) -> usize {
+        if let Some(data_columns) = self.data_columns() {
+            data_columns.len()
+        } else {
+            0
         }
     }
 }
