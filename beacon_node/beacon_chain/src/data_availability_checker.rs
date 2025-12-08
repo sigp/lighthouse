@@ -373,11 +373,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         available_block: &AvailableBlock<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {
-        match &available_block.blob_data {
+        let block_data_required = self.blobs_required_for_block(&available_block.block)
+            || self.data_columns_required_for_block(&available_block.block);
+        match available_block.data() {
             AvailableBlockData::NoData => {
-                if self.blobs_required_for_block(&available_block.block)
-                    || self.data_columns_required_for_block(&available_block.block)
-                {
+                if block_data_required {
                     if available_block.block.fork_name_unchecked().fulu_enabled() {
                         return Err(AvailabilityCheckError::MissingCustodyColumns);
                     } else {
@@ -386,20 +386,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 }
             }
             AvailableBlockData::Blobs(blobs) => {
-                // TODO(rpc-block) should we return an error if blobs not required?
-                // the blobs variant should only exist for a block that requires blobs
-                if self.blobs_required_for_block(&available_block.block) {
-                    verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
-                        .map_err(AvailabilityCheckError::InvalidBlobs)?;
-                }
+                verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
+                    .map_err(AvailabilityCheckError::InvalidBlobs)?;
             }
             AvailableBlockData::DataColumns(data_columns) => {
-                // TODO(rpc-block) should we return an error if columns not required?
-                // the columns variant should only exist for a block that requires columns
-                if self.data_columns_required_for_block(&available_block.block) {
-                    verify_kzg_for_data_column_list(data_columns.iter(), &self.kzg)
-                        .map_err(AvailabilityCheckError::InvalidColumn)?;
-                }
+                verify_kzg_for_data_column_list(data_columns.iter(), &self.kzg)
+                    .map_err(AvailabilityCheckError::InvalidColumn)?;
             }
         }
 
@@ -446,14 +438,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for available_block in available_blocks {
-            if self.blobs_required_for_block(&available_block.block)
-                && available_block.data().blobs_len() == 0
+            let block_data_required = self.blobs_required_for_block(&available_block.block)
+                || self.data_columns_required_for_block(&available_block.block);
+            if let AvailableBlockData::NoData = available_block.data()
+                && block_data_required
             {
-                return Err(AvailabilityCheckError::MissingBlobs);
-            } else if self.data_columns_required_for_block(&available_block.block)
-                && available_block.data().data_columns_len() == 0
-            {
-                return Err(AvailabilityCheckError::MissingCustodyColumns);
+                if available_block.block.fork_name_unchecked().fulu_enabled() {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
+                } else {
+                    return Err(AvailabilityCheckError::MissingBlobs);
+                }
             }
         }
 
