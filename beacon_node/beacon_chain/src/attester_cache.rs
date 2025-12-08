@@ -17,7 +17,7 @@ use std::ops::Range;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
     Hash256, RelativeEpoch, Slot,
-    attestation::Error as AttestationError,
+    attestation::AttestationError,
     beacon_state::{
         compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     },
