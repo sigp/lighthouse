@@ -22,20 +22,23 @@ pub use beacon_response::{
 };
 
 pub use self::error::{Error, ok_or_error, success_or_error};
+pub use reqwest;
+pub use reqwest::{StatusCode, Url};
+pub use sensitive_url::SensitiveUrl;
+
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
 use educe::Educe;
+#[cfg(feature = "events")]
 use futures::Stream;
+#[cfg(feature = "events")]
 use futures_util::StreamExt;
-use libp2p_identity::PeerId;
-pub use reqwest;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response,
     header::{HeaderMap, HeaderValue},
 };
-pub use reqwest::{StatusCode, Url};
+#[cfg(feature = "events")]
 use reqwest_eventsource::{Event, EventSource};
-pub use sensitive_url::SensitiveUrl;
 use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
@@ -1978,7 +1981,7 @@ impl BeaconNodeHttpClient {
     /// `GET node/peers/{peer_id}`
     pub async fn get_node_peers_by_id(
         &self,
-        peer_id: PeerId,
+        peer_id: &str,
     ) -> Result<GenericResponse<PeerData>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1986,7 +1989,7 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("peers")
-            .push(&peer_id.to_string());
+            .push(peer_id);
 
         self.get(path).await
     }
@@ -2761,6 +2764,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET events?topics`
+    #[cfg(feature = "events")]
     pub async fn get_events<E: EthSpec>(
         &self,
         topic: &[EventTopic],

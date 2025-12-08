@@ -143,9 +143,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             "Signed block published to network via HTTP API"
         );
 
-        crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone())).map_err(
-            |_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)),
-        )?;
+        crate::utils::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
+            .map_err(|_| {
+                BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
+            })?;
 
         Ok(())
     };
@@ -537,7 +538,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
     blob: &GossipVerifiedBlob<T>,
 ) -> Result<(), BlockError> {
     let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
-    crate::publish_pubsub_message(sender_clone, pubsub_message)
+    crate::utils::publish_pubsub_message(sender_clone, pubsub_message)
         .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
@@ -579,7 +580,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             ]
         })
         .collect::<Vec<_>>();
-    crate::publish_pubsub_messages(sender_clone, pubsub_messages)
+    crate::utils::publish_pubsub_messages(sender_clone, pubsub_messages)
         .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 

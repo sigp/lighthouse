@@ -17,7 +17,7 @@ directory = { workspace = true }
 dirs = { workspace = true }
 discv5 = { workspace = true }
 either = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 fnv = { workspace = true }
