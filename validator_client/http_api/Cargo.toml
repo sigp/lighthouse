@@ -16,7 +16,7 @@ deposit_contract = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }
 doppelganger_service = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 eth2_keystore = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
