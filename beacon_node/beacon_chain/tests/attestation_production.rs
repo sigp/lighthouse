@@ -224,15 +224,16 @@ async fn produces_attestations() {
             let rpc_block =
                 harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
 
-            match rpc_block {
+            let available_block = match rpc_block {
                 RpcBlock::FullyAvailable(available_block) => {
                     chain
                         .data_availability_checker
                         .verify_kzg_for_available_block(&available_block)
                         .unwrap();
+                    available_block
                 }
                 RpcBlock::BlockOnly { .. } => panic!("block should be available"),
-            }
+            };
 
             let early_attestation = {
                 let proto_block = chain
@@ -298,14 +299,17 @@ async fn early_attester_cache_old_request() {
     let rpc_block = harness
         .build_rpc_block_from_store_blobs(Some(head.beacon_block_root), head.beacon_block.clone());
 
-    match rpc_block {
-        RpcBlock::FullyAvailable(available_block) => harness
-            .chain
-            .data_availability_checker
-            .verify_kzg_for_available_block(&available_block)
-            .unwrap(),
-        RpcBlock::BlockOnly { block, block_root } => panic!("block should be available"),
-    }
+    let available_block = match rpc_block {
+        RpcBlock::FullyAvailable(available_block) => {
+            harness
+                .chain
+                .data_availability_checker
+                .verify_kzg_for_available_block(&available_block)
+                .unwrap();
+            available_block
+        }
+        RpcBlock::BlockOnly { .. } => panic!("block should be available"),
+    };
 
     harness
         .chain
