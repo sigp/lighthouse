@@ -84,21 +84,173 @@ impl ListenAddress {
             .chain(v6_tcp_multiaddr)
     }
 
-    pub fn unused_v4_ports() -> Self {
+    // Used for testing
+    pub fn zero_v4_ports() -> Self {
         ListenAddress::V4(ListenAddr {
             addr: Ipv4Addr::UNSPECIFIED,
-            disc_port: crate::unused_port::unused_udp4_port().unwrap(),
-            quic_port: crate::unused_port::unused_udp4_port().unwrap(),
-            tcp_port: crate::unused_port::unused_tcp4_port().unwrap(),
+            disc_port: 0,
+            quic_port: 0,
+            tcp_port: 0,
         })
     }
 
-    pub fn unused_v6_ports() -> Self {
+    pub fn zero_v6_ports() -> Self {
         ListenAddress::V6(ListenAddr {
             addr: Ipv6Addr::UNSPECIFIED,
-            disc_port: crate::unused_port::unused_udp6_port().unwrap(),
-            quic_port: crate::unused_port::unused_udp6_port().unwrap(),
-            tcp_port: crate::unused_port::unused_tcp6_port().unwrap(),
+            disc_port: 0,
+            quic_port: 0,
+            tcp_port: 0,
         })
+    }
+}
+
+/// Compute all beacon listening ports (TCP, discovery UDP, QUIC UDP) at once.
+/// Returns a tuple of (tcp_port, disc_port, quic_port).
+///
+/// When `use_zero_ports` is true, all ports are set to 0 (OS assigns ephemeral ports).
+/// Otherwise:
+/// - TCP port uses the provided `port`
+/// - Discovery port defaults to TCP port (TCP and UDP can share the same port number)
+/// - QUIC port defaults to TCP port + 1 (to avoid conflict with discovery UDP)
+pub fn compute_listen_ports(
+    use_zero_ports: bool,
+    port: u16,
+    maybe_disc_port: Option<u16>,
+    maybe_quic_port: Option<u16>,
+) -> (u16, u16, u16) {
+    if use_zero_ports {
+        return (0, 0, 0);
+    }
+
+    let tcp_port = port;
+    let disc_port = maybe_disc_port.unwrap_or(tcp_port); // udp / tcp can listen to same port
+
+    // Handle QUIC port with overflow safety
+    let quic_port = maybe_quic_port.unwrap_or_else(|| {
+        if tcp_port == 0 || tcp_port == u16::MAX {
+            // If tcp_port is 0 or MAX, set quic_port to 0
+            0
+        } else {
+            tcp_port.wrapping_add(1)
+        }
+    });
+
+    (tcp_port, disc_port, quic_port)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_listen_ports_with_zero_ports_flag() {
+        // When use_zero_ports is true, all ports should be 0 regardless of input
+        assert_eq!(compute_listen_ports(true, 9000, None, None), (0, 0, 0));
+        assert_eq!(
+            compute_listen_ports(true, 9000, Some(8000), None),
+            (0, 0, 0)
+        );
+        assert_eq!(
+            compute_listen_ports(true, 9000, None, Some(8001)),
+            (0, 0, 0)
+        );
+        assert_eq!(
+            compute_listen_ports(true, 9000, Some(8000), Some(8001)),
+            (0, 0, 0)
+        );
+        assert_eq!(compute_listen_ports(true, 0, None, None), (0, 0, 0));
+    }
+
+    #[test]
+    fn test_compute_listen_ports_default_behavior() {
+        // Default behavior: disc_port = tcp_port, quic_port = tcp_port + 1
+        let (tcp, disc, quic) = compute_listen_ports(false, 9000, None, None);
+        assert_eq!(tcp, 9000);
+        assert_eq!(disc, 9000); // Discovery defaults to TCP port
+        assert_eq!(quic, 9001); // QUIC defaults to TCP port + 1
+    }
+
+    #[test]
+    fn test_compute_listen_ports_with_explicit_disc_port() {
+        // Explicit discovery port should be used
+        let (tcp, disc, quic) = compute_listen_ports(false, 9000, Some(8000), None);
+        assert_eq!(tcp, 9000);
+        assert_eq!(disc, 8000); // Explicit discovery port
+        assert_eq!(quic, 9001); // QUIC still defaults to TCP + 1
+    }
+
+    #[test]
+    fn test_compute_listen_ports_with_explicit_quic_port() {
+        // Explicit QUIC port should be used
+        let (tcp, disc, quic) = compute_listen_ports(false, 9000, None, Some(8001));
+        assert_eq!(tcp, 9000);
+        assert_eq!(disc, 9000); // Discovery defaults to TCP
+        assert_eq!(quic, 8001); // Explicit QUIC port
+    }
+
+    #[test]
+    fn test_compute_listen_ports_with_all_explicit_ports() {
+        // All ports explicitly specified
+        let (tcp, disc, quic) = compute_listen_ports(false, 9000, Some(4000), Some(2000));
+        assert_eq!(tcp, 9000);
+        assert_eq!(disc, 4000);
+        assert_eq!(quic, 2000);
+    }
+
+    #[test]
+    fn test_compute_listen_ports_with_zero_tcp_port() {
+        // Edge case: tcp_port = 0 without use_zero_ports flag
+        // QUIC should also be 0
+        let (tcp, disc, quic) = compute_listen_ports(false, 0, None, None);
+        assert_eq!(tcp, 0);
+        assert_eq!(disc, 0); // Discovery defaults to TCP (0)
+        assert_eq!(quic, 0); // QUIC should be 0, not 1
+    }
+
+    #[test]
+    fn test_compute_listen_ports_with_zero_tcp_and_explicit_ports() {
+        // Edge case: tcp_port = 0 but explicit discovery and QUIC ports
+        let (tcp, disc, quic) = compute_listen_ports(false, 0, Some(8000), Some(8001));
+        assert_eq!(tcp, 0);
+        assert_eq!(disc, 8000); // Explicit discovery port
+        assert_eq!(quic, 8001); // Explicit QUIC port
+    }
+
+    #[test]
+    fn test_compute_listen_ports_max_port_overflow() {
+        // Edge case: tcp_port = u16::MAX (65535)
+        // QUIC should be 0 to avoid overflow panic
+        let (tcp, disc, quic) = compute_listen_ports(false, u16::MAX, None, None);
+        assert_eq!(tcp, u16::MAX);
+        assert_eq!(disc, u16::MAX);
+        assert_eq!(quic, 0); // u16::MAX would overflow, so we use 0
+    }
+
+    #[test]
+    fn test_compute_listen_ports_max_port_with_explicit_quic() {
+        // Even with u16::MAX, explicit QUIC port should be used
+        let (tcp, disc, quic) = compute_listen_ports(false, u16::MAX, None, Some(8001));
+        assert_eq!(tcp, u16::MAX);
+        assert_eq!(disc, u16::MAX);
+        assert_eq!(quic, 8001); // Explicit QUIC port overrides default
+    }
+
+    #[test]
+    fn test_compute_listen_ports_tcp_and_udp_can_share_port() {
+        // Verify that TCP and UDP (discovery) can use the same port number
+        // This is valid because they are different protocols
+        let (tcp, disc, _quic) = compute_listen_ports(false, 9000, None, None);
+        assert_eq!(tcp, disc); // Both use port 9000
+    }
+
+    #[test]
+    fn test_compute_listen_ports_quic_avoids_discovery_conflict() {
+        // QUIC defaults to TCP + 1 to avoid conflict with discovery UDP
+        // Both discovery and QUIC are UDP, so they can't share the same port
+        let (tcp, disc, quic) = compute_listen_ports(false, 9000, None, None);
+        assert_eq!(tcp, 9000);
+        assert_eq!(disc, 9000);
+        assert_eq!(quic, 9001); // Different from discovery to avoid UDP conflict
+        assert_ne!(disc, quic); // Discovery and QUIC must be different
     }
 }

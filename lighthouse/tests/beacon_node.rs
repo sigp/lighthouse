@@ -11,9 +11,6 @@ use beacon_node::{
 };
 use beacon_processor::BeaconProcessorConfig;
 use lighthouse_network::PeerId;
-use network_utils::unused_port::{
-    unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
-};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -35,6 +32,12 @@ const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
 const DUMMY_ENR_UDP_PORT: u16 = 8888;
 const DUMMY_ENR_QUIC_PORT: u16 = 9999;
+
+// Fixed test ports for config-only assertions (no actual bind occurs in these tests).
+const TEST_TCP4_PORT: u16 = 39001;
+const TEST_TCP6_PORT: u16 = 39011;
+const TEST_UDP4_PORT: u16 = 39002;
+const TEST_UDP6_PORT: u16 = 39012;
 
 const _: () =
     assert!(DUMMY_ENR_QUIC_PORT != 0 && DUMMY_ENR_TCP_PORT != 0 && DUMMY_ENR_UDP_PORT != 0);
@@ -967,7 +970,7 @@ fn network_port_flag_over_ipv4() {
             );
         });
 
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port = TEST_TCP4_PORT;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
@@ -1004,7 +1007,7 @@ fn network_port_flag_over_ipv6() {
             );
         });
 
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port = TEST_TCP4_PORT;
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
@@ -1054,8 +1057,8 @@ fn network_port_flag_over_ipv4_and_ipv6() {
             );
         });
 
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
-    let port6 = unused_tcp6_port().expect("Unable to find unused port.");
+    let port = TEST_TCP4_PORT;
+    let port6 = TEST_TCP6_PORT;
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.1"))
         .flag("listen-address", Some("::1"))
@@ -1305,11 +1308,41 @@ fn private_flag() {
 }
 #[test]
 fn zero_ports_flag() {
+    // Test that --zero-ports sets all ports to 0
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
+            // HTTP and metrics ports should be 0
             assert_eq!(config.http_api.listen_port, 0);
             assert_eq!(config.http_metrics.listen_port, 0);
+
+            // Network ports should all be 0
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.tcp_port,
+                    listen_addr.disc_port,
+                    listen_addr.quic_port
+                )),
+                Some((0, 0, 0))
+            );
+        });
+
+    // Test that --zero-ports overrides explicit non-zero port
+    CommandLineTest::new()
+        .flag("port", Some("9000"))
+        .flag("zero-ports", None)
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            // Even though port=9000 was specified, --zero-ports should override
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.tcp_port,
+                    listen_addr.disc_port,
+                    listen_addr.quic_port
+                )),
+                Some((0, 0, 0))
+            );
         });
 }
 #[test]
@@ -1406,8 +1439,8 @@ fn enr_tcp6_port_flag() {
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
 
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+    let udp4_port = TEST_UDP4_PORT;
+    let tcp4_port = TEST_TCP4_PORT;
 
     CommandLineTest::new()
         .flag("enr-match", None)
@@ -1437,8 +1470,8 @@ fn enr_match_flag_over_ipv6() {
     const ADDR: &str = "::1";
     let addr = ADDR.parse::<Ipv6Addr>().unwrap();
 
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+    let udp6_port = TEST_UDP6_PORT;
+    let tcp6_port = TEST_TCP6_PORT;
 
     CommandLineTest::new()
         .flag("enr-match", None)
@@ -1467,13 +1500,13 @@ fn enr_match_flag_over_ipv6() {
 fn enr_match_flag_over_ipv4_and_ipv6() {
     const IPV6_ADDR: &str = "::1";
 
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+    let udp6_port = TEST_UDP6_PORT;
+    let tcp6_port = TEST_TCP6_PORT;
     let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
 
     const IPV4_ADDR: &str = "127.0.0.1";
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+    let udp4_port = TEST_UDP4_PORT;
+    let tcp4_port = TEST_TCP4_PORT;
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
 
     CommandLineTest::new()

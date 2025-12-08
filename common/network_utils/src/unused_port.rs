@@ -26,21 +26,6 @@ pub fn unused_tcp4_port() -> Result<u16, String> {
     zero_port(Transport::Tcp, IpVersion::Ipv4)
 }
 
-/// A convenience wrapper over [`zero_port`].
-pub fn unused_udp4_port() -> Result<u16, String> {
-    zero_port(Transport::Udp, IpVersion::Ipv4)
-}
-
-/// A convenience wrapper over [`zero_port`].
-pub fn unused_tcp6_port() -> Result<u16, String> {
-    zero_port(Transport::Tcp, IpVersion::Ipv6)
-}
-
-/// A convenience wrapper over [`zero_port`].
-pub fn unused_udp6_port() -> Result<u16, String> {
-    zero_port(Transport::Udp, IpVersion::Ipv6)
-}
-
 /// A bit of hack to find an unused port.
 ///
 /// Does not guarantee that the given port is unused after the function exits, just that it was
@@ -96,4 +81,32 @@ fn find_unused_port(transport: Transport, socket_addr: SocketAddr) -> Result<u16
     };
 
     Ok(local_addr.port())
+}
+
+/// Bind a TCPv4 listener on localhost with an ephemeral port (port 0) and return it.
+/// Safe against TOCTOU: the socket remains open and reserved by the OS.
+pub fn bind_tcp4_any() -> Result<TcpListener, String> {
+    let addr = std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0);
+    TcpListener::bind(addr).map_err(|e| format!("Failed to bind TCPv4 listener: {:?}", e))
+}
+
+/// Bind a TCPv6 listener on localhost with an ephemeral port (port 0) and return it.
+/// Safe against TOCTOU: the socket remains open and reserved by the OS.
+pub fn bind_tcp6_any() -> Result<TcpListener, String> {
+    let addr = std::net::SocketAddr::new(std::net::Ipv6Addr::LOCALHOST.into(), 0);
+    TcpListener::bind(addr).map_err(|e| format!("Failed to bind TCPv6 listener: {:?}", e))
+}
+
+/// Bind a UDPv4 socket on localhost with an ephemeral port (port 0) and return it.
+/// Safe against TOCTOU: the socket remains open and reserved by the OS.
+pub fn bind_udp4_any() -> Result<UdpSocket, String> {
+    let addr = std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0);
+    UdpSocket::bind(addr).map_err(|e| format!("Failed to bind UDPv4 socket: {:?}", e))
+}
+
+/// Bind a UDPv6 socket on localhost with an ephemeral port (port 0) and return it.
+/// Safe against TOCTOU: the socket remains open and reserved by the OS.
+pub fn bind_udp6_any() -> Result<UdpSocket, String> {
+    let addr = std::net::SocketAddr::new(std::net::Ipv6Addr::LOCALHOST.into(), 0);
+    UdpSocket::bind(addr).map_err(|e| format!("Failed to bind UDPv6 socket: {:?}", e))
 }

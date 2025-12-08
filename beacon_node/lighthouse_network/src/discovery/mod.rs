@@ -1240,7 +1240,7 @@ mod tests {
         let spec = Arc::new(ChainSpec::default());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
-        config.set_listening_addr(network_utils::listen_addr::ListenAddress::unused_v4_ports());
+        config.set_listening_addr(network_utils::listen_addr::ListenAddress::zero_v4_ports());
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let next_fork_digest = [0; 4];

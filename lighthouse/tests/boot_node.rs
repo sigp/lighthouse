@@ -4,7 +4,6 @@ use crate::exec::{CommandLineTestExec, CompletedTest};
 use clap::ArgMatches;
 use clap_utils::get_eth2_network_config;
 use lighthouse_network::{Enr, discovery::ENR_FILENAME};
-use network_utils::unused_port::unused_udp4_port;
 use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;
@@ -14,6 +13,9 @@ use std::str::FromStr;
 use tempfile::TempDir;
 
 const IP_ADDRESS: &str = "192.168.2.108";
+
+// Fixed test port for config-only assertions (no actual bind occurs in these tests).
+const TEST_UDP4_PORT: u16 = 39102;
 
 /// Returns the `lighthouse boot_node` command.
 fn base_cmd() -> Command {
@@ -61,7 +63,7 @@ fn enr_address_arg() {
 
 #[test]
 fn port_flag() {
-    let port = unused_udp4_port().unwrap();
+    let port = TEST_UDP4_PORT;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run_with_ip()
@@ -133,7 +135,7 @@ fn boot_nodes_flag() {
 
 #[test]
 fn enr_port_flag() {
-    let port = unused_udp4_port().unwrap();
+    let port = TEST_UDP4_PORT;
     CommandLineTest::new()
         .flag("enr-port", Some(port.to_string().as_str()))
         .run_with_ip()
