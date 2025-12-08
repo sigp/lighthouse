@@ -12,6 +12,7 @@ use crate::{BeaconChainTypes, BlockProcessStatus};
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ssz_types::{RuntimeFixedVector, RuntimeVariableList};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -20,8 +21,7 @@ use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList,
-    SignedBeaconBlock,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
 };
 
 #[derive(Clone)]
