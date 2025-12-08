@@ -1,9 +1,7 @@
 use crate::blob_verification::{
     GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
 };
-use crate::block_verification_types::{
-    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
-};
+use crate::block_verification_types::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
@@ -367,10 +365,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .remove_pre_execution_block(block_root);
     }
 
-    pub fn verify_kzg_for_fully_available_rpc_block(
+    /// Verifies kzg commitments for an `AvailableBlock`.`
+    ///
+    /// WARNING: This function assumes all required blobs are already present, it does NOT
+    ///          check if there are any missing blobs.
+    pub fn verify_kzg_for_available_block(
         &self,
-        available_block: AvailableBlock<T::EthSpec>,
-    ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
+        available_block: &AvailableBlock<T::EthSpec>,
+    ) -> Result<(), AvailabilityCheckError> {
         match &available_block.blob_data {
             AvailableBlockData::NoData => {
                 if self.blobs_required_for_block(&available_block.block)
@@ -401,26 +403,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             }
         }
 
-        Ok(MaybeAvailableBlock::Available(available_block))
-    }
-
-    /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
-    /// include the fully available block.
-    ///
-    /// WARNING: This function assumes all required blobs are already present, it does NOT
-    ///          check if there are any missing blobs.
-    pub fn verify_kzg_for_rpc_block(
-        &self,
-        block: RpcBlock<T::EthSpec>,
-    ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
-        match block {
-            RpcBlock::FullyAvailable(available_rpc_block) => {
-                self.verify_kzg_for_fully_available_rpc_block(available_rpc_block)
-            }
-            RpcBlock::BlockOnly { block_root, block } => {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            }
-        }
+        Ok(())
     }
 
     /// Performs batch kzg verification for a vector of `AvailableBlocks`. This is more efficient than
@@ -886,6 +869,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 mod test {
     use super::*;
     use crate::CustodyContext;
+    use crate::block_verification_types::RpcBlock;
     use crate::custody_context::NodeCustodyType;
     use crate::data_column_verification::CustodyDataColumn;
     use crate::test_utils::{

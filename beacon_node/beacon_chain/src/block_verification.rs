@@ -1305,16 +1305,28 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
-        let maybe_available = chain
-            .data_availability_checker
-            .verify_kzg_for_rpc_block(self.clone())
-            .map_err(|e| {
-                BlockSlashInfo::SignatureNotChecked(
-                    self.signed_block_header(),
-                    BlockError::AvailabilityCheck(e),
-                )
-            })?;
-        SignatureVerifiedBlock::check_slashable(maybe_available, block_root, chain)?
+
+        let maybe_available_block = match &self {
+            RpcBlock::FullyAvailable(available_block) => {
+                chain
+                    .data_availability_checker
+                    .verify_kzg_for_available_block(available_block)
+                    .map_err(|e| {
+                        BlockSlashInfo::SignatureNotChecked(
+                            self.signed_block_header(),
+                            BlockError::AvailabilityCheck(e),
+                        )
+                    })?;
+                MaybeAvailableBlock::Available(available_block.clone())
+            }
+            // No need to perform KZG verification unless we have a fully available block
+            RpcBlock::BlockOnly { block, block_root } => MaybeAvailableBlock::AvailabilityPending {
+                block_root: *block_root,
+                block: block.clone(),
+            },
+        };
+
+        SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
 

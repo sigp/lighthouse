@@ -3016,16 +3016,19 @@ async fn weak_subjectivity_sync_test(
                 .expect("should get block")
                 .expect("should get block");
 
-            if let MaybeAvailableBlock::Available(block) = harness
-                .chain
-                .data_availability_checker
-                .verify_kzg_for_rpc_block(
+            let rpc_block =
+                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block));
+
+            match rpc_block {
+                RpcBlock::FullyAvailable(available_block) => {
                     harness
-                        .build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
-                )
-                .expect("should verify kzg")
-            {
-                available_blocks.push(block);
+                        .chain
+                        .data_availability_checker
+                        .verify_kzg_for_available_block(&available_block)
+                        .expect("should verify kzg");
+                    available_blocks.push(available_block);
+                }
+                RpcBlock::BlockOnly { .. } => panic!("Should be an available block"),
             }
         }
 
