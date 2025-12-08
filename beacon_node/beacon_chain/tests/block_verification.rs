@@ -1831,7 +1831,12 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let rpc_block = RpcBlock::new(block.clone(), None, harness.spec.clone()).unwrap();
+    let rpc_block = RpcBlock::new(
+        block.clone(),
+        Some(AvailableBlockData::NoData),
+        harness.spec.clone(),
+    )
+    .unwrap();
     let verified_block1 = rpc_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
