@@ -309,7 +309,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                                 target_checkpoint,
                                 preferred_index,
                             )) =
-                                *attestation_service.latest_target_checkpoint.blocking_lock()
+                                *attestation_service.latest_target_checkpoint.lock().await
                             {
                                 if slot.epoch(S::E::slots_per_epoch()) == latest_attestable_epoch {
                                     // If the current slot is within the latest attestable epoch, we can attest
@@ -345,7 +345,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         && slot.is_start_slot_in_epoch(S::E::slots_per_epoch())
                     {
                         let mut guard =
-                            attestation_service.latest_target_checkpoint.blocking_lock();
+                            attestation_service.latest_target_checkpoint.lock().await;
                         *guard = Some((
                             slot.epoch(S::E::slots_per_epoch()),
                             attestation_data.target,
