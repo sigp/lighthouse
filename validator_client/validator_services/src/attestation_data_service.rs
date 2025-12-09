@@ -1,9 +1,32 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use beacon_node_fallback::BeaconNodeFallback;
 use slot_clock::SlotClock;
 use tracing::{Instrument, info_span};
-use types::{AttestationData, Slot};
+use types::{AttestationData, Checkpoint, Epoch, Slot};
+
+#[derive(Debug, Clone)]
+pub enum AttestationDataStrategy {
+    Fallback,
+    ByIndex(usize),
+    Consensus((usize, Option<(Checkpoint, usize)>)),
+    IgnoreEpoch(Epoch),
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct FFGConsensus {
+    pub source: Checkpoint,
+    pub target: Checkpoint,
+}
+
+impl FFGConsensus {
+    pub fn new(attestation_data: &AttestationData) -> Self {
+        FFGConsensus {
+            source: attestation_data.source,
+            target: attestation_data.target,
+        }
+    }
+}
 
 /// The AttestationDataService is responsible for downloading and caching attestation data at a given slot.
 /// It also helps prevent us from re-downloading identical attestation data.
@@ -16,13 +39,12 @@ impl<T: SlotClock> AttestationDataService<T> {
         Self { beacon_nodes }
     }
 
-    pub async fn download_data(
+    async fn data_by_index(
         &self,
         request_slot: &Slot,
         candidate_beacon_node: Option<usize>,
     ) -> Result<(AttestationData, usize), String> {
-        let (attestation_data, node_index) = self
-            .beacon_nodes
+        self.beacon_nodes
             .first_success_from_index(candidate_beacon_node, |beacon_node| async move {
                 let _timer = validator_metrics::start_timer_vec(
                     &validator_metrics::ATTESTATION_SERVICE_TIMES,
@@ -36,9 +58,82 @@ impl<T: SlotClock> AttestationDataService<T> {
             })
             .instrument(info_span!("fetch_attestation_data"))
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())
+    }
 
-        Ok((attestation_data, node_index))
+    pub async fn data_by_threshold(
+        &self,
+        request_slot: &Slot,
+        threshold: usize,
+        checkpoint_and_index: Option<(Checkpoint, usize)>,
+    ) -> Result<(AttestationData, usize), String> {
+        let mut results = HashMap::new();
+
+        self.beacon_nodes
+            .first_n_responses(
+                |beacon_node| async move {
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                        &[validator_metrics::ATTESTATIONS_HTTP_GET],
+                    );
+                    beacon_node
+                        .get_validator_attestation_data(*request_slot, 0)
+                        .await
+                        .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
+                        .map(|result| result.data)
+                },
+                |(attestation_data, index)| {
+                    if let Some((target_checkpoint, preferred_index)) = checkpoint_and_index {
+                        // If we have a preferred index set, return attestation data from it
+                        // TODO(attestation-consensus) this is a small optimization to immediately return data
+                        // from the preferred index. We shouldn't need to check the target checkpoint, but maybe
+                        // its just safer to do so?
+                        if preferred_index == *index {
+                            return true;
+                        }
+                        // return if fetched data matches the target checkpoint
+                        return attestation_data.target == target_checkpoint;
+                    }
+
+                    let ffg_consensus = FFGConsensus::new(attestation_data);
+                    results
+                        .entry(ffg_consensus.clone())
+                        .or_insert_with(Vec::new)
+                        .push(*index);
+                    if results
+                        .get(&ffg_consensus)
+                        .is_some_and(|servers| servers.len() >= threshold)
+                    {
+                        return true;
+                    }
+
+                    false
+                },
+            )
+            .instrument(info_span!("fetch_attestation_data"))
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn download_data(
+        &self,
+        request_slot: &Slot,
+        strategy: &AttestationDataStrategy,
+    ) -> Result<(AttestationData, usize), String> {
+        match strategy {
+            AttestationDataStrategy::Fallback => self.data_by_index(request_slot, None).await,
+            AttestationDataStrategy::ByIndex(index) => {
+                self.data_by_index(request_slot, Some(*index)).await
+            }
+            AttestationDataStrategy::Consensus((threshold, checkpoint_and_index)) => {
+                self.data_by_threshold(request_slot, *threshold, checkpoint_and_index.clone())
+                    .await
+            }
+            AttestationDataStrategy::IgnoreEpoch(epoch) => Err(format!(
+                "Disabled attestation production for epoch {:?}",
+                epoch
+            )),
+        }
     }
 }
 
@@ -54,7 +149,7 @@ mod tests {
         MinimalEthSpec, Slot,
     };
 
-    use crate::attestation_data_service::AttestationDataService;
+    use crate::attestation_data_service::{AttestationDataService, AttestationDataStrategy};
 
     fn create_attestation_data(
         slot: Slot,
@@ -156,7 +251,9 @@ mod tests {
         ));
 
         let service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
-        let result = service.download_data(&slot, None).await;
+        let result = service
+            .download_data(&slot, &AttestationDataStrategy::Fallback)
+            .await;
 
         // Verify download is successful
         assert!(result.is_ok());
@@ -186,7 +283,9 @@ mod tests {
         ));
 
         let service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
-        let result = service.download_data(&slot, None).await;
+        let result = service
+            .download_data(&slot, &AttestationDataStrategy::Fallback)
+            .await;
 
         // Verify all nodes offline
         assert!(result.is_err());
@@ -224,7 +323,9 @@ mod tests {
         ));
 
         let service = AttestationDataService::<TestingSlotClock>::new(Arc::new(fallback));
-        let result = service.download_data(&slot, None).await;
+        let result = service
+            .download_data(&slot, &AttestationDataStrategy::Fallback)
+            .await;
 
         // Verify download is successful and we fell back to the next node
         assert!(result.is_ok());

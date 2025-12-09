@@ -652,6 +652,49 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             .map(|(val, _)| val)
     }
 
+    pub async fn first_n_responses<F, O, Err, R, C>(
+        &self,
+        fetch_func: F,
+        mut consensus_check: C,
+    ) -> Result<(O, usize), Errors<Err>>
+    where
+        F: Fn(BeaconNodeHttpClient) -> R,
+        R: Future<Output = Result<O, Err>>,
+        C: FnMut(&(O, usize)) -> bool,
+        O: Eq + Clone + Debug,
+        Err: Debug,
+    {
+        let mut errors = vec![];
+
+        // Collect all responses from all candidates
+        let candidates = self.candidates.read().await;
+        let mut futures = vec![];
+
+        for candidate in candidates.iter() {
+            futures.push(Self::run_on_candidate(
+                candidate.beacon_node.clone(),
+                &fetch_func,
+            ));
+        }
+        drop(candidates);
+
+        // Process futures sequentially, checking consensus after each response
+        for future in futures {
+            match future.await {
+                Ok(val) => {
+                    if consensus_check(&val) {
+                        return Ok(val);
+                    }
+                }
+                Err(e) => {
+                    errors.push(e);
+                }
+            }
+        }
+
+        Err(Errors(errors))
+    }
+
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
     /// Otherwise, return all the errors encountered along the way.
     pub async fn first_success_with_index<F, O, Err, R>(

@@ -57,6 +57,10 @@ impl Slot {
     pub fn max_value() -> Slot {
         Slot(u64::MAX)
     }
+
+    pub fn is_start_slot_in_epoch(&self, slots_per_epoch: u64) -> bool {
+        self.0.is_multiple_of(slots_per_epoch)
+    }
 }
 
 impl Epoch {

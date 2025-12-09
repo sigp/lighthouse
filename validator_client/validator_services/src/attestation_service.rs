@@ -1,7 +1,7 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use tokio::sync::Mutex;
 
-use crate::attestation_data_service::AttestationDataService;
+use crate::attestation_data_service::{AttestationDataService, AttestationDataStrategy};
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, beacon_head_monitor::HeadEvent};
 use futures::future::join_all;
 use logging::crit;
@@ -14,7 +14,9 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, Span, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use types::{
+    Attestation, AttestationData, ChainSpec, Checkpoint, CommitteeIndex, Epoch, EthSpec, Slot,
+};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -28,6 +30,8 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> 
     chain_spec: Option<Arc<ChainSpec>>,
     head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
     attestation_data_service: Option<Arc<AttestationDataService<T>>>,
+    latest_target_checkpoint: Arc<Mutex<Option<(Epoch, Checkpoint, usize)>>>,
+    consensus_threshold: Option<usize>,
     disable: bool,
 }
 
@@ -42,6 +46,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
             chain_spec: None,
             head_monitor_rx: None,
             attestation_data_service: None,
+            latest_target_checkpoint: Arc::new(Mutex::new(None)),
+            consensus_threshold: None,
             disable: false,
         }
     }
@@ -83,6 +89,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
         self
     }
 
+    pub fn consensus_threshold(mut self, threshold: usize) -> Self {
+        self.consensus_threshold = Some(threshold);
+        self
+    }
+
     pub fn head_monitor_rx(
         mut self,
         head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
@@ -115,6 +126,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
                     .attestation_data_service
                     .ok_or("Cannot build AttestationService without attestation_data_service")?,
                 head_monitor_rx: self.head_monitor_rx,
+                latest_target_checkpoint: self.latest_target_checkpoint,
+                consensus_threshold: self.consensus_threshold,
                 disable: self.disable,
                 latest_attested_slot: Mutex::new(Slot::default()),
             }),
@@ -132,6 +145,8 @@ pub struct Inner<S, T> {
     chain_spec: Arc<ChainSpec>,
     head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
     attestation_data_service: Arc<AttestationDataService<T>>,
+    latest_target_checkpoint: Arc<Mutex<Option<(Epoch, Checkpoint, usize)>>>,
+    consensus_threshold: Option<usize>,
     disable: bool,
     latest_attested_slot: Mutex<Slot>,
 }
@@ -170,6 +185,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             return Ok(());
         }
 
+        let mut attestation_data_strategy =
+            if let Some(consensus_threshold) = self.consensus_threshold {
+                AttestationDataStrategy::Consensus((consensus_threshold, None))
+            } else {
+                AttestationDataStrategy::Fallback
+            };
+
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
@@ -202,6 +224,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     None
                 };
 
+                if let Some(beacon_node_index) = beacon_node_index {
+                    attestation_data_strategy = AttestationDataStrategy::ByIndex(beacon_node_index);
+                };
+
                 let Some(current_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock after trigger");
                     continue;
@@ -214,7 +240,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 }
 
-                match self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
+                match self.spawn_attestation_tasks(slot_duration, attestation_data_strategy.clone())
+                {
                     Ok(_) => *last_slot = current_slot,
                     Err(e) => {
                         crit!(error = e, "Failed to spawn attestation tasks")
@@ -247,7 +274,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     fn spawn_attestation_tasks(
         &self,
         slot_duration: Duration,
-        beacon_node_index: Option<usize>,
+        attestation_data_strategy: AttestationDataStrategy,
     ) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
@@ -265,11 +292,66 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .executor
             .spawn_handle(
                 async move {
-                    let attestation_data = attestation_service
+                    // If we're using the Consensus strategy we need to handle the following situations:
+                    // - The first slot in the epoch
+                    // - A slot thats within an attestable epoch
+                    // - A slot thats not within an attestable epoch
+                    // - A slot that is not the first in an epoch and no target checkpoint to compare
+                    let attestation_data_strategy =
+                        if let AttestationDataStrategy::Consensus((threshold, _)) =
+                            attestation_data_strategy
+                        {
+                            if slot.is_start_slot_in_epoch(S::E::slots_per_epoch()) {
+                                // if the current slot is the first slot in the epoch use the default consensus strategy
+                                attestation_data_strategy
+                            } else if let Some((
+                                latest_attestable_epoch,
+                                target_checkpoint,
+                                preferred_index,
+                            )) =
+                                *attestation_service.latest_target_checkpoint.blocking_lock()
+                            {
+                                if slot.epoch(S::E::slots_per_epoch()) == latest_attestable_epoch {
+                                    // If the current slot is within the latest attestable epoch, we can attest
+                                    // using the `preferred_index` or nodes that have a matching `target_checkpoint`
+                                    AttestationDataStrategy::Consensus((
+                                        threshold,
+                                        Some((target_checkpoint, preferred_index)),
+                                    ))
+                                } else {
+                                    // If the current slot is not within the latest attestable epoch, we cannot attest
+                                    AttestationDataStrategy::IgnoreEpoch(
+                                        slot.epoch(S::E::slots_per_epoch()),
+                                    )
+                                }
+                            } else {
+                                // If the current slot is not the first slot in an epoch and there is no target checkpoint to compare,
+                                // run the default consensus strategy. This can happen if the attestation service was initially
+                                // launched in the middle of an epoch.
+                                attestation_data_strategy
+                            }
+                        } else {
+                            attestation_data_strategy
+                        };
+
+                    let (attestation_data, index) = attestation_service
                         .attestation_data_service
-                        .download_data(&slot, beacon_node_index)
-                        .await
-                        .map(|(data, _)| data)?;
+                        .download_data(&slot, &attestation_data_strategy)
+                        .await?;
+
+                    // If we're using the consensus strategy and we fetched attestation data for the first slot of an epoch
+                    // update `latest_target_checkpoint` so we can query subsequent epochs
+                    if let AttestationDataStrategy::Consensus(_) = attestation_data_strategy
+                        && slot.is_start_slot_in_epoch(S::E::slots_per_epoch())
+                    {
+                        let mut guard =
+                            attestation_service.latest_target_checkpoint.blocking_lock();
+                        *guard = Some((
+                            slot.epoch(S::E::slots_per_epoch()),
+                            attestation_data.target,
+                            index,
+                        ));
+                    }
 
                     attestation_service
                         .sign_and_publish_attestations(
