@@ -125,9 +125,15 @@ pub struct BlockLookups<T: BeaconChainTypes> {
 use lighthouse_network::service::api_types::Id;
 
 #[cfg(test)]
+#[derive(Debug)]
 /// Tuple of `SingleLookupId`, requested block root, awaiting parent block root (if any),
 /// and list of peers that claim to have imported this set of block components.
-pub(crate) type BlockLookupSummary = (Id, Hash256, Option<Hash256>, Vec<PeerId>);
+pub(crate) struct BlockLookupSummary {
+    pub id: Id,
+    pub block_root: Hash256,
+    pub awaiting_parent: Option<Hash256>,
+    pub peers: Vec<PeerId>,
+}
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new() -> Self {
@@ -159,7 +165,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
-            .map(|(id, l)| (*id, l.block_root(), l.awaiting_parent(), l.all_peers()))
+            .map(|(id, l)| BlockLookupSummary {
+                id: *id,
+                block_root: l.block_root(),
+                awaiting_parent: l.awaiting_parent(),
+                peers: l.all_peers(),
+            })
             .collect()
     }
 
@@ -574,7 +585,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..)) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..))
+            | BlockProcessingResult::Err(BlockError::GenesisBlock) => {
                 // Successfully imported
                 request_state.on_processing_success()?;
                 Action::Continue

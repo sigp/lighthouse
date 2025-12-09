@@ -1,7 +1,6 @@
 use crate::NetworkMessage;
 use crate::sync::SyncMessage;
 use crate::sync::manager::SyncManager;
-use crate::sync::range_sync::RangeSyncType;
 use crate::sync::tests::lookups::CompleteStrategy;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::Witness;
@@ -9,7 +8,7 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::api_types::{AppRequestId, Id};
-use lighthouse_network::{NetworkGlobals, PeerAction, PeerId, ReportSource};
+use lighthouse_network::{NetworkGlobals, PeerId};
 use rand_chacha::ChaCha20Rng;
 use slot_clock::ManualSlotClock;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +20,7 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ChainSpec, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot};
+use types::{ForkName, Hash256, MinimalEthSpec as E, Slot};
 
 mod lookups;
 mod range;
@@ -75,7 +74,6 @@ struct TestRig {
     rng_08: rand_chacha_03::ChaCha20Rng,
     rng: ChaCha20Rng,
     fork_name: ForkName,
-    spec: Arc<ChainSpec>,
     /// Blocks that will be used in the test but may not be known to `harness` yet.
     network_blocks_by_root: HashMap<Hash256, RpcBlock<E>>,
     network_blocks_by_slot: HashMap<Slot, RpcBlock<E>>,
@@ -88,15 +86,15 @@ struct TestRig {
     complete_strategy: CompleteStrategy,
 }
 
+#[derive(Debug)]
 struct SeenLookup {
     block_root: Hash256,
     max_seen_peers: HashSet<PeerId>,
 }
 
+#[derive(Debug)]
 struct ReportedPenalty {
     pub peer_id: PeerId,
-    pub action: PeerAction,
-    pub source: ReportSource,
     pub msg: &'static str,
 }
 

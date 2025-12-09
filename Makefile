@@ -31,7 +31,8 @@ TEST_FEATURES ?=
 PROFILE ?= release
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
-RECENT_FORKS=electra fulu gloas
+# Include phase0 to test the code paths in sync that are pre blobs
+RECENT_FORKS=phase0 electra fulu gloas
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=

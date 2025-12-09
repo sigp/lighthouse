@@ -199,7 +199,14 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         let _guard = self.span.clone().entered();
-        if self.column_requests.values().all(|r| r.is_downloaded()) {
+        let total_requests = self.column_requests.len();
+        let completed_requests = self
+            .column_requests
+            .values()
+            .filter(|r| r.is_downloaded())
+            .count();
+
+        if completed_requests >= total_requests {
             // All requests have completed successfully.
             let mut peers = HashMap::<PeerId, Vec<usize>>::new();
             let mut seen_timestamps = vec![];
@@ -223,6 +230,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
         let active_request_count_by_peer = cx.active_request_count_by_peer();
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let mut columns_without_peers = vec![];
         let lookup_peers = self.lookup_peers.read();
         // Create deterministic hasher per request to ensure consistent peer ordering within
         // this request (avoiding fragmentation) while varying selection across different requests
@@ -257,6 +265,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     return Err(Error::NoPeer(*column_index));
                 } else {
                     // Do not issue requests if there is no custody peer on this column
+                    columns_without_peers.push(*column_index);
                 }
             }
         }
@@ -274,6 +283,9 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         } else {
             debug!(
                 lookup_peers = lookup_peers.len(),
+                total_requests,
+                completed_requests,
+                ?columns_without_peers,
                 "No column peers found for look up",
             );
         }
