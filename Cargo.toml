@@ -95,10 +95,15 @@ version = "8.0.1"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
-alloy-consensus = { version = "=1.0.42", default-features = false }
-alloy-primitives = { version = "=1.4.1", default-features = false, features = ["rlp", "getrandom"] }
-alloy-rlp = { version = "=0.3.12", default-features = false }
-alloy-rpc-types-eth = { version = "=1.0.42", default-features = false, features = ["serde"] }
+alloy-consensus = { version = "1", default-features = false }
+alloy-dyn-abi = { version = "1", default-features = false }
+alloy-json-abi = { version = "1", default-features = false }
+alloy-network = { version = "1", default-features = false }
+alloy-primitives = { version = "1", default-features = false, features = ["rlp", "getrandom"] }
+alloy-provider = { version = "1", default-features = false, features = ["reqwest"] }
+alloy-rlp = { version = "0.3", default-features = false }
+alloy-rpc-types-eth = { version = "1", default-features = false, features = ["serde"] }
+alloy-signer-local = { version = "1", default-features = false }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
