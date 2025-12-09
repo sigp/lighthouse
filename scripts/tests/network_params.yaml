@@ -6,6 +6,7 @@ participants:
     cl_image: lighthouse:local
     cl_extra_params:
       - --target-peers=3
+    supernode: true
     count: 4
 network_params:
   electra_fork_epoch: 0
