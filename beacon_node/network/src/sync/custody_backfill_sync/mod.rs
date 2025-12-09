@@ -113,10 +113,6 @@ pub struct CustodyBackFillSync<T: BeaconChainTypes> {
     /// These are batches that we've skipped because we have no columns to fetch for the epoch.
     skipped_batches: HashSet<BatchId>,
 
-    /// When a custody backfill sync fails, we keep track of whether a new fully synced peer has joined.
-    /// This signifies that we are able to attempt to restart a failed chain.
-    restart_failed_sync: bool,
-
     /// Reference to the beacon chain to obtain initial starting points for custody backfill sync.
     beacon_chain: Arc<BeaconChain<T>>,
 
@@ -141,7 +137,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             skipped_batches: HashSet::new(),
             current_processing_batch: None,
             validated_batches: 0,
-            restart_failed_sync: false,
             beacon_chain,
             network_globals,
         }
@@ -201,7 +196,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         // Remove all batches and active requests.
         self.batches.clear();
         self.skipped_batches.clear();
-        self.restart_failed_sync = false;
 
         // Reset all downloading and processing targets
         // NOTE: Lets keep validated_batches for posterity
@@ -734,7 +728,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                         "Custody backfill sync completed"
                     );
                     self.batches.clear();
-                    self.restart_failed_sync = false;
                     self.processing_target = self.current_start;
                     self.to_be_downloaded = self.current_start;
                     self.last_batch_downloaded = false;
@@ -1093,7 +1086,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.pause("Sync has failed".to_string());
         // Remove all batches and active requests.
         self.batches.clear();
-        self.restart_failed_sync = false;
 
         // Reset all downloading and processing targets
         // NOTE: Lets keep validated_batches for posterity
@@ -1115,12 +1107,4 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         *self.network_globals.custody_sync_state.write() = state;
     }
 
-    /// A fully synced peer has joined us.
-    /// If we are in a failed state, update a local variable to indicate we are able to restart
-    /// the failed sync on the next attempt.
-    pub fn fully_synced_peer_joined(&mut self) {
-        if matches!(self.state(), CustodyBackFillState::Pending(_)) {
-            self.restart_failed_sync = true;
-        }
-    }
 }
