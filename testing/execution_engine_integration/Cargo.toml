@@ -13,8 +13,10 @@ alloy-provider = { workspace = true }
 alloy-rpc-types-eth = { workspace = true }
 alloy-signer-local = { workspace = true }
 async-channel = { workspace = true }
+bls = { workspace = true }
 deposit_contract = { workspace = true }
 execution_layer = { workspace = true }
+fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
@@ -26,4 +28,5 @@ serde_json = { workspace = true }
 task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }

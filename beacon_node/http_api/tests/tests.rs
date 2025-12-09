@@ -6,6 +6,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
 };
+use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
 use eth2::{
     BeaconNodeHttpClient, Error,
     Error::ServerMessage,
@@ -21,6 +22,7 @@ use execution_layer::test_utils::{
     DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_GAS_LIMIT, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
     MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
+use fixed_bytes::FixedBytesExtended;
 use futures::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use http_api::{
@@ -34,6 +36,7 @@ use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
+use ssz::BitList;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
@@ -43,9 +46,8 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
-    AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
-    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, SingleAttestation, Slot,
-    attestation::AttestationBase,
+    Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
+    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
 };
 
 type E = MainnetEthSpec;

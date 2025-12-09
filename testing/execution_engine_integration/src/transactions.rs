@@ -1,8 +1,10 @@
 use alloy_network::TransactionBuilder;
 use alloy_primitives::{Address, U256};
 use alloy_rpc_types_eth::{AccessList, TransactionRequest};
+use bls::{Keypair, Signature};
 use deposit_contract::{BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS, encode_eth1_tx_data};
-use types::{DepositData, EthSpec, FixedBytesExtended, Hash256, Keypair, Signature};
+use fixed_bytes::FixedBytesExtended;
+use types::{DepositData, EthSpec, Hash256};
 
 /// Hardcoded deposit contract address based on sender address and nonce
 pub const DEPOSIT_CONTRACT_ADDRESS: &str = "64f43BEc7F86526686C931d65362bB8698872F90";

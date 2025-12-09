@@ -9,6 +9,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
     },
 };
+use bls::Keypair;
 use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };

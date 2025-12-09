@@ -7,11 +7,12 @@ use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitList, BitVector, FixedVector, VariableList, typenum::Unsigned};
+use ssz_types::{BitList, BitVector, FixedVector, VariableList};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use typenum::Unsigned;
 
 use crate::{
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},

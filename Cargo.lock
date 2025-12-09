@@ -34,6 +34,7 @@ dependencies = [
 name = "account_utils"
 version = "0.1.0"
 dependencies = [
+ "bls",
  "eth2_keystore",
  "eth2_wallet",
  "filesystem",
@@ -1237,6 +1238,7 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
+ "fixed_bytes",
  "fork_choice",
  "futures",
  "genesis",
@@ -1251,6 +1253,7 @@ dependencies = [
  "maplit",
  "merkle_proof",
  "metrics",
+ "milhouse",
  "mockall",
  "mockall_double",
  "once_cell",
@@ -1279,6 +1282,7 @@ dependencies = [
  "tracing",
  "tree_hash",
  "tree_hash_derive",
+ "typenum",
  "types",
  "zstd 0.13.3",
 ]
@@ -1289,6 +1293,7 @@ version = "8.0.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
+ "bls",
  "clap",
  "clap_utils",
  "client",
@@ -1319,6 +1324,7 @@ dependencies = [
 name = "beacon_node_fallback"
 version = "0.1.0"
 dependencies = [
+ "bls",
  "clap",
  "eth2",
  "futures",
@@ -1591,6 +1597,8 @@ dependencies = [
 name = "builder_client"
 version = "0.1.0"
 dependencies = [
+ "bls",
+ "context_deserialize",
  "eth2",
  "ethereum_ssz",
  "lighthouse_version",
@@ -2545,6 +2553,7 @@ dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
  "alloy-primitives",
+ "bls",
  "ethereum_ssz",
  "hex",
  "reqwest",
@@ -2755,6 +2764,7 @@ name = "doppelganger_service"
 version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
+ "bls",
  "environment",
  "eth2",
  "futures",
@@ -2863,16 +2873,19 @@ dependencies = [
  "hex",
  "kzg",
  "logging",
+ "milhouse",
  "rayon",
  "serde",
  "serde_json",
  "serde_repr",
  "serde_yaml",
  "snap",
+ "ssz_types",
  "state_processing",
  "swap_or_not_shuffle",
  "tree_hash",
  "tree_hash_derive",
+ "typenum",
  "types",
 ]
 
@@ -2900,7 +2913,9 @@ name = "eip_3076"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bls",
  "ethereum_serde_utils",
+ "fixed_bytes",
  "serde",
  "serde_json",
  "tempfile",
@@ -3124,6 +3139,7 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
+ "bls",
  "context_deserialize",
  "educe",
  "eip_3076",
@@ -3143,6 +3159,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ssz_types",
+ "superstruct",
  "test_random_derive",
  "tokio",
  "types",
@@ -3212,6 +3229,7 @@ dependencies = [
  "discv5",
  "eth2_config",
  "ethereum_ssz",
+ "fixed_bytes",
  "kzg",
  "pretty_reqwest_error",
  "reqwest",
@@ -3352,8 +3370,10 @@ dependencies = [
  "alloy-rpc-types-eth",
  "alloy-signer-local",
  "async-channel 1.9.0",
+ "bls",
  "deposit_contract",
  "execution_layer",
+ "fixed_bytes",
  "fork_choice",
  "futures",
  "hex",
@@ -3365,6 +3385,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
+ "typenum",
  "types",
 ]
 
@@ -3377,6 +3398,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rpc-types-eth",
  "arc-swap",
+ "bls",
  "builder_client",
  "bytes",
  "eth2",
@@ -3415,6 +3437,7 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "triehash",
+ "typenum",
  "types",
  "warp",
  "zeroize",
@@ -3588,6 +3611,7 @@ dependencies = [
  "beacon_chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "fixed_bytes",
  "logging",
  "metrics",
  "proto_array",
@@ -3778,6 +3802,7 @@ dependencies = [
 name = "genesis"
 version = "0.2.0"
 dependencies = [
+ "bls",
  "ethereum_hashing",
  "ethereum_ssz",
  "int_to_bytes",
@@ -4223,14 +4248,17 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "beacon_processor",
+ "bls",
  "bs58 0.4.0",
  "bytes",
+ "context_deserialize",
  "directory",
  "either",
  "eth2",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "execution_layer",
+ "fixed_bytes",
  "futures",
  "genesis",
  "health_metrics",
@@ -4937,6 +4965,7 @@ dependencies = [
  "ethereum_hashing",
  "ethereum_ssz",
  "execution_layer",
+ "fixed_bytes",
  "hex",
  "lighthouse_network",
  "lighthouse_version",
@@ -5486,6 +5515,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "async-channel 1.9.0",
+ "bls",
  "bytes",
  "delay_map",
  "directory",
@@ -5495,6 +5525,7 @@ dependencies = [
  "eth2",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "fixed_bytes",
  "fnv",
  "futures",
  "hex",
@@ -5527,6 +5558,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "typenum",
  "types",
  "unsigned-varint 0.8.0",
 ]
@@ -5541,6 +5573,7 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
+ "bls",
  "doppelganger_service",
  "either",
  "environment",
@@ -6208,6 +6241,7 @@ dependencies = [
  "eth2_network_config",
  "ethereum_ssz",
  "execution_layer",
+ "fixed_bytes",
  "fnv",
  "futures",
  "genesis",
@@ -6240,6 +6274,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber",
+ "typenum",
  "types",
 ]
 
@@ -6644,9 +6679,11 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "bitvec",
+ "bls",
  "educe",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "fixed_bytes",
  "itertools 0.10.5",
  "maplit",
  "metrics",
@@ -6656,7 +6693,9 @@ dependencies = [
  "serde",
  "state_processing",
  "store",
+ "superstruct",
  "tokio",
+ "typenum",
  "types",
 ]
 
@@ -7154,6 +7193,7 @@ version = "0.2.0"
 dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "fixed_bytes",
  "safe_arith",
  "serde",
  "serde_yaml",
@@ -8325,6 +8365,7 @@ dependencies = [
 name = "signing_method"
 version = "0.1.0"
 dependencies = [
+ "bls",
  "eth2_keystore",
  "ethereum_serde_utils",
  "lockfile",
@@ -8380,6 +8421,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "typenum",
  "types",
 ]
 
@@ -8394,11 +8436,13 @@ name = "slasher"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "bls",
  "byteorder",
  "educe",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "filesystem",
+ "fixed_bytes",
  "flate2",
  "libmdbx",
  "lmdb-rkv",
@@ -8418,6 +8462,7 @@ dependencies = [
  "tracing",
  "tree_hash",
  "tree_hash_derive",
+ "typenum",
  "types",
 ]
 
@@ -8443,9 +8488,11 @@ name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "bls",
  "eip_3076",
  "ethereum_serde_utils",
  "filesystem",
+ "fixed_bytes",
  "r2d2",
  "r2d2_sqlite",
  "rayon",
@@ -8571,11 +8618,13 @@ dependencies = [
  "ethereum_hashing",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "fixed_bytes",
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.10.5",
  "merkle_proof",
  "metrics",
+ "milhouse",
  "rand 0.9.2",
  "rayon",
  "safe_arith",
@@ -8585,6 +8634,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tree_hash",
+ "typenum",
  "types",
 ]
 
@@ -8593,7 +8643,9 @@ name = "state_transition_vectors"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "bls",
  "ethereum_ssz",
+ "fixed_bytes",
  "state_processing",
  "tokio",
  "types",
@@ -8616,11 +8668,13 @@ dependencies = [
  "directory",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "fixed_bytes",
  "itertools 0.10.5",
  "leveldb",
  "logging",
  "lru 0.12.5",
  "metrics",
+ "milhouse",
  "parking_lot",
  "rand 0.9.2",
  "redb",
@@ -8634,6 +8688,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "typenum",
  "types",
  "xdelta3",
  "zstd 0.13.3",
@@ -9546,6 +9601,7 @@ dependencies = [
  "tracing",
  "tree_hash",
  "tree_hash_derive",
+ "typenum",
 ]
 
 [[package]]
@@ -9769,6 +9825,7 @@ dependencies = [
  "eth2_keystore",
  "ethereum_serde_utils",
  "filesystem",
+ "fixed_bytes",
  "futures",
  "graffiti_file",
  "health_metrics",
@@ -9785,6 +9842,7 @@ dependencies = [
  "signing_method",
  "slashing_protection",
  "slot_clock",
+ "ssz_types",
  "sysinfo",
  "system_health",
  "task_executor",
@@ -9792,6 +9850,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "typenum",
  "types",
  "url",
  "validator_dir",
@@ -9829,6 +9888,7 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
+ "bls",
  "clap",
  "clap_utils",
  "educe",
@@ -9885,6 +9945,7 @@ dependencies = [
 name = "validator_store"
 version = "0.1.0"
 dependencies = [
+ "bls",
  "eth2",
  "slashing_protection",
  "types",
@@ -10126,10 +10187,12 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "async-channel 1.9.0",
+ "bls",
  "environment",
  "eth2",
  "eth2_keystore",
  "eth2_network_config",
+ "fixed_bytes",
  "futures",
  "initialized_validators",
  "lighthouse_validator_store",
@@ -10141,6 +10204,7 @@ dependencies = [
  "serde_yaml",
  "slashing_protection",
  "slot_clock",
+ "ssz_types",
  "task_executor",
  "tempfile",
  "tokio",

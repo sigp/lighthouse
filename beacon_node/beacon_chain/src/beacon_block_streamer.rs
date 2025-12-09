@@ -685,13 +685,13 @@ impl From<Error> for BeaconChainError {
 mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use bls::Keypair;
     use execution_layer::test_utils::Block;
+    use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{
-        ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
-    };
+    use types::{ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
 
     const VALIDATOR_COUNT: usize = 48;
 

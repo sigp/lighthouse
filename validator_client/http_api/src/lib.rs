@@ -22,6 +22,7 @@ use account_utils::{
 };
 pub use api_secret::ApiSecret;
 use beacon_node_fallback::CandidateInfo;
+use bls::{PublicKey, PublicKeyBytes};
 use core::convert::Infallible;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
@@ -30,8 +31,8 @@ use directory::{DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_VALIDATOR_D
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
-        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
-        PublicKeyBytes, SetGraffitiRequest, UpdateCandidatesRequest, UpdateCandidatesResponse,
+        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, SetGraffitiRequest,
+        UpdateCandidatesRequest, UpdateCandidatesResponse,
     },
 };
 use health_metrics::observe::Observe;

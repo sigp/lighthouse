@@ -259,6 +259,7 @@ tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tree_hash = "0.12.0"
 tree_hash_derive = "0.12.0"
+typenum = "1"
 types = { path = "consensus/types" }
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }

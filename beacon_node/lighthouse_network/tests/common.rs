@@ -1,4 +1,5 @@
 #![cfg(test)]
+use fixed_bytes::FixedBytesExtended;
 use lighthouse_network::Enr;
 use lighthouse_network::Multiaddr;
 use lighthouse_network::service::Network as LibP2PService;
@@ -9,10 +10,7 @@ use std::sync::Weak;
 use tokio::runtime::Runtime;
 use tracing::{Instrument, debug, error, info_span};
 use tracing_subscriber::EnvFilter;
-use types::{
-    ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
-    MinimalEthSpec,
-};
+use types::{ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 

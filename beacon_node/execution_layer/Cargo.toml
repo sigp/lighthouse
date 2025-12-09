@@ -10,6 +10,7 @@ alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-rpc-types-eth = { workspace = true }
 arc-swap = "1.6.0"
+bls = { workspace = true }
 builder_client = { path = "../builder_client" }
 bytes = { workspace = true }
 eth2 = { workspace = true, features = ["events", "lighthouse"] }
@@ -48,6 +49,7 @@ tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 triehash = "0.8.4"
+typenum = { workspace = true }
 types = { workspace = true }
 warp = { workspace = true }
 zeroize = { workspace = true }

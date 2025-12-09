@@ -6,11 +6,13 @@ use alloy_network::{EthereumWallet, TransactionBuilder};
 use alloy_primitives::Address as AlloyAddress;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_signer_local::PrivateKeySigner;
+use bls::PublicKeyBytes;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
     PayloadParameters, PayloadStatus,
 };
+use fixed_bytes::FixedBytesExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{Client, header::CONTENT_TYPE};
 use sensitive_url::SensitiveUrl;
@@ -22,8 +24,9 @@ use tokio::time::sleep;
 use types::payload::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    ForkName, Hash256, MainnetEthSpec, Slot, Uint256,
 };
+
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
 const TEST_FORK: ForkName = ForkName::Capella;
