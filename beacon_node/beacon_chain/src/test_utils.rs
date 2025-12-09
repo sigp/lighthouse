@@ -2392,7 +2392,15 @@ where
         let (block, blob_items) = block_contents;
 
         let block_root = block.canonical_root();
-        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, true)?;
+        // Determine if block is available: it's available if it doesn't require blobs,
+        // or if it requires blobs and we have them
+        let has_blob_commitments = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .is_ok_and(|c| !c.is_empty());
+        let is_available = !has_blob_commitments || blob_items.is_some();
+        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, is_available)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
