@@ -3,11 +3,12 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db,
 };
 use crate::{DBColumn, Error, KeyValueStore, KeyValueStoreOp};
-use ssz::{Decode, DecodeError, Encode};
+use milhouse::{List, Vector};
+use ssz::{BitVector, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
+use superstruct::superstruct;
 use types::historical_summary::HistoricalSummary;
-use types::superstruct;
 use types::*;
 
 /// DEPRECATED Lightweight variant of the `BeaconState` that is stored in the database.

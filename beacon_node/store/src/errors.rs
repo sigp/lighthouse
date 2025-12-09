@@ -6,7 +6,7 @@ use crate::{DBColumn, hdiff};
 use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot, milhouse};
+use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

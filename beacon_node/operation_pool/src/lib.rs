@@ -35,12 +35,12 @@ use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::marker::PhantomData;
 use std::ptr;
+use typenum::Unsigned;
 use types::{
     AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
     SyncCommitteeContribution, Validator, sync_aggregate::Error as SyncAggregateError,
-    typenum::Unsigned,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -782,6 +782,7 @@ impl<E: EthSpec + Default> PartialEq for OperationPool<E> {
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()
+            && *self.bls_to_execution_changes.read() == *other.bls_to_execution_changes.read()
     }
 }
 
@@ -792,6 +793,8 @@ mod release_tests {
     use beacon_chain::test_utils::{
         BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee, test_spec,
     };
+    use bls::Keypair;
+    use fixed_bytes::FixedBytesExtended;
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{VerifyOperation, common::get_attesting_indices_from_state};

@@ -41,7 +41,7 @@ pub fn build_transport(
     quic_support: bool,
 ) -> std::io::Result<BoxedTransport> {
     // mplex config
-    let mut mplex_config = libp2p_mplex::MplexConfig::new();
+    let mut mplex_config = libp2p_mplex::Config::new();
     mplex_config.set_max_buffer_size(256);
     mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
 
