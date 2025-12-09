@@ -516,6 +516,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
             .head_monitor_rx(head_monitor_rx)
+            .consensus_threshold(3)
             .chain_spec(context.eth2_config.spec.clone())
             .disable(config.disable_attesting);
 
