@@ -1,19 +1,23 @@
 use super::*;
 use account_utils::random_password_string;
 use bls::PublicKeyBytes;
+use bls::{AggregateSignature, PublicKey};
 use eth2::lighthouse_vc::types::UpdateFeeRecipientRequest;
 use eth2::lighthouse_vc::{
     http_client::ValidatorClientHttpClient as HttpClient,
     std_types::{KeystoreJsonStr as Keystore, *},
     types::Web3SignerValidatorRequest,
 };
+use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use lighthouse_validator_store::DEFAULT_GAS_LIMIT;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
+use ssz_types::BitList;
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
+use typenum::Unsigned;
 use types::{Address, attestation::AttestationBase};
 use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
@@ -2091,7 +2095,7 @@ async fn import_remotekey_web3signer_disabled() {
         // Import web3signers.
         tester
             .client
-            .post_lighthouse_validators_web3signer(&vec![web3signer_req])
+            .post_lighthouse_validators_web3signer(&[web3signer_req])
             .await
             .unwrap();
 
@@ -2146,7 +2150,7 @@ async fn import_remotekey_web3signer_enabled() {
         // Import web3signers.
         tester
             .client
-            .post_lighthouse_validators_web3signer(&vec![web3signer_req.clone()])
+            .post_lighthouse_validators_web3signer(&[web3signer_req.clone()])
             .await
             .unwrap();
 

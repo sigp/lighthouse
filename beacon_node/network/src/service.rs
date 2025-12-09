@@ -12,6 +12,7 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 
 use lighthouse_network::Enr;
+use lighthouse_network::identity::Keypair;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::rpc::methods::RpcResponse;
@@ -36,8 +37,9 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
+use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
+    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
 };
 
@@ -212,6 +214,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        local_keypair: Keypair,
     ) -> Result<
         (
             NetworkService<T>,
@@ -284,6 +287,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 .data_availability_checker
                 .custody_context()
                 .custody_group_count_at_head(&beacon_chain.spec),
+            local_keypair,
         )
         .await?;
 
@@ -366,6 +370,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        local_keypair: Keypair,
     ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
@@ -373,6 +378,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             libp2p_registry,
             beacon_processor_send,
+            local_keypair,
         )
         .await?;
 

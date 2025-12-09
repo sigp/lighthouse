@@ -1,5 +1,6 @@
 use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
+use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
@@ -19,7 +20,7 @@ use tracing::{debug, instrument, warn};
 use types::{
     AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    FixedBytesExtended, Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
     consts::bellatrix::INTERVALS_PER_SLOT,
 };
 
@@ -627,7 +628,7 @@ where
         op: &InvalidationOperation,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation::<E>(op)
+            .process_execution_payload_invalidation::<E>(op, self.finalized_checkpoint())
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
@@ -908,6 +909,8 @@ where
                 unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
             },
             current_slot,
+            self.justified_checkpoint(),
+            self.finalized_checkpoint(),
         )?;
 
         Ok(())
@@ -1288,7 +1291,7 @@ where
     /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
     pub fn is_finalized_checkpoint_or_descendant(&self, block_root: Hash256) -> bool {
         self.proto_array
-            .is_finalized_checkpoint_or_descendant::<E>(block_root)
+            .is_finalized_checkpoint_or_descendant::<E>(block_root, self.finalized_checkpoint())
     }
 
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
@@ -1508,7 +1511,9 @@ where
     /// be instantiated again later.
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
-            proto_array: self.proto_array().as_ssz_container(),
+            proto_array: self
+                .proto_array()
+                .as_ssz_container(self.justified_checkpoint(), self.finalized_checkpoint()),
             queued_attestations: self.queued_attestations().to_vec(),
         }
     }

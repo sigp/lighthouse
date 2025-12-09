@@ -7,6 +7,7 @@ use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
 use futures::StreamExt;
 use libp2p::gossipsub;
+use lighthouse_network::identity::secp256k1;
 use lighthouse_network::types::{GossipEncoding, GossipKind};
 use lighthouse_network::{Enr, GossipTopic};
 use std::str::FromStr;
@@ -67,6 +68,7 @@ fn test_dht_persistence() {
             executor,
             None,
             beacon_processor_tx,
+            secp256k1::Keypair::generate().into(),
         )
         .await
         .unwrap();
@@ -135,6 +137,7 @@ fn test_removing_topic_weight_on_old_topics() {
             executor.clone(),
             None,
             beacon_processor_channels.beacon_processor_tx,
+            secp256k1::Keypair::generate().into(),
         )
         .await
         .unwrap()

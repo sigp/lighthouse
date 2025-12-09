@@ -8,14 +8,17 @@ autotests = false                               # using a single test binary com
 [dependencies]
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
+bls = { workspace = true }
 bs58 = "0.4.0"
 bytes = { workspace = true }
+context_deserialize = { workspace = true }
 directory = { workspace = true }
 either = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
+fixed_bytes = { workspace = true }
 futures = { workspace = true }
 health_metrics = { workspace = true }
 hex = { workspace = true }
