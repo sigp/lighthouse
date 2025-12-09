@@ -356,14 +356,15 @@ macro_rules! test_suite {
                 .assert_single_message_verify(true)
         }
 
-
         #[test]
         fn empty_aggregate_plus_infinity_should_be_infinity() {
             let mut agg = AggregateSignature::empty();
             let infinity_sig = Signature::deserialize(&INFINITY_SIGNATURE).unwrap();
             agg.add_assign(&infinity_sig);
-            assert!(agg.is_infinity(), 
-                "is_infinity flag should be true after adding infinity to empty");
+            assert!(
+                agg.is_infinity(),
+                "is_infinity flag should be true after adding infinity to empty"
+            );
         }
 
         #[test]
