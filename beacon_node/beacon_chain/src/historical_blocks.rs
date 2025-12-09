@@ -157,7 +157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             if let Some(block_data) = block_data {
                 match &block_data {
-                    AvailableBlockData::NoData => todo!(),
+                    AvailableBlockData::NoData => (),
                     AvailableBlockData::Blobs(_) => new_oldest_blob_slot = Some(block.slot()),
                     AvailableBlockData::DataColumns(_) => {
                         new_oldest_data_column_slot = Some(block.slot())
