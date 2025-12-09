@@ -244,7 +244,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// Spawn only one new task for attestation post-Electra
     /// For each required aggregates, spawn a new task that downloads, signs and uploads the
     /// aggregates to the beacon node.
-    fn spawn_attestation_tasks(&self, slot_duration: Duration, beacon_node_index: Option<usize>,) -> Result<(), String> {
+    fn spawn_attestation_tasks(
+        &self,
+        slot_duration: Duration,
+        beacon_node_index: Option<usize>,
+    ) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -431,7 +435,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .now()
             .ok_or("Unable to determine current slot from clock")?
             .epoch(S::E::slots_per_epoch());
-        
+
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;
         let signing_futures = validator_duties.iter().map(|duty_and_proof| {
