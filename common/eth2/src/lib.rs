@@ -35,6 +35,8 @@ use educe::Educe;
 use futures::Stream;
 #[cfg(feature = "events")]
 use futures_util::StreamExt;
+#[cfg(feature = "network")]
+use libp2p_identity::PeerId;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response,
     header::{HeaderMap, HeaderValue},
@@ -1981,9 +1983,10 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/peers/{peer_id}`
+    #[cfg(feature = "network")]
     pub async fn get_node_peers_by_id(
         &self,
-        peer_id: &str,
+        peer_id: PeerId,
     ) -> Result<GenericResponse<PeerData>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1991,7 +1994,7 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("peers")
-            .push(peer_id);
+            .push(&peer_id.to_string());
 
         self.get(path).await
     }

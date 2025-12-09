@@ -14,7 +14,7 @@ bytes = { workspace = true }
 context_deserialize = { workspace = true }
 directory = { workspace = true }
 either = { workspace = true }
-eth2 = { workspace = true, features = ["lighthouse"] }
+eth2 = { workspace = true, features = ["lighthouse", "network"] }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
