@@ -196,10 +196,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// Returns `Some(Ok(_))` with valid RPC blocks if all data is present and valid.
     /// Returns `Some(Err(_))` if there are issues coupling blocks with their data.
     /// // TODO() clean this up
-    pub fn responses<T: BeaconChainTypes>(
+    pub fn responses<T>(
         &mut self,
         chain: Arc<BeaconChain<T>>,
-    ) -> Option<Result<Vec<RpcBlock<E>>, CouplingError>> {
+    ) -> Option<Result<Vec<RpcBlock<E>>, CouplingError>>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         let Some(blocks) = self.blocks_request.to_finished() else {
             return None;
         };
@@ -277,11 +280,14 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     // TODO clean this up
-    fn responses_with_blobs<T: BeaconChainTypes>(
+    fn responses_with_blobs<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
         chain: Arc<BeaconChain<T>>,
-    ) -> Result<Vec<RpcBlock<E>>, CouplingError> {
+    ) -> Result<Vec<RpcBlock<E>>, CouplingError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         // There can't be more more blobs than blocks. i.e. sending any blob (empty
         // included) for a skipped slot is not permitted.
         let mut responses = Vec::with_capacity(blocks.len());
@@ -343,14 +349,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     // TODO() clean this up
-    fn responses_with_custody_columns<T: BeaconChainTypes>(
+    fn responses_with_custody_columns<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         data_columns: DataColumnSidecarList<E>,
         column_to_peer: HashMap<u64, PeerId>,
         expects_custody_columns: &[ColumnIndex],
         attempt: usize,
         chain: Arc<BeaconChain<T>>,
-    ) -> Result<Vec<RpcBlock<E>>, CouplingError> {
+    ) -> Result<Vec<RpcBlock<E>>, CouplingError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         // Group data columns by block_root and index
         let mut data_columns_by_block =
             HashMap::<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>::new();

@@ -11,6 +11,7 @@ use crate::{
 use educe::Educe;
 use kzg::Kzg;
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
@@ -778,20 +779,65 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
     }
 
-    pub fn new<T: BeaconChainTypes>(
-        block: Arc<SignedBeaconBlock<E>>,
-        block_data: AvailableBlockData<E>,
+    pub fn new<T>(
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block_data: AvailableBlockData<T::EthSpec>,
         chain: Arc<BeaconChain<T>>,
-    ) -> Result<Self, AvailabilityCheckError> {
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         // check blob lengths match
         // POSSIBLY - verify kzg - but probably not
         // but this variant *should* ensure the data IS available
+
+        let da_checker = chain.data_availability_checker.clone();
+        let blobs_required = da_checker.blobs_required_for_block(&block);
+        let columns_required = da_checker.data_columns_required_for_block(&block);
+
+        match &block_data {
+            AvailableBlockData::NoData => {
+                if columns_required {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
+                } else if blobs_required {
+                    return Err(AvailabilityCheckError::MissingBlobs);
+                }
+            }
+            AvailableBlockData::Blobs(blobs) => {
+                if !blobs_required {
+                    return Err(AvailabilityCheckError::InvalidAvailableBlockData);
+                }
+
+                if block.num_expected_blobs() != blobs.len() {
+                    return Err(AvailabilityCheckError::MissingBlobs);
+                }
+            }
+            AvailableBlockData::DataColumns(data_columns) => {
+                if !columns_required {
+                    return Err(AvailabilityCheckError::InvalidAvailableBlockData);
+                }
+
+                let mut column_indices = chain
+                    .custody_columns_for_epoch(Some(block.epoch()))
+                    .iter()
+                    .collect::<HashSet<_>>();
+
+                for data_column in data_columns {
+                    column_indices.remove(&data_column.index);
+                }
+
+                if !column_indices.is_empty() {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
+                }
+            }
+        }
+
         Ok(Self {
             block_root: block.canonical_root(),
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
-            spec: chain.spec.clone()
+            spec: chain.spec.clone(),
         })
     }
 

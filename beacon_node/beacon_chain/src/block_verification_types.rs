@@ -73,11 +73,14 @@ impl<E: EthSpec> RpcBlock<E> {
 }
 
 impl<E: EthSpec> RpcBlock<E> {
-    pub fn new<T: BeaconChainTypes>(
+    pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: Option<AvailableBlockData<E>>,
         chain: Arc<BeaconChain<T>>,
-    ) -> Result<Self, AvailabilityCheckError> {
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
         match block_data {
             Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
                 block,

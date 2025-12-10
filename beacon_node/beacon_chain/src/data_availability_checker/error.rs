@@ -23,6 +23,7 @@ pub enum Error {
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
     InvalidFork,
+    InvalidAvailableBlockData,
 }
 
 #[derive(PartialEq, Eq)]
@@ -46,7 +47,8 @@ impl Error {
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError
-            | Error::InvalidFork => ErrorCategory::Internal,
+            | Error::InvalidFork
+            | Error::InvalidAvailableBlockData => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
             | Error::ReconstructColumnsError { .. }
