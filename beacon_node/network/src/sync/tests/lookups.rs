@@ -101,8 +101,6 @@ impl TestRig {
             .network_globals
             .set_sync_state(SyncState::Synced);
 
-        let spec = chain.spec.clone();
-
         // deterministic seed
         let rng_08 = <rand_chacha_03::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
@@ -128,7 +126,6 @@ impl TestRig {
             ),
             harness,
             fork_name,
-            spec,
         }
     }
 
@@ -2284,7 +2281,7 @@ mod deneb_only {
             let block = self.unknown_parent_block.take().unwrap();
             // Now this block is the one we expect requests from
             self.block = block.clone();
-            let block = RpcBlock::new(block, None, self.rig.spec.clone()).unwrap();
+            let block = RpcBlock::new(block, None, self.rig.harness.chain.clone()).unwrap();
             self.rig.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Err(BlockError::ParentUnknown {

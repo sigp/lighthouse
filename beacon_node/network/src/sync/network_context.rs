@@ -777,7 +777,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         let range_req = entry.get_mut();
-        if let Some(blocks_result) = range_req.responses(self.chain.spec.clone()) {
+        if let Some(blocks_result) = range_req.responses(self.chain.clone()) {
             if let Err(CouplingError::DataColumnPeerFailure {
                 error,
                 faulty_peers: _,
@@ -1606,7 +1606,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let block = RpcBlock::new(block, None, self.chain.spec.clone())
+        let block = RpcBlock::new(block, None, self.chain.clone())
             .map_err(|_| SendErrorProcessor::SendError)?;
 
         debug!(block = ?block_root, id, "Sending block for processing");

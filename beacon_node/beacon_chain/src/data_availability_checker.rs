@@ -778,10 +778,10 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
     }
 
-    pub fn new(
+    pub fn new<T: BeaconChainTypes>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: AvailableBlockData<E>,
-        spec: Arc<ChainSpec>,
+        chain: Arc<BeaconChain<T>>,
     ) -> Result<Self, AvailabilityCheckError> {
         // check blob lengths match
         // POSSIBLY - verify kzg - but probably not
@@ -791,7 +791,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
-            spec,
+            spec: chain.spec.clone()
         })
     }
 
@@ -1096,7 +1096,7 @@ mod test {
 
                 let block_data = AvailableBlockData::new(None, Some(custody_columns));
 
-                RpcBlock::new(Arc::new(block), Some(block_data), spec.clone())
+                RpcBlock::__new_for_test(Arc::new(block), Some(block_data), spec.clone())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();

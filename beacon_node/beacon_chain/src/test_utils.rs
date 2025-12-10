@@ -2431,7 +2431,7 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new(block, Some(AvailableBlockData::NoData), self.spec.clone())
+            return RpcBlock::new(block, Some(AvailableBlockData::NoData), self.chain.clone())
                 .unwrap();
         }
 
@@ -2444,11 +2444,11 @@ where
                 // .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
             let block_data = AvailableBlockData::new(None, Some(custody_columns));
-            RpcBlock::new(block, Some(block_data), self.spec.clone()).unwrap()
+            RpcBlock::new(block, Some(block_data), self.chain.clone()).unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             let block_data = AvailableBlockData::new(blobs, None);
-            RpcBlock::new(block, Some(block_data), self.spec.clone()).unwrap()
+            RpcBlock::new(block, Some(block_data), self.chain.clone()).unwrap()
         }
     }
 
@@ -2476,14 +2476,14 @@ where
                 if is_available {
                     let block_data: AvailableBlockData<E> =
                         AvailableBlockData::new(None, Some(columns));
-                    RpcBlock::new(block, Some(block_data), self.spec.clone())?
+                    RpcBlock::new(block, Some(block_data), self.chain.clone())?
                 } else {
-                    RpcBlock::new(block, None, self.spec.clone())?
+                    RpcBlock::new(block, None, self.chain.clone())?
                 }
             } else if is_available {
-                RpcBlock::new(block, Some(AvailableBlockData::NoData), self.spec.clone())?
+                RpcBlock::new(block, Some(AvailableBlockData::NoData), self.chain.clone())?
             } else {
-                RpcBlock::new(block, None, self.spec.clone())?
+                RpcBlock::new(block, None, self.chain.clone())?
             }
         } else {
             let blobs = blob_items
@@ -2494,9 +2494,9 @@ where
                 .unwrap();
             if is_available {
                 let block_data: AvailableBlockData<E> = AvailableBlockData::new(blobs, None);
-                RpcBlock::new(block, Some(block_data), self.spec.clone())?
+                RpcBlock::new(block, Some(block_data), self.chain.clone())?
             } else {
-                RpcBlock::new(block, None, self.spec.clone())?
+                RpcBlock::new(block, None, self.chain.clone())?
             }
         })
     }

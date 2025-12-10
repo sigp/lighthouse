@@ -5,6 +5,7 @@ use crate::sync::SyncMessage;
 use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::range_sync::RangeSyncType;
+use beacon_chain::BeaconChain;
 use beacon_chain::block_verification_types::AvailableBlockData;
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
@@ -428,7 +429,7 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                build_rpc_block(block.into(), &data_sidecars, self.spec.clone()),
+                build_rpc_block(block.into(), &data_sidecars, self.harness.chain.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -444,12 +445,12 @@ impl TestRig {
 fn build_rpc_block(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
-    spec: Arc<ChainSpec>,
+    chain: Arc<BeaconChain<T>>,
 ) -> RpcBlock<E> {
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             let block_data = AvailableBlockData::new(Some(blobs.clone()), None);
-            RpcBlock::new(block, Some(block_data), spec).unwrap()
+            RpcBlock::new(block, Some(block_data), chain).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
             let block_data = AvailableBlockData::new(
@@ -461,10 +462,10 @@ fn build_rpc_block(
                         .collect::<Vec<_>>(),
                 ),
             );
-            RpcBlock::new(block, Some(block_data), spec).unwrap()
+            RpcBlock::new(block, Some(block_data), chain).unwrap()
         }
         // Block has no data, expects zero columns
-        None => RpcBlock::new(block, Some(AvailableBlockData::NoData), spec).unwrap(),
+        None => RpcBlock::new(block, Some(AvailableBlockData::NoData), chain).unwrap(),
     }
 }
 
