@@ -9,6 +9,7 @@ use crate::{
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
 use lighthouse_tracing::{SPAN_PRODUCE_BLOCK_V2, SPAN_PRODUCE_BLOCK_V3};
 use ssz::Encode;

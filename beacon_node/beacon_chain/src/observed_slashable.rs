@@ -5,7 +5,8 @@ use crate::observed_block_producers::Error;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{EthSpec, Hash256, Slot, Unsigned};
+use typenum::Unsigned;
+use types::{EthSpec, Hash256, Slot};
 
 #[derive(Eq, Hash, PartialEq, Debug, Default)]
 pub struct ProposalKey {

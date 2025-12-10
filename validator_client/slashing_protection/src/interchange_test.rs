@@ -2,11 +2,13 @@ use crate::{
     SigningRoot, SlashingDatabase,
     test_utils::{DEFAULT_GENESIS_VALIDATORS_ROOT, pubkey},
 };
+use bls::PublicKeyBytes;
 use eip_3076::{Interchange, SignedAttestation, SignedBlock};
+use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
-use types::{Epoch, FixedBytesExtended, Hash256, PublicKeyBytes, Slot};
+use types::{Epoch, Hash256, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

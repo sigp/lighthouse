@@ -7,6 +7,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
+use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
@@ -17,9 +18,9 @@ use std::time::Duration;
 use store::MemoryStore;
 use types::SingleAttestation;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
-    ForkName, Hash256, IndexedAttestation, MainnetEthSpec, RelativeEpoch, SignedBeaconBlock, Slot,
-    SubnetId, test_utils::generate_deterministic_keypair,
+    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
+    IndexedAttestation, MainnetEthSpec, RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
+    test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;

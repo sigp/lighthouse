@@ -8,19 +8,20 @@ use crate::{
     per_epoch_processing::{Delta, Error, ParticipationEpochSummary},
 };
 use itertools::izip;
+use milhouse::{Cow, List, Vector};
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
 use tracing::instrument;
+use typenum::Unsigned;
 use types::{
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
-    EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
-    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator, Vector,
+    EthSpec, ExitCache, ForkName, ParticipationFlags, PendingDeposit, ProgressiveBalancesCache,
+    RelativeEpoch, Validator,
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
-    milhouse::Cow,
 };
 
 pub struct SinglePassConfig {

@@ -1,5 +1,6 @@
 use super::methods::*;
 use crate::rpc::codec::SSZSnappyInboundCodec;
+use bls::Signature;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
@@ -20,7 +21,7 @@ use types::{
     EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
     LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
     LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock,
+    MainnetEthSpec, MinimalEthSpec, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
