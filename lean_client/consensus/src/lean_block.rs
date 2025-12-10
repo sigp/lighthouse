@@ -2,11 +2,10 @@ use crate::attestation::{Attestation, Slot};
 use crate::lean_state::LeanState;
 use crate::validator::ValidatorIndex;
 use lean_crypto::Signature;
-use milhouse::List;
 use ssz_derive::{Decode, Encode};
-use tree_hash::TreeHash;
+use ssz_types::VariableList;
 use tree_hash_derive::TreeHash;
-use types::{EthSpec, Hash256, VariableList};
+use types::{EthSpec, Hash256};
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 pub struct LeanBlock<E: EthSpec> {
@@ -81,7 +80,7 @@ impl<E: EthSpec> SignedLeanBlockWithAttestation<E> {
         let validators = &parent_state.validators;
 
         // Verify each attestation signature
-        for (attestation, signature) in all_attestations.iter().zip(signatures.iter()) {
+        for (attestation, _signature) in all_attestations.iter().zip(signatures.iter()) {
             // Identify the validator who created this attestation
             let validator_id = attestation.validator_id as usize;
 
@@ -94,7 +93,7 @@ impl<E: EthSpec> SignedLeanBlockWithAttestation<E> {
                 ));
             }
 
-            let validator = validators
+            let _validator = validators
                 .get(validator_id)
                 .ok_or_else(|| format!("Failed to get validator at index {}", validator_id))?;
         }

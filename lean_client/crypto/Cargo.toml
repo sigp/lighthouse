@@ -8,8 +8,10 @@ edition = "2024"
 alloy-primitives = { workspace = true }
 ethereum_ssz = "0.10.0"
 ethereum_ssz_derive = "0.10.0"
+ssz_types = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }
 leansig = { git = "https://github.com/leanEthereum/leanSig" }
 lean_keystore = { path = "../keystore" }

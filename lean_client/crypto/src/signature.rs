@@ -1,7 +1,7 @@
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
-use types::FixedVector;
-use types::typenum::*;
+use ssz_types::FixedVector;
+use typenum::*;
 
 /// XMSS signature size in bytes (3112 bytes)
 pub const SIGNATURE_SIZE: usize = 3112;

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 ethereum_ssz = "0.10.0"
 lean_consensus = { workspace = true }
+fixed_bytes = { workspace = true }
 parking_lot = { workspace = true }
 store = { workspace = true, features = ["redb"] }
 tracing = { workspace = true }

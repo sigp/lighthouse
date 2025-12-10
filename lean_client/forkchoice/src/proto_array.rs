@@ -1,6 +1,7 @@
 use lean_consensus::attestation::Slot;
 use std::collections::HashMap;
-use types::{FixedBytesExtended, Hash256};
+use types::Hash256;
+use fixed_bytes::FixedBytesExtended;
 
 /// Errors returned by [`ProtoArray`].
 #[derive(Debug, PartialEq, Eq)]

@@ -11,11 +11,9 @@ use crate::validator::Validator;
 use crate::validator::ValidatorIndex;
 
 use crate::lean_block::LeanBlockHeader;
-use milhouse::List;
-use types::VariableList;
-use types::{BitList, EthSpec, Hash256, Unsigned};
-
-use types::typenum::U1073741824;
+use ssz_types::{VariableList, BitList};
+use types::{EthSpec, Hash256};
+use ssz_types::typenum::U1073741824;
 
 #[derive(TreeHash, Encode, Decode, Debug)]
 pub struct LeanState<E: EthSpec> {

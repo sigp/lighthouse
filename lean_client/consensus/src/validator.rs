@@ -1,10 +1,10 @@
 use crate::attestation::Slot;
 use ssz_derive::{Decode, Encode};
+use ssz_types::FixedVector;
 use tree_hash::TreeHash;
-use types::Hash256;
-use types::{FixedVector, typenum::U52};
-
 use tree_hash_derive::TreeHash;
+use ssz_types::typenum::U52;
+use types::Hash256;
 #[derive(Clone, PartialEq, Decode, Encode, TreeHash, Debug)]
 pub struct Validator {
     pub pubkey: FixedVector<u8, U52>,

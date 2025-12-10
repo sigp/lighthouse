@@ -12,13 +12,13 @@ use lean_network::NetworkConfig;
 use lean_network_config::load_network_files;
 use lean_store::LeanStore;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
-use ssz::Decode;
 use store::database::interface::BeaconNodeBackend;
 use tracing::info;
 use tree_hash::TreeHash;
-use types::{EthSpec, Slot, VariableList};
+use types::{EthSpec, Slot};
+use ssz_types::VariableList;
 
-use validators::{build_validators, build_validators_from_config};
+use validators::build_validators_from_config;
 
 /// Input paths and identifiers required to build the lean client runtime.
 pub struct LeanClientPaths {
@@ -126,7 +126,7 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     };
 
     // Try to load genesis state from SSZ, otherwise generate fresh
-    let genesis_ssz_path = genesis_json_path
+    let _genesis_ssz_path = genesis_json_path
         .as_ref()
         .and_then(|json_path| json_path.parent().map(|parent| parent.join("genesis.ssz")));
 
@@ -136,7 +136,7 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     let validators = VariableList::new(validators_list)
         .map_err(|e| format!("Failed to create validators list: {:?}", e))?;
     
-    let mut genesis_state = LeanState::<E>::generate_genesis(genesis_time, validators);
+    let genesis_state = LeanState::<E>::generate_genesis(genesis_time, validators);
 
     // Calculate the Genesis State Root
     let genesis_state_root = genesis_state.tree_hash_root();

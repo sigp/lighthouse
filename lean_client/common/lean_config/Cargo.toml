@@ -20,3 +20,4 @@ hex = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+ssz_types = { workspace = true }

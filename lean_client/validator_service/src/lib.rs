@@ -18,7 +18,9 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration as TokioDuration, sleep};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
-use types::{EthSpec, Hash256, List, Slot, VariableList};
+use types::{EthSpec, Hash256, Slot};
+use ssz_types::VariableList;
+
 
 mod chain;
 
@@ -535,7 +537,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
     ) -> Result<(), String> {
         // Verify the attestation signature
         let epoch = signed_attestation.message.attestation_data.slot.0 / 32;
-        let message_hash = signed_attestation.message.tree_hash_root();
+        let _message_hash = signed_attestation.message.tree_hash_root();
         let validator_id = signed_attestation.message.validator_id;
 
         // NOTE: Signature verification will be implemented when signature verification functions

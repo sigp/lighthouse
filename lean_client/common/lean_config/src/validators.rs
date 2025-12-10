@@ -2,9 +2,10 @@ use lean_consensus::validator::Validator;
 use lean_keystore::ValidatorKeyPair;
 use serde_yaml;
 use std::collections::HashMap;
-use types::FixedVector;
+use ssz_types::FixedVector;
 
 /// Build validator list from raw key pairs loaded from the keystore.
+#[allow(dead_code)]
 pub fn build_validators(
     all_key_pairs: HashMap<u64, ValidatorKeyPair>,
 ) -> Result<Vec<Validator>, String> {
@@ -102,6 +103,7 @@ fn hex_to_bytes52(hex_str: &str) -> Result<[u8; 52], String> {
 }
 
 /// Get current time in seconds since epoch.
+#[allow(dead_code)]
 pub fn current_unix_timestamp() -> Result<u64, String> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

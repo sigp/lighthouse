@@ -9,7 +9,9 @@ use lean_store::LeanStore;
 use ssz::{Decode, Encode};
 use store::KeyValueStore;
 use tree_hash::TreeHash;
-use types::{EthSpec, FixedBytesExtended, Hash256, VariableList};
+use types::{EthSpec, Hash256};
+use ssz_types::VariableList;
+use fixed_bytes::FixedBytesExtended;
 
 /// Central coordinator for fork-choice state and database access.
 ///
