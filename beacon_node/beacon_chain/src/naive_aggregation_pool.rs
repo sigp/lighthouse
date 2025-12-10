@@ -577,12 +577,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz_types::BitList;
-    use store::BitVector;
+    use fixed_bytes::FixedBytesExtended;
+    use ssz_types::{BitList, BitVector};
     use tree_hash::TreeHash;
     use types::{
-        Attestation, AttestationBase, AttestationElectra, FixedBytesExtended, Fork, Hash256,
-        SyncCommitteeMessage,
+        Attestation, AttestationBase, AttestationElectra, Fork, Hash256, SyncCommitteeMessage,
         test_utils::{generate_deterministic_keypair, test_random_instance},
     };
 

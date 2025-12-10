@@ -1,6 +1,8 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
+use bls::{PublicKeyBytes, SecretKey, Signature};
 use bytes::Bytes;
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::PublishBlockRequest;
 use eth2::types::{
     BlobsBundle, BlockId, BroadcastValidation, EndpointVersion, EventKind, EventTopic,
@@ -14,6 +16,7 @@ use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
+use ssz_types::VariableList;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -25,17 +28,16 @@ use tempfile::NamedTempFile;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
+use types::ExecutionBlockHash;
 use types::builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, BuilderBidGloas, SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode,
-    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
-    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
+    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
-use types::{ExecutionBlockHash, SecretKey};
 use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
 
@@ -71,7 +73,7 @@ impl Operation {
     }
 }
 
-pub fn mock_builder_extra_data<E: EthSpec>() -> types::VariableList<u8, E::MaxExtraDataBytes> {
+pub fn mock_builder_extra_data<E: EthSpec>() -> VariableList<u8, E::MaxExtraDataBytes> {
     "mock_builder".as_bytes().to_vec().try_into().unwrap()
 }
 

@@ -1,4 +1,5 @@
-use types::{BeaconState, BeaconStateError, BitVector, Checkpoint, Epoch, EthSpec, Hash256};
+use ssz_types::BitVector;
+use types::{BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256};
 
 /// This is a subset of the `BeaconState` which is used to compute justification and finality
 /// without modifying the `BeaconState`.

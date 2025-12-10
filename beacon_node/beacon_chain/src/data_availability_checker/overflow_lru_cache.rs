@@ -12,6 +12,7 @@ use crate::{BeaconChainTypes, BlockProcessStatus};
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ssz_types::{RuntimeFixedVector, RuntimeVariableList};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -20,8 +21,7 @@ use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList,
-    SignedBeaconBlock,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
 };
 
 #[derive(Clone)]
@@ -1261,15 +1261,14 @@ mod pending_components_tests {
     use crate::PayloadVerificationOutcome;
     use crate::block_verification_types::BlockImportData;
     use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
+    use fixed_bytes::FixedBytesExtended;
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{
-        BeaconState, FixedBytesExtended, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot,
-    };
+    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
 

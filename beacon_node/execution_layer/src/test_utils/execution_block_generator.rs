@@ -8,6 +8,7 @@ use crate::engines::ForkchoiceState;
 use alloy_consensus::TxEnvelope;
 use alloy_rpc_types_eth::Transaction as AlloyTransaction;
 use eth2::types::BlobsBundle;
+use fixed_bytes::FixedBytesExtended;
 use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -22,8 +23,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas, ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256,
-    KzgProofs, Transaction, Transactions, Uint256,
+    ExecutionPayloadGloas, ExecutionPayloadHeader, ForkName, Hash256, KzgProofs, Transaction,
+    Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -41,7 +42,7 @@ pub enum Block<E: EthSpec> {
     PoS(ExecutionPayload<E>),
 }
 
-pub fn mock_el_extra_data<E: EthSpec>() -> types::VariableList<u8, E::MaxExtraDataBytes> {
+pub fn mock_el_extra_data<E: EthSpec>() -> VariableList<u8, E::MaxExtraDataBytes> {
     "block gen was here".as_bytes().to_vec().try_into().unwrap()
 }
 

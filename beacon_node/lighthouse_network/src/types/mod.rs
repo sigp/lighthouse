@@ -3,7 +3,8 @@ mod pubsub;
 mod subnet;
 mod topics;
 
-use types::{BitVector, EthSpec};
+use ssz_types::BitVector;
+use types::EthSpec;
 
 pub type EnrAttestationBitfield<E> = BitVector<<E as EthSpec>::SubnetBitfieldLength>;
 pub type EnrSyncCommitteeBitfield<E> = BitVector<<E as EthSpec>::SyncCommitteeSubnetCount>;

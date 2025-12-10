@@ -11,15 +11,17 @@ libp2p-websocket = []
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
+bls = { workspace = true }
 bytes = { workspace = true }
 delay_map = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }
 discv5 = { workspace = true }
 either = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 gossipsub = { workspace = true }
@@ -49,6 +51,7 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
 

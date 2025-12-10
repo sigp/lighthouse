@@ -25,11 +25,14 @@ use beacon_chain::{
     historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
+use bls::{Keypair, Signature, SignatureBytes};
+use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
 use rand::rngs::StdRng;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
