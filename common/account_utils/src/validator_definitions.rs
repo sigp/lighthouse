@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fs::{self, File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
-use tracing::error;
+use tracing::{error, info};
 use types::{Address, PublicKey, graffiti::GraffitiString};
 use validator_dir::VOTING_KEYSTORE_FILE;
 use zeroize::Zeroizing;
@@ -212,24 +212,14 @@ impl ValidatorDefinition {
         })
     }
 
-    pub fn check_fee_recipient(&self, global_fee_recipient: Option<Address>) -> Result<(), String> {
+    pub fn check_fee_recipient(&self, global_fee_recipient: Option<Address>) -> Option<&PublicKey> {
         // Skip disabled validators. Also skip if validator has its own fee set, or the global flag is set
         if !self.enabled || self.suggested_fee_recipient.is_some() || global_fee_recipient.is_some()
         {
-            return Ok(());
+            return None;
         }
 
-        // If nothing set
-        Err(format!(
-            "Validator {} is missing `suggested_fee_recipient`!\n\n\
-                 You will LOSE all transaction fees when this validator proposes a block.\n\n\
-                 Fix it in one of these ways:\n\
-                 • Add this line in validator_definitions.yml:\n\
-                   suggested_fee_recipient: 0xYourAddressHere\n\n\
-                 • Or use global flag:\n\
-                   --suggested-fee-recipient 0xYourAddressHere",
-            self.voting_public_key
-        ))
+        Some(&self.voting_public_key)
     }
 }
 
@@ -435,26 +425,44 @@ impl ValidatorDefinitions {
         &self,
         global_fee_recipient: Option<Address>,
     ) -> Result<(), String> {
-        for def in &self.0 {
-            def.check_fee_recipient(global_fee_recipient)?;
+        let missing: Vec<&PublicKey> = self
+            .0
+            .iter()
+            .filter_map(|def| def.check_fee_recipient(global_fee_recipient))
+            .collect();
+    
+        if !missing.is_empty() {
+            let pubkeys = missing
+                .iter()
+                .map(|pk| pk.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            
+            return Err(format!(
+                "The following validators are missing a `suggested_fee_recipient`: {}. \
+                 Fix this by adding a `suggested_fee_recipient` in your \
+                 `validator_definitions.yml` or by supplying a fallback fee \
+                 recipient via the `--suggested-fee-recipient` flag.",
+                pubkeys
+            ));
         }
-
-        // Friendly reminder for users using the global flag
+    
+        // Friendly reminder for users using the fallback flag
         if global_fee_recipient.is_some() {
-            let missing = self
+            let count = self
                 .0
                 .iter()
                 .filter(|d| d.enabled && d.suggested_fee_recipient.is_none())
                 .count();
-            if missing > 0 {
-                tracing::warn!(
-                    "Global --suggested-fee-recipient is being used for {} validator(s). \
-                        Consider setting it in validator_definitions.yml for each one.",
-                    missing
+            if count > 0 {
+                info!(
+                    "The fallback --suggested-fee-recipient is being used for {} validator(s). \
+                     Consider setting the fee recipient for each validator individually via `validator_definitions.yml`.",
+                    count
                 );
             }
         }
-
+    
         Ok(())
     }
 }
@@ -751,10 +759,9 @@ mod tests {
                 voting_keystore_password: None,
             }
         };
-        // Should fail when no fee recipient is set anywhere
+        // Should return Some(pubkey) when no fee recipient is set
         let check_result = def.check_fee_recipient(None);
-        assert!(check_result.is_err());
-        assert!(check_result.unwrap_err().contains("is missing `suggested_fee_recipient`"));
+        assert!(check_result.is_some());
     }
 
     #[test]
@@ -778,9 +785,10 @@ mod tests {
             },
         };
 
-        // Should pass when global fee recipient is set
+        // Should return None since global fee recipient is set
         let global_fee = Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
-        assert!(def.check_fee_recipient(global_fee).is_ok());
+        let check_result = def.check_fee_recipient(global_fee);
+        assert!(check_result.is_none());
     }
 
     #[test]
@@ -804,8 +812,9 @@ mod tests {
             },
         };
 
-        // Should pass when validator has its own fee recipient
-        assert!(def.check_fee_recipient(None).is_ok());
+        // Should return None because suggested_fee_recipient is set
+        let check_result = def.check_fee_recipient(None);
+        assert!(check_result.is_none());
     }
 
     #[test]
@@ -829,33 +838,19 @@ mod tests {
             },
         };
 
-        // Should pass because validator is disabled
-        assert!(def.check_fee_recipient(None).is_ok());
+        // Should return None because validator is disabled
+        let check_result = def.check_fee_recipient(None);
+        assert!(check_result.is_none());
     }
 
     #[test]
-    fn check_all_fee_recipients_fails_on_first_missing() {
-        let keypair = Keypair::random();
+    fn check_all_fee_recipients_reports_all_missing() {
+        let keypair1 = Keypair::random();
+        let keypair2 = Keypair::random();
+
         let def1 = ValidatorDefinition {
             enabled: true,
-            voting_public_key: keypair.pk.clone(),
-            description: String::new(),
-            graffiti: None,
-            suggested_fee_recipient: Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap()),
-            gas_limit: None,
-            builder_proposals: None,
-            builder_boost_factor: None,
-            prefer_builder_proposals: None,
-            signing_definition: SigningDefinition::LocalKeystore {
-                voting_keystore_path: PathBuf::new(),
-                voting_keystore_password_path: None,
-                voting_keystore_password: None,
-            },
-        };
-
-        let def2 = ValidatorDefinition {
-            enabled: true,
-            voting_public_key: keypair.pk.clone(),
+            voting_public_key: keypair1.pk.clone(),
             description: String::new(),
             graffiti: None,
             suggested_fee_recipient: None,
@@ -870,12 +865,37 @@ mod tests {
             },
         };
 
+        let def2 = ValidatorDefinition {
+            enabled: true,
+            voting_public_key: keypair2.pk.clone(),
+            description: String::new(),
+            graffiti: None,
+            suggested_fee_recipient: None, // Missing recipient
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path: PathBuf::new(),
+                voting_keystore_password_path: None,
+                voting_keystore_password: None,
+            },
+        };
+
         let defs = ValidatorDefinitions::from(vec![def1, def2]);
         
-        // Should fail because def2 has no fee recipient and no global fee recipient is set
+        // Should fail because both defs have no fee recipient and no global fee recipient is set
         let result = defs.check_all_fee_recipients(None);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("is missing `suggested_fee_recipient`"));
+        let err = result.unwrap_err();
+
+        // Check that both public keys are mentioned in the error message
+        let pk1_string = keypair1.pk.to_string();
+        let pk2_string = keypair2.pk.to_string();
+
+        assert!(err.contains(&pk1_string), "Error message missing pubkey 1");
+        assert!(err.contains(&pk2_string), "Error message missing pubkey 2");
+        assert!(err.contains("are missing a `suggested_fee_recipient`"));
     }
 
     #[test]
@@ -959,7 +979,7 @@ mod tests {
         };
 
         let defs = ValidatorDefinitions::from(vec![def1, def2]);
-        
+
         // Should pass - global fee recipient is set
         let global_fee = Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
         assert!(defs.check_all_fee_recipients(global_fee).is_ok());
