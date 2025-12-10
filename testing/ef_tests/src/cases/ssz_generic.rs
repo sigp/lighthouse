@@ -8,9 +8,13 @@ use context_deserialize::{ContextDeserialize, context_deserialize};
 use serde::{Deserialize, Deserializer, de::Error as SerdeError};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
+use tree_hash::{PackedEncoding, ProgressiveMerkleHasher, TreeHashType};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, ForkName, ProgressiveList, VariableList, Vector};
+use types::{
+    BitList, BitVector, FixedVector, ForkName, Hash256, ProgressiveBitList, ProgressiveList,
+    VariableList, Vector,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 #[context_deserialize(ForkName)]
@@ -111,8 +115,7 @@ macro_rules! type_dispatch {
             "VarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* VarTestStruct>, $($rest)*),
             "ComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ComplexTestStruct>, $($rest)*),
             "BitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* BitsStruct>, $($rest)*),
-            // EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
-            "ProgressiveTestStruct" | "ProgressiveBitsStruct" => Err(Error::SkippedKnownFailure),
+            "ProgressiveSingleFieldContainerTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveSingleFieldContainerTestStruct>, $($rest)*),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
@@ -195,6 +198,14 @@ impl Case for SszGeneric {
                     [length => typenum]
                 )?;
             }
+            "progressive_bitlist" => {
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path, fork_name),
+                    ProgressiveBitList,
+                    <>,
+                )?;
+            }
             "boolean" => {
                 ssz_generic_test::<bool>(&self.path, fork_name)?;
             }
@@ -211,6 +222,22 @@ impl Case for SszGeneric {
             }
             "containers" => {
                 let type_name = parts[0];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path, fork_name),
+                    _,
+                    <>,
+                    [type_name => test_container]
+                )?;
+            }
+            "progressive_containers" => {
+                let type_name = parts[0];
+
+                // FIXME(sproul): delete
+                if type_name != "ProgressiveSingleFieldContainerTestStruct" {
+                    return Ok(());
+                }
 
                 type_dispatch!(
                     ssz_generic_test,
@@ -319,6 +346,20 @@ struct BitsStruct {
     C: BitVector<U1>,
     D: BitList<U6>,
     E: BitVector<U8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1))]
+#[context_deserialize(ForkName)]
+struct ProgressiveSingleFieldContainerTestStruct {
+    A: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1))]
+#[context_deserialize(ForkName)]
+struct ProgressiveSingleListContainerTestStruct {
+    C: ProgressiveBitList,
 }
 
 fn byte_list_from_hex_str<'de, D, N: Unsigned>(

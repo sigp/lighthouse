@@ -174,5 +174,6 @@ pub use bls::{
 pub use context_deserialize::{ContextDeserialize, context_deserialize};
 pub use fixed_bytes::FixedBytesExtended;
 pub use milhouse::{self, List, ProgressiveList, Vector};
+pub use ssz::ProgressiveBitList;
 pub use ssz_types::{BitList, BitVector, FixedVector, VariableList, typenum, typenum::Unsigned};
 pub use superstruct::superstruct;

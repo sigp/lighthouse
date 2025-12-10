@@ -19,6 +19,7 @@ compare_fields = { workspace = true }
 context_deserialize = { workspace = true }
 educe = { workspace = true }
 eth2_network_config = { workspace = true }
+ethereum_hashing = { workspace = true } # FIXME(sproul): remove
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 execution_layer = { workspace = true }
