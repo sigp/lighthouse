@@ -287,53 +287,45 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
         let attestation_service = self.clone();
 
+        // If we're using the Consensus strategy we need to handle the following situations:
+        // - The first slot in the epoch
+        // - A slot thats within an attestable epoch
+        // - A slot thats not within an attestable epoch
+        // - A slot that is not the first in an epoch and no target checkpoint to compare
+        let attestation_data_strategy =
+            if let AttestationDataStrategy::Consensus((threshold, _)) = attestation_data_strategy {
+                if slot.is_start_slot_in_epoch(S::E::slots_per_epoch()) {
+                    // if the current slot is the first slot in the epoch use the default consensus strategy
+                    attestation_data_strategy
+                } else if let Some((latest_attestable_epoch, target_checkpoint, preferred_index)) =
+                    *attestation_service.latest_target_checkpoint.blocking_lock()
+                {
+                    if slot.epoch(S::E::slots_per_epoch()) == latest_attestable_epoch {
+                        // If the current slot is within the latest attestable epoch, we can attest
+                        // using the `preferred_index` or nodes that have a matching `target_checkpoint`
+                        AttestationDataStrategy::Consensus((
+                            threshold,
+                            Some((target_checkpoint, preferred_index)),
+                        ))
+                    } else {
+                        // If the current slot is not within the latest attestable epoch, we cannot attest
+                        AttestationDataStrategy::IgnoreEpoch(slot.epoch(S::E::slots_per_epoch()))
+                    }
+                } else {
+                    // If the current slot is not the first slot in an epoch and there is no target checkpoint to compare,
+                    // run the default consensus strategy. This can happen if the attestation service was initially
+                    // launched in the middle of an epoch.
+                    attestation_data_strategy
+                }
+            } else {
+                attestation_data_strategy
+            };
+
         let attestation_data_handle = self
             .inner
             .executor
             .spawn_handle(
                 async move {
-                    // If we're using the Consensus strategy we need to handle the following situations:
-                    // - The first slot in the epoch
-                    // - A slot thats within an attestable epoch
-                    // - A slot thats not within an attestable epoch
-                    // - A slot that is not the first in an epoch and no target checkpoint to compare
-                    let attestation_data_strategy =
-                        if let AttestationDataStrategy::Consensus((threshold, _)) =
-                            attestation_data_strategy
-                        {
-                            if slot.is_start_slot_in_epoch(S::E::slots_per_epoch()) {
-                                // if the current slot is the first slot in the epoch use the default consensus strategy
-                                attestation_data_strategy
-                            } else if let Some((
-                                latest_attestable_epoch,
-                                target_checkpoint,
-                                preferred_index,
-                            )) =
-                                *attestation_service.latest_target_checkpoint.lock().await
-                            {
-                                if slot.epoch(S::E::slots_per_epoch()) == latest_attestable_epoch {
-                                    // If the current slot is within the latest attestable epoch, we can attest
-                                    // using the `preferred_index` or nodes that have a matching `target_checkpoint`
-                                    AttestationDataStrategy::Consensus((
-                                        threshold,
-                                        Some((target_checkpoint, preferred_index)),
-                                    ))
-                                } else {
-                                    // If the current slot is not within the latest attestable epoch, we cannot attest
-                                    AttestationDataStrategy::IgnoreEpoch(
-                                        slot.epoch(S::E::slots_per_epoch()),
-                                    )
-                                }
-                            } else {
-                                // If the current slot is not the first slot in an epoch and there is no target checkpoint to compare,
-                                // run the default consensus strategy. This can happen if the attestation service was initially
-                                // launched in the middle of an epoch.
-                                attestation_data_strategy
-                            }
-                        } else {
-                            attestation_data_strategy
-                        };
-
                     let (attestation_data, index) = attestation_service
                         .attestation_data_service
                         .download_data(&slot, &attestation_data_strategy)
