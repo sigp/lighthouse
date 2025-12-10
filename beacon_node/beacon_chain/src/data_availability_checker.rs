@@ -782,7 +782,8 @@ impl<E: EthSpec> AvailableBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
-        chain: Arc<BeaconChain<T>>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -790,8 +791,6 @@ impl<E: EthSpec> AvailableBlock<E> {
         // check blob lengths match
         // POSSIBLY - verify kzg - but probably not
         // but this variant *should* ensure the data IS available
-
-        let da_checker = chain.data_availability_checker.clone();
         let blobs_required = da_checker.blobs_required_for_block(&block);
         let columns_required = da_checker.data_columns_required_for_block(&block);
 
@@ -817,8 +816,9 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
                 }
 
-                let mut column_indices = chain
-                    .custody_columns_for_epoch(Some(block.epoch()))
+                let mut column_indices = da_checker
+                    .custody_context
+                    .custody_columns_for_epoch(Some(block.epoch()), &spec)
                     .iter()
                     .collect::<HashSet<_>>();
 
@@ -837,7 +837,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
-            spec: chain.spec.clone(),
+            spec: spec.clone(),
         })
     }
 
@@ -1141,8 +1141,8 @@ mod test {
                 };
 
                 let block_data = AvailableBlockData::new(None, Some(custody_columns));
-
-                RpcBlock::__new_for_test(Arc::new(block), Some(block_data), spec.clone())
+                let da_checker = Arc::new(new_da_checker(spec.clone()));
+                RpcBlock::new(Arc::new(block), Some(block_data), da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();

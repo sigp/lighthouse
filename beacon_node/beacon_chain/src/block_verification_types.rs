@@ -1,8 +1,8 @@
-use crate::data_availability_checker::AvailabilityCheckError;
+use crate::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 pub use crate::data_availability_checker::{
     AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
-use crate::{BeaconChain, BeaconChainTypes, PayloadVerificationOutcome};
+use crate::{BeaconChainTypes, PayloadVerificationOutcome};
 use educe::Educe;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
@@ -76,30 +76,21 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: Option<AvailableBlockData<E>>,
-        chain: Arc<BeaconChain<T>>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
         match block_data {
             Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
-                block,
-                block_data,
-                chain.clone(),
+                block, block_data, da_checker, spec,
             )?)),
             None => Ok(RpcBlock::BlockOnly {
                 block_root: block.canonical_root(),
                 block,
             }),
         }
-    }
-
-    pub fn __new_for_test(
-        _block: Arc<SignedBeaconBlock<E>>,
-        _block_data: Option<AvailableBlockData<E>>,
-        _spec: Arc<ChainSpec>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        todo!()
     }
 
     #[allow(clippy::type_complexity)]

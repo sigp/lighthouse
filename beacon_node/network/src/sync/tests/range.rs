@@ -450,7 +450,13 @@ fn build_rpc_block(
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             let block_data = AvailableBlockData::new(Some(blobs.clone()), None);
-            RpcBlock::new(block, Some(block_data), chain).unwrap()
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                chain.data_availability_checker.clone(),
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
             let block_data = AvailableBlockData::new(
@@ -462,10 +468,22 @@ fn build_rpc_block(
                         .collect::<Vec<_>>(),
                 ),
             );
-            RpcBlock::new(block, Some(block_data), chain).unwrap()
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                chain.data_availability_checker.clone(),
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
         // Block has no data, expects zero columns
-        None => RpcBlock::new(block, Some(AvailableBlockData::NoData), chain).unwrap(),
+        None => RpcBlock::new(
+            block,
+            Some(AvailableBlockData::NoData),
+            chain.data_availability_checker.clone(),
+            chain.spec.clone(),
+        )
+        .unwrap(),
     }
 }
 

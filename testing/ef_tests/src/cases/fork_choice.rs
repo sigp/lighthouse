@@ -515,6 +515,7 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
         let mut data_column_success = true;
 
         if let Some(columns) = columns.clone() {
@@ -545,8 +546,13 @@ impl<E: EthSpec> Tester<E> {
             .block_on_dangerous(
                 self.harness.chain.process_block(
                     block_root,
-                    RpcBlock::new(block.clone(), None, self.harness.chain.clone())
-                        .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    RpcBlock::new(
+                        block.clone(),
+                        None,
+                        self.harness.chain.data_availability_checker.clone(),
+                        self.harness.chain.spec.clone(),
+                    )
+                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
                     NotifyExecutionLayer::Yes,
                     BlockImportSource::Lookup,
                     || Ok(()),
@@ -638,8 +644,13 @@ impl<E: EthSpec> Tester<E> {
             .block_on_dangerous(
                 self.harness.chain.process_block(
                     block_root,
-                    RpcBlock::new(block.clone(), None, self.harness.chain.clone())
-                        .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    RpcBlock::new(
+                        block.clone(),
+                        None,
+                        self.harness.chain.data_availability_checker.clone(),
+                        self.harness.chain.spec.clone(),
+                    )
+                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
                     NotifyExecutionLayer::Yes,
                     BlockImportSource::Lookup,
                     || Ok(()),

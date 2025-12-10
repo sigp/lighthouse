@@ -1,6 +1,7 @@
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes,
+    BeaconChainTypes,
     block_verification_types::{AvailableBlockData, RpcBlock},
+    data_availability_checker::DataAvailabilityChecker,
     data_column_verification::CustodyDataColumn,
     get_block_root,
 };
@@ -14,8 +15,8 @@ use ssz_types::RuntimeVariableList;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{Span, debug};
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    Hash256, SignedBeaconBlock,
 };
 
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
@@ -198,7 +199,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// // TODO() clean this up
     pub fn responses<T>(
         &mut self,
-        chain: Arc<BeaconChain<T>>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
+        spec: Arc<ChainSpec>,
     ) -> Option<Result<Vec<RpcBlock<E>>, CouplingError>>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -212,7 +214,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::NoData => Some(Self::responses_with_blobs(
                 blocks.to_vec(),
                 vec![],
-                chain.clone(),
+                da_checker,
+                spec,
             )),
             RangeBlockDataRequest::Blobs(request) => {
                 let Some(blobs) = request.to_finished() else {
@@ -221,7 +224,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 Some(Self::responses_with_blobs(
                     blocks.to_vec(),
                     blobs.to_vec(),
-                    chain.clone(),
+                    da_checker,
+                    spec,
                 ))
             }
             RangeBlockDataRequest::DataColumns {
@@ -257,7 +261,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     column_to_peer_id,
                     expected_custody_columns,
                     *attempt,
-                    chain.clone(),
+                    da_checker,
+                    spec,
                 );
 
                 if let Err(CouplingError::DataColumnPeerFailure {
@@ -283,7 +288,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     fn responses_with_blobs<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
-        chain: Arc<BeaconChain<T>>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
+        spec: Arc<ChainSpec>,
     ) -> Result<Vec<RpcBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -293,7 +299,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let mut responses = Vec::with_capacity(blocks.len());
         let mut blob_iter = blobs.into_iter().peekable();
         for block in blocks.into_iter() {
-            let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
+            let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
             let mut blob_list = Vec::with_capacity(max_blobs_per_block);
             while {
                 blob_iter
@@ -331,7 +337,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             })?;
             let block_data = AvailableBlockData::new(Some(blobs), None);
             responses.push(
-                RpcBlock::new(block, Some(block_data), chain.clone())
+                RpcBlock::new(block, Some(block_data), da_checker.clone(), spec.clone())
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
@@ -355,7 +361,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         column_to_peer: HashMap<u64, PeerId>,
         expects_custody_columns: &[ColumnIndex],
         attempt: usize,
-        chain: Arc<BeaconChain<T>>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
+        spec: Arc<ChainSpec>,
     ) -> Result<Vec<RpcBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -437,11 +444,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 let block_data = AvailableBlockData::new(None, Some(custody_columns.iter().map(|c| c.as_data_column().clone()).collect::<Vec<_>>()));
 
-                RpcBlock::new(block, Some(block_data), chain.clone())
+                RpcBlock::new(block, Some(block_data), da_checker.clone(), spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 // Block has no data, expects zero columns
-                RpcBlock::new(block, Some(AvailableBlockData::NoData), chain.clone())
+                RpcBlock::new(block, Some(AvailableBlockData::NoData), da_checker.clone(), spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             });
         }
@@ -482,9 +489,12 @@ impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::sync::network_context::MAX_COLUMN_RETRIES;
+
     use super::RangeBlockComponentsRequest;
     use beacon_chain::test_utils::{
-        NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
+        NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns,
+        test_da_checker, test_spec,
     };
     use lighthouse_network::{
         PeerId,
@@ -533,11 +543,10 @@ mod tests {
         }
     }
 
-    fn is_finished(_info: &mut RangeBlockComponentsRequest<E>) -> bool {
-        let _spec = Arc::new(test_spec::<E>());
-        // TODO fix this
-        // info.responses(spec).is_some()
-        todo!()
+    fn is_finished(info: &mut RangeBlockComponentsRequest<E>) -> bool {
+        let spec = Arc::new(test_spec::<E>());
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
+        info.responses(da_checker, spec).is_some()
     }
 
     #[test]
@@ -558,11 +567,11 @@ mod tests {
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks).unwrap();
 
-        let _spec = Arc::new(test_spec::<E>());
+        let spec = Arc::new(test_spec::<E>());
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
 
         // Assert response is finished and RpcBlocks can be constructed
-        // TODO fix this
-        // info.responses(spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().unwrap();
     }
 
     #[test]
@@ -849,6 +858,7 @@ mod tests {
     fn retry_logic_after_peer_failures() {
         // GIVEN: A request expecting custody columns where some peers initially fail
         let spec = Arc::new(test_spec::<E>());
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
         let expected_custody_columns = vec![1, 2];
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..2)
@@ -906,43 +916,42 @@ mod tests {
         let (req2, _) = columns_req_id.get(1).unwrap();
         info.add_custody_columns(*req2, vec![]).unwrap();
 
-        // WHEN: First attempt to get responses fails
-        // TODO fix
-        // let result = info.responses(spec.clone()).unwrap();
-        // assert!(result.is_err());
+        let result = info.responses(da_checker.clone(), spec.clone()).unwrap();
+        assert!(result.is_err());
 
-        // // AND: We retry with a new peer for the failed column
-        // let new_columns_req_id = columns_id(
-        //     10 as Id,
-        //     DataColumnsByRangeRequester::ComponentsByRange(components_id),
-        // );
-        // let failed_column_requests = vec![(new_columns_req_id, vec![2])];
-        // info.reinsert_failed_column_requests(failed_column_requests)
-        //     .unwrap();
+        // AND: We retry with a new peer for the failed column
+        let new_columns_req_id = columns_id(
+            10 as Id,
+            DataColumnsByRangeRequester::ComponentsByRange(components_id),
+        );
+        let failed_column_requests = vec![(new_columns_req_id, vec![2])];
+        info.reinsert_failed_column_requests(failed_column_requests)
+            .unwrap();
 
-        // // AND: The new peer provides the missing column data
-        // info.add_custody_columns(
-        //     new_columns_req_id,
-        //     blocks
-        //         .iter()
-        //         .flat_map(|b| b.1.iter().filter(|d| d.index == 2).cloned())
-        //         .collect(),
-        // )
-        // .unwrap();
+        // AND: The new peer provides the missing column data
+        info.add_custody_columns(
+            new_columns_req_id,
+            blocks
+                .iter()
+                .flat_map(|b| b.1.iter().filter(|d| d.index == 2).cloned())
+                .collect(),
+        )
+        .unwrap();
 
-        // // WHEN: Attempting to get responses again
-        // let result = info.responses(spec).unwrap();
+        // WHEN: Attempting to get responses again
+        let result = info.responses(da_checker, spec).unwrap();
 
-        // // THEN: Should succeed with complete RPC blocks
-        // assert!(result.is_ok());
-        // let rpc_blocks = result.unwrap();
-        // assert_eq!(rpc_blocks.len(), 2);
+        // THEN: Should succeed with complete RPC blocks
+        assert!(result.is_ok());
+        let rpc_blocks = result.unwrap();
+        assert_eq!(rpc_blocks.len(), 2);
     }
 
     #[test]
     fn max_retries_exceeded_behavior() {
         // GIVEN: A request where peers consistently fail to provide required columns
         let spec = Arc::new(test_spec::<E>());
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
         let expected_custody_columns = vec![1, 2];
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..1)
@@ -1001,36 +1010,35 @@ mod tests {
         info.add_custody_columns(*req2, vec![]).unwrap();
 
         // WHEN: Multiple retry attempts are made (up to max retries)
-        // TODO fix
-        // for _ in 0..MAX_COLUMN_RETRIES {
-        //     let result = info.responses(spec.clone()).unwrap();
-        //     assert!(result.is_err());
+        for _ in 0..MAX_COLUMN_RETRIES {
+            let result = info.responses(da_checker.clone(), spec.clone()).unwrap();
+            assert!(result.is_err());
 
-        //     if let Err(super::CouplingError::DataColumnPeerFailure {
-        //         exceeded_retries, ..
-        //     }) = &result
-        //         && *exceeded_retries
-        //     {
-        //         break;
-        //     }
-        // }
+            if let Err(super::CouplingError::DataColumnPeerFailure {
+                exceeded_retries, ..
+            }) = &result
+                && *exceeded_retries
+            {
+                break;
+            }
+        }
 
-        // // AND: One final attempt after exceeding max retries
-        // let result = info.responses(spec).unwrap();
+        // AND: One final attempt after exceeding max retries
+        let result = info.responses(da_checker, spec).unwrap();
 
-        // // THEN: Should fail with exceeded_retries = true
-        // assert!(result.is_err());
-        // if let Err(super::CouplingError::DataColumnPeerFailure {
-        //     error: _,
-        //     faulty_peers,
-        //     exceeded_retries,
-        // }) = result
-        // {
-        //     assert_eq!(faulty_peers.len(), 1); // column 2 missing
-        //     assert_eq!(faulty_peers[0].0, 2); // column index 2
-        //     assert!(exceeded_retries); // Should be true after max retries
-        // } else {
-        //     panic!("Expected PeerFailure error with exceeded_retries=true");
-        // }
+        // THEN: Should fail with exceeded_retries = true
+        assert!(result.is_err());
+        if let Err(super::CouplingError::DataColumnPeerFailure {
+            error: _,
+            faulty_peers,
+            exceeded_retries,
+        }) = result
+        {
+            assert_eq!(faulty_peers.len(), 1); // column 2 missing
+            assert_eq!(faulty_peers[0].0, 2); // column index 2
+            assert!(exceeded_retries); // Should be true after max retries
+        } else {
+            panic!("Expected PeerFailure error with exceeded_retries=true");
+        }
     }
 }

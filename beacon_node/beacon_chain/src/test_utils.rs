@@ -1,10 +1,11 @@
 use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, AvailableBlockData, RpcBlock};
 use crate::custody_context::NodeCustodyType;
+use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::{BeaconBlockResponseWrapper, get_block_root};
+use crate::{BeaconBlockResponseWrapper, CustodyContext, get_block_root};
 use crate::{
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
@@ -204,6 +205,33 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
     // Set target aggregators to a high value by default.
     spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
     spec
+}
+pub fn test_da_checker<E: EthSpec>(
+    spec: Arc<ChainSpec>,
+) -> DataAvailabilityChecker<EphemeralHarnessType<E>> {
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(0),
+        Duration::from_secs(spec.seconds_per_slot),
+    );
+    let kzg = get_kzg(&spec);
+    let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
+    let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+    let custody_context = Arc::new(CustodyContext::new(
+        NodeCustodyType::Fullnode,
+        ordered_custody_column_indices,
+        &spec,
+    ));
+    let complete_blob_backfill = false;
+    DataAvailabilityChecker::new(
+        complete_blob_backfill,
+        slot_clock,
+        kzg,
+        store,
+        custody_context,
+        spec,
+    )
+    .expect("should initialise data availability checker")
 }
 
 pub struct Builder<T: BeaconChainTypes> {
@@ -2431,8 +2459,13 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new(block, Some(AvailableBlockData::NoData), self.chain.clone())
-                .unwrap();
+            return RpcBlock::new(
+                block,
+                Some(AvailableBlockData::NoData),
+                self.chain.data_availability_checker.clone(),
+                self.chain.spec.clone(),
+            )
+            .unwrap();
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2444,11 +2477,23 @@ where
                 // .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
             let block_data = AvailableBlockData::new(None, Some(custody_columns));
-            RpcBlock::new(block, Some(block_data), self.chain.clone()).unwrap()
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                self.chain.data_availability_checker.clone(),
+                self.chain.spec.clone(),
+            )
+            .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             let block_data = AvailableBlockData::new(blobs, None);
-            RpcBlock::new(block, Some(block_data), self.chain.clone()).unwrap()
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                self.chain.data_availability_checker.clone(),
+                self.chain.spec.clone(),
+            )
+            .unwrap()
         }
     }
 
@@ -2476,14 +2521,34 @@ where
                 if is_available {
                     let block_data: AvailableBlockData<E> =
                         AvailableBlockData::new(None, Some(columns));
-                    RpcBlock::new(block, Some(block_data), self.chain.clone())?
+                    RpcBlock::new(
+                        block,
+                        Some(block_data),
+                        self.chain.data_availability_checker.clone(),
+                        self.chain.spec.clone(),
+                    )?
                 } else {
-                    RpcBlock::new(block, None, self.chain.clone())?
+                    RpcBlock::new(
+                        block,
+                        None,
+                        self.chain.data_availability_checker.clone(),
+                        self.chain.spec.clone(),
+                    )?
                 }
             } else if is_available {
-                RpcBlock::new(block, Some(AvailableBlockData::NoData), self.chain.clone())?
+                RpcBlock::new(
+                    block,
+                    Some(AvailableBlockData::NoData),
+                    self.chain.data_availability_checker.clone(),
+                    self.chain.spec.clone(),
+                )?
             } else {
-                RpcBlock::new(block, None, self.chain.clone())?
+                RpcBlock::new(
+                    block,
+                    None,
+                    self.chain.data_availability_checker.clone(),
+                    self.chain.spec.clone(),
+                )?
             }
         } else {
             let blobs = blob_items
@@ -2494,9 +2559,19 @@ where
                 .unwrap();
             if is_available {
                 let block_data: AvailableBlockData<E> = AvailableBlockData::new(blobs, None);
-                RpcBlock::new(block, Some(block_data), self.chain.clone())?
+                RpcBlock::new(
+                    block,
+                    Some(block_data),
+                    self.chain.data_availability_checker.clone(),
+                    self.chain.spec.clone(),
+                )?
             } else {
-                RpcBlock::new(block, None, self.chain.clone())?
+                RpcBlock::new(
+                    block,
+                    None,
+                    self.chain.data_availability_checker.clone(),
+                    self.chain.spec.clone(),
+                )?
             }
         })
     }

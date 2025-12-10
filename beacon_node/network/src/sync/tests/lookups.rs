@@ -2281,7 +2281,13 @@ mod deneb_only {
             let block = self.unknown_parent_block.take().unwrap();
             // Now this block is the one we expect requests from
             self.block = block.clone();
-            let block = RpcBlock::new(block, None, self.rig.harness.chain.clone()).unwrap();
+            let block = RpcBlock::new(
+                block,
+                None,
+                self.rig.harness.chain.data_availability_checker.clone(),
+                self.rig.harness.chain.spec.clone(),
+            )
+            .unwrap();
             self.rig.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Err(BlockError::ParentUnknown {
