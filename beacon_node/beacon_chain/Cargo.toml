@@ -19,7 +19,7 @@ alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 educe = { workspace = true }
-eth2 = { workspace = true, features = ["lighthouse"] }
+eth2 = { workspace = true, features = ["lighthouse", "network"] }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
