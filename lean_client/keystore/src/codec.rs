@@ -1,6 +1,5 @@
 /// Re-export leanSig's serialization traits for backwards compatibility
-pub use leansig::serialization::{Serializable};
-use ssz::DecodeError;
+pub use leansig::serialization::Serializable;
 
 /// Encode a value using leanSig's canonical serialization.
 pub fn encode_to_vec<T>(value: &T) -> Vec<u8>

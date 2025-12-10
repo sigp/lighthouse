@@ -13,27 +13,31 @@ use crate::validator::ValidatorIndex;
 use crate::lean_block::LeanBlockHeader;
 use milhouse::List;
 use types::VariableList;
-use types::{BitList, EthSpec, Hash256};
+use types::{BitList, EthSpec, Hash256, Unsigned};
+
+use types::typenum::U1073741824;
 
 #[derive(TreeHash, Encode, Decode, Debug)]
 pub struct LeanState<E: EthSpec> {
     pub config: Config,
     pub slot: Slot,
-
     pub latest_block_header: LeanBlockHeader,
     pub latest_justified: Checkpoint,
     pub latest_finalized: Checkpoint,
-    pub historical_block_hashes: List<Hash256, E::HistoricalRootsLimit>,
+    pub historical_block_hashes: VariableList<Hash256, E::HistoricalRootsLimit>,
     pub justified_slots: BitList<E::HistoricalRootsLimit>,
-    pub validators: List<Validator, E::ValidatorRegistryLimit>,
-    pub justifications_roots: List<Hash256, E::HistoricalRootsLimit>,
-    pub justifications_validators: BitList<E::JustificationValidators>,
+    pub validators: VariableList<Validator, E::ValidatorRegistryLimit>,
+    pub justifications_roots: VariableList<Hash256, E::HistoricalRootsLimit>,
+    pub justifications_validators: BitList<U1073741824>,
 }
 
 impl<E: EthSpec> LeanState<E> {
-    /// Initializes a genesis state with default configuration and empty validators list
-    pub fn genesis_default() -> Self {
-        let genesis_config = Config::devnet();
+    pub fn new(
+        genesis_time: u64,
+        justified_slots: BitList<E::HistoricalRootsLimit>,
+        validators: VariableList<Validator, E::ValidatorRegistryLimit>,
+    ) -> Self {
+        let genesis_config = Config { genesis_time };
         let genesis_header = LeanBlockHeader {
             slot: Slot(0),
             proposer_index: ValidatorIndex(0),
@@ -45,39 +49,32 @@ impl<E: EthSpec> LeanState<E> {
             .tree_hash_root(),
         };
 
-        // Initialize justified_slots with slot 0 marked as justified (genesis is always justified)
-        let mut justified_slots = BitList::with_capacity(1).expect("Failed to create justified_slots BitList");
-        justified_slots.set(0, true).expect("Failed to mark genesis as justified");
-
-        // Genesis root is the tree_hash of the genesis header
-        let genesis_root = genesis_header.tree_hash_root();
-
-        // Initialize justified and finalized checkpoints to genesis
         let genesis_checkpoint = Checkpoint {
-            slot: Slot(0),
-            root: genesis_root,
+            root: Hash256::ZERO,  // Field 0: root comes FIRST in Checkpoint struct
+            slot: Slot(0),        // Field 1: slot comes SECOND
         };
 
         Self {
             config: genesis_config,
             slot: Slot(0),
+            latest_block_header: genesis_header.clone(),
             latest_justified: genesis_checkpoint.clone(),
             latest_finalized: genesis_checkpoint,
-            latest_block_header: genesis_header,
-            historical_block_hashes: List::empty(),
-            // justified_slots: Genesis slot is marked as justified at initialization
-            // (spec: leanSpec/state.py:264-268)
-            // Length should always match historical_block_hashes.len()
-            justified_slots,
-            validators: List::empty(),
-            justifications_roots: List::empty(),
+            historical_block_hashes: VariableList::empty(),
+            // justified_slots: Empty at genesis (aligned with Zeam)
+            // Will be populated as blocks are processed and slots become justified
+            justified_slots: justified_slots.clone(),
+            validators: validators.clone(),
+            justifications_roots: VariableList::empty(),
             // justifications_validators stores validator bits for each justification
-            justifications_validators: BitList::with_capacity(0).expect("Failed to create justifications_validators BitList"),
+            justifications_validators: BitList::with_capacity(0)
+                .expect("Failed to create justifications_validators BitList"),
         }
     }
 
-    pub fn generate_genesis(&self, validators: List<Validator, E::ValidatorRegistryLimit>) -> Self {
-        let genesis_config = Config::devnet();
+    pub fn generate_genesis(genesis_time: u64, validators: VariableList<Validator, E::ValidatorRegistryLimit>) -> Self {
+
+        let genesis_config = Config { genesis_time };
         let genesis_header = LeanBlockHeader {
             slot: Slot(0),
             proposer_index: ValidatorIndex(0),
@@ -89,36 +86,35 @@ impl<E: EthSpec> LeanState<E> {
             .tree_hash_root(),
         };
 
-        // Initialize justified_slots with slot 0 marked as justified (genesis is always justified)
-        let mut justified_slots = BitList::with_capacity(1).expect("Failed to create justified_slots BitList");
-        justified_slots.set(0, true).expect("Failed to mark genesis as justified");
+        // Initialize justified_slots as empty to align with the spec.
+        // Justification occurs via attestations during block processing.
+        let justified_slots =
+            BitList::with_capacity(0).expect("Failed to create justified_slots BitList");
 
-        // Genesis root is the tree_hash of the genesis header
-        let genesis_root = genesis_header.tree_hash_root();
-
-        // Initialize justified and finalized checkpoints to genesis
+        // Initialize checkpoints to ZERO_HASH matching the spec.
+        // This avoids circular dependencies in genesis state calculation.
+        // Field order must match struct definition for correct SSZ encoding.
         let genesis_checkpoint = Checkpoint {
+            root: Hash256::ZERO,
             slot: Slot(0),
-            root: genesis_root,
         };
 
         Self {
             config: genesis_config,
             slot: Slot(0),
+            latest_block_header: genesis_header.clone(),
             latest_justified: genesis_checkpoint.clone(),
             latest_finalized: genesis_checkpoint,
-            latest_block_header: genesis_header,
-            historical_block_hashes: List::empty(),
-            // justified_slots: Genesis slot is marked as justified at initialization
-            // (spec: leanSpec/state.py:264-268)
-            // Length should always match historical_block_hashes.len()
+            historical_block_hashes: VariableList::empty(),
             justified_slots,
             validators,
-            justifications_roots: List::empty(),
-            // justifications_validators stores validator bits for each justification
-            justifications_validators: BitList::with_capacity(0).expect("Failed to create justifications_validators BitList"),
+            justifications_roots: VariableList::empty(),
+            justifications_validators: BitList::with_capacity(0)
+                .expect("Failed to create justifications_validators BitList"),
         }
     }
+
+
 
     pub fn is_proposer(&self, validator_index: ValidatorIndex) -> bool {
         self.slot.0 % self.validators.len() as u64 == validator_index.0
@@ -139,8 +135,15 @@ impl<E: EthSpec> LeanState<E> {
                 let start = i * validator_count;
                 let end = (i + 1) * validator_count;
 
-                let mut justifications = BitList::<E::HistoricalRootsLimit>::with_capacity(validator_count)
-                    .map_err(|e| format!("Failed to create BitList with capacity {}: {:?}", validator_count, e))?;
+                let mut justifications = BitList::<E::HistoricalRootsLimit>::with_capacity(
+                    validator_count,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to create BitList with capacity {}: {:?}",
+                        validator_count, e
+                    )
+                })?;
                 for (bit_idx, global_idx) in (start..end).enumerate() {
                     let bit_value =
                         self.justifications_validators
@@ -205,13 +208,14 @@ impl<E: EthSpec> LeanState<E> {
         Ok(())
     }
     pub fn process_slot(&mut self) -> Result<(), String> {
-        // NOTE: We do NOT update latest_block_header.state_root here.
-        // The latest_block_header represents the parent block and should not be modified
-        // during empty slot processing. Its state_root is computed when processing
-        // that block and should remain constant.
-        //
-        // If we update it here, it changes the tree_hash of the header, which breaks
-        // parent_root validation in subsequent block processing.
+        // If state_root is unpopulated (e.g., genesis state), populate it now.
+        // This ensures the header incorrectly reflects the state root for the transition to Slot 1,
+        // while preserving pre-populated headers from `handle_block` for subsequent blocks.
+        if self.latest_block_header.state_root == Hash256::ZERO {
+            use tree_hash::TreeHash;
+            let previous_state_root = self.tree_hash_root();
+            self.latest_block_header.state_root = previous_state_root;
+        }
 
         Ok(())
     }
@@ -286,12 +290,14 @@ impl<E: EthSpec> LeanState<E> {
         let num_empty_slots = block.slot.0 - parent_header.slot.0 - 1;
 
         // Add parent root to historical_block_hashes (spec: leanSpec/state.py line 260)
-        self.historical_block_hashes.push(parent_root)
+        self.historical_block_hashes
+            .push(parent_root)
             .map_err(|e| format!("Failed to append parent root to historical hashes: {:?}", e))?;
 
         // Add ZERO_HASH for each empty slot (spec: leanSpec/state.py line 260)
         for _ in 0..num_empty_slots {
-            self.historical_block_hashes.push(Hash256::ZERO)
+            self.historical_block_hashes
+                .push(Hash256::ZERO)
                 .map_err(|e| format!("Failed to append ZERO_HASH for empty slot: {:?}", e))?;
         }
 
@@ -324,10 +330,12 @@ impl<E: EthSpec> LeanState<E> {
 
         // Create a fresh BitList with the exact final size needed
         // We must create with the final size because .set() won't extend beyond capacity
-        let mut new_justified_slots =
-            BitList::with_capacity(new_len).map_err(|e| {
-                format!("Failed to create justified_slots BitList with capacity {}: {:?}", new_len, e)
-            })?;
+        let mut new_justified_slots = BitList::with_capacity(new_len).map_err(|e| {
+            format!(
+                "Failed to create justified_slots BitList with capacity {}: {:?}",
+                new_len, e
+            )
+        })?;
 
         // Only copy existing bits if there are any (avoid unnecessary work on first block)
         if current_len > 0 {
@@ -335,9 +343,9 @@ impl<E: EthSpec> LeanState<E> {
                 let bit_value = self.justified_slots.get(i).map_err(|e| {
                     format!("Failed to read justified_slots bit at index {}: {:?}", i, e)
                 })?;
-                new_justified_slots.set(i, bit_value).map_err(|e| {
-                    format!("Failed to copy bit at index {}: {:?}", i, e)
-                })?;
+                new_justified_slots
+                    .set(i, bit_value)
+                    .map_err(|e| format!("Failed to copy bit at index {}: {:?}", i, e))?;
             }
 
             debug!(
@@ -349,9 +357,7 @@ impl<E: EthSpec> LeanState<E> {
         // Set the parent slot bit (justified only if it's the genesis block)
         new_justified_slots
             .set(current_len, is_genesis_parent)
-            .map_err(|e| {
-                format!("Failed to set parent bit in justified_slots: {:?}", e)
-            })?;
+            .map_err(|e| format!("Failed to set parent bit in justified_slots: {:?}", e))?;
 
         debug!(
             "Set parent justified bit at index {}: is_genesis_parent={}",
@@ -363,7 +369,11 @@ impl<E: EthSpec> LeanState<E> {
             new_justified_slots
                 .set(current_len + 1 + i, false)
                 .map_err(|e| {
-                    format!("Failed to set empty slot bit at index {}: {:?}", current_len + 1 + i, e)
+                    format!(
+                        "Failed to set empty slot bit at index {}: {:?}",
+                        current_len + 1 + i,
+                        e
+                    )
                 })?;
         }
 
@@ -400,7 +410,7 @@ impl<E: EthSpec> LeanState<E> {
     }
     pub fn process_attestations(
         &mut self,
-        attestations: &VariableList<Attestation, E::MaxAttestations>,
+        attestations: &VariableList<Attestation, E::ValidatorRegistryLimit>,
     ) -> Result<(), String> {
         for attestation in attestations.iter() {
             let attestation_data = &attestation.attestation_data;
@@ -510,22 +520,14 @@ impl<E: EthSpec> LeanState<E> {
     }
 }
 
-/// Chain configuration parameters for lean consensus.
+/// Configuration for the lean consensus protocol.
 ///
-/// This struct holds the canonical, immutable configuration constants for the chain.
-/// It follows the lean consensus specification for chain configuration.
-#[derive(
-    Debug, Clone, PartialEq, Eq, TreeHash, Encode, Decode, serde::Serialize, serde::Deserialize,
-)]
+/// This struct contains chain-specific parameters that are part of the consensus state.
+/// To match the spec's BeamStateConfig, this only contains genesis_time.
+/// Other parameters are defined as constants (SECONDS_PER_SLOT, etc.)
+#[derive(TreeHash, Encode, Decode, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Config {
-    /// The fixed duration of a single slot in seconds.
-    pub seconds_per_slot: u64,
-    /// The number of slots to lookback for justification.
-    pub justification_lookback_slots: u64,
-    /// The maximum number of historical block roots to store in the state.
-    pub historical_roots_limit: u64,
-    /// The maximum number of validators that can be in the registry.
-    pub validator_registry_limit: u64,
     /// Genesis time in seconds since Unix epoch.
     pub genesis_time: u64,
 }
@@ -567,10 +569,6 @@ impl Config {
     /// This is the default configuration for the lean consensus devnet.
     pub fn devnet() -> Self {
         Self {
-            seconds_per_slot: SECONDS_PER_SLOT,
-            justification_lookback_slots: JUSTIFICATION_LOOKBACK_SLOTS,
-            historical_roots_limit: HISTORICAL_ROOTS_LIMIT,
-            validator_registry_limit: VALIDATOR_REGISTRY_LIMIT,
             genesis_time: 0, // Default genesis time, should be set when creating genesis state
         }
     }
@@ -590,9 +588,9 @@ impl Config {
 
     /// Returns the number of seconds per forkchoice processing interval.
     ///
-    /// This is derived from `seconds_per_slot` and `intervals_per_slot`.
+    /// This is derived from `SECONDS_PER_SLOT` and `intervals_per_slot`.
     pub fn seconds_per_interval(&self) -> u64 {
-        self.seconds_per_slot / INTERVALS_PER_SLOT
+        SECONDS_PER_SLOT / INTERVALS_PER_SLOT
     }
 
     /// Returns the number of intervals per slot.

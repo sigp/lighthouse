@@ -41,7 +41,8 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
     /// Construct a new chain coordinator from an existing key-value backend.
     pub fn new(db: Arc<D>) -> Self {
         let store = LeanStore::new(db);
-        let (proto_array, latest_votes, states, blocks) = match Self::initialize_fork_choice(&store) {
+        let (proto_array, latest_votes, states, blocks) = match Self::initialize_fork_choice(&store)
+        {
             Ok(result) => result,
             Err(e) => {
                 tracing::warn!(
@@ -159,7 +160,8 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
     /// The state is associated with the provided block root.
     pub fn save_state(&mut self, block_root: Hash256, state: &LeanState<E>) -> Result<(), String> {
         // Update cache first
-        self.states.insert(block_root, Arc::new(Self::clone_state(state)?));
+        self.states
+            .insert(block_root, Arc::new(Self::clone_state(state)?));
         // Persist to disk (using the old single-state model for now)
         self.store.save_state(state)
     }
@@ -299,7 +301,15 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
 
     fn initialize_fork_choice(
         store: &LeanStore<E, D>,
-    ) -> Result<(ProtoArray, HashMap<u64, Hash256>, HashMap<Hash256, Arc<LeanState<E>>>, HashMap<Hash256, LeanBlock<E>>), String> {
+    ) -> Result<
+        (
+            ProtoArray,
+            HashMap<u64, Hash256>,
+            HashMap<Hash256, Arc<LeanState<E>>>,
+            HashMap<Hash256, LeanBlock<E>>,
+        ),
+        String,
+    > {
         let state = match store.fetch_state()? {
             Some(state) => state,
             None => {
@@ -312,8 +322,16 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
             }
         };
 
-        let genesis_root = state.latest_block_header.tree_hash_root();
+        let stored_head = store.fetch_head_root()?;
         let genesis_slot = state.slot;
+
+        // For genesis (slot 0), key the state by the stored head root (populated genesis block)
+        // instead of the internal zeroed-header root. This ensures correct cache lookups.
+        let genesis_root = if genesis_slot == LeanSlot(0) {
+            stored_head.unwrap_or_else(|| state.latest_block_header.tree_hash_root())
+        } else {
+             state.latest_block_header.tree_hash_root()
+        };
         let genesis_proposer = state.latest_block_header.proposer_index.0 as u64;
         let genesis_parent_root = state.latest_block_header.parent_root;
         let genesis_state_root = state.latest_block_header.state_root;

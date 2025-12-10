@@ -62,16 +62,6 @@ pub struct ValidatorConfig {
 }
 
 impl ValidatorConfig {
-    /// Loads validator configuration from a YAML file
-    ///
-    /// Supports two formats:
-    /// 1. Simple format (validators.yaml): node_name -> list of validator indices
-    ///    lighthouse_0:
-    ///      - 0
-    ///    lighthouse_1:
-    ///      - 1
-    ///
-    /// 2. Complex format (validator-config.yaml): validators array with config section
     pub fn load_from_file(path: &Path) -> Result<Self, String> {
         info!(path = ?path, "Loading validator configuration");
 

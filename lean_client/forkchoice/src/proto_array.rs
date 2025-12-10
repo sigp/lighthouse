@@ -52,7 +52,7 @@ impl ProtoNode {
     }
 }
 
-/// Proto-array implementation that mirrors the Zeam fork-choice structure.
+/// Proto-array implementation that mirrors the spec's fork-choice structure.
 ///
 /// Tracks parent/child relationships, cumulative weights, best-child/best-descendant metadata,
 /// and execution payload validity. Weight updates are propagated to ancestors so fork choice

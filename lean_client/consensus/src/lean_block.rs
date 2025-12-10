@@ -19,7 +19,7 @@ pub struct LeanBlock<E: EthSpec> {
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 pub struct LeanBlockBody<E: EthSpec> {
-    pub attestations: VariableList<Attestation, E::MaxAttestations>,
+    pub attestations: VariableList<Attestation, E::ValidatorRegistryLimit>,
 }
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
@@ -97,13 +97,6 @@ impl<E: EthSpec> SignedLeanBlockWithAttestation<E> {
             let validator = validators
                 .get(validator_id)
                 .ok_or_else(|| format!("Failed to get validator at index {}", validator_id))?;
-
-            // Get the attestation data slot (epoch)
-            let epoch = attestation.attestation_data.slot.0;
-
-            // Compute the message hash (tree hash root of the attestation)
-            // NOTE: Signature verification is not yet implemented
-            // Attestations are accepted without cryptographic verification for now
         }
 
         Ok(())

@@ -4,18 +4,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use lean_consensus::lean_state::LeanState;
-use ssz::Decode;
-use tree_hash::TreeHash;
+use lean_consensus::lean_block::{LeanBlock, LeanBlockBody};
+use lean_consensus::lean_state::{LeanState, SECONDS_PER_SLOT};
 use lean_genesis::ValidatorConfig;
 use lean_keystore::{DEFAULT_KEYS_DIR, KeyStore, ValidatorKeyPair};
 use lean_network::NetworkConfig;
 use lean_network_config::load_network_files;
 use lean_store::LeanStore;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
+use ssz::Decode;
 use store::database::interface::BeaconNodeBackend;
 use tracing::info;
-use types::{EthSpec, Slot, milhouse};
+use tree_hash::TreeHash;
+use types::{EthSpec, Slot, VariableList};
 
 use validators::{build_validators, build_validators_from_config};
 
@@ -90,85 +91,82 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
 
     if validators_list.is_empty() {
         return Err(
-            "No validators found in config.yaml GENESIS_VALIDATORS. Please check configuration.".to_string(),
+            "No validators found in config.yaml GENESIS_VALIDATORS. Please check configuration."
+                .to_string(),
         );
     }
 
-    // Try to load genesis state from genesis.ssz if it exists
-    let genesis_ssz_path = genesis_json_path.as_ref().and_then(|json_path| {
-        json_path
-            .parent()
-            .map(|parent| parent.join("genesis.ssz"))
-    });
-
-    let mut genesis_state = if let Some(ssz_path) = &genesis_ssz_path {
-        if ssz_path.exists() {
-            info!(
-                "Found genesis.ssz file at {:?}, attempting to load",
-                ssz_path
-            );
-            let ssz_bytes = std::fs::read(ssz_path)
-                .map_err(|e| format!("Failed to read genesis.ssz from {:?}: {}", ssz_path, e))?;
-
-            match LeanState::<E>::from_ssz_bytes(&ssz_bytes) {
-                Ok(state) => {
-                    info!(
-                        "Successfully loaded genesis state from SSZ: slot={}, validators={}, genesis_time={}, genesis_root={:?}",
-                        state.slot.0,
-                        state.validators.len(),
-                        state.config.genesis_time,
-                        state.latest_block_header.tree_hash_root()
-                    );
-                    state
+    // Extract genesis_time from genesis.json if available, otherwise use default (0)
+    let genesis_time = if let Some(path) = &genesis_json_path {
+        match std::fs::read(path) {
+            Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                Ok(json) => {
+                    json.get("config")
+                        .and_then(|c| c.get("genesis_time"))
+                        .and_then(|t| {
+                            t.as_str()
+                                .and_then(|s| s.parse::<u64>().ok())
+                                .or_else(|| t.as_u64())
+                        })
+                        .inspect(|&time| info!("Using genesis_time from genesis.json: {}", time))
+                        .unwrap_or(0)
                 }
                 Err(e) => {
-                    info!(
-                        "Failed to decode genesis.ssz ({:?}), generating fresh genesis state instead",
-                        e
-                    );
-                    let validators = milhouse::List::new(validators_list)
-                        .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
-                    LeanState::<E>::genesis_default().generate_genesis(validators)
+                    info!("Failed to parse genesis.json: {}, using default genesis_time=0", e);
+                    0
                 }
+            },
+            Err(e) => {
+                info!("Failed to read genesis.json: {}, using default genesis_time=0", e);
+                0
             }
-        } else {
-            info!("genesis.ssz not found, generating fresh genesis state");
-            let validators = milhouse::List::new(validators_list)
-                .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
-            LeanState::<E>::genesis_default().generate_genesis(validators)
         }
     } else {
-        info!("No genesis path provided, generating fresh genesis state");
-        let validators = milhouse::List::new(validators_list)
-            .map_err(|e| format!("Failed to create List from validators: {:?}", e))?;
-        LeanState::<E>::genesis_default().generate_genesis(validators)
+        0
     };
 
-    // Override genesis_time from genesis.json if provided
-    if let Some(path) = genesis_json_path {
-        let genesis_json_bytes = std::fs::read(&path)
-            .map_err(|e| format!("Failed to read genesis.json from {:?}: {}", path, e))?;
-        let genesis_json: serde_json::Value = serde_json::from_slice(&genesis_json_bytes)
-            .map_err(|e| format!("Failed to parse genesis.json: {}", e))?;
+    // Try to load genesis state from SSZ, otherwise generate fresh
+    let genesis_ssz_path = genesis_json_path
+        .as_ref()
+        .and_then(|json_path| json_path.parent().map(|parent| parent.join("genesis.ssz")));
 
-        if let Some(config) = genesis_json.get("config") {
-            if let Some(time_val) = config.get("genesis_time") {
-                let time_u64 = if let Some(time_str) = time_val.as_str() {
-                    time_str
-                        .parse::<u64>()
-                        .map_err(|e| format!("Failed to parse genesis_time string: {}", e))?
-                } else if let Some(time_u64) = time_val.as_u64() {
-                    time_u64
-                } else {
-                    return Err("genesis_time in config is not a string or number".to_string());
-                };
-                genesis_state.config.genesis_time = time_u64;
-                info!("Using genesis time from genesis.json config: {}", time_u64);
-            }
-        }
-    }
+    // Generate fresh genesis state to align with spec logic, ignoring any existing genesis.ssz.
+    info!("Forcing fresh genesis state generation (ignoring genesis.ssz to align with spec)");
+    
+    let validators = VariableList::new(validators_list)
+        .map_err(|e| format!("Failed to create validators list: {:?}", e))?;
+    
+    let mut genesis_state = LeanState::<E>::generate_genesis(genesis_time, validators);
 
-    let genesis_root = genesis_state.latest_block_header.tree_hash_root();
+    // Calculate the Genesis State Root
+    let genesis_state_root = genesis_state.tree_hash_root();
+
+    // Construct the Genesis Block with the populated state_root.
+    // Matches the spec where the Head Block Header includes the Genesis State Root.
+    let genesis_block = LeanBlock {
+        slot: genesis_state.slot,
+        proposer_index: genesis_state.latest_block_header.proposer_index.0, // Unwrap ValidatorIndex
+        parent_root: genesis_state.latest_block_header.parent_root,
+        state_root: genesis_state_root,
+        body: LeanBlockBody {
+            attestations: VariableList::empty(),
+        },
+    };
+
+    let genesis_root = genesis_block.tree_hash_root();
+
+    // Save the Genesis Block as the initial Head/Safe Target.
+    lean_store
+        .save_block(genesis_root, &genesis_block)
+        .map_err(|e| format!("Failed to save genesis block: {}", e))?;
+    lean_store
+        .save_head_root(genesis_root)
+        .map_err(|e| format!("Failed to set head root: {}", e))?;
+    lean_store
+        .save_safe_target(genesis_root)
+        .map_err(|e| format!("Failed to set safe target: {}", e))?;
+
+
 
     info!(
         slot = genesis_state.slot.0,
@@ -189,7 +187,7 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     let slot_clock = SystemTimeSlotClock::new(
         Slot::new(0),
         Duration::from_secs(genesis_state.config.genesis_time),
-        Duration::from_secs(genesis_state.config.seconds_per_slot),
+        Duration::from_secs(SECONDS_PER_SLOT),
     );
 
     let validator_assignments = validator_config.validator_assignments();

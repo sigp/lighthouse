@@ -5,9 +5,9 @@ use lean_consensus::attestation::SignedAttestation;
 use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
 use libp2p::identity::{self, Keypair};
 use libp2p::{
+    Multiaddr, PeerId, Swarm, Transport,
     gossipsub::{self, MessageId},
     swarm::{NetworkBehaviour, SwarmEvent},
-    Multiaddr, PeerId, Swarm, Transport,
 };
 use sha2::{Digest, Sha256};
 use snap::raw::{Decoder as RawDecoder, Encoder as RawEncoder};
@@ -60,7 +60,6 @@ pub struct NetworkService<E: EthSpec> {
     /// Network name used for topic encoding
     network_name: String,
 }
-
 
 impl<E: EthSpec> NetworkService<E> {
     pub fn new(
@@ -404,7 +403,12 @@ impl<E: EthSpec> NetworkService<E> {
         let topic = gossipsub::IdentTopic::new(encoded_topic.clone());
 
         // Publish to gossipsub
-        if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, compressed_data) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(topic, compressed_data)
+        {
             warn!(
                 "Failed to publish message to gossipsub topic {}: {:?}",
                 encoded_topic, e
@@ -512,7 +516,7 @@ impl<E: EthSpec> NetworkService<E> {
         )
     }
 }
-    fn peer_id_from_multiaddr( mut addr: Multiaddr) -> Option<PeerId> {
+fn peer_id_from_multiaddr(mut addr: Multiaddr) -> Option<PeerId> {
     if let Some(libp2p::multiaddr::Protocol::P2p(mh)) = addr.pop() {
         PeerId::from_multihash(mh.into()).ok()
     } else {

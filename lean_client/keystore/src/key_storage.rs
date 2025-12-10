@@ -1,6 +1,5 @@
 //! Key storage and retrieval functionality
 
-use ssz::{Encode, Decode};
 use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
 use leansig::signature::SignatureScheme;
 use leansig::serialization::Serializable;
@@ -451,10 +450,10 @@ mod tests {
         // Create 52-byte public key (32 bytes root + 20 bytes parameter)
         let mut bytes = [0u8; 52];
         for i in 0..8 {
-            bytes[i*4..(i+1)*4].copy_from_slice(&(i as u32 + 1).to_le_bytes());
+            bytes[i * 4..(i + 1) * 4].copy_from_slice(&(i as u32 + 1).to_le_bytes());
         }
         for i in 0..5 {
-            bytes[32 + i*4..32 + (i+1)*4].copy_from_slice(&(i as u32 + 9).to_le_bytes());
+            bytes[32 + i * 4..32 + (i + 1) * 4].copy_from_slice(&(i as u32 + 9).to_le_bytes());
         }
 
         let public_key = PublicKey::from_bytes(bytes);

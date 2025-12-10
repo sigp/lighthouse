@@ -150,10 +150,16 @@ fn generate_xmss_key_pair(
     let _private_key_bytes = secret_key_raw.to_bytes();
 
     let public_key_json = serde_json::to_string(&public_key_raw).map_err(|e| {
-        KeyGenerationError::HashSigError(format!("Failed to serialize lean-sig public key to JSON: {}", e))
+        KeyGenerationError::HashSigError(format!(
+            "Failed to serialize lean-sig public key to JSON: {}",
+            e
+        ))
     })?;
     let private_key_json = serde_json::to_string(&secret_key_raw).map_err(|e| {
-        KeyGenerationError::HashSigError(format!("Failed to serialize lean-sig secret key to JSON: {}", e))
+        KeyGenerationError::HashSigError(format!(
+            "Failed to serialize lean-sig secret key to JSON: {}",
+            e
+        ))
     })?;
 
     let public_key: PublicKey = serde_json::from_str(&public_key_json).map_err(|e| {

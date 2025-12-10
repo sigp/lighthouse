@@ -1,8 +1,8 @@
 use lean_consensus::validator::Validator;
 use lean_keystore::ValidatorKeyPair;
+use serde_yaml;
 use std::collections::HashMap;
 use types::FixedVector;
-use serde_yaml;
 
 /// Build validator list from raw key pairs loaded from the keystore.
 pub fn build_validators(
@@ -28,6 +28,7 @@ pub fn build_validators(
         })?;
         let validator = Validator {
             pubkey: pubkey_fixed,
+            index: validator_index,
         };
         validators_list.push(validator);
     }
@@ -45,16 +46,19 @@ pub fn build_validators_from_config(config_bytes: &[u8]) -> Result<Vec<Validator
         .or_else(|| config.get("genesis_validators"))
         .ok_or_else(|| "GENESIS_VALIDATORS not found in config.yaml".to_string())?;
 
-    let validators_seq = genesis_validators.as_sequence().ok_or_else(|| {
-        "GENESIS_VALIDATORS must be a list".to_string()
-    })?;
+    let validators_seq = genesis_validators
+        .as_sequence()
+        .ok_or_else(|| "GENESIS_VALIDATORS must be a list".to_string())?;
 
     let mut validators_list = Vec::new();
 
     for (index, pubkey_val) in validators_seq.iter().enumerate() {
-        let pubkey_hex = pubkey_val.as_str().ok_or_else(|| {
-            format!("Validator {} must be a hex string", index)
-        })?;
+        let pubkey_hex = pubkey_val
+            .as_str()
+            .ok_or_else(|| format!("Validator {} must be a hex string", index))?;
+
+        // Debug: Log what we're parsing
+        tracing::info!("Parsing validator {}: pubkey_hex={}", index, pubkey_hex);
 
         let pubkey_bytes = hex_to_bytes52(pubkey_hex)
             .map_err(|e| format!("Failed to parse validator {} pubkey: {}", index, e))?;
@@ -68,6 +72,7 @@ pub fn build_validators_from_config(config_bytes: &[u8]) -> Result<Vec<Validator
 
         let validator = Validator {
             pubkey: pubkey_fixed,
+            index: index as u64,
         };
         validators_list.push(validator);
     }
@@ -79,7 +84,8 @@ pub fn build_validators_from_config(config_bytes: &[u8]) -> Result<Vec<Validator
 fn hex_to_bytes52(hex_str: &str) -> Result<[u8; 52], String> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
 
-    if hex_str.len() != 104 {  // 52 bytes * 2 hex chars per byte
+    if hex_str.len() != 104 {
+        // 52 bytes * 2 hex chars per byte
         return Err(format!(
             "Invalid pubkey hex length: expected 104 chars, got {}",
             hex_str.len()

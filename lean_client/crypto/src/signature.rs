@@ -1,6 +1,6 @@
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
-use types::{FixedVector};
+use types::FixedVector;
 use types::typenum::*;
 
 /// XMSS signature size in bytes (3112 bytes)
@@ -34,8 +34,8 @@ impl Signature {
             ));
         }
         let vec = bytes.to_vec();
-        let fixed = FixedVector::new(vec)
-            .map_err(|e| format!("Failed to create fixed vector: {:?}", e))?;
+        let fixed =
+            FixedVector::new(vec).map_err(|e| format!("Failed to create fixed vector: {:?}", e))?;
         Ok(Self { bytes: fixed })
     }
 

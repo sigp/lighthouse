@@ -8,6 +8,7 @@ use tree_hash_derive::TreeHash;
 #[derive(Clone, PartialEq, Decode, Encode, TreeHash, Debug)]
 pub struct Validator {
     pub pubkey: FixedVector<u8, U52>,
+    pub index: u64,  // Added to match the Validator struct
 }
 
 impl Validator {

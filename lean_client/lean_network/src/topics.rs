@@ -3,11 +3,10 @@
 /// These topics are defined in the lean specification and correspond to the message types
 /// that can be propagated across the network.
 /// See: leanSpec/src/lean_spec/subspecs/networking/gossipsub/topic.py
-
 use std::fmt;
 use std::str::FromStr;
 
-/// Topic prefix matching Zeam's lean network implementation.
+/// Topic prefix matching the spec's lean network implementation.
 pub const TOPIC_PREFIX: &str = "leanconsensus";
 
 /// Gossip encoding string used for SSZ + Snappy payloads.

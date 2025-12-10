@@ -102,8 +102,8 @@ impl Decode for Slot {
 
 #[derive(Debug, Clone, Default, Encode, Decode, TreeHash)]
 pub struct Checkpoint {
-    pub slot: Slot,
-    pub root: Hash256,
+    pub root: Hash256,  // FIELD 0 - MUST MATCH SPEC ORDER
+    pub slot: Slot,     // FIELD 1 - MUST MATCH SPEC ORDER
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

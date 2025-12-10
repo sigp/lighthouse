@@ -4,18 +4,18 @@ use lean_consensus::attestation::{
 use lean_consensus::lean_block::{
     LeanBlock, LeanBlockBody, LeanBlockWithAttestation, SignedLeanBlockWithAttestation,
 };
-use lean_consensus::lean_state::{LeanState, INTERVALS_PER_SLOT, SECONDS_PER_INTERVAL};
+use lean_consensus::lean_state::{INTERVALS_PER_SLOT, JUSTIFICATION_LOOKBACK_SLOTS, LeanState, SECONDS_PER_INTERVAL};
 use lean_crypto::Signature;
 use lean_forkchoice::helpers::get_fork_choice_head;
 use lean_keystore::{KeyStore, ValidatorKeyPair};
 pub use lean_network::NetworkMessage;
-use slot_clock::SlotClock;
 use leansig::serialization::Serializable;
 use leansig::signature::SignatureScheme;
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use store::KeyValueStore;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration as TokioDuration};
+use tokio::time::{Duration as TokioDuration, sleep};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::{EthSpec, Hash256, List, Slot, VariableList};
@@ -277,7 +277,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         Some((current_slot, current_interval))
     }
 
-    /// Log the current chain status (similar to zeam's CHAIN STATUS)
+    /// Log the current chain status (similar to other clients' CHAIN STATUS)
     fn log_chain_status(&self, current_slot: Slot) -> Result<(), String> {
         // Get head root, return early if not available
         let head_root = match self.chain.fetch_head_root()? {
@@ -395,7 +395,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
                 }
 
                 // Log chain status at interval 1
-                if let Ok(state) = self.chain.get_head_state().ok_or_else(|| "No state".to_string()) {
+                if let Ok(state) = self
+                    .chain
+                    .get_head_state()
+                    .ok_or_else(|| "No state".to_string())
+                {
                     info!(
                         current_slot = slot_u64,
                         head_slot = state.slot.0,
@@ -537,10 +541,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // NOTE: Signature verification will be implemented when signature verification functions
         // become available from the leansig library. For now, we accept all attestations.
 
-        debug!(
-            validator_id,
-            epoch, "Attestation received and accepted"
-        );
+        debug!(validator_id, epoch, "Attestation received and accepted");
 
         // Process the attestation
         self.handle_attestation(signed_attestation.clone(), is_from_block)
@@ -948,7 +949,10 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             ));
         }
 
-        debug!(slot = slot_u64, "This validator IS the proposer, proceeding");
+        debug!(
+            slot = slot_u64,
+            "This validator IS the proposer, proceeding"
+        );
 
         // Clone parent state to compute post-state
         // Advances state before computing state_root
@@ -994,21 +998,20 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         debug!(slot = slot_u64, "Fetching parent root from fork choice");
         // The parent root is the root of the block that this state came from.
         // This is the head of the fork choice tree (the most recent block we've processed).
-        let parent_root = self
-            .chain
-            .store()
-            .fetch_head_root()?
-            .unwrap_or_else(|| {
-                // Fallback: reconstruct from genesis state
-                debug!(slot = slot_u64, "No fork choice head found, using genesis block header hash");
-                let parent_block_header = &parent_state.latest_block_header;
-                debug!(
-                    slot = slot_u64,
-                    genesis_header_slot = parent_block_header.slot.0,
-                    "Computing parent root from genesis header"
-                );
-                parent_state.latest_block_header.tree_hash_root()
-            });
+        let parent_root = self.chain.store().fetch_head_root()?.unwrap_or_else(|| {
+            // Fallback: reconstruct from genesis state
+            debug!(
+                slot = slot_u64,
+                "No fork choice head found, using genesis block header hash"
+            );
+            let parent_block_header = &parent_state.latest_block_header;
+            debug!(
+                slot = slot_u64,
+                genesis_header_slot = parent_block_header.slot.0,
+                "Computing parent root from genesis header"
+            );
+            parent_state.latest_block_header.tree_hash_root()
+        });
 
         debug!(
             slot = slot_u64,
@@ -1048,10 +1051,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Process the block header to update latest_block_header in state
         // This is critical! Without this, state.latest_block_header stays pointing to parent,
         // causing all subsequent blocks to reference the wrong parent root
-        debug!(
-            slot = slot_u64,
-            "Processing block header"
-        );
+        debug!(slot = slot_u64, "Processing block header");
         post_state.process_block(&block)?;
         debug!(
             slot = slot_u64,
@@ -1062,11 +1062,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Compute state root from post-state
         debug!(slot = slot_u64, ?post_state, "Computing state root");
         let computed_state_root = post_state.tree_hash_root();
-        debug!(
-            slot = slot_u64,
-            ?computed_state_root,
-            "State root computed"
-        );
+        debug!(slot = slot_u64, ?computed_state_root, "State root computed");
 
         // Create final block with state root
         let final_block = LeanBlock {
@@ -1096,19 +1092,15 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             attestation_data: AttestationData {
                 slot: lean_slot,
                 head: Checkpoint {
-                    slot: lean_slot,
                     root: block_root,
+                    slot: lean_slot,
                 },
                 source: post_state.latest_justified.clone(),
                 target: post_state.latest_justified.clone(),
             },
         };
 
-        debug!(
-            slot = slot_u64,
-            ?block_root,
-            "Proposer attestation created"
-        );
+        debug!(slot = slot_u64, ?block_root, "Proposer attestation created");
 
         // For now, create an empty signature list
         // In a full implementation, we would sign the block and add signatures
@@ -1151,7 +1143,8 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             ?block_root,
             "Post-state saved, now saving block"
         );
-        self.chain.save_block(block_root, &signed_block.message.block)?;
+        self.chain
+            .save_block(block_root, &signed_block.message.block)?;
 
         debug!(
             ?block_root,
@@ -1173,13 +1166,14 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         );
 
         // Publish block to network
-        debug!(
-            slot = slot_u64,
-            ?block_root,
-            "Sending block to network"
-        );
+        debug!(slot = slot_u64, ?block_root, "Sending block to network");
         if let Err(e) = self.network_send.send(NetworkMessage::Block(signed_block)) {
-            error!(slot = slot_u64, ?block_root, "Failed to send block to network: {}", e);
+            error!(
+                slot = slot_u64,
+                ?block_root,
+                "Failed to send block to network: {}",
+                e
+            );
             return Err(format!("Failed to send block to network: {}", e));
         }
 
@@ -1230,9 +1224,10 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         debug!(slot, validator_id, "Producing attestation");
 
         // Fetch current head state from cache
-        let state = self.chain.get_head_state().ok_or_else(|| {
-            "No lean_state available in cache to produce attestation".to_string()
-        })?;
+        let state = self
+            .chain
+            .get_head_state()
+            .ok_or_else(|| "No lean_state available in cache to produce attestation".to_string())?;
 
         // Get head root from forkchoice (stored head) or fallback to state
         let head_root = self
@@ -1348,7 +1343,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // Get safe target from database (if available)
         let safe_target_root = self.chain.fetch_safe_target()?;
-        let justification_lookback_slots = state.config.justification_lookback_slots;
+        let justification_lookback_slots = JUSTIFICATION_LOOKBACK_SLOTS;
 
         // Walk back toward safe target (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
         // if safe target exists and is newer than current target
