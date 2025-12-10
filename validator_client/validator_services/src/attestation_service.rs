@@ -344,8 +344,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     if let AttestationDataStrategy::Consensus(_) = attestation_data_strategy
                         && slot.is_start_slot_in_epoch(S::E::slots_per_epoch())
                     {
-                        let mut guard =
-                            attestation_service.latest_target_checkpoint.lock().await;
+                        let mut guard = attestation_service.latest_target_checkpoint.lock().await;
                         *guard = Some((
                             slot.epoch(S::E::slots_per_epoch()),
                             attestation_data.target,

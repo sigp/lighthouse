@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use beacon_node_fallback::BeaconNodeFallback;
+use safe_arith::SafeArith;
 use slot_clock::SlotClock;
 use tracing::{Instrument, info_span};
 use types::{AttestationData, Checkpoint, Epoch, Slot};
@@ -10,21 +11,122 @@ pub enum AttestationDataStrategy {
     Fallback,
     ByIndex(usize),
     Consensus((usize, Option<(Checkpoint, usize)>)),
+    HighestScore,
     IgnoreEpoch(Epoch),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct FFGConsensus {
-    pub source: Checkpoint,
-    pub target: Checkpoint,
+// New trait for aggregation strategies that need parallel queries
+trait ResultAggregator {
+    /// Process a single response and decide whether to continue or stop
+    fn process_result(&mut self, attestation_data: &AttestationData, index: usize) -> bool; // Returns true if we should stop and return
+
+    /// Get the final result after aggregation
+    fn get_result(&self) -> Option<(AttestationData, usize)>;
 }
 
-impl FFGConsensus {
-    pub fn new(attestation_data: &AttestationData) -> Self {
-        FFGConsensus {
-            source: attestation_data.source,
-            target: attestation_data.target,
+// Consensus aggregator
+struct ConsensusAggregator {
+    results: HashMap<Checkpoint, Vec<usize>>,
+    threshold: usize,
+    target_checkpoint_and_index: Option<(Checkpoint, usize)>,
+    consensus_result: Option<(AttestationData, usize)>,
+}
+
+impl ConsensusAggregator {
+    fn new(threshold: usize, target_checkpoint_and_index: Option<(Checkpoint, usize)>) -> Self {
+        Self {
+            results: HashMap::new(),
+            threshold,
+            target_checkpoint_and_index,
+            consensus_result: None,
         }
+    }
+}
+
+impl ResultAggregator for ConsensusAggregator {
+    fn process_result(&mut self, attestation_data: &AttestationData, index: usize) -> bool {
+        if let Some((target_checkpoint, preferred_index)) = self.target_checkpoint_and_index {
+            // If we have a preferred index set, return attestation data from it
+            // TODO(attestation-consensus) this is a small optimization to immediately return data
+            // from the preferred index. We shouldn't need to check the target checkpoint, but maybe
+            // its just safer to do so?
+            if preferred_index == index {
+                self.consensus_result = Some((attestation_data.clone(), index));
+                return true;
+            }
+            // return if fetched data matches the target checkpoint
+            if attestation_data.target == target_checkpoint {
+                self.consensus_result = Some((attestation_data.clone(), index));
+                return true;
+            }
+        }
+        self.results
+            .entry(attestation_data.target)
+            .or_insert_with(Vec::new)
+            .push(index);
+
+        if self
+            .results
+            .get(&attestation_data.target)
+            .is_some_and(|servers| servers.len() >= self.threshold)
+        {
+            // Consensus has been reached
+            self.consensus_result = Some((attestation_data.clone(), index));
+            return true;
+        }
+
+        false
+    }
+
+    fn get_result(&self) -> Option<(AttestationData, usize)> {
+        self.consensus_result.clone()
+    }
+}
+
+// Score aggregator
+struct ScoreAggregator {
+    results: HashMap<usize, (u64, AttestationData)>,
+    // TODO im pretty sure the head slot is just the requested slot
+    // double check the attestation service before deleting this TODO.
+    head_slot: Slot,
+    responses_needed: usize,
+    responses_received: usize,
+}
+
+impl ScoreAggregator {
+    fn new(head_slot: Slot, responses_needed: usize) -> Self {
+        Self {
+            results: HashMap::new(),
+            head_slot,
+            responses_needed,
+            responses_received: 0,
+        }
+    }
+
+    fn calculate_score(&self, attestation_data: &AttestationData) -> u64 {
+        let checkpoint_value = attestation_data.source.epoch + attestation_data.target.epoch;
+        let slot_value = 1 + attestation_data.slot.as_u64() - self.head_slot.as_u64();
+        // TODO unwrap
+        checkpoint_value.as_u64() + 1.safe_div(slot_value).unwrap()
+    }
+}
+
+impl ResultAggregator for ScoreAggregator {
+    fn process_result(&mut self, attestation_data: &AttestationData, index: usize) -> bool {
+        let score = self.calculate_score(attestation_data);
+        self.results
+            .insert(index, (score, attestation_data.clone()));
+        self.responses_received += 1;
+
+        // Stop when we've received enough responses
+        self.responses_received >= self.responses_needed
+    }
+
+    fn get_result(&self) -> Option<(AttestationData, usize)> {
+        self.results
+            .iter()
+            .max_by_key(|(_, (score, _))| score)
+            .map(|(idx, (_, data))| (data.clone(), *idx))
     }
 }
 
@@ -61,14 +163,11 @@ impl<T: SlotClock> AttestationDataService<T> {
             .map_err(|e| e.to_string())
     }
 
-    pub async fn data_by_threshold(
+    async fn data_with_aggregation(
         &self,
         request_slot: &Slot,
-        threshold: usize,
-        checkpoint_and_index: Option<(Checkpoint, usize)>,
+        mut aggregator: impl ResultAggregator,
     ) -> Result<(AttestationData, usize), String> {
-        let mut results = HashMap::new();
-
         self.beacon_nodes
             .first_n_responses(
                 |beacon_node| async move {
@@ -82,37 +181,15 @@ impl<T: SlotClock> AttestationDataService<T> {
                         .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
                         .map(|result| result.data)
                 },
-                |(attestation_data, index)| {
-                    if let Some((target_checkpoint, preferred_index)) = checkpoint_and_index {
-                        // If we have a preferred index set, return attestation data from it
-                        // TODO(attestation-consensus) this is a small optimization to immediately return data
-                        // from the preferred index. We shouldn't need to check the target checkpoint, but maybe
-                        // its just safer to do so?
-                        if preferred_index == *index {
-                            return true;
-                        }
-                        // return if fetched data matches the target checkpoint
-                        return attestation_data.target == target_checkpoint;
-                    }
-
-                    let ffg_consensus = FFGConsensus::new(attestation_data);
-                    results
-                        .entry(ffg_consensus.clone())
-                        .or_insert_with(Vec::new)
-                        .push(*index);
-                    if results
-                        .get(&ffg_consensus)
-                        .is_some_and(|servers| servers.len() >= threshold)
-                    {
-                        return true;
-                    }
-
-                    false
-                },
+                |(attestation_data, index)| aggregator.process_result(attestation_data, *index),
             )
             .instrument(info_span!("fetch_attestation_data"))
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        aggregator
+            .get_result()
+            .ok_or_else(|| "No valid attestation data found".to_string())
     }
 
     pub async fn download_data(
@@ -126,13 +203,20 @@ impl<T: SlotClock> AttestationDataService<T> {
                 self.data_by_index(request_slot, Some(*index)).await
             }
             AttestationDataStrategy::Consensus((threshold, checkpoint_and_index)) => {
-                self.data_by_threshold(request_slot, *threshold, checkpoint_and_index.clone())
+                let consensus_aggregator =
+                    ConsensusAggregator::new(*threshold, checkpoint_and_index.clone());
+                self.data_with_aggregation(request_slot, consensus_aggregator)
                     .await
             }
             AttestationDataStrategy::IgnoreEpoch(epoch) => Err(format!(
                 "Disabled attestation production for epoch {:?}",
                 epoch
             )),
+            AttestationDataStrategy::HighestScore => {
+                let aggregator =
+                    ScoreAggregator::new(*request_slot, self.beacon_nodes.num_total().await);
+                self.data_with_aggregation(request_slot, aggregator).await
+            }
         }
     }
 }
