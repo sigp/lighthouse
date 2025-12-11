@@ -48,12 +48,13 @@ use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
+use context_deserialize::ContextDeserialize;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::StatusCode;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
-    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
-    ForkChoiceExtraData, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
+    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;

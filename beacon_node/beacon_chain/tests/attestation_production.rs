@@ -5,11 +5,10 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
+use bls::{AggregateSignature, Keypair};
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, Attestation, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot,
-};
+use types::{Attestation, EthSpec, MainnetEthSpec, RelativeEpoch, Slot};
 
 pub const VALIDATOR_COUNT: usize = 16;
 

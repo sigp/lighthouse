@@ -16,7 +16,9 @@
 //!   of elements. To find the chunk index of a vector index: `cindex = vindex / chunk_size`.
 use self::UpdatePattern::*;
 use crate::*;
+use milhouse::{List, Vector};
 use ssz::{Decode, Encode};
+use typenum::Unsigned;
 use types::historical_summary::HistoricalSummary;
 
 /// Description of how a `BeaconState` field is updated during state processing.
@@ -784,6 +786,7 @@ impl From<milhouse::Error> for ChunkError {
 #[cfg(test)]
 mod test {
     use super::*;
+    use fixed_bytes::FixedBytesExtended;
     use types::MainnetEthSpec as TestSpec;
     use types::*;
 

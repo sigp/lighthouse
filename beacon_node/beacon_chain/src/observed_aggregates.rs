@@ -473,7 +473,8 @@ where
 #[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use types::{AttestationBase, FixedBytesExtended, Hash256, test_utils::test_random_instance};
+    use fixed_bytes::FixedBytesExtended;
+    use types::{AttestationBase, Hash256, test_utils::test_random_instance};
 
     type E = types::MainnetEthSpec;
 

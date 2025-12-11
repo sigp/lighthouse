@@ -1,9 +1,10 @@
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{FixedVector, typenum::U33};
+use ssz_types::FixedVector;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use typenum::U33;
 
 use crate::{core::Hash256, deposit::DepositData, fork::ForkName, test_utils::TestRandom};
 

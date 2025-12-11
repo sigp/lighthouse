@@ -13,13 +13,14 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitVector, FixedVector, typenum::Unsigned};
+use ssz_types::{BitVector, FixedVector};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use typenum::Unsigned;
 
 use crate::{
     attestation::{

@@ -10,6 +10,7 @@ lighthouse = ["proto_array", "eth2_keystore", "eip_3076", "zeroize"]
 events = ["reqwest-eventsource", "futures", "futures-util"]
 
 [dependencies]
+bls = { workspace = true }
 context_deserialize = { workspace = true }
 educe = { workspace = true }
 eip_3076 = { workspace = true, optional = true }
@@ -28,6 +29,7 @@ sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ssz_types = { workspace = true }
+superstruct = { workspace = true }
 types = { workspace = true }
 zeroize = { workspace = true, optional = true }
 

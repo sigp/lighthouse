@@ -7,6 +7,7 @@ use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
     upgrade_to_gloas,
 };
+use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 use tree_hash::TreeHash;

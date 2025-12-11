@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use ssz_types::typenum::Unsigned;
+use typenum::Unsigned;
 
 use crate::core::{ChainSpec, Epoch, EthSpec};
 
