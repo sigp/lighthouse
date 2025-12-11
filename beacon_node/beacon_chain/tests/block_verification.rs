@@ -127,30 +127,42 @@ fn get_harness(
     harness
 }
 
-fn chain_segment_blocks(
+fn chain_segment_blocks<T>(
     chain_segment: &[BeaconSnapshot<E>],
     chain_segment_sidecars: &[Option<DataSidecars<E>>],
-    spec: Arc<ChainSpec>,
-) -> Vec<RpcBlock<E>> {
+    chain: Arc<BeaconChain<T>>,
+) -> Vec<RpcBlock<E>>
+where
+    T: BeaconChainTypes<EthSpec = E>,
+{
     chain_segment
         .iter()
         .zip(chain_segment_sidecars.iter())
         .map(|(snapshot, data_sidecars)| {
             let block = snapshot.beacon_block.clone();
-            build_rpc_block(block, data_sidecars, spec.clone())
+            build_rpc_block(block, data_sidecars, chain.clone())
         })
         .collect()
 }
 
-fn build_rpc_block(
+fn build_rpc_block<T>(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
-    spec: Arc<ChainSpec>,
-) -> RpcBlock<E> {
+    chain: Arc<BeaconChain<T>>,
+) -> RpcBlock<E>
+where
+    T: BeaconChainTypes<EthSpec = E>,
+{
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             let block_data = AvailableBlockData::new(Some(blobs.clone()), None);
-            RpcBlock::new(block, Some(block_data), spec).unwrap()
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                chain.data_availability_checker.clone(),
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
             let block_data = AvailableBlockData::new(
@@ -162,9 +174,21 @@ fn build_rpc_block(
                         .collect::<Vec<_>>(),
                 ),
             );
-            RpcBlock::new(block, Some(block_data), spec).unwrap()
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                chain.data_availability_checker.clone(),
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
-        None => RpcBlock::new(block, Some(AvailableBlockData::NoData), spec).unwrap(),
+        None => RpcBlock::new(
+            block,
+            Some(AvailableBlockData::NoData),
+            chain.data_availability_checker.clone(),
+            chain.spec.clone(),
+        )
+        .unwrap(),
     }
 }
 
@@ -276,7 +300,7 @@ async fn chain_segment_full_segment() {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.spec.clone())
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
@@ -314,7 +338,7 @@ async fn chain_segment_varying_chunk_size() {
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.spec.clone())
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
@@ -359,7 +383,7 @@ async fn chain_segment_non_linear_parent_roots() {
      * Test with a block removed.
      */
     let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.spec.clone())
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     blocks.remove(2);
@@ -380,7 +404,7 @@ async fn chain_segment_non_linear_parent_roots() {
      * Test with a modified parent root.
      */
     let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.spec.clone())
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
@@ -389,6 +413,7 @@ async fn chain_segment_non_linear_parent_roots() {
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         Some(AvailableBlockData::NoData),
+        harness.chain.data_availability_checker.clone(),
         harness.spec.clone(),
     )
     .unwrap();
@@ -420,7 +445,7 @@ async fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.spec.clone())
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
@@ -428,6 +453,7 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         Some(AvailableBlockData::NoData),
+        harness.chain.data_availability_checker.clone(),
         harness.spec.clone(),
     )
     .unwrap();
@@ -449,7 +475,7 @@ async fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.spec.clone())
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
@@ -457,7 +483,8 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         Some(AvailableBlockData::NoData),
-        harness.spec.clone(),
+        harness.chain.data_availability_checker.clone(),
+        harness.chain.spec.clone(),
     )
     .unwrap();
 
@@ -486,7 +513,7 @@ async fn assert_invalid_signature(
         .iter()
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.spec.clone())
+            build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
         })
         .collect();
 
@@ -513,7 +540,7 @@ async fn assert_invalid_signature(
         .take(block_index)
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.spec.clone())
+            build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
         })
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
@@ -531,7 +558,7 @@ async fn assert_invalid_signature(
             build_rpc_block(
                 snapshots[block_index].beacon_block.clone(),
                 &chain_segment_blobs[block_index],
-                harness.spec.clone(),
+                harness.chain.clone(),
             ),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
@@ -590,7 +617,7 @@ async fn invalid_signature_gossip_block() {
             .take(block_index)
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.spec.clone())
+                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
         harness
@@ -600,7 +627,13 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
-        let rpc_block = RpcBlock::new(Arc::new(signed_block), None, harness.spec.clone()).unwrap();
+        let rpc_block = RpcBlock::new(
+            Arc::new(signed_block),
+            None,
+            harness.chain.data_availability_checker.clone(),
+            harness.spec.clone(),
+        )
+        .unwrap();
         let process_res = harness
             .chain
             .process_block(
@@ -643,7 +676,7 @@ async fn invalid_signature_block_proposal() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.spec.clone())
+                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
@@ -962,7 +995,7 @@ async fn invalid_signature_deposit() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.spec.clone())
+                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
         assert!(
@@ -1605,8 +1638,13 @@ async fn add_base_block_to_altair_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let base_rpc_block =
-        RpcBlock::new(Arc::new(base_block.clone()), None, harness.spec.clone()).unwrap();
+    let base_rpc_block = RpcBlock::new(
+        Arc::new(base_block.clone()),
+        None,
+        harness.chain.data_availability_checker.clone(),
+        harness.spec.clone(),
+    )
+    .unwrap();
     assert!(matches!(
         harness
             .chain
@@ -1630,7 +1668,15 @@ async fn add_base_block_to_altair_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new(Arc::new(base_block), None, harness.spec.clone()).unwrap()],
+                vec![
+                    RpcBlock::new(
+                        Arc::new(base_block),
+                        None,
+                        harness.chain.data_availability_checker.clone(),
+                        harness.spec.clone()
+                    )
+                    .unwrap()
+                ],
                 NotifyExecutionLayer::Yes,
             )
             .await,
@@ -1743,8 +1789,13 @@ async fn add_altair_block_to_base_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let altair_rpc_block =
-        RpcBlock::new(Arc::new(altair_block.clone()), None, harness.spec.clone()).unwrap();
+    let altair_rpc_block = RpcBlock::new(
+        Arc::new(altair_block.clone()),
+        None,
+        harness.chain.data_availability_checker.clone(),
+        harness.spec.clone(),
+    )
+    .unwrap();
     assert!(matches!(
         harness
             .chain
@@ -1768,7 +1819,15 @@ async fn add_altair_block_to_base_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new(Arc::new(altair_block), None, harness.spec.clone()).unwrap()],
+                vec![
+                    RpcBlock::new(
+                        Arc::new(altair_block),
+                        None,
+                        harness.chain.data_availability_checker.clone(),
+                        harness.spec.clone()
+                    )
+                    .unwrap()
+                ],
                 NotifyExecutionLayer::Yes
             )
             .await,
@@ -1834,6 +1893,7 @@ async fn import_duplicate_block_unrealized_justification() {
     let rpc_block = RpcBlock::new(
         block.clone(),
         Some(AvailableBlockData::NoData),
+        harness.chain.data_availability_checker.clone(),
         harness.spec.clone(),
     )
     .unwrap();
