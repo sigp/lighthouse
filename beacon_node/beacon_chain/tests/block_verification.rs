@@ -410,9 +410,10 @@ async fn chain_segment_non_linear_parent_roots() {
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
+
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        Some(AvailableBlockData::NoData),
+        blocks[3].block_data().cloned(),
         harness.chain.data_availability_checker.clone(),
         harness.spec.clone(),
     )
