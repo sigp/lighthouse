@@ -2395,8 +2395,16 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError> {
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
+        // Determine if block is available: it's available if it doesn't require blobs,
+        // or if it requires blobs and we have them
+        let has_blob_commitments = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .is_ok_and(|c| !c.is_empty());
+        let is_available = !has_blob_commitments || blob_items.is_some();
 
-        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, true)?;
+        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, is_available)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(

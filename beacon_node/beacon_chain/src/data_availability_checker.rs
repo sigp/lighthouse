@@ -707,9 +707,17 @@ impl<E: EthSpec> AvailableBlockData<E> {
         columns: Option<DataColumnSidecarList<E>>,
     ) -> Self {
         if let Some(blobs) = blobs {
-            Self::Blobs(blobs)
+            if blobs.len() > 0 {
+                Self::Blobs(blobs)
+            } else {
+                Self::NoData
+            }
         } else if let Some(columns) = columns {
-            Self::DataColumns(columns)
+            if columns.len() > 0 {
+                Self::DataColumns(columns)
+            } else {
+                Self::NoData
+            }
         } else {
             Self::NoData
         }
