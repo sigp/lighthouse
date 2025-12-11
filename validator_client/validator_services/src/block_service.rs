@@ -1,5 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
-use bls::{PublicKeyBytes,SignatureBytes};
+use bls::{PublicKeyBytes, SignatureBytes};
 use eth2::types::GraffitiPolicy;
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{GraffitiFile, determine_graffiti};

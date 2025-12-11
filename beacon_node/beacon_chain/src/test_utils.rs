@@ -21,11 +21,10 @@ pub use crate::{
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
 };
 use bls::get_withdrawal_credentials;
-use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
 };
-use eth2::types::{GraffitiPolicy,SignedBlockContentsTuple};
+use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
