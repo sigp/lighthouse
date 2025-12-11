@@ -1,5 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
-use bls::{PublicKeyBytes, SignatureBytes};
+use bls::PublicKeyBytes;
 use eth2::types::GraffitiPolicy;
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{GraffitiFile, determine_graffiti};
@@ -476,6 +476,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         randao_reveal_ref,
                         graffiti.as_ref(),
                         builder_boost_factor,
+                        self_ref.graffiti_policy,
                     )
                     .await
             })
@@ -502,6 +503,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                 randao_reveal_ref,
                                 graffiti.as_ref(),
                                 builder_boost_factor,
+                                self_ref.graffiti_policy,
                             )
                             .await
                             .map_err(|e| {
