@@ -23,13 +23,23 @@ use types::{
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
 #[derive(Default, PartialEq, Clone, Encode, Decode)]
+// FIXME(sproul): the "next" naming here is a bit odd
+// FIXME(sproul): version this type?
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
-    next_epoch: Epoch,
+    next_slot: Slot,
+    next_payload_present: bool,
 }
 
-/// Represents the verification status of an execution payload.
+// FIXME(sproul): version this type
+pub struct LatestMessage {
+    slot: Slot,
+    root: Hash256,
+    payload_present: bool,
+}
+
+/// Represents the verification status of an execution payload pre-Gloas.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
@@ -47,6 +57,16 @@ pub enum ExecutionStatus {
     /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
     /// to have a value. It can be set to anything.
     Irrelevant(bool),
+}
+
+/// Represents the status of an execution payload post-Gloas.
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[ssz(enum_behaviour = "tag")]
+#[repr(u8)]
+pub enum PayloadStatus {
+    Pending = 0,
+    Empty = 1,
+    Full = 2,
 }
 
 impl ExecutionStatus {
@@ -499,13 +519,15 @@ impl ProtoArrayForkChoice {
         &mut self,
         validator_index: usize,
         block_root: Hash256,
-        target_epoch: Epoch,
+        attestation_slot: Slot,
+        payload_present: bool,
     ) -> Result<(), String> {
         let vote = self.votes.get_mut(validator_index);
 
-        if target_epoch > vote.next_epoch || *vote == VoteTracker::default() {
+        if attestation_slot > vote.next_slot || *vote == VoteTracker::default() {
             vote.next_root = block_root;
-            vote.next_epoch = target_epoch;
+            vote.next_slot = attestation_slot;
+            vote.next_payload_present = payload_present;
         }
 
         Ok(())
@@ -920,14 +942,18 @@ impl ProtoArrayForkChoice {
             .is_finalized_checkpoint_or_descendant::<E>(descendant_root, best_finalized_checkpoint)
     }
 
-    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
+    pub fn latest_message(&self, validator_index: usize) -> Option<LatestMessage> {
         if validator_index < self.votes.0.len() {
             let vote = &self.votes.0[validator_index];
 
             if *vote == VoteTracker::default() {
                 None
             } else {
-                Some((vote.next_root, vote.next_epoch))
+                Some(LatestMessage {
+                    root: vote.next_root,
+                    slot: vote.next_slot,
+                    payload_present: vote.next_payload_present,
+                })
             }
         } else {
             None
@@ -1013,6 +1039,7 @@ impl ProtoArrayForkChoice {
 /// - If a value in `indices` is greater to or equal to `indices.len()`.
 /// - If some `Hash256` in `votes` is not a key in `indices` (except for `Hash256::zero()`, this is
 ///   always valid).
+// FIXME(sproul): implement get-weight changes here
 fn compute_deltas(
     indices: &HashMap<Hash256, usize>,
     votes: &mut ElasticList<VoteTracker>,

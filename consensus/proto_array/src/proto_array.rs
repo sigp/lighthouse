@@ -111,7 +111,7 @@ pub struct ProtoNode {
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
-    /// block hash.
+    /// block hash. This is only used pre-Gloas.
     #[superstruct(only(V17), partial_getter(copy))]
     pub execution_status: ExecutionStatus,
     #[superstruct(getter(copy))]
