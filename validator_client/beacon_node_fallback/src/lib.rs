@@ -359,6 +359,13 @@ impl CandidateBeaconNode {
             hint = UPDATE_REQUIRED_LOG_HINT,
             "Beacon node has mismatched Fulu fork epoch"
             );
+        } else if beacon_node_spec.gloas_fork_epoch != spec.gloas_fork_epoch {
+            warn!(
+            endpoint = %self.beacon_node,
+            endpoint_gloas_fork_epoch = ?beacon_node_spec.gloas_fork_epoch,
+            hint = UPDATE_REQUIRED_LOG_HINT,
+            "Beacon node has mismatched Gloas fork epoch"
+            );
         }
 
         Ok(())
@@ -649,7 +656,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
-        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.as_ref()]);
+        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.server().redacted()]);
 
         // There exists a race condition where `func` may be called when the candidate is
         // actually not ready. We deem this an acceptable inefficiency.
@@ -661,7 +668,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
                     error = ?e,
                     "Request to beacon node failed"
                 );
-                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.as_ref()]);
+                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.server().redacted()]);
                 Err((candidate.to_string(), Error::RequestFailed(e)))
             }
         }
@@ -766,12 +773,13 @@ impl ApiTopic {
 mod tests {
     use super::*;
     use crate::beacon_node_health::BeaconNodeHealthTier;
+    use bls::Signature;
     use eth2::SensitiveUrl;
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
     use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
-    use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
+    use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
     type E = MainnetEthSpec;

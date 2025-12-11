@@ -1,10 +1,12 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
+use ssz_types::FixedVector;
 use tree_hash::Hash256;
+use typenum::Unsigned;
 use types::{
     BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra,
-    BeaconBlockBodyFulu, BeaconState, FixedVector, FullPayload, Unsigned, light_client_update,
+    BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconState, FullPayload, light_client_update,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,6 +174,9 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
             ForkName::Fulu => {
                 ssz_decode_file::<BeaconBlockBodyFulu<E>>(&path.join("object.ssz_snappy"))?.into()
             }
+            ForkName::Gloas => {
+                ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
+            }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
         // Metadata does not exist in these tests but it is left like this just in case.
@@ -289,6 +294,9 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
             }
             ForkName::Fulu => {
                 ssz_decode_file::<BeaconBlockBodyFulu<E>>(&path.join("object.ssz_snappy"))?.into()
+            }
+            ForkName::Gloas => {
+                ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;

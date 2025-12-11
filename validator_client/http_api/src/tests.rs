@@ -11,6 +11,7 @@ use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
     random_password_string, validator_definitions::ValidatorDefinitions,
 };
+use bls::{Keypair, PublicKeyBytes};
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
     Error as ApiError,
@@ -208,7 +209,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = if self.spec.is_fulu_scheduled() {
+        let result = if self.spec.is_gloas_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        } else if self.spec.is_fulu_scheduled() {
             self.client
                 .get_lighthouse_spec::<ConfigAndPresetFulu>()
                 .await

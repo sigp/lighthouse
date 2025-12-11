@@ -19,8 +19,9 @@ use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
+use typenum::Unsigned;
 use types::slot_data::SlotData;
-use types::{Epoch, EthSpec, Hash256, Slot, Unsigned};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The maximum capacity of the `AutoPruningEpochContainer`.
 ///
@@ -619,7 +620,7 @@ impl SlotSubcommitteeIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::FixedBytesExtended;
+    use fixed_bytes::FixedBytesExtended;
 
     type E = types::MainnetEthSpec;
 

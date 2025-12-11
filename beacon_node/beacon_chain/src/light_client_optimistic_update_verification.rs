@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use derivative::Derivative;
+use educe::Educe;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
@@ -49,8 +49,8 @@ pub enum Error {
 }
 
 /// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedLightClientOptimisticUpdate<T: BeaconChainTypes> {
     light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
     pub parent_root: Hash256,
@@ -118,6 +118,11 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         if latest_optimistic_update != rcv_optimistic_update {
             let signature_slot = latest_optimistic_update.signature_slot();
             if signature_slot != rcv_optimistic_update.signature_slot() {
+                // The locally constructed optimistic update is not up to date, probably
+                // because the node has fallen behind and needs to sync.
+                if rcv_optimistic_update.signature_slot() > signature_slot {
+                    return Err(Error::Ignore);
+                }
                 return Err(Error::MismatchedSignatureSlot {
                     local: signature_slot,
                     observed: rcv_optimistic_update.signature_slot(),

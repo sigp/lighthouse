@@ -13,8 +13,9 @@ use types::{
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,6 +237,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                             ),
                             Some(ForkName::Fulu) => SignedBeaconBlock::<E>::Fulu(
                                 SignedBeaconBlockFulu::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Gloas) => SignedBeaconBlock::<E>::Gloas(
+                                SignedBeaconBlockGloas::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
                             None => {

@@ -427,7 +427,7 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                build_rpc_block(block.into(), &data_sidecars, &self.spec),
+                build_rpc_block(block.into(), &data_sidecars),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -443,14 +443,13 @@ impl TestRig {
 fn build_rpc_block(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
-    spec: &ChainSpec,
 ) -> RpcBlock<E> {
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
-            RpcBlock::new_with_custody_columns(None, block, columns.clone(), spec).unwrap()
+            RpcBlock::new_with_custody_columns(None, block, columns.clone()).unwrap()
         }
         // Block has no data, expects zero columns
         None => RpcBlock::new_without_blobs(None, block),

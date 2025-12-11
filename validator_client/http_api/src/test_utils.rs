@@ -4,6 +4,7 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
 };
+use bls::Keypair;
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
 use eth2::{
@@ -256,9 +257,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetFulu>()
+            .get_lighthouse_spec::<ConfigAndPresetGloas>()
             .await
-            .map(|res| ConfigAndPreset::Fulu(res.data))
+            .map(|res| ConfigAndPreset::Gloas(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
 

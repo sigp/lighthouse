@@ -1,7 +1,7 @@
 use crate::attestation_verification::Error;
+use ssz_types::{BitList, BitVector};
 use types::{
-    Attestation, AttestationBase, AttestationElectra, BitList, BitVector, EthSpec, ForkName,
-    SingleAttestation,
+    Attestation, AttestationBase, AttestationElectra, EthSpec, ForkName, SingleAttestation,
 };
 
 pub fn single_attestation_to_attestation<E: EthSpec>(

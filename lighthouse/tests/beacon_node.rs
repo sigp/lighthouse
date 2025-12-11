@@ -4,12 +4,16 @@ use beacon_node::beacon_chain::chain_config::{
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
     DisallowedReOrgOffsets,
 };
+use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
     ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
 use lighthouse_network::PeerId;
+use network_utils::unused_port::{
+    unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
+};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -22,7 +26,6 @@ use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
-use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
@@ -390,27 +393,35 @@ fn genesis_backfill_with_historic_flag() {
         .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
-// Tests for Eth1 flags.
-// DEPRECATED but should not crash
 #[test]
-fn eth1_blocks_per_log_query_flag() {
+fn complete_blob_backfill_default() {
     CommandLineTest::new()
-        .flag("eth1-blocks-per-log-query", Some("500"))
-        .run_with_zero_port();
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.complete_blob_backfill));
 }
-// DEPRECATED but should not crash
+
 #[test]
-fn eth1_purge_cache_flag() {
+fn complete_blob_backfill_flag() {
     CommandLineTest::new()
-        .flag("eth1-purge-cache", None)
-        .run_with_zero_port();
+        .flag("complete-blob-backfill", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.complete_blob_backfill);
+            assert!(!config.store.prune_blobs);
+        });
 }
-// DEPRECATED but should not crash
+
+// Even if `--prune-blobs true` is provided, `--complete-blob-backfill` should override it to false.
 #[test]
-fn eth1_cache_follow_distance_manual() {
+fn complete_blob_backfill_and_prune_blobs_true() {
     CommandLineTest::new()
-        .flag("eth1-cache-follow-distance", Some("128"))
-        .run_with_zero_port();
+        .flag("complete-blob-backfill", None)
+        .flag("prune-blobs", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.complete_blob_backfill);
+            assert!(!config.store.prune_blobs);
+        });
 }
 
 // Tests for Bellatrix flags.
@@ -470,7 +481,12 @@ fn run_execution_jwt_secret_key_is_persisted() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoint.as_ref().unwrap().full.to_string(),
+                config
+                    .execution_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
                 "http://localhost:8551/"
             );
             let mut file_jwt_secret_key = String::new();
@@ -521,7 +537,12 @@ fn bellatrix_jwt_secrets_flag() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoint.as_ref().unwrap().full.to_string(),
+                config
+                    .execution_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
                 "http://localhost:8551/"
             );
             assert_eq!(
@@ -748,31 +769,6 @@ fn jwt_optional_flags() {
 fn jwt_optional_alias_flags() {
     run_jwt_optional_flags_test("jwt-secrets", "jwt-id", "jwt-version");
 }
-// DEPRECATED. This flag is deprecated but should not cause a crash.
-#[test]
-fn terminal_total_difficulty_override_flag() {
-    CommandLineTest::new()
-        .flag("terminal-total-difficulty-override", Some("1337424242"))
-        .run_with_zero_port();
-}
-// DEPRECATED. This flag is deprecated but should not cause a crash.
-#[test]
-fn terminal_block_hash_and_activation_epoch_override_flags() {
-    CommandLineTest::new()
-        .flag("terminal-block-hash-epoch-override", Some("1337"))
-        .flag(
-            "terminal-block-hash-override",
-            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
-        )
-        .run_with_zero_port();
-}
-// DEPRECATED. This flag is deprecated but should not cause a crash.
-#[test]
-fn safe_slots_to_import_optimistically_flag() {
-    CommandLineTest::new()
-        .flag("safe-slots-to-import-optimistically", Some("421337"))
-        .run_with_zero_port();
-}
 
 // Tests for Network flags.
 #[test]
@@ -797,7 +793,38 @@ fn network_subscribe_all_data_column_subnets_flag() {
     CommandLineTest::new()
         .flag("subscribe-all-data-column-subnets", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
+        .with_config(|config| {
+            assert_eq!(config.chain.node_custody_type, NodeCustodyType::Supernode)
+        });
+}
+#[test]
+fn network_supernode_flag() {
+    CommandLineTest::new()
+        .flag("supernode", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.node_custody_type, NodeCustodyType::Supernode)
+        });
+}
+#[test]
+fn network_semi_supernode_flag() {
+    CommandLineTest::new()
+        .flag("semi-supernode", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.node_custody_type,
+                NodeCustodyType::SemiSupernode
+            )
+        });
+}
+#[test]
+fn network_node_custody_type_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.node_custody_type, NodeCustodyType::Fullnode)
+        });
 }
 #[test]
 fn blob_publication_batches() {
@@ -1807,11 +1834,24 @@ fn slots_per_restore_point_flag() {
 }
 
 #[test]
+fn block_cache_size_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
+}
+#[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 4));
+}
+#[test]
+fn block_cache_size_zero() {
+    CommandLineTest::new()
+        .flag("block-cache-size", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
 }
 #[test]
 fn state_cache_size_default() {
@@ -2464,42 +2504,6 @@ fn logfile_format_flag() {
             )
         });
 }
-// DEPRECATED but should not crash.
-#[test]
-fn deprecated_logfile() {
-    CommandLineTest::new()
-        .flag("logfile", Some("test.txt"))
-        .run_with_zero_port();
-}
-
-// DEPRECATED but should not crash.
-#[test]
-fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new_with_no_execution_endpoint()
-        .flag("disable-deposit-contract-sync", None)
-        .flag("execution-endpoints", Some("http://localhost:8551/"))
-        .flag(
-            "execution-jwt",
-            dir.path().join("jwt-file").as_os_str().to_str(),
-        )
-        .run_with_zero_port();
-}
-
-#[test]
-#[should_panic]
-fn disable_deposit_contract_sync_conflicts_with_staking() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new_with_no_execution_endpoint()
-        .flag("disable-deposit-contract-sync", None)
-        .flag("staking", None)
-        .flag("execution-endpoints", Some("http://localhost:8551/"))
-        .flag(
-            "execution-jwt",
-            dir.path().join("jwt-file").as_os_str().to_str(),
-        )
-        .run_with_zero_port();
-}
 
 #[test]
 fn light_client_server_default() {
@@ -2514,7 +2518,6 @@ fn light_client_server_default() {
 #[test]
 fn light_client_server_enabled() {
     CommandLineTest::new()
-        .flag("light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.network.enable_light_client_server);

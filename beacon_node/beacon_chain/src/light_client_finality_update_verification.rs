@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use derivative::Derivative;
+use educe::Educe;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -55,8 +55,8 @@ pub enum Error {
 }
 
 /// Wraps a `LightClientFinalityUpdate` that has been verified for propagation on the gossip network.
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedLightClientFinalityUpdate<T: BeaconChainTypes> {
     light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
     seen_timestamp: Duration,
@@ -116,7 +116,13 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         // Verify that the gossiped finality update is the same as the locally constructed one.
         if latest_finality_update != rcv_finality_update {
             let signature_slot = latest_finality_update.signature_slot();
+
             if signature_slot != rcv_finality_update.signature_slot() {
+                // The locally constructed finality update is not up to date, probably
+                // because the node has fallen behind and needs to sync.
+                if rcv_finality_update.signature_slot() > signature_slot {
+                    return Err(Error::Ignore);
+                }
                 return Err(Error::MismatchedSignatureSlot {
                     local: signature_slot,
                     observed: rcv_finality_update.signature_slot(),

@@ -8,7 +8,7 @@ use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{RuntimeVariableList, VariableList};
 use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
@@ -18,10 +18,10 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
+    SignedBeaconBlockGloas,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -169,7 +169,9 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_request_limits(&self.fork_context.spec);
+        let ssz_limits = self
+            .protocol
+            .rpc_request_limits::<E>(&self.fork_context.spec);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC request length for protocol {:?} is out of bounds, length {}",
@@ -560,10 +562,9 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::DataColumnsByRootV1 => Ok(Some(RequestType::DataColumnsByRoot(
             DataColumnsByRootRequest {
                 data_column_ids:
-                    <RuntimeVariableList<DataColumnsByRootIdentifier>>::from_ssz_bytes_with_nested(
+                    <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
                         decoded_buffer,
                         spec.max_request_blocks(current_fork),
-                        spec.number_of_columns as usize,
                     )?,
             },
         ))),
@@ -829,6 +830,9 @@ fn handle_rpc_response<E: EthSpec>(
             Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
                 SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
             )))),
+            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(
@@ -864,6 +868,9 @@ fn handle_rpc_response<E: EthSpec>(
             )))),
             Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -901,11 +908,12 @@ mod tests {
     use super::*;
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
+    use bls::Signature;
+    use fixed_bytes::FixedBytesExtended;
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FixedBytesExtended, FullPayload,
-        KzgCommitment, KzgProof, Signature, SignedBeaconBlockHeader, Slot,
-        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
+        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
+        SignedBeaconBlockHeader, Slot, blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -918,6 +926,7 @@ mod tests {
         chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
         chain_spec.electra_fork_epoch = Some(Epoch::new(5));
         chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+        chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
 
         // check that we have all forks covered
         assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
@@ -933,6 +942,7 @@ mod tests {
             ForkName::Deneb => spec.deneb_fork_epoch,
             ForkName::Electra => spec.electra_fork_epoch,
             ForkName::Fulu => spec.fulu_fork_epoch,
+            ForkName::Gloas => spec.gloas_fork_epoch,
         };
         let current_slot = current_epoch.unwrap().start_slot(Spec::slots_per_epoch());
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), spec)
@@ -993,8 +1003,9 @@ mod tests {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
 
-        let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
+        let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+        let txs =
+            VariableList::try_from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>()).unwrap();
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -1012,8 +1023,9 @@ mod tests {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
 
-        let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
+        let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+        let txs =
+            VariableList::try_from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>()).unwrap();
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -1066,13 +1078,12 @@ mod tests {
         }
     }
 
-    fn dcbroot_request(fork_name: ForkName, spec: &ChainSpec) -> DataColumnsByRootRequest {
-        let number_of_columns = spec.number_of_columns as usize;
+    fn dcbroot_request(fork_name: ForkName, spec: &ChainSpec) -> DataColumnsByRootRequest<Spec> {
         DataColumnsByRootRequest {
             data_column_ids: RuntimeVariableList::new(
                 vec![DataColumnsByRootIdentifier {
                     block_root: Hash256::zero(),
-                    columns: RuntimeVariableList::from_vec(vec![0, 1, 2], number_of_columns),
+                    columns: VariableList::try_from(vec![0, 1, 2]).unwrap(),
                 }],
                 spec.max_request_blocks(fork_name),
             )
@@ -1081,11 +1092,11 @@ mod tests {
     }
 
     fn bbroot_request_v1(fork_name: ForkName, spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name, spec))
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name, spec)).unwrap()
     }
 
     fn bbroot_request_v2(fork_name: ForkName, spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name, spec))
+        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name, spec)).unwrap()
     }
 
     fn blbroot_request(fork_name: ForkName, spec: &ChainSpec) -> BlobsByRootRequest {
@@ -1096,6 +1107,7 @@ mod tests {
             }],
             &fork_context(fork_name, spec),
         )
+        .unwrap()
     }
 
     fn ping_message() -> Ping {
@@ -1294,7 +1306,7 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::StatusV1,
                 RpcResponse::Success(RpcSuccessResponse::Status(status_message_v2())),
-                ForkName::Fulu,
+                ForkName::Gloas,
                 &chain_spec,
             ),
             Ok(Some(RpcSuccessResponse::Status(status_message_v1())))
@@ -2283,7 +2295,7 @@ mod tests {
         ));
 
         // Request limits
-        let limit = protocol_id.rpc_request_limits(&fork_context.spec);
+        let limit = protocol_id.rpc_request_limits::<Spec>(&fork_context.spec);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
             protocol_id.clone(),

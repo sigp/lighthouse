@@ -4,6 +4,7 @@
 
 use crate::beacon_proposer_cache::{BeaconProposerCache, TYPICAL_SLOTS_PER_EPOCH};
 use crate::metrics;
+use bls::PublicKeyBytes;
 use itertools::Itertools;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
@@ -28,9 +29,10 @@ use types::consts::altair::{
 use types::{
     Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
-    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    IndexedAttestationRef, ProposerSlashing, SignedAggregateAndProof, SignedContributionAndProof,
+    Slot, SyncCommitteeMessage, VoluntaryExit,
 };
+
 /// Used for Prometheus labels.
 ///
 /// We've used `total` for this value to align with Nimbus, as per:
@@ -497,7 +499,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             });
 
         // Add missed non-finalized blocks for the monitored validators
-        self.add_validators_missed_blocks(state);
+        self.add_validators_missed_blocks(state, spec);
         self.process_unaggregated_attestations(state, spec);
 
         // Update metrics for individual validators.
@@ -588,7 +590,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Add missed non-finalized blocks for the monitored validators
-    fn add_validators_missed_blocks(&mut self, state: &BeaconState<E>) {
+    fn add_validators_missed_blocks(&mut self, state: &BeaconState<E>, spec: &ChainSpec) {
         // Define range variables
         let current_slot = state.slot();
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
@@ -616,8 +618,8 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 if block_root == prev_block_root {
                     let slot_epoch = slot.epoch(E::slots_per_epoch());
 
-                    if let Ok(shuffling_decision_block) =
-                        state.proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root)
+                    if let Ok(shuffling_decision_block) = state
+                        .proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root, spec)
                     {
                         // Update the cache if it has not yet been initialised, or if it is
                         // initialised for a prior epoch. This is an optimisation to avoid bouncing
@@ -1214,7 +1216,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            slot_clock.unagg_attestation_production_delay(),
+            Duration::from_secs(0),
             slot_clock,
         );
 

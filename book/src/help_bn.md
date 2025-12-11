@@ -22,7 +22,7 @@ Options:
           Data directory for the blobs database.
       --block-cache-size <SIZE>
           Specifies how many blocks the database should cache in memory
-          [default: 5]
+          [default: 0]
       --boot-nodes <ENR/MULTIADDR LIST>
           One or more comma-delimited base64-encoded ENR's to bootstrap the p2p
           network. Multiaddr is also supported.
@@ -395,6 +395,10 @@ Options:
       --telemetry-collector-url <URL>
           URL of the OpenTelemetry collector to export tracing spans (e.g.,
           http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
@@ -509,8 +513,6 @@ Flags:
           subscriptions. This will only import attestations from
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
-      --light-client-server
-          DEPRECATED
       --log-color [<log-color>]
           Enables/Disables colors for logs in terminal. Set it to false to
           disable colors. [default: true] [possible values: true, false]
@@ -550,6 +552,12 @@ Flags:
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a
           consensus failure caused by the execution layer.
+      --semi-supernode
+          Run in minimal reconstruction mode. This node will subscribe to and
+          custody half of the data columns (enough for reconstruction), enabling
+          efficient data availability with lower bandwidth and storage
+          requirements compared to a supernode, while still supporting full blob
+          reconstruction.
       --shutdown-after-sync
           Shutdown beacon node as soon as sync is completed. Backfill sync will
           not be performed before shutdown.
@@ -567,6 +575,13 @@ Flags:
           Subscribe to all subnets regardless of validator count. This will also
           advertise the beacon node as being long-lived subscribed to all
           subnets.
+      --supernode
+          Run as a voluntary supernode. This node will subscribe to all data
+          column subnets, custody all data columns, and perform reconstruction
+          and cross-seeding. This requires significantly more bandwidth,
+          storage, and computation requirements but the node will have direct
+          access to all blobs via the beacon API and it helps network resilience
+          by serving all data columns to syncing peers.
       --validator-monitor-auto
           Enables the automatic detection and monitoring of validators connected
           to the HTTP API and using the subnet subscription endpoint. This

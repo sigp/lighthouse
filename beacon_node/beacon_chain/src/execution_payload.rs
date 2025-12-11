@@ -24,7 +24,7 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::{Instrument, debug, debug_span, warn};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -403,8 +403,9 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
                     block_production_version,
                 )
                 .await
-            },
-            "get_execution_payload",
+            }
+            .instrument(debug_span!("prepare_execution_payload")),
+            "prepare_execution_payload",
         )
         .ok_or(BlockProductionError::ShuttingDown)?;
 
@@ -503,6 +504,7 @@ where
             },
             "prepare_execution_payload_forkchoice_update_params",
         )
+        .instrument(debug_span!("forkchoice_update_params"))
         .await
         .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
 

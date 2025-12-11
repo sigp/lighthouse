@@ -1,5 +1,6 @@
 use crate::{DumpConfig, common::vc_http_client};
 
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use eth2::types::{ConfigAndPreset, Epoch, StateId, ValidatorId, ValidatorStatus};
@@ -10,7 +11,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::fs::write;
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{ChainSpec, EthSpec, PublicKeyBytes};
+use types::{ChainSpec, EthSpec};
 
 pub const CMD: &str = "exit";
 pub const BEACON_URL_FLAG: &str = "beacon-node";
@@ -191,8 +192,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         // Only publish the voluntary exit if the --beacon-node flag is present
         if let Some(ref beacon_url) = beacon_url {
             let beacon_node = BeaconNodeHttpClient::new(
-                SensitiveUrl::parse(beacon_url.as_ref())
-                    .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+                beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
             );
 
@@ -399,7 +399,7 @@ mod test {
                 })
                 .collect();
 
-            let beacon_url = SensitiveUrl::parse(self.beacon_node.client.as_ref()).unwrap();
+            let beacon_url = self.beacon_node.client.server().clone();
 
             let validators_to_exit = index_of_validators_to_exit
                 .iter()

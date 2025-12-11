@@ -10,7 +10,6 @@ use state_processing::BlockReplayer;
 use std::sync::Arc;
 use store::OnDiskConsensusContext;
 use tracing::{Span, debug_span, instrument};
-use types::beacon_block_body::KzgCommitments;
 use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// This mirrors everything in the `AvailabilityPendingExecutedBlock`, except
@@ -41,15 +40,6 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
             .body()
             .blob_kzg_commitments()
             .map_or(0, |commitments| commitments.len())
-    }
-
-    pub fn get_commitments(&self) -> KzgCommitments<E> {
-        self.as_block()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .cloned()
-            .unwrap_or_default()
     }
 
     /// Returns the epoch corresponding to `self.slot()`.
@@ -113,8 +103,9 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         diet_executed_block: DietAvailabilityPendingExecutedBlock<T::EthSpec>,
         _span: &Span,
     ) -> Result<AvailabilityPendingExecutedBlock<T::EthSpec>, AvailabilityCheckError> {
-        let state = if let Some(state) = self.states.write().pop(&diet_executed_block.state_root) {
-            state
+        // Keep the state in the cache to prevent reconstruction in race conditions
+        let state = if let Some(state) = self.states.write().get(&diet_executed_block.state_root) {
+            state.clone()
         } else {
             self.reconstruct_state(&diet_executed_block)?
         };

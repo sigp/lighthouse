@@ -1,17 +1,19 @@
-use crate::interchange::{
-    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation as InterchangeAttestation,
-    SignedBlock as InterchangeBlock,
-};
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot, signing_root_from_row};
+use bls::PublicKeyBytes;
+use eip_3076::{
+    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation as InterchangeAttestation,
+    SignedBlock as InterchangeBlock,
+};
 use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
-use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
+use tracing::instrument;
+use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, SignedRoot, Slot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 
@@ -599,12 +601,47 @@ impl SlashingDatabase {
         Ok(safe)
     }
 
+    /// Check whether a block would be safe to sign if we were to sign it now.
+    ///
+    /// The database is not modified, and therefore multiple threads reading the database might get
+    /// the same result. Therefore:
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF A BLOCK IS SAFE TO SIGN!
+    pub fn preliminary_check_block_proposal(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        block_header: &BeaconBlockHeader,
+        domain: Hash256,
+    ) -> Result<Safe, NotSafe> {
+        #[allow(clippy::disallowed_methods)]
+        self.preliminary_check_block_signing_root(
+            validator_pubkey,
+            block_header.slot,
+            block_header.signing_root(domain).into(),
+        )
+    }
+
+    /// As for `preliminary_check_block_proposal` but without requiring the whole `BeaconBlockHeader`.
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF A BLOCK IS SAFE TO SIGN!
+    pub fn preliminary_check_block_signing_root(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        slot: Slot,
+        signing_root: SigningRoot,
+    ) -> Result<Safe, NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)
+    }
+
     /// Check an attestation for slash safety, and if it is safe, record it in the database.
     ///
     /// The checking and inserting happen atomically and exclusively. We enforce exclusivity
     /// to prevent concurrent checks and inserts from resulting in slashable data being inserted.
     ///
     /// This is the safe, externally-callable interface for checking attestations.
+    #[instrument(skip_all, level = "debug")]
     pub fn check_and_insert_attestation(
         &self,
         validator_pubkey: &PublicKeyBytes,
@@ -668,6 +705,49 @@ impl SlashingDatabase {
             )?;
         }
         Ok(safe)
+    }
+
+    /// Check whether an attestation would be safe to sign if we were to sign it now.
+    ///
+    /// The database is not modified, and therefore multiple threads reading the database might get
+    /// the same result. Therefore:
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF AN ATTESTATION IS SAFE TO SIGN!
+    pub fn preliminary_check_attestation(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        attestation: &AttestationData,
+        domain: Hash256,
+    ) -> Result<Safe, NotSafe> {
+        let attestation_signing_root = attestation.signing_root(domain).into();
+        #[allow(clippy::disallowed_methods)]
+        self.preliminary_check_attestation_signing_root(
+            validator_pubkey,
+            attestation.source.epoch,
+            attestation.target.epoch,
+            attestation_signing_root,
+        )
+    }
+
+    /// As for `preliminary_check_attestation` but without requiring the whole `AttestationData`.
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF AN ATTESTATION IS SAFE TO SIGN!
+    pub fn preliminary_check_attestation_signing_root(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        att_source_epoch: Epoch,
+        att_target_epoch: Epoch,
+        att_signing_root: SigningRoot,
+    ) -> Result<Safe, NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        self.check_attestation(
+            &txn,
+            validator_pubkey,
+            att_source_epoch,
+            att_target_epoch,
+            att_signing_root,
+        )
     }
 
     /// Import slashing protection from another client in the interchange format.
@@ -1142,7 +1222,7 @@ pub enum InterchangeError {
         interchange_file: Hash256,
         client: Hash256,
     },
-    MaxInconsistent,
+    Eip3076(eip_3076::Error),
     SummaryInconsistent,
     SQLError(String),
     SQLPoolError(r2d2::Error),

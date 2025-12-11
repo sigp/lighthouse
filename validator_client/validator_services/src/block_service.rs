@@ -1,5 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
-use bls::SignatureBytes;
+use bls::{PublicKeyBytes,SignatureBytes};
 use eth2::types::GraffitiPolicy;
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{GraffitiFile, determine_graffiti};
@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace, warn};
-use types::{BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes, Slot};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use types::{BlockType, ChainSpec, EthSpec, Graffiti, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
 #[derive(Debug)]
@@ -308,7 +308,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             self.inner.executor.spawn(
                 async move {
                     let result = service
-                        .publish_block(slot, validator_pubkey, builder_boost_factor)
+                        .get_validator_block_and_publish_block(slot, validator_pubkey, builder_boost_factor)
                         .await;
 
                     match result {
@@ -330,6 +330,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
     async fn sign_and_publish_block(
         &self,
         proposer_fallback: ProposerFallback<T>,
@@ -343,6 +344,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         let res = self
             .validator_store
             .sign_block(*validator_pubkey, unsigned_block, slot)
+            .instrument(info_span!("sign_block"))
             .await;
 
         let signed_block = match res {
@@ -399,7 +401,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
-    async fn publish_block(
+    #[instrument(
+        name = "block_proposal_duty_cycle",
+        skip_all,
+        fields(%slot, ?validator_pubkey)
+    )]
+    async fn get_validator_block_and_publish_block(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
@@ -452,125 +459,62 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         info!(slot = slot.as_u64(), "Requesting unsigned block");
 
-        // Request block from first responsive beacon node.
+        // Request an SSZ block from all beacon nodes in order, returning on the first successful response.
+        // If all nodes fail, run a second pass falling back to JSON.
         //
-        // Try the proposer nodes last, since it's likely that they don't have a
+        // Proposer nodes will always be tried last during each pass since it's likely that they don't have a
         // great view of attestations on the network.
-        let unsigned_block = proposer_fallback
+        let ssz_block_response = proposer_fallback
             .request_proposers_last(|beacon_node| async move {
                 let _get_timer = validator_metrics::start_timer_vec(
                     &validator_metrics::BLOCK_SERVICE_TIMES,
                     &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                 );
-                Self::get_validator_block(
-                    &beacon_node,
-                    slot,
-                    randao_reveal_ref,
-                    graffiti,
-                    proposer_index,
-                    builder_boost_factor,
-                    self_ref.graffiti_policy,
-                )
-                .await
-                .map_err(|e| {
-                    BlockError::Recoverable(format!(
-                        "Error from beacon node when producing block: {:?}",
-                        e
-                    ))
-                })
-            })
-            .await?;
-
-        self_ref
-            .sign_and_publish_block(
-                proposer_fallback,
-                slot,
-                graffiti,
-                &validator_pubkey,
-                unsigned_block,
-            )
-            .await?;
-
-        Ok(())
-    }
-
-    async fn publish_signed_block_contents(
-        &self,
-        signed_block: &SignedBlock<S::E>,
-        beacon_node: BeaconNodeHttpClient,
-    ) -> Result<(), BlockError> {
-        match signed_block {
-            SignedBlock::Full(signed_block) => {
-                let _post_timer = validator_metrics::start_timer_vec(
-                    &validator_metrics::BLOCK_SERVICE_TIMES,
-                    &[validator_metrics::BEACON_BLOCK_HTTP_POST],
-                );
                 beacon_node
-                    .post_beacon_blocks_v2_ssz(signed_block, None)
-                    .await
-                    .or_else(|e| {
-                        handle_block_post_error(e, signed_block.signed_block().message().slot())
-                    })?
-            }
-            SignedBlock::Blinded(signed_block) => {
-                let _post_timer = validator_metrics::start_timer_vec(
-                    &validator_metrics::BLOCK_SERVICE_TIMES,
-                    &[validator_metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
-                );
-                beacon_node
-                    .post_beacon_blinded_blocks_v2_ssz(signed_block, None)
-                    .await
-                    .or_else(|e| handle_block_post_error(e, signed_block.message().slot()))?
-            }
-        }
-        Ok::<_, BlockError>(())
-    }
-
-    async fn get_validator_block(
-        beacon_node: &BeaconNodeHttpClient,
-        slot: Slot,
-        randao_reveal_ref: &SignatureBytes,
-        graffiti: Option<Graffiti>,
-        proposer_index: Option<u64>,
-        builder_boost_factor: Option<u64>,
-        graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<UnsignedBlock<S::E>, BlockError> {
-        let block_response = match beacon_node
-            .get_validator_blocks_v3_ssz::<S::E>(
-                slot,
-                randao_reveal_ref,
-                graffiti.as_ref(),
-                builder_boost_factor,
-                graffiti_policy,
-            )
-            .await
-        {
-            Ok((ssz_block_response, _)) => ssz_block_response,
-            Err(e) => {
-                warn!(
-                    slot = slot.as_u64(),
-                    error = %e,
-                    "Beacon node does not support SSZ in block production, falling back to JSON"
-                );
-
-                let (json_block_response, _) = beacon_node
-                    .get_validator_blocks_v3::<S::E>(
+                    .get_validator_blocks_v3_ssz::<S::E>(
                         slot,
                         randao_reveal_ref,
                         graffiti.as_ref(),
                         builder_boost_factor,
-                        graffiti_policy,
                     )
                     .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!(
-                            "Error from beacon node when producing block: {:?}",
-                            e
-                        ))
-                    })?;
+            })
+            .await;
 
-                // Extract ProduceBlockV3Response (data field of the struct ForkVersionedResponse)
-                json_block_response.data
+        let block_response = match ssz_block_response {
+            Ok((ssz_block_response, _metadata)) => ssz_block_response,
+            Err(e) => {
+                warn!(
+                    slot = slot.as_u64(),
+                    error = %e,
+                    "SSZ block production failed, falling back to JSON"
+                );
+
+                proposer_fallback
+                    .request_proposers_last(|beacon_node| async move {
+                        let _get_timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::BLOCK_SERVICE_TIMES,
+                            &[validator_metrics::BEACON_BLOCK_HTTP_GET],
+                        );
+                        let (json_block_response, _metadata) = beacon_node
+                            .get_validator_blocks_v3::<S::E>(
+                                slot,
+                                randao_reveal_ref,
+                                graffiti.as_ref(),
+                                builder_boost_factor,
+                            )
+                            .await
+                            .map_err(|e| {
+                                BlockError::Recoverable(format!(
+                                    "Error from beacon node when producing block: {:?}",
+                                    e
+                                ))
+                            })?;
+
+                        Ok(json_block_response.data)
+                    })
+                    .await
+                    .map_err(BlockError::from)?
             }
         };
 
@@ -590,7 +534,53 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             ));
         }
 
-        Ok::<_, BlockError>(unsigned_block)
+        self_ref
+            .sign_and_publish_block(
+                proposer_fallback,
+                slot,
+                graffiti,
+                &validator_pubkey,
+                unsigned_block,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn publish_signed_block_contents(
+        &self,
+        signed_block: &SignedBlock<S::E>,
+        beacon_node: BeaconNodeHttpClient,
+    ) -> Result<(), BlockError> {
+        match signed_block {
+            SignedBlock::Full(signed_block) => {
+                let _post_timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::BLOCK_SERVICE_TIMES,
+                    &[validator_metrics::BEACON_BLOCK_HTTP_POST],
+                );
+                beacon_node
+                    .post_beacon_blocks_v2_ssz(signed_block, None)
+                    .await
+                    .map(|_| ())
+                    .or_else(|e| {
+                        handle_block_post_error(e, signed_block.signed_block().message().slot())
+                    })?
+            }
+            SignedBlock::Blinded(signed_block) => {
+                let _post_timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::BLOCK_SERVICE_TIMES,
+                    &[validator_metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
+                );
+
+                beacon_node
+                    .post_beacon_blinded_blocks_v2_ssz(signed_block, None)
+                    .await
+                    .map(|_| ())
+                    .or_else(|e| handle_block_post_error(e, signed_block.message().slot()))?;
+            }
+        }
+        Ok::<_, BlockError>(())
     }
 }
 

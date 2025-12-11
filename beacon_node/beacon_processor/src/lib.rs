@@ -59,7 +59,7 @@ use std::sync::Arc;
 use std::task::Context;
 use std::time::{Duration, Instant};
 use strum::IntoStaticStr;
-use task_executor::TaskExecutor;
+use task_executor::{RayonPoolType, TaskExecutor};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
@@ -123,10 +123,10 @@ pub struct BeaconProcessorQueueLengths {
     gossip_data_column_queue: usize,
     delayed_block_queue: usize,
     status_queue: usize,
-    bbrange_queue: usize,
-    bbroots_queue: usize,
-    blbroots_queue: usize,
-    blbrange_queue: usize,
+    block_brange_queue: usize,
+    block_broots_queue: usize,
+    blob_broots_queue: usize,
+    blob_brange_queue: usize,
     dcbroots_queue: usize,
     dcbrange_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
@@ -178,9 +178,10 @@ impl BeaconProcessorQueueLengths {
             unknown_light_client_update_queue: 128,
             rpc_block_queue: 1024,
             rpc_blob_queue: 1024,
-            // TODO(das): Placeholder values
-            rpc_custody_column_queue: 1000,
-            column_reconstruction_queue: 64,
+            // We don't request more than `PARENT_DEPTH_TOLERANCE` (32) lookups, so we can limit
+            // this queue size. With 48 max blobs per block, each column sidecar list could be up to 12MB.
+            rpc_custody_column_queue: 64,
+            column_reconstruction_queue: 1,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
@@ -188,11 +189,10 @@ impl BeaconProcessorQueueLengths {
             gossip_data_column_queue: 1024,
             delayed_block_queue: 1024,
             status_queue: 1024,
-            bbrange_queue: 1024,
-            bbroots_queue: 1024,
-            blbroots_queue: 1024,
-            blbrange_queue: 1024,
-            // TODO(das): pick proper values
+            block_brange_queue: 1024,
+            block_broots_queue: 1024,
+            blob_broots_queue: 1024,
+            blob_brange_queue: 1024,
             dcbroots_queue: 1024,
             dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
@@ -603,7 +603,7 @@ pub enum Work<E: EthSpec> {
         process_fn: BlockingFn,
     },
     ChainSegment(AsyncFn),
-    ChainSegmentBackfill(AsyncFn),
+    ChainSegmentBackfill(BlockingFn),
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
@@ -867,7 +867,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
         let mut rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
         let mut column_reconstruction_queue =
-            FifoQueue::new(queue_lengths.column_reconstruction_queue);
+            LifoQueue::new(queue_lengths.column_reconstruction_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
@@ -876,10 +876,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
 
         let mut status_queue = FifoQueue::new(queue_lengths.status_queue);
-        let mut bbrange_queue = FifoQueue::new(queue_lengths.bbrange_queue);
-        let mut bbroots_queue = FifoQueue::new(queue_lengths.bbroots_queue);
-        let mut blbroots_queue = FifoQueue::new(queue_lengths.blbroots_queue);
-        let mut blbrange_queue = FifoQueue::new(queue_lengths.blbrange_queue);
+        let mut block_brange_queue = FifoQueue::new(queue_lengths.block_brange_queue);
+        let mut block_broots_queue = FifoQueue::new(queue_lengths.block_broots_queue);
+        let mut blob_broots_queue = FifoQueue::new(queue_lengths.blob_broots_queue);
+        let mut blob_brange_queue = FifoQueue::new(queue_lengths.blob_brange_queue);
         let mut dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
         let mut dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
 
@@ -1190,13 +1190,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // and BlocksByRoot)
                             } else if let Some(item) = status_queue.pop() {
                                 Some(item)
-                            } else if let Some(item) = bbrange_queue.pop() {
+                            } else if let Some(item) = block_brange_queue.pop() {
                                 Some(item)
-                            } else if let Some(item) = bbroots_queue.pop() {
+                            } else if let Some(item) = block_broots_queue.pop() {
                                 Some(item)
-                            } else if let Some(item) = blbrange_queue.pop() {
+                            } else if let Some(item) = blob_brange_queue.pop() {
                                 Some(item)
-                            } else if let Some(item) = blbroots_queue.pop() {
+                            } else if let Some(item) = blob_broots_queue.pop() {
                                 Some(item)
                             } else if let Some(item) = dcbroots_queue.pop() {
                                 Some(item)
@@ -1354,17 +1354,21 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::RpcCustodyColumn { .. } => {
                                 rpc_custody_column_queue.push(work, work_id)
                             }
-                            Work::ColumnReconstruction(_) => {
-                                column_reconstruction_queue.push(work, work_id)
-                            }
+                            Work::ColumnReconstruction(_) => column_reconstruction_queue.push(work),
                             Work::ChainSegment { .. } => chain_segment_queue.push(work, work_id),
                             Work::ChainSegmentBackfill { .. } => {
                                 backfill_chain_segment.push(work, work_id)
                             }
                             Work::Status { .. } => status_queue.push(work, work_id),
-                            Work::BlocksByRangeRequest { .. } => bbrange_queue.push(work, work_id),
-                            Work::BlocksByRootsRequest { .. } => bbroots_queue.push(work, work_id),
-                            Work::BlobsByRangeRequest { .. } => blbrange_queue.push(work, work_id),
+                            Work::BlocksByRangeRequest { .. } => {
+                                block_brange_queue.push(work, work_id)
+                            }
+                            Work::BlocksByRootsRequest { .. } => {
+                                block_broots_queue.push(work, work_id)
+                            }
+                            Work::BlobsByRangeRequest { .. } => {
+                                blob_brange_queue.push(work, work_id)
+                            }
                             Work::LightClientBootstrapRequest { .. } => {
                                 lc_bootstrap_queue.push(work, work_id)
                             }
@@ -1386,7 +1390,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlsToExecutionChange { .. } => {
                                 gossip_bls_to_execution_change_queue.push(work, work_id)
                             }
-                            Work::BlobsByRootsRequest { .. } => blbroots_queue.push(work, work_id),
+                            Work::BlobsByRootsRequest { .. } => {
+                                blob_broots_queue.push(work, work_id)
+                            }
                             Work::DataColumnsByRootsRequest { .. } => {
                                 dcbroots_queue.push(work, work_id)
                             }
@@ -1402,11 +1408,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         Some(work_type)
                     }
                 };
-
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL,
-                    self.current_workers as i64,
-                );
 
                 if let Some(modified_queue_id) = modified_queue_id {
                     let queue_len = match modified_queue_id {
@@ -1442,10 +1443,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::ChainSegment => chain_segment_queue.len(),
                         WorkType::ChainSegmentBackfill => backfill_chain_segment.len(),
                         WorkType::Status => status_queue.len(),
-                        WorkType::BlocksByRangeRequest => blbrange_queue.len(),
-                        WorkType::BlocksByRootsRequest => blbroots_queue.len(),
-                        WorkType::BlobsByRangeRequest => bbrange_queue.len(),
-                        WorkType::BlobsByRootsRequest => bbroots_queue.len(),
+                        WorkType::BlocksByRangeRequest => block_brange_queue.len(),
+                        WorkType::BlocksByRootsRequest => block_broots_queue.len(),
+                        WorkType::BlobsByRangeRequest => blob_brange_queue.len(),
+                        WorkType::BlobsByRootsRequest => blob_broots_queue.len(),
                         WorkType::DataColumnsByRootsRequest => dcbroots_queue.len(),
                         WorkType::DataColumnsByRangeRequest => dcbrange_queue.len(),
                         WorkType::GossipBlsToExecutionChange => {
@@ -1518,6 +1519,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
         metrics::inc_counter_vec(
             &metrics::BEACON_PROCESSOR_WORK_EVENTS_STARTED_COUNT,
             &[work.str_id()],
+        );
+
+        metrics::inc_gauge_vec(
+            &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE,
+            &[work_id],
         );
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
@@ -1605,7 +1611,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
                 task_spawner.spawn_async(work)
             }
-            Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
+            Work::ChainSegmentBackfill(process_fn) => {
+                if self.config.enable_backfill_rate_limiting {
+                    task_spawner.spawn_blocking_with_rayon(RayonPoolType::LowPriority, process_fn)
+                } else {
+                    // use the global rayon thread pool if backfill rate limiting is disabled.
+                    task_spawner.spawn_blocking(process_fn)
+                }
+            }
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
                 BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),
                 BlockingOrAsync::Async(process_fn) => task_spawner.spawn_async(process_fn),
@@ -1667,6 +1680,21 @@ impl TaskSpawner {
             WORKER_TASK_NAME,
         )
     }
+
+    /// Spawns a blocking task on a rayon thread pool, dropping the `SendOnDrop` after task completion.
+    fn spawn_blocking_with_rayon<F>(self, rayon_pool_type: RayonPoolType, task: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.executor.spawn_blocking_with_rayon(
+            move || {
+                task();
+                drop(self.send_idle_on_drop)
+            },
+            rayon_pool_type,
+            WORKER_TASK_NAME,
+        )
+    }
 }
 
 /// This struct will send a message on `self.tx` when it is dropped. An error will be logged
@@ -1688,6 +1716,11 @@ pub struct SendOnDrop {
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
+        metrics::dec_gauge_vec(
+            &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE,
+            &[self.work_type.clone().into()],
+        );
+
         if let Err(e) = self.tx.try_send(self.work_type.clone()) {
             warn!(
                 msg = "did not free worker, shutdown may be underway",

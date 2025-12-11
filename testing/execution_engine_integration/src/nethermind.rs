@@ -1,12 +1,12 @@
 use crate::build_utils;
 use crate::execution_engine::GenericExecutionEngine;
 use crate::genesis_json::nethermind_genesis_json;
+use network_utils::unused_port::unused_tcp4_port;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use tempfile::TempDir;
-use unused_port::unused_tcp4_port;
 
 /// We've pinned the Nethermind version since our method of using the `master` branch to
 /// find the latest tag isn't working. It appears Nethermind don't always tag on `master`.

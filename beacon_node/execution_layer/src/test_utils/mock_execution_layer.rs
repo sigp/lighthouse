@@ -5,9 +5,10 @@ use crate::{
     *,
 };
 use alloy_primitives::B256 as H256;
+use fixed_bytes::FixedBytesExtended;
 use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::{FixedBytesExtended, MainnetEthSpec};
+use types::MainnetEthSpec;
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
@@ -29,6 +30,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             Arc::new(spec),
             None,
@@ -43,6 +45,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
@@ -60,7 +63,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             cancun_time,
             prague_time,
             osaka_time,
-            spec.clone(),
+            amsterdam_time,
             kzg,
         );
 

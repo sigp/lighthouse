@@ -1,4 +1,5 @@
 use super::*;
+use beacon_chain::test_utils::generate_data_column_indices_rand_order;
 use beacon_chain::{
     BeaconChain,
     builder::{BeaconChainBuilder, Witness},
@@ -73,6 +74,9 @@ impl TestBeaconChain {
                     Duration::from_secs(recent_genesis_time()),
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
+                .ordered_custody_column_indices(generate_data_column_indices_rand_order::<
+                    MainnetEthSpec,
+                >())
                 .shutdown_sender(shutdown_tx)
                 .rng(Box::new(StdRng::seed_from_u64(42)))
                 .build()
@@ -94,10 +98,9 @@ pub fn recent_genesis_time() -> u64 {
 
 fn get_tracing_subscriber(log_level: Option<&str>) {
     if let Some(level) = log_level {
-        tracing_subscriber::fmt()
+        let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init()
-            .unwrap();
+            .try_init();
     }
 }
 

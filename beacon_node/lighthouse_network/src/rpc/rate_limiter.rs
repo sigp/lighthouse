@@ -382,16 +382,41 @@ impl RPCRateLimiter {
 
     pub fn prune(&mut self) {
         let time_since_start = self.init_time.elapsed();
-        self.ping_rl.prune(time_since_start);
-        self.status_rl.prune(time_since_start);
-        self.metadata_rl.prune(time_since_start);
-        self.goodbye_rl.prune(time_since_start);
-        self.bbrange_rl.prune(time_since_start);
-        self.bbroots_rl.prune(time_since_start);
-        self.blbrange_rl.prune(time_since_start);
-        self.blbroot_rl.prune(time_since_start);
-        self.dcbrange_rl.prune(time_since_start);
-        self.dcbroot_rl.prune(time_since_start);
+
+        let Self {
+            prune_interval: _,
+            init_time: _,
+            goodbye_rl,
+            ping_rl,
+            metadata_rl,
+            status_rl,
+            bbrange_rl,
+            bbroots_rl,
+            blbrange_rl,
+            blbroot_rl,
+            dcbroot_rl,
+            dcbrange_rl,
+            lc_bootstrap_rl,
+            lc_optimistic_update_rl,
+            lc_finality_update_rl,
+            lc_updates_by_range_rl,
+            fork_context: _,
+        } = self;
+
+        goodbye_rl.prune(time_since_start);
+        ping_rl.prune(time_since_start);
+        metadata_rl.prune(time_since_start);
+        status_rl.prune(time_since_start);
+        bbrange_rl.prune(time_since_start);
+        bbroots_rl.prune(time_since_start);
+        blbrange_rl.prune(time_since_start);
+        blbroot_rl.prune(time_since_start);
+        dcbrange_rl.prune(time_since_start);
+        dcbroot_rl.prune(time_since_start);
+        lc_bootstrap_rl.prune(time_since_start);
+        lc_optimistic_update_rl.prune(time_since_start);
+        lc_finality_update_rl.prune(time_since_start);
+        lc_updates_by_range_rl.prune(time_since_start);
     }
 }
 

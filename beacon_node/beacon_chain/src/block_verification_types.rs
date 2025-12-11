@@ -2,14 +2,15 @@ use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
 use crate::{PayloadVerificationOutcome, get_block_root};
-use derivative::Derivative;
+use educe::Educe;
+use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
-    Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -25,8 +26,8 @@ use types::{
 /// Note: We make a distinction over blocks received over gossip because
 /// in a post-deneb world, the blobs corresponding to a given block that are received
 /// over rpc do not contain the proposer signature for dos resistance.
-#[derive(Clone, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
+#[derive(Clone, Educe)]
+#[educe(Hash(bound(E: EthSpec)))]
 pub struct RpcBlock<E: EthSpec> {
     block_root: Hash256,
     block: RpcBlockInner<E>,
@@ -79,8 +80,8 @@ impl<E: EthSpec> RpcBlock<E> {
 /// Note: This variant is intentionally private because we want to safely construct the
 /// internal variants after applying consistency checks to ensure that the block and blobs
 /// are consistent with respect to each other.
-#[derive(Debug, Clone, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Clone, Educe)]
+#[educe(Hash(bound(E: EthSpec)))]
 enum RpcBlockInner<E: EthSpec> {
     /// Single block lookup response. This should potentially hit the data availability cache.
     Block(Arc<SignedBeaconBlock<E>>),
@@ -151,7 +152,6 @@ impl<E: EthSpec> RpcBlock<E> {
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
         custody_columns: Vec<CustodyDataColumn<E>>,
-        spec: &ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
@@ -161,10 +161,7 @@ impl<E: EthSpec> RpcBlock<E> {
         }
         // Treat empty data column lists as if they are missing.
         let inner = if !custody_columns.is_empty() {
-            RpcBlockInner::BlockAndCustodyColumns(
-                block,
-                RuntimeVariableList::new(custody_columns, spec.number_of_columns as usize)?,
-            )
+            RpcBlockInner::BlockAndCustodyColumns(block, VariableList::new(custody_columns)?)
         } else {
             RpcBlockInner::Block(block)
         };

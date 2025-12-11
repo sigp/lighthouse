@@ -29,6 +29,7 @@ const CAPELLA_FORK_EPOCH: u64 = 1;
 const DENEB_FORK_EPOCH: u64 = 2;
 // const ELECTRA_FORK_EPOCH: u64 = 3;
 // const FULU_FORK_EPOCH: u64 = 4;
+// const GLOAS_FORK_EPOCH: u64 = 5;
 
 // Since simulator tests are non-deterministic and there is a non-zero chance of missed
 // attestations, define an acceptable network-wide attestation performance.
