@@ -569,12 +569,11 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         .flat_map(|data_col| {
             let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
             let column = (*data_col).clone().into_partial().column;
-            let all_cells = column.sidecar.cells_present_bitmap.clone();
             [
                 PubsubMessage::PartialDataColumnSidecar(Box::new((
                     subnet,
                     column,
-                    Some(all_cells),
+                    None,
                 ))),
                 PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
             ]
