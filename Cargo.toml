@@ -235,7 +235,7 @@ snap = "1"
 ssz_types = { version = "0.14.0", features = ["context_deserialize", "runtime_types"] }
 state_processing = { path = "consensus/state_processing" }
 store = { path = "beacon_node/store" }
-strum = { version = "0.24", features = ["derive"] }
+strum = { version = "0.27", features = ["derive"] }
 superstruct = "0.10"
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
 syn = "1"
