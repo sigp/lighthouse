@@ -102,7 +102,7 @@ pub struct ProtoNode {
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
-    /// block hash.
+    /// block hash. This is only used pre-Gloas.
     pub execution_status: ExecutionStatus,
     #[ssz(with = "four_byte_option_checkpoint")]
     pub unrealized_justified_checkpoint: Option<Checkpoint>,

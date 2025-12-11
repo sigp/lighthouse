@@ -2,7 +2,7 @@ use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
     ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz::{Decode, Encode};
@@ -240,6 +240,7 @@ pub struct QueuedAttestation {
     attesting_indices: Vec<u64>,
     block_root: Hash256,
     target_epoch: Epoch,
+    payload_present: bool,
 }
 
 impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
@@ -249,6 +250,8 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
             attesting_indices: a.attesting_indices_to_vec(),
             block_root: a.data().beacon_block_root,
             target_epoch: a.data().target.epoch,
+            // FIXME(sproul): replace by func?
+            payload_present: a.data().index == 1,
         }
     }
 }
@@ -1101,10 +1104,13 @@ where
 
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
+                // FIXME(sproul): backwards compat/fork abstraction
+                let payload_present = attestation.data().index == 1;
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.data().beacon_block_root,
-                    attestation.data().target.epoch,
+                    attestation.data().slot,
+                    payload_present,
                 )?;
             }
         } else {
@@ -1224,10 +1230,12 @@ where
             &mut self.queued_attestations,
         ) {
             for validator_index in attestation.attesting_indices.iter() {
+                // FIXME(sproul): backwards compat/fork abstraction
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.block_root,
-                    attestation.target_epoch,
+                    attestation.slot,
+                    attestation.payload_present,
                 )?;
             }
         }
@@ -1357,13 +1365,15 @@ where
 
     /// Returns the latest message for a given validator, if any.
     ///
-    /// Returns `(block_root, block_slot)`.
+    /// Returns `block_root, block_slot, payload_present`.
     ///
     /// ## Notes
     ///
     /// It may be prudent to call `Self::update_time` before calling this function,
     /// since some attestations might be queued and awaiting processing.
-    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
+    ///
+    /// This function is only used in tests.
+    pub fn latest_message(&self, validator_index: usize) -> Option<LatestMessage> {
         self.proto_array.latest_message(validator_index)
     }
 
