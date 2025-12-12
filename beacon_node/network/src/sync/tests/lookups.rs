@@ -160,7 +160,9 @@ impl TestRig {
             .chain_config(ChainConfig {
                 test_config: TestConfig {
                     disable_crypto: true,
-                    disable_execution_payload_verification: true,
+                    // Need to submit the payload for verification to produce the next payload on
+                    // top of a known block
+                    disable_execution_payload_verification: false,
                     disable_fetch_blobs: true,
                 },
                 ..Default::default()
@@ -651,7 +653,7 @@ impl TestRig {
                 .insert(block_root, block.clone());
             self.network_blocks_by_slot.insert(block_slot, block);
             self.log(&format!(
-                "Producing block {} index {i} in external harness",
+                "Produced block {} index {i} in external harness",
                 block_slot,
             ));
             blocks.push((block_slot, block_root));
