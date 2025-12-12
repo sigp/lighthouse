@@ -38,9 +38,9 @@ pub trait DasColumn<E: EthSpec>: Clone {
     fn iter(&self) -> impl Iterator<Item = Option<CellWithMetadata<'_, E>>>;
 
     fn compare<C: DasColumn<E>>(&self, rhs: &C) -> ColumnComparison {
-        if self.slot() == rhs.slot()
-            && self.index() == rhs.index()
-            && self.block_root() == rhs.block_root()
+        if self.slot() != rhs.slot()
+            || self.index() != rhs.index()
+            || self.block_root() != rhs.block_root()
         {
             return ColumnComparison::DifferentColumns;
         }
