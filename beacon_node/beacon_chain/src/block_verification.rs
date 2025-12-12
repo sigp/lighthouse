@@ -1422,15 +1422,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     started_execution,
                 );
             }
-            let payload_verification_status = if chain
-                .config
-                .test_config
-                .disable_execution_payload_verification
-            {
-                PayloadVerificationStatus::Optimistic
-            } else {
-                payload_notifier.notify_new_payload().await?
-            };
+
+            let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             Ok(PayloadVerificationOutcome {
                 payload_verification_status,

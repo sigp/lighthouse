@@ -118,6 +118,7 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     // TODO: Why not index lookups by block_root?
     single_block_lookups: FnvHashMap<SingleLookupId, SingleBlockLookup<T>>,
 
+    /// Used for testing assertions
     metrics: BlockLookupsMetrics,
 }
 
@@ -1051,7 +1052,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub(crate) struct BlockLookupsMetrics {
     pub created_lookups: usize,
     pub dropped_lookups: usize,

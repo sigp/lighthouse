@@ -446,12 +446,15 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 },
             },
             ReadyWork::RpcBlock(QueuedRpcBlock {
-                beacon_block_root: _,
+                beacon_block_root,
                 process_fn,
                 ignore_fn: _,
             }) => Self {
                 drop_during_sync: false,
-                work: Work::RpcBlock { process_fn },
+                work: Work::RpcBlock {
+                    process_fn,
+                    beacon_block_root,
+                },
             },
             ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock { process_fn }) => Self {
                 drop_during_sync: false,
@@ -592,6 +595,7 @@ pub enum Work<E: EthSpec> {
     GossipLightClientFinalityUpdate(BlockingFn),
     GossipLightClientOptimisticUpdate(BlockingFn),
     RpcBlock {
+        beacon_block_root: Hash256,
         process_fn: AsyncFn,
     },
     RpcBlobs {
@@ -1592,7 +1596,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_root: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock { process_fn }
+            Work::RpcBlock {
+                process_fn,
+                beacon_block_root: _,
+            }
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),

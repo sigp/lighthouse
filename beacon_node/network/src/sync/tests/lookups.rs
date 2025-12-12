@@ -65,7 +65,8 @@ pub struct CompleteStrategy {
     return_no_data_n_times: usize,
     return_too_few_data_n_times: usize,
     skip_by_range_routes: bool,
-    process_result: Option<BlockProcessingResult>,
+    // Use a callable fn because BlockProcessingResult does not implement Clone
+    process_result: Option<Box<dyn Fn() -> BlockProcessingResult + Send + Sync>>,
 }
 
 impl CompleteStrategy {
@@ -117,8 +118,11 @@ impl CompleteStrategy {
         self
     }
 
-    fn process_result(mut self: Self, result: BlockProcessingResult) -> Self {
-        self.process_result = Some(result);
+    fn process_result<F>(mut self, f: F) -> Self
+    where
+        F: Fn() -> BlockProcessingResult + Send + Sync + 'static,
+    {
+        self.process_result = Some(Box::new(f));
         self
     }
 }
@@ -143,7 +147,6 @@ impl TestRig {
             .chain_config(ChainConfig {
                 test_config: TestConfig {
                     disable_crypto: true,
-                    disable_execution_payload_verification: true,
                     disable_fetch_blobs: true,
                 },
                 ..Default::default()
@@ -160,9 +163,6 @@ impl TestRig {
             .chain_config(ChainConfig {
                 test_config: TestConfig {
                     disable_crypto: true,
-                    // Need to submit the payload for verification to produce the next payload on
-                    // top of a known block
-                    disable_execution_payload_verification: false,
                     disable_fetch_blobs: true,
                 },
                 ..Default::default()
@@ -257,6 +257,7 @@ impl TestRig {
             seen_lookups: <_>::default(),
             requests: <_>::default(),
             complete_strategy: <_>::default(),
+            initial_block_lookups_metrics: <_>::default(),
         }
     }
 
@@ -279,6 +280,7 @@ impl TestRig {
             } in self.sync_manager.active_single_lookups()
             {
                 let lookup = self.seen_lookups.entry(id).or_insert(SeenLookup {
+                    id,
                     block_root,
                     max_seen_peers: <_>::default(),
                 });
@@ -323,8 +325,23 @@ impl TestRig {
             if let Ok(event) = self.beacon_processor_rx.try_recv() {
                 self.log(&format!("Tick {i}: beacon_processor event: {event:?}"));
                 match event.work {
-                    Work::RpcBlock { process_fn }
-                    | Work::RpcBlobs { process_fn }
+                    Work::RpcBlock {
+                        process_fn,
+                        beacon_block_root,
+                    } => {
+                        if let Some(f) = self.complete_strategy.process_result.as_ref() {
+                            let lookup = self.lookup_by_root(beacon_block_root);
+                            let result = f();
+                            self.log(&format!("Sending custom process result: {result:?}"));
+                            self.push_sync_message(SyncMessage::BlockComponentProcessed {
+                                process_type: BlockProcessType::SingleBlock { id: lookup.id },
+                                result,
+                            });
+                        } else {
+                            process_fn.await
+                        }
+                    }
+                    Work::RpcBlobs { process_fn }
                     | Work::RpcCustodyColumn(process_fn)
                     | Work::ChainSegment(process_fn) => process_fn.await,
                     Work::Reprocess(_) => {} // ignore
@@ -335,6 +352,22 @@ impl TestRig {
 
             break;
         }
+
+        self.log("No more events in simulation");
+        self.log(&format!(
+            "Lookup metrics: {:?}",
+            self.sync_manager.block_lookups().metrics()
+        ));
+        self.log(&format!(
+            "Range sync metrics: {:?}",
+            self.sync_manager.range_sync().metrics()
+        ));
+        self.log(&format!(
+            "Max known slot: {}, Head slot: {}",
+            self.max_known_slot(),
+            self.head_slot()
+        ));
+        self.log(&format!("Penalties: {:?}", self.penalties));
     }
 
     fn simulate_on_request(
@@ -737,12 +770,20 @@ impl TestRig {
 
     // Post-test assertions
 
+    fn head_slot(&self) -> Slot {
+        self.harness.chain.head().head_slot()
+    }
+
     fn assert_head_slot(&self, slot: u64) {
-        assert_eq!(
-            self.harness.chain.head().head_slot(),
-            Slot::new(slot),
-            "Unexpected head slot"
-        );
+        assert_eq!(self.head_slot(), Slot::new(slot), "Unexpected head slot");
+    }
+
+    fn max_known_slot(&self) -> Slot {
+        self.network_blocks_by_slot
+            .keys()
+            .max()
+            .copied()
+            .expect("no blocks")
     }
 
     fn expect_penalties(&self, expected_penalties: &[&'static str]) {
@@ -763,13 +804,28 @@ impl TestRig {
         }
     }
 
+    fn expect_all_penalties_of_type(&self, expected_penalty: &'static str) {
+        let non_matching_penalties = self
+            .penalties
+            .iter()
+            .filter(|penalty| penalty.msg != expected_penalty)
+            .collect::<Vec<_>>();
+        if !non_matching_penalties.is_empty() {
+            panic!(
+                "Found non-matching penalties to {}: {:?}",
+                expected_penalty, non_matching_penalties
+            );
+        }
+    }
+
     fn assert_failed_lookup_sync(&mut self) {
         assert!(self.created_lookups() > 0, "no created lookups");
         assert_eq!(self.completed_lookups(), 0, "some completed lookups");
         assert_eq!(
             self.dropped_lookups(),
             self.created_lookups(),
-            "not all dropped"
+            "not all dropped. Current lookups {:?}",
+            self.active_single_lookups(),
         );
         self.expect_empty_network();
         self.expect_no_active_lookups();
@@ -777,18 +833,41 @@ impl TestRig {
 
     fn assert_successful_lookup_sync(&mut self) {
         assert!(self.created_lookups() > 0, "no created lookups");
+        assert_eq!(self.dropped_lookups(), 0, "some dropped lookups");
         assert_eq!(
             self.completed_lookups(),
+            self.created_lookups(),
+            "not all lookups completed. Current lookups {:?}",
+            self.active_single_lookups(),
+        );
+        self.expect_empty_network();
+        self.expect_no_active_lookups();
+    }
+
+    /// There is a lookup created with the block that triggers the unknown message that can't be
+    /// completed because it has zero peers
+    fn assert_successful_lookup_sync_parent_trigger(&mut self) {
+        assert!(self.created_lookups() > 0, "no created lookups");
+        assert_eq!(
+            self.completed_lookups() + 1,
             self.created_lookups(),
             "not all completed"
         );
         assert_eq!(self.dropped_lookups(), 0, "some dropped lookups");
         self.expect_empty_network();
-        self.expect_no_active_lookups();
     }
 
+    /// Assert there is at least one range sync chain created and that all sync chains completed
     fn assert_successful_range_sync(&self) {
-        todo!("Check that range sync run, completed, no failed chains");
+        assert!(
+            self.range_sync_chains_added() > 0,
+            "No created range sync chains"
+        );
+        assert_eq!(
+            self.range_sync_chains_added(),
+            self.range_sync_chains_removed(),
+            "Not all chains completed"
+        );
     }
 
     fn lookup_at_slot(&self, slot: u64) -> &SeenLookup {
@@ -811,19 +890,29 @@ impl TestRig {
 
     /// Total count of unique lookups created
     fn created_lookups(&self) -> usize {
+        // Substract initial value to allow resetting metrics mid test
         self.sync_manager.block_lookups().metrics().created_lookups
+            - self.initial_block_lookups_metrics.created_lookups
     }
 
     /// Total count of lookups completed or dropped
     fn dropped_lookups(&self) -> usize {
+        // Substract initial value to allow resetting metrics mid test
         self.sync_manager.block_lookups().metrics().dropped_lookups
+            - self.initial_block_lookups_metrics.dropped_lookups
     }
 
     fn completed_lookups(&self) -> usize {
+        // Substract initial value to allow resetting metrics mid test
         self.sync_manager
             .block_lookups()
             .metrics()
             .completed_lookups
+            - self.initial_block_lookups_metrics.completed_lookups
+    }
+
+    fn reset_metrics(&mut self) {
+        self.initial_block_lookups_metrics = self.sync_manager.block_lookups().metrics().clone()
     }
 
     fn lookup_by_root(&self, block_root: Hash256) -> &SeenLookup {
@@ -831,6 +920,14 @@ impl TestRig {
             .values()
             .find(|lookup| lookup.block_root == block_root)
             .unwrap_or_else(|| panic!("No loookup for block_root {block_root}"))
+    }
+
+    fn range_sync_chains_added(&self) -> usize {
+        self.sync_manager.range_sync().metrics().chains_added
+    }
+
+    fn range_sync_chains_removed(&self) -> usize {
+        self.sync_manager.range_sync().metrics().chains_removed
     }
 
     // Test setup
@@ -1784,6 +1881,13 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     r.build_chain(depth).await;
     r.trigger_with_last_unknown_block_parent();
     r.simulate(CompleteStrategy::happy_path()).await;
+    // All lookups should NOT complete on this test, however note the following for the tip lookup,
+    // it's the lookup for the tip block which has 0 peers and a block cached:
+    // - before deneb the block is cached, so it's sent for processing, and success
+    // - before fulu the block is cached, but we can't fetch blobs so it's stuck
+    // - after fulu the block is cached, we start a custody request and since we use the global pool
+    //   of peers we DO have 1 connected synced supernode peer, which gives us the columns and the
+    //   lookup succeeds
     r.assert_successful_lookup_sync();
 }
 
@@ -1799,7 +1903,7 @@ async fn happy_path_unknown_data_parent(depth: usize) {
         r.trigger_with_last_unknown_blob_parent();
     }
     r.simulate(CompleteStrategy::happy_path()).await;
-    r.assert_successful_lookup_sync();
+    r.assert_successful_lookup_sync_parent_trigger();
 }
 
 /// Assert that multiple trigger types don't create extra lookups
@@ -1913,11 +2017,12 @@ async fn too_many_download_failures(depth: usize) {
     r.simulate(CompleteStrategy::new().return_no_blocks_always())
         .await;
     // We register multiple penalties, the lookup fails and sync does not progress
-    r.expect_penalties(&["NotEnoughResponsesReturned"; PARENT_FAIL_TOLERANCE as usize]);
+    r.expect_all_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_failed_lookup_sync();
 
     // Trigger sync again for same block, and complete successfully.
     // Asserts that the lookup is not on a blacklist
+    r.reset_metrics();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
@@ -1929,17 +2034,17 @@ async fn too_many_processing_failures(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
-        CompleteStrategy::new().process_result(BlockProcessingResult::Err(
-            BlockError::BlockSlotLimitReached,
-        )),
+        CompleteStrategy::new()
+            .process_result(|| BlockProcessingResult::Err(BlockError::BlockSlotLimitReached)),
     )
     .await;
     // We register multiple penalties, the lookup fails and sync does not progress
-    r.expect_penalties(&["NotEnoughResponsesReturned"; PARENT_FAIL_TOLERANCE as usize]);
+    r.expect_all_penalties_of_type("lookup_block_processing_failure");
     r.assert_failed_lookup_sync();
 
     // Trigger sync again for same block, and complete successfully.
     // Asserts that the lookup is not on a blacklist
+    r.reset_metrics();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
@@ -1973,11 +2078,13 @@ async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::test_setup();
     r.build_chain_and_trigger_last_block(1).await;
     // Send an Ignored response, the request should be dropped
-    r.simulate(CompleteStrategy::new().process_result(BlockProcessingResult::Ignored))
+    r.simulate(CompleteStrategy::new().process_result(|| BlockProcessingResult::Ignored))
         .await;
     // The block was not actually imported
     r.assert_head_slot(0);
-    r.assert_successful_lookup_sync();
+    assert_eq!(r.created_lookups(), 1, "no created lookups");
+    assert_eq!(r.dropped_lookups(), 1, "no dropped lookups");
+    assert_eq!(r.completed_lookups(), 0, "some completed lookups");
 }
 
 #[tokio::test]
@@ -1986,11 +2093,9 @@ async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::test_setup();
     r.build_chain_and_trigger_last_block(1).await;
     // Send an Ignored response, the request should be dropped
-    r.simulate(
-        CompleteStrategy::new().process_result(BlockProcessingResult::Err(
-            BlockError::DuplicateFullyImported(Hash256::ZERO),
-        )),
-    )
+    r.simulate(CompleteStrategy::new().process_result(|| {
+        BlockProcessingResult::Err(BlockError::DuplicateFullyImported(Hash256::ZERO))
+    }))
     .await;
     // The block was not actually imported
     r.assert_head_slot(0);
@@ -2001,19 +2106,21 @@ async fn test_single_block_lookup_duplicate_response() {
 async fn peer_disconnected_then_rpc_error(depth: usize) {
     let mut r = TestRig::test_setup();
     r.build_chain_and_trigger_last_block(depth).await;
-    r.assert_single_lookups_count(depth);
+    r.assert_single_lookups_count(1);
     // The peer disconnect event reaches sync before the rpc error.
     r.disconnect_all_peers();
     // The lookup is not removed as it can still potentially make progress.
-    r.assert_single_lookups_count(depth);
+    r.assert_single_lookups_count(1);
     r.simulate(CompleteStrategy::new().return_rpc_error(RPCError::Disconnected))
         .await;
 
-    assert!(r.created_lookups() > 0, "no created lookups");
+    // Regardless of depth, only the initial lookup is created, because the peer disconnects before
+    // being able to download the block
+    assert_eq!(r.created_lookups(), 1, "no created lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
     assert_eq!(r.dropped_lookups(), 0, "some dropped lookups");
     r.expect_empty_network();
-    r.assert_single_lookups_count(depth);
+    r.assert_single_lookups_count(1);
 }
 
 #[tokio::test]
@@ -2128,7 +2235,11 @@ async fn test_parent_lookup_too_deep_grow_tip() {
 
     assert!(r.created_lookups() > 0, "no created lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
-    assert!(r.dropped_lookups() > 0, "no dropped lookups");
+    assert_eq!(
+        r.dropped_lookups(),
+        r.created_lookups(),
+        "no dropped lookups"
+    );
     r.assert_successful_range_sync();
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     r.expect_no_penalties();

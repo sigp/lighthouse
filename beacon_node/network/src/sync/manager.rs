@@ -334,6 +334,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn range_sync(&self) -> &RangeSync<T> {
+        &self.range_sync
+    }
+
+    #[cfg(test)]
     pub(crate) fn active_single_lookups(&self) -> Vec<super::block_lookups::BlockLookupSummary> {
         self.block_lookups.active_single_lookups()
     }

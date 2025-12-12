@@ -1,5 +1,6 @@
 use crate::NetworkMessage;
 use crate::sync::SyncMessage;
+use crate::sync::block_lookups::BlockLookupsMetrics;
 use crate::sync::manager::SyncManager;
 use crate::sync::tests::lookups::CompleteStrategy;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -84,10 +85,14 @@ struct TestRig {
     requests: Vec<(RequestType<E>, AppRequestId)>,
     /// Persistent config on how to complete request
     complete_strategy: CompleteStrategy,
+    /// Metrics values to allow a reset
+    initial_block_lookups_metrics: BlockLookupsMetrics,
 }
 
 #[derive(Debug)]
 struct SeenLookup {
+    /// Lookup's Id
+    id: Id,
     block_root: Hash256,
     max_seen_peers: HashSet<PeerId>,
 }
