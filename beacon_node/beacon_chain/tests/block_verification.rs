@@ -415,7 +415,7 @@ async fn chain_segment_non_linear_parent_roots() {
 
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        Some(AvailableBlockData::NoData),
+        blocks[3].block_data().cloned(),
         harness.chain.data_availability_checker.clone(),
         harness.spec.clone(),
     )
@@ -455,7 +455,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = Slot::new(0);
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        Some(AvailableBlockData::NoData),
+        blocks[3].block_data().cloned(),
         harness.chain.data_availability_checker.clone(),
         harness.spec.clone(),
     )
@@ -485,7 +485,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = blocks[2].slot();
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        Some(AvailableBlockData::NoData),
+        blocks[3].block_data().cloned(),
         harness.chain.data_availability_checker.clone(),
         harness.chain.spec.clone(),
     )
