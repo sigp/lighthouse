@@ -5542,7 +5542,6 @@ fn get_finalized_epoch_boundary_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
@@ -5551,7 +5550,6 @@ fn get_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
 }

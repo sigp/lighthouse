@@ -3031,7 +3031,6 @@ where
         let chain_dump = self.chain.chain_dump().unwrap();
         chain_dump
             .iter()
-            .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
             .filter(|block_hash| *block_hash != Hash256::zero())
             .map(|hash| hash.into())
