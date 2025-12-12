@@ -980,7 +980,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %slot,
                             %block_root,
                             %index,
-                            "Could not verify column sidecar for gossip. Rejecting the column sidecar"
+                            "Could not verify partial column for gossip. Rejecting the column sidecar"
                         );
                         // Prevent recurring behaviour by penalizing the peer slightly.
                         self.gossip_penalize_peer(

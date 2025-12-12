@@ -72,17 +72,11 @@ where
             return Err((Some(col_index), KzgError::KzgVerificationFailed));
         }
 
-        for cell in data_column.column() {
-            cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (Some(col_index), e))?);
+        for data in data_column.iter().flatten() {
+            cells.push(ssz_cell_to_crypto_cell::<E>(data.cell).map_err(|e| (Some(col_index), e))?);
             column_indices.push(col_index);
-        }
-
-        for &proof in data_column.kzg_proofs() {
-            proofs.push(Bytes48::from(proof));
-        }
-
-        for &commitment in data_column.kzg_commitments() {
-            commitments.push(Bytes48::from(commitment));
+            proofs.push(Bytes48::from(*data.proof));
+            commitments.push(Bytes48::from(*data.commitment));
         }
 
         let expected_len = column_indices.len();

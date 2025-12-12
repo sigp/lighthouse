@@ -345,16 +345,15 @@ impl<E: EthSpec> DasColumn<E> for VerifiablePartialDataColumn<E> {
         let mut present_iterator = sidecar
             .column
             .iter()
-            .zip(self.kzg_commitments.iter())
-            .zip(sidecar.kzg_proofs.iter())
-            .map(|((cell, commitment), proof)| CellWithMetadata {
-                cell,
-                commitment,
-                proof,
-            });
-        sidecar.cells_present_bitmap.iter().map(move |present| {
+            .zip(sidecar.kzg_proofs.iter());
+        sidecar.cells_present_bitmap.iter().zip(self.kzg_commitments.iter()).map(move |(present, commitment)| {
             if present {
-                present_iterator.next()
+                let (cell, proof) = present_iterator.next()?;
+                Some(CellWithMetadata {
+                    cell,
+                    proof,
+                    commitment,
+                })
             } else {
                 None
             }
