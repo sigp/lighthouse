@@ -3,7 +3,8 @@ use std::{marker::PhantomData, sync::Arc};
 use rand::{RngCore, SeedableRng};
 use rand_xorshift::XorShiftRng;
 use smallvec::{SmallVec, smallvec};
-use ssz_types::{VariableList, typenum::Unsigned};
+use ssz_types::VariableList;
+use typenum::Unsigned;
 
 pub fn test_random_instance<T: TestRandom>() -> T {
     let mut rng = XorShiftRng::from_seed([0x42; 16]);

@@ -8,13 +8,14 @@ use beacon_chain::{
         OP_POOL_DB_KEY,
     },
 };
+use bls::Keypair;
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, Keypair,
-    MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, MinimalEthSpec,
+    RelativeEpoch, Slot,
 };
 
 type E = MinimalEthSpec;

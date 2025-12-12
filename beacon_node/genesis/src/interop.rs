@@ -1,12 +1,10 @@
 use crate::common::genesis_deposits;
+use bls::{Keypair, PublicKey, Signature};
 use ethereum_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
-use types::{
-    BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256, Keypair,
-    PublicKey, Signature,
-};
+use types::{BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256};
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
 

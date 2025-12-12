@@ -11,6 +11,7 @@ use state_processing::SigVerifiedOp;
 use std::collections::HashSet;
 use std::mem;
 use store::{DBColumn, Error as StoreError, StoreItem};
+use superstruct::superstruct;
 use types::attestation::AttestationOnDisk;
 use types::*;
 

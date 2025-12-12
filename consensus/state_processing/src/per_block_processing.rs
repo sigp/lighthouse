@@ -5,6 +5,7 @@ use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
+use typenum::Unsigned;
 use types::*;
 
 pub use self::verify_attester_slashing::{

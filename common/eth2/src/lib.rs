@@ -28,6 +28,8 @@ pub use sensitive_url::SensitiveUrl;
 
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
+use bls::SignatureBytes;
+use context_deserialize::ContextDeserialize;
 use educe::Educe;
 #[cfg(feature = "events")]
 use futures::Stream;
