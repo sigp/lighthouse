@@ -3271,6 +3271,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             }
 
             if Some(block_root) != last_pruned_block_root
+                && block_root != split_block_root
                 && self.execution_payload_exists(&block_root)?
             {
                 debug!(%slot, ?block_root, "Pruning execution payload");
