@@ -72,6 +72,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn metrics(&self) -> &ChainCollectionMetrics {
         &self.metrics
     }

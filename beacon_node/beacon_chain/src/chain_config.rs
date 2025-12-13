@@ -125,7 +125,7 @@ pub struct ChainConfig {
     pub test_config: TestConfig,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct TestConfig {
     /// FOR TESTING ONLY: Disable crypto verification to speed up tests
     pub disable_crypto: bool,

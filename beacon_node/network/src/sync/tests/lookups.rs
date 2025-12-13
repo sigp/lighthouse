@@ -69,27 +69,27 @@ impl CompleteStrategy {
         Self::default()
     }
 
-    fn return_no_blocks_always(mut self: Self) -> Self {
+    fn return_no_blocks_always(mut self) -> Self {
         self.return_no_blocks_n_times = usize::MAX;
         self
     }
 
-    fn return_no_blocks_once(mut self: Self) -> Self {
+    fn return_no_blocks_once(mut self) -> Self {
         self.return_no_blocks_n_times = 1;
         self
     }
 
-    fn return_no_data_once(mut self: Self) -> Self {
+    fn return_no_data_once(mut self) -> Self {
         self.return_no_data_n_times = 1;
         self
     }
 
-    fn return_wrong_blocks_once(mut self: Self) -> Self {
+    fn return_wrong_blocks_once(mut self) -> Self {
         self.return_wrong_blocks_n_times = 1;
         self
     }
 
-    fn return_wrong_sidecar_for_block_once(mut self: Self) -> Self {
+    fn return_wrong_sidecar_for_block_once(mut self) -> Self {
         self.return_wrong_sidecar_for_block_n_times = 1;
         self
     }
@@ -105,12 +105,12 @@ impl CompleteStrategy {
         self
     }
 
-    fn return_rpc_error(mut self: Self, error: RPCError) -> Self {
+    fn return_rpc_error(mut self, error: RPCError) -> Self {
         self.return_rpc_error = Some(error);
         self
     }
 
-    fn no_range_sync(mut self: Self) -> Self {
+    fn no_range_sync(mut self) -> Self {
         self.skip_by_range_routes = true;
         self
     }
@@ -386,18 +386,18 @@ impl TestRig {
     ) {
         self.requests.push((request.clone(), app_req_id));
 
-        if let AppRequestId::Sync(req_id) = app_req_id {
-            if let Some(error) = self.complete_strategy.return_rpc_error.take() {
-                self.log(&format!(
-                    "Completing request {req_id:?} to {peer_id} with RPCError {error:?}"
-                ));
-                self.send_sync_message(SyncMessage::RpcError {
-                    sync_request_id: req_id,
-                    peer_id,
-                    error,
-                });
-                return;
-            }
+        if let AppRequestId::Sync(req_id) = app_req_id
+            && let Some(error) = self.complete_strategy.return_rpc_error.take()
+        {
+            self.log(&format!(
+                "Completing request {req_id:?} to {peer_id} with RPCError {error:?}"
+            ));
+            self.send_sync_message(SyncMessage::RpcError {
+                sync_request_id: req_id,
+                peer_id,
+                error,
+            });
+            return;
         }
 
         match (request, app_req_id) {
@@ -984,10 +984,6 @@ impl TestRig {
         } else {
             None
         }
-    }
-
-    pub fn new_after_fulu() -> Option<Self> {
-        genesis_fork().fulu_enabled().then(Self::default)
     }
 
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {

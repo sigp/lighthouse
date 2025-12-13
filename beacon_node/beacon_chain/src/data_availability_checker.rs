@@ -1203,6 +1203,7 @@ mod test {
             kzg,
             store,
             custody_context,
+            &TestConfig::default(),
             spec,
         )
         .expect("should initialise data availability checker")
