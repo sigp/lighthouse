@@ -5,6 +5,7 @@ use crate::sync::manager::SyncManager;
 use crate::sync::tests::lookups::CompleteStrategy;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::Witness;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RequestType;
@@ -87,6 +88,39 @@ struct TestRig {
     complete_strategy: CompleteStrategy,
     /// Metrics values to allow a reset
     initial_block_lookups_metrics: BlockLookupsMetrics,
+    /// Fulu test type
+    fulu_test_type: FuluTestType,
+}
+
+enum FuluTestType {
+    WeSupernodeThemSupernode,
+    WeSupernodeThemFullnodes,
+    WeFullnodeThemSupernode,
+    WeFullnodeThemFullnodes,
+}
+
+impl FuluTestType {
+    fn we_node_custody_type(&self) -> NodeCustodyType {
+        match self {
+            Self::WeSupernodeThemSupernode | Self::WeSupernodeThemFullnodes => {
+                NodeCustodyType::Supernode
+            }
+            Self::WeFullnodeThemSupernode | Self::WeFullnodeThemFullnodes => {
+                NodeCustodyType::Fullnode
+            }
+        }
+    }
+
+    fn them_node_custody_type(&self) -> NodeCustodyType {
+        match self {
+            Self::WeSupernodeThemSupernode | Self::WeFullnodeThemSupernode => {
+                NodeCustodyType::Supernode
+            }
+            Self::WeSupernodeThemFullnodes | Self::WeFullnodeThemFullnodes => {
+                NodeCustodyType::Fullnode
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

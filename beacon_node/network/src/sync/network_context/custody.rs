@@ -301,7 +301,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     },
                     // If peer is in the lookup peer set, it claims to have imported the block and
                     // must have its columns in custody. In that case, set `true = enforce max_requests`
-                    // and downscore if data_columns_by_root does not returned the expected custody
+                    // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
                     lookup_peers.contains(&peer_id),
                 )

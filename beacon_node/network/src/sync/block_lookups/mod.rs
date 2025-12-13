@@ -132,7 +132,6 @@ use lighthouse_network::service::api_types::Id;
 pub(crate) struct BlockLookupSummary {
     pub id: Id,
     pub block_root: Hash256,
-    pub awaiting_parent: Option<Hash256>,
     pub peers: Vec<PeerId>,
 }
 
@@ -169,7 +168,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .map(|(id, l)| BlockLookupSummary {
                 id: *id,
                 block_root: l.block_root(),
-                awaiting_parent: l.awaiting_parent(),
                 peers: l.all_peers(),
             })
             .collect()
