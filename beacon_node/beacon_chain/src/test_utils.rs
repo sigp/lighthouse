@@ -20,6 +20,9 @@ pub use crate::{
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
 };
 use bls::get_withdrawal_credentials;
+use bls::{
+    AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
+};
 use eth2::types::SignedBlockContentsTuple;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
@@ -30,6 +33,7 @@ use execution_layer::{
         MockExecutionLayer,
     },
 };
+use fixed_bytes::FixedBytesExtended;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
@@ -46,6 +50,7 @@ use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::{RuntimeVariableList, VariableList};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -60,12 +65,13 @@ use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
 use tree_hash::TreeHash;
+use typenum::U4294967296;
 use types::data_column_custody_group::CustodyIndex;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
 use types::test_utils::TestRandom;
 pub use types::test_utils::generate_deterministic_keypairs;
-use types::{typenum::U4294967296, *};
+use types::*;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -2923,7 +2929,6 @@ where
         let chain_dump = self.chain.chain_dump().unwrap();
         chain_dump
             .iter()
-            .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
             .filter(|block_hash| *block_hash != Hash256::zero())
             .map(|hash| hash.into())
@@ -3281,7 +3286,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
-    let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+    let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
     let mut blob_sidecars = vec![];
 
     let bundle = match block {

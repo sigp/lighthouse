@@ -6,6 +6,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
 };
+use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
 use eth2::{
     BeaconNodeHttpClient, Error,
     Error::ServerMessage,
@@ -21,6 +22,7 @@ use execution_layer::test_utils::{
     DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_GAS_LIMIT, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
     MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
+use fixed_bytes::FixedBytesExtended;
 use futures::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use http_api::{
@@ -34,6 +36,7 @@ use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
+use ssz::BitList;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
@@ -43,9 +46,8 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
-    AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
-    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, SingleAttestation, Slot,
-    attestation::AttestationBase,
+    Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
+    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
 };
 
 type E = MainnetEthSpec;
@@ -2853,9 +2855,19 @@ impl ApiTester {
 
         let expected = IdentityData {
             peer_id: self.local_enr.peer_id().to_string(),
-            enr: self.local_enr.clone(),
-            p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
-            discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
+            enr: self.local_enr.to_base64(),
+            p2p_addresses: self
+                .local_enr
+                .multiaddr_p2p_tcp()
+                .iter()
+                .map(|a| a.to_string())
+                .collect(),
+            discovery_addresses: self
+                .local_enr
+                .multiaddr_p2p_udp()
+                .iter()
+                .map(|a| a.to_string())
+                .collect(),
             metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
@@ -2884,7 +2896,7 @@ impl ApiTester {
     pub async fn test_get_node_peers_by_id(self) -> Self {
         let result = self
             .client
-            .get_node_peers_by_id(self.external_peer_id)
+            .get_node_peers_by_id(&self.external_peer_id.to_string())
             .await
             .unwrap()
             .data;

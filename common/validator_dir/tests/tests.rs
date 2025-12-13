@@ -1,10 +1,11 @@
 #![cfg(not(debug_assertions))]
 
+use bls::Keypair;
 use eth2_keystore::{Keystore, KeystoreBuilder, PlainText};
 use std::fs::{self, File};
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
-use types::{EthSpec, Keypair, MainnetEthSpec, test_utils::generate_deterministic_keypair};
+use types::{EthSpec, MainnetEthSpec, test_utils::generate_deterministic_keypair};
 use validator_dir::{
     Builder, BuilderError, ETH1_DEPOSIT_DATA_FILE, ETH1_DEPOSIT_TX_HASH_FILE, VOTING_KEYSTORE_FILE,
     ValidatorDir, WITHDRAWAL_KEYSTORE_FILE,

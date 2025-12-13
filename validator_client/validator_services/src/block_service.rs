@@ -1,4 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
+use bls::PublicKeyBytes;
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
@@ -11,7 +12,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use types::{BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes, Slot};
+use types::{BlockType, ChainSpec, EthSpec, Graffiti, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
 #[derive(Debug)]

@@ -5,11 +5,12 @@ mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
+use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use types::{
-    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, FixedBytesExtended,
-    Hash256, MainnetEthSpec, Slot,
+    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    MainnetEthSpec, Slot,
 };
 
 pub use execution_status::*;

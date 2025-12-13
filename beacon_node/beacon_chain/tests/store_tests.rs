@@ -25,11 +25,14 @@ use beacon_chain::{
     historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
+use bls::{Keypair, Signature, SignatureBytes};
+use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
 use rand::rngs::StdRng;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -5525,7 +5528,6 @@ fn get_finalized_epoch_boundary_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
@@ -5534,7 +5536,6 @@ fn get_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
 }
