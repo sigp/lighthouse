@@ -191,19 +191,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedBlob<T, O> {
             )
         })
     }
-    /// Construct a `GossipVerifiedBlob` that is assumed to be valid.
-    ///
-    /// This should ONLY be used for testing.
-    pub fn __assumed_valid(blob: Arc<BlobSidecar<T::EthSpec>>) -> Self {
-        Self {
-            block_root: blob.block_root(),
-            blob: KzgVerifiedBlob {
-                blob,
-                seen_timestamp: Duration::from_secs(0),
-            },
-            _phantom: PhantomData,
-        }
-    }
+
     pub fn id(&self) -> BlobIdentifier {
         BlobIdentifier {
             block_root: self.block_root,

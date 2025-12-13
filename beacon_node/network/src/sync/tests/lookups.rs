@@ -11,12 +11,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::sync::block_lookups::common::ResponseType;
+use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::chain_config::TestConfig;
 use beacon_chain::custody_context::NodeCustodyType;
-use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, ChainConfig, NotifyExecutionLayer,
-    blob_verification::GossipVerifiedBlob,
     block_verification_types::AsBlock,
     data_availability_checker::Availability,
     test_utils::{
@@ -57,7 +56,8 @@ pub struct CompleteStrategy {
     return_no_columns_on_indices: Vec<ColumnIndex>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
-    process_result: Option<Box<dyn Fn() -> BlockProcessingResult + Send + Sync>>,
+    process_result_conditional:
+        Option<Box<dyn Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync>>,
 }
 
 impl CompleteStrategy {
@@ -119,7 +119,15 @@ impl CompleteStrategy {
     where
         F: Fn() -> BlockProcessingResult + Send + Sync + 'static,
     {
-        self.process_result = Some(Box::new(f));
+        self.process_result_conditional = Some(Box::new(move |_| Some(f())));
+        self
+    }
+
+    fn process_result_conditional<F>(mut self, f: F) -> Self
+    where
+        F: Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync + 'static,
+    {
+        self.process_result_conditional = Some(Box::new(f));
         self
     }
 }
@@ -337,9 +345,10 @@ impl TestRig {
                         process_fn,
                         beacon_block_root,
                     } => {
-                        if let Some(f) = self.complete_strategy.process_result.as_ref() {
+                        if let Some(f) = self.complete_strategy.process_result_conditional.as_ref()
+                            && let Some(result) = f(beacon_block_root)
+                        {
                             let lookup = self.lookup_by_root(beacon_block_root);
-                            let result = f();
                             self.log(&format!("Sending custom process result: {result:?}"));
                             self.push_sync_message(SyncMessage::BlockComponentProcessed {
                                 process_type: BlockProcessType::SingleBlock { id: lookup.id },
@@ -1067,10 +1076,6 @@ impl TestRig {
         self.sync_manager.active_single_lookups().len()
     }
 
-    fn active_parent_lookups(&self) -> Vec<Vec<Hash256>> {
-        self.sync_manager.active_parent_lookups()
-    }
-
     fn assert_single_lookups_count(&self, count: usize) {
         assert_eq!(
             self.active_single_lookups_count(),
@@ -1091,14 +1096,6 @@ impl TestRig {
         }
     }
 
-    fn find_single_lookup_for(&self, block_root: Hash256) -> Id {
-        self.active_single_lookups()
-            .iter()
-            .find(|l| l.block_root == block_root)
-            .unwrap_or_else(|| panic!("no single block lookup found for {block_root}"))
-            .id
-    }
-
     #[track_caller]
     fn expect_no_active_single_lookups(&self) {
         assert!(
@@ -1111,11 +1108,6 @@ impl TestRig {
     #[track_caller]
     fn expect_no_active_lookups(&self) {
         self.expect_no_active_single_lookups();
-    }
-
-    fn expect_no_active_lookups_empty_network(&mut self) {
-        self.expect_no_active_lookups();
-        self.expect_empty_network();
     }
 
     pub fn new_connected_peer(&mut self) -> PeerId {
@@ -1155,103 +1147,6 @@ impl TestRig {
                 self.new_connected_supernode_peer();
             }
         }
-    }
-
-    /// Locate a parent lookup chain with tip hash `chain_hash`
-    fn find_oldest_parent_lookup(&self, chain_hash: Hash256) -> Hash256 {
-        let parent_chain = self
-            .active_parent_lookups()
-            .into_iter()
-            .find(|chain| chain.first() == Some(&chain_hash))
-            .unwrap_or_else(|| {
-                panic!(
-                    "No parent chain with chain_hash {chain_hash:?}: Parent lookups {:?} Single lookups {:?}",
-                    self.active_parent_lookups(),
-                    self.active_single_lookups(),
-                )
-            });
-        *parent_chain.last().unwrap()
-    }
-
-    fn parent_block_processed(&mut self, chain_hash: Hash256, result: BlockProcessingResult) {
-        let id = self.find_single_lookup_for(self.find_oldest_parent_lookup(chain_hash));
-        self.single_block_component_processed(id, result);
-    }
-
-    fn single_block_component_processed(&mut self, id: Id, result: BlockProcessingResult) {
-        self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type: BlockProcessType::SingleBlock { id },
-            result,
-        })
-    }
-
-    fn single_block_component_processed_imported(&mut self, block_root: Hash256) {
-        let id = self.find_single_lookup_for(block_root);
-        self.single_block_component_processed(
-            id,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        )
-    }
-
-    fn parent_lookup_block_response(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
-    ) {
-        self.log("parent_lookup_block_response");
-        self.send_sync_message(SyncMessage::RpcBlock {
-            sync_request_id: SyncRequestId::SingleBlock { id },
-            peer_id,
-            beacon_block,
-            seen_timestamp: D,
-        });
-    }
-
-    fn single_lookup_block_response(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
-    ) {
-        self.log("single_lookup_block_response");
-        self.send_sync_message(SyncMessage::RpcBlock {
-            sync_request_id: SyncRequestId::SingleBlock { id },
-            peer_id,
-            beacon_block,
-            seen_timestamp: D,
-        });
-    }
-
-    fn complete_lookup_block_download(&mut self, block: SignedBeaconBlock<E>) {
-        let block_root = block.canonical_root();
-        let id = self.expect_block_lookup_request(block_root);
-        self.expect_empty_network();
-        let peer_id = self.new_connected_peer();
-        self.single_lookup_block_response(id, peer_id, Some(block.into()));
-        self.single_lookup_block_response(id, peer_id, None);
-    }
-
-    fn complete_lookup_block_import_valid(&mut self, block_root: Hash256, import: bool) {
-        self.expect_block_process(ResponseType::Block);
-        let id = self.find_single_lookup_for(block_root);
-        self.single_block_component_processed(
-            id,
-            if import {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root))
-            } else {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    Slot::new(0),
-                    block_root,
-                ))
-            },
-        )
-    }
-
-    fn complete_single_lookup_block_valid(&mut self, block: SignedBeaconBlock<E>, import: bool) {
-        let block_root = block.canonical_root();
-        self.complete_lookup_block_download(block);
-        self.complete_lookup_block_import_valid(block_root, import)
     }
 
     pub fn peer_disconnected(&mut self, peer_id: PeerId) {
@@ -1340,60 +1235,6 @@ impl TestRig {
         }
     }
 
-    fn find_block_lookup_request(
-        &mut self,
-        for_block: Hash256,
-    ) -> Result<SingleLookupReqId, String> {
-        self.pop_received_network_event(|ev| match ev {
-            NetworkMessage::SendRequest {
-                peer_id: _,
-                request: RequestType::BlocksByRoot(request),
-                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
-            } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
-            _ => None,
-        })
-    }
-
-    #[track_caller]
-    fn expect_block_lookup_request(&mut self, for_block: Hash256) -> SingleLookupReqId {
-        self.find_block_lookup_request(for_block)
-            .unwrap_or_else(|e| panic!("Expected block request for {for_block:?}: {e}"))
-    }
-
-    #[track_caller]
-    fn expect_block_parent_request(&mut self, for_block: Hash256) -> SingleLookupReqId {
-        self.pop_received_network_event(|ev| match ev {
-            NetworkMessage::SendRequest {
-                peer_id: _,
-                request: RequestType::BlocksByRoot(request),
-                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
-            } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
-            _ => None,
-        })
-        .unwrap_or_else(|e| panic!("Expected block parent request for {for_block:?}: {e}"))
-    }
-
-    #[track_caller]
-    fn expect_block_process(&mut self, response_type: ResponseType) {
-        match response_type {
-            ResponseType::Block => self
-                .pop_received_processor_event(|ev| {
-                    (ev.work_type() == beacon_processor::WorkType::RpcBlock).then_some(())
-                })
-                .unwrap_or_else(|e| panic!("Expected block work event: {e}")),
-            ResponseType::Blob => self
-                .pop_received_processor_event(|ev| {
-                    (ev.work_type() == beacon_processor::WorkType::RpcBlobs).then_some(())
-                })
-                .unwrap_or_else(|e| panic!("Expected blobs work event: {e}")),
-            ResponseType::CustodyColumn => self
-                .pop_received_processor_event(|ev| {
-                    (ev.work_type() == beacon_processor::WorkType::RpcCustodyColumn).then_some(())
-                })
-                .unwrap_or_else(|e| panic!("Expected column work event: {e}")),
-        }
-    }
-
     #[allow(dead_code)]
     fn expect_no_work_event(&mut self) {
         self.drain_processor_rx();
@@ -1431,20 +1272,6 @@ impl TestRig {
             .collect::<Vec<_>>();
         if !downscore_events.is_empty() {
             panic!("Some downscore events: {downscore_events:?}");
-        }
-    }
-
-    #[track_caller]
-    fn expect_parent_chain_process(&mut self) {
-        match self.beacon_processor_rx.try_recv() {
-            Ok(work) => {
-                // Parent chain sends blocks one by one
-                assert_eq!(work.work_type(), beacon_processor::WorkType::RpcBlock);
-            }
-            other => panic!(
-                "Expected rpc_block from chain segment process, found {:?}",
-                other
-            ),
         }
     }
 
@@ -1521,16 +1348,17 @@ impl TestRig {
         }
     }
 
-    fn insert_blob_to_da_checker(&mut self, blob: BlobSidecar<E>) {
+    fn insert_blob_to_da_checker(&mut self, blob: Arc<BlobSidecar<E>>) {
         match self
             .harness
             .chain
             .data_availability_checker
-            .put_gossip_verified_blobs(
+            .put_kzg_verified_blobs(
                 blob.block_root(),
-                std::iter::once(GossipVerifiedBlob::<_, Observe>::__assumed_valid(
-                    blob.into(),
-                )),
+                std::iter::once(
+                    KzgVerifiedBlob::new(blob, &self.harness.chain.kzg, Duration::new(0, 0))
+                        .expect("Invalid blob"),
+                ),
             )
             .unwrap()
         {
@@ -2091,59 +1919,34 @@ fn test_skip_creating_ignored_parent_lookup() {
 }
 
 /// This is a regression test.
-#[test]
-fn test_same_chain_race_condition() {
-    let mut rig = TestRig::default();
+/// Test added in https://github.com/sigp/lighthouse/commit/84c7d8cc7006a6f1f1bb5729ab222b9f85f72727
+#[tokio::test]
+async fn test_same_chain_race_condition() {
+    let mut r = TestRig::default();
 
     // if we use one or two blocks it will match on the hash or the parent hash, so make a longer
     // chain.
     let depth = 4;
-    let mut blocks = rig.rand_blockchain(depth);
-    let peer_id = rig.new_connected_peer();
-    let trigger_block = blocks.pop().unwrap();
-    let chain_hash = trigger_block.canonical_root();
-    rig.trigger_unknown_parent_block(peer_id, trigger_block.clone());
+    r.build_chain(depth).await;
+    r.trigger_with_last_block();
 
-    for (i, block) in blocks.clone().into_iter().rev().enumerate() {
-        let id = rig.expect_block_parent_request(block.canonical_root());
-        // the block
-        rig.parent_lookup_block_response(id, peer_id, Some(block.clone()));
-        // the stream termination
-        rig.parent_lookup_block_response(id, peer_id, None);
-        // the processing request
-        rig.expect_block_process(ResponseType::Block);
-        // the processing result
-        if i + 2 == depth {
-            rig.log(&format!("Block {i} was removed and is already known"));
-            rig.parent_block_processed(
-                chain_hash,
-                BlockError::DuplicateFullyImported(block.canonical_root()).into(),
-            )
-        } else {
-            rig.log(&format!("Block {i} ParentUnknown"));
-            rig.parent_block_processed(
-                chain_hash,
-                BlockProcessingResult::Err(BlockError::ParentUnknown {
-                    parent_root: block.parent_root(),
-                }),
-            )
-        }
-    }
+    let block_root_to_skip = r.block_root_at_slot(3);
+    r.simulate(
+        CompleteStrategy::new().process_result_conditional(move |block_root| {
+            if block_root == block_root_to_skip {
+                Some(BlockProcessingResult::Err(
+                    BlockError::DuplicateFullyImported(block_root),
+                ))
+            } else {
+                None
+            }
+        }),
+    )
+    .await;
 
     // Try to get this block again while the chain is being processed. We should not request it again.
-    let peer_id = rig.new_connected_peer();
-    rig.trigger_unknown_parent_block(peer_id, trigger_block.clone());
-    rig.expect_empty_network();
-
-    // Add a peer to the tip child lookup which has zero peers
-    rig.trigger_unknown_block_from_attestation(trigger_block.canonical_root(), peer_id);
-
-    rig.log("Processing succeeds, now the rest of the chain should be sent for processing.");
-    for block in blocks.iter().skip(1).chain(&[trigger_block]) {
-        rig.expect_parent_chain_process();
-        rig.single_block_component_processed_imported(block.canonical_root());
-    }
-    rig.expect_no_active_lookups_empty_network();
+    r.trigger_with_last_block();
+    r.assert_successful_lookup_sync();
 }
 
 #[tokio::test]
@@ -2215,24 +2018,28 @@ async fn block_in_processing_cache_becomes_valid_imported() {
 }
 
 // IGNORE: wait for change that delays blob fetching to knowing the block
-#[ignore]
-#[test]
-fn blobs_in_da_checker_skip_download() {
+#[tokio::test]
+async fn blobs_in_da_checker_skip_download() {
     let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
         return;
     };
-    let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
-    let block_root = block.canonical_root();
-    let peer_id = r.new_connected_peer();
-    for blob in blobs {
-        r.insert_blob_to_da_checker(blob);
+    r.build_chain(1).await;
+    let block = r.get_last_block().clone();
+    for blob in block.blobs().expect("block with no blobs") {
+        r.insert_blob_to_da_checker(blob.clone());
     }
-    r.trigger_unknown_block_from_attestation(block_root, peer_id);
-    // Should download and process the block
-    r.complete_single_lookup_block_valid(block, true);
-    // Should not trigger blob request
-    r.expect_empty_network();
-    r.expect_no_active_lookups();
+    r.trigger_with_last_block();
+    r.simulate(CompleteStrategy::happy_path()).await;
+
+    r.assert_successful_lookup_sync();
+    assert_eq!(
+        r.requests
+            .iter()
+            .filter(|(request, _)| matches!(request, RequestType::BlobsByRoot(_)))
+            .collect::<Vec<_>>(),
+        Vec::<&(RequestType<E>, AppRequestId)>::new(),
+        "There should be no blob requests"
+    );
 }
 
 macro_rules! fulu_peer_matrix_tests {
