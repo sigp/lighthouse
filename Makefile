@@ -223,7 +223,7 @@ test-op-pool-%:
 test-network: $(patsubst %,test-network-%,$(RECENT_FORKS))
 
 test-network-%:
-	env FORK_NAME=$* cargo nextest run --release \
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
 		--features "fork_from_env,$(TEST_FEATURES)" \
 		-p network
 

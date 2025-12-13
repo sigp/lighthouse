@@ -11,6 +11,7 @@ use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::api_types::{AppRequestId, Id};
 use lighthouse_network::{NetworkGlobals, PeerId};
+use rand::Rng;
 use rand_chacha::ChaCha20Rng;
 use slot_clock::ManualSlotClock;
 use std::collections::{HashMap, HashSet};
@@ -64,6 +65,8 @@ struct TestRig {
     network_rx_queue: Vec<NetworkMessage<E>>,
     /// Receiver for `SyncMessage` from the network
     sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
+    /// Stores all `SyncMessage`s received from `sync_rx`
+    sync_rx_queue: Vec<SyncMessage<E>>,
     /// To send `SyncMessage`. For sending RPC responses or block processing results to sync.
     sync_manager: SyncManager<T>,
     /// To manipulate sync state and peer connection status
@@ -86,6 +89,10 @@ struct TestRig {
     requests: Vec<(RequestType<E>, AppRequestId)>,
     /// Persistent config on how to complete request
     complete_strategy: CompleteStrategy,
+    /// Configure how to deque events
+    sync_rx_dequeue_strategy: DequeueEventStrategy,
+    network_rx_dequeue_strategy: DequeueEventStrategy,
+    beacon_processor_rx_dequeue_strategy: DequeueEventStrategy,
     /// Metrics values to allow a reset
     initial_block_lookups_metrics: BlockLookupsMetrics,
     /// Fulu test type
@@ -119,6 +126,25 @@ impl FuluTestType {
             Self::WeSupernodeThemFullnodes | Self::WeFullnodeThemFullnodes => {
                 NodeCustodyType::Fullnode
             }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum DequeueEventStrategy {
+    Random,
+    FIFO,
+}
+
+impl DequeueEventStrategy {
+    fn dequeue<T>(&self, rng: &mut ChaCha20Rng, v: &mut Vec<T>) -> T {
+        match self {
+            Self::Random => {
+                let idx = rng.random_range(0..v.len());
+                v.remove(idx)
+            }
+            Self::FIFO => v.remove(0),
         }
     }
 }

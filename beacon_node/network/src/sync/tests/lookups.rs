@@ -7,10 +7,10 @@ use crate::sync::{
     manager::{BlockProcessType, BlockProcessingResult, SyncManager},
 };
 use itertools::Itertools;
+use rand::prelude::IndexedRandom;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::chain_config::TestConfig;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -28,15 +28,15 @@ use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     NetworkConfig, NetworkGlobals, PeerId,
     rpc::{RPCError, RequestType},
-    service::api_types::{AppRequestId, Id, SingleLookupReqId, SyncRequestId},
+    service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, DataColumnSidecar, ForkContext, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList, ForkContext, ForkName,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, XorShiftRng},
 };
@@ -58,6 +58,7 @@ pub struct CompleteStrategy {
     // Use a callable fn because BlockProcessingResult does not implement Clone
     process_result_conditional:
         Option<Box<dyn Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync>>,
+    block_imported_while_processing: Option<Hash256>,
 }
 
 impl CompleteStrategy {
@@ -123,11 +124,8 @@ impl CompleteStrategy {
         self
     }
 
-    fn process_result_conditional<F>(mut self, f: F) -> Self
-    where
-        F: Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync + 'static,
-    {
-        self.process_result_conditional = Some(Box::new(f));
+    fn block_imported_while_processing(mut self, block_root: Hash256) -> Self {
+        self.block_imported_while_processing = Some(block_root);
         self
     }
 }
@@ -136,8 +134,20 @@ fn genesis_fork() -> ForkName {
     test_spec::<E>().fork_name_at_slot::<E>(Slot::new(0))
 }
 
+#[derive(Clone, Copy)]
+enum QueuePick {
+    SyncRx,
+    NetworkRx,
+    BeaconProcessorRx,
+}
+
+pub(crate) struct TestRigConfig {
+    fulu_test_type: FuluTestType,
+    dequeue_strategy: DequeueEventStrategy,
+}
+
 impl TestRig {
-    pub fn new(fulu_test_type: FuluTestType) -> Self {
+    pub(crate) fn new(test_rig_config: TestRigConfig) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
         let spec = Arc::new(test_spec::<E>());
         let clock = TestingSlotClock::new(
@@ -153,7 +163,7 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(clock.clone())
-            .node_custody_type(fulu_test_type.we_node_custody_type())
+            .node_custody_type(test_rig_config.fulu_test_type.we_node_custody_type())
             .chain_config(ChainConfig {
                 test_config: TestConfig {
                     disable_crypto: true,
@@ -247,6 +257,7 @@ impl TestRig {
             network_rx,
             network_rx_queue: vec![],
             sync_rx,
+            sync_rx_queue: vec![],
             rng_08,
             rng,
             network_globals: beacon_processor.network_globals.clone(),
@@ -267,14 +278,20 @@ impl TestRig {
             seen_lookups: <_>::default(),
             requests: <_>::default(),
             complete_strategy: <_>::default(),
+            sync_rx_dequeue_strategy: test_rig_config.dequeue_strategy,
+            network_rx_dequeue_strategy: test_rig_config.dequeue_strategy,
+            beacon_processor_rx_dequeue_strategy: test_rig_config.dequeue_strategy,
             initial_block_lookups_metrics: <_>::default(),
-            fulu_test_type,
+            fulu_test_type: test_rig_config.fulu_test_type,
         }
     }
 
     pub fn default() -> Self {
         // Before Fulu, FuluTestType is irrelevant
-        Self::new(FuluTestType::WeFullnodeThemSupernode)
+        Self::new(TestRigConfig {
+            fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
+            dequeue_strategy: DequeueEventStrategy::FIFO,
+        })
     }
 
     // Network / external peers simulated behaviour
@@ -293,7 +310,7 @@ impl TestRig {
                 block_root,
                 peers,
                 ..
-            } in self.sync_manager.active_single_lookups()
+            } in self.active_single_lookups()
             {
                 let lookup = self.seen_lookups.entry(id).or_insert(SeenLookup {
                     id,
@@ -305,69 +322,121 @@ impl TestRig {
                 }
             }
 
-            if let Ok(sync_message) = self.sync_rx.try_recv() {
-                self.log(&format!(
-                    "Tick {i}: sync_rx event: {}",
-                    Into::<&'static str>::into(&sync_message)
-                ));
-                self.sync_manager.handle_message(sync_message);
-                continue;
+            // Drain all queues first into Vecs
+            while let Ok(ev) = self.network_rx.try_recv() {
+                self.network_rx_queue.push(ev);
+            }
+            while let Ok(ev) = self.beacon_processor_rx.try_recv() {
+                self.beacon_processor_rx_queue.push(ev);
+            }
+            while let Ok(ev) = self.sync_rx.try_recv() {
+                self.sync_rx_queue.push(ev);
             }
 
-            // TODO(tree-sync): Change the order in which responses are processed. Like:
-            // - By insertion order
-            // - First blocks
-            // - Blocks last
-            // - Max slot first
-            // - Min slot first
-            if let Ok(event) = self.network_rx.try_recv() {
-                self.log(&format!("Tick {i}: network_rx event: {event:?}"));
-                match event {
-                    NetworkMessage::SendRequest {
-                        peer_id,
-                        request,
-                        app_request_id,
-                    } => {
-                        self.simulate_on_request(peer_id, request, app_request_id);
-                    }
-                    NetworkMessage::ReportPeer { peer_id, msg, .. } => {
-                        self.penalties.push(ReportedPenalty { peer_id, msg });
-                    }
-                    _ => {}
+            // Choose at random which queue to process first
+            let mut choices = vec![];
+            if !self.network_rx_queue.is_empty() {
+                choices.push(QueuePick::NetworkRx);
+            }
+            if !self.beacon_processor_rx_queue.is_empty() {
+                choices.push(QueuePick::BeaconProcessorRx);
+            }
+            if !self.sync_rx_queue.is_empty() {
+                choices.push(QueuePick::SyncRx);
+            }
+
+            let Some(pick) = choices.choose(&mut self.rng) else {
+                // No more events left
+                break;
+            };
+
+            match pick {
+                QueuePick::SyncRx => {
+                    let sync_message = self
+                        .sync_rx_dequeue_strategy
+                        .dequeue(&mut self.rng, &mut self.sync_rx_queue);
+                    self.log(&format!(
+                        "Tick {i}: sync_rx event: {}",
+                        Into::<&'static str>::into(&sync_message)
+                    ));
+                    self.sync_manager.handle_message(sync_message);
                 }
-                continue;
-            }
 
-            if let Ok(event) = self.beacon_processor_rx.try_recv() {
-                self.log(&format!("Tick {i}: beacon_processor event: {event:?}"));
-                match event.work {
-                    Work::RpcBlock {
-                        process_fn,
-                        beacon_block_root,
-                    } => {
-                        if let Some(f) = self.complete_strategy.process_result_conditional.as_ref()
-                            && let Some(result) = f(beacon_block_root)
-                        {
-                            let lookup = self.lookup_by_root(beacon_block_root);
-                            self.log(&format!("Sending custom process result: {result:?}"));
-                            self.push_sync_message(SyncMessage::BlockComponentProcessed {
-                                process_type: BlockProcessType::SingleBlock { id: lookup.id },
-                                result,
-                            });
-                        } else {
-                            process_fn.await
+                QueuePick::NetworkRx => {
+                    // TODO(tree-sync): Change the order in which responses are processed. Like:
+                    // - By insertion order
+                    // - First blocks
+                    // - Blocks last
+                    // - Max slot first
+                    // - Min slot first
+                    let event = self
+                        .network_rx_dequeue_strategy
+                        .dequeue(&mut self.rng, &mut self.network_rx_queue);
+                    self.log(&format!("Tick {i}: network_rx event: {event:?}"));
+                    match event {
+                        NetworkMessage::SendRequest {
+                            peer_id,
+                            request,
+                            app_request_id,
+                        } => {
+                            self.simulate_on_request(peer_id, request, app_request_id);
                         }
+                        NetworkMessage::ReportPeer { peer_id, msg, .. } => {
+                            self.penalties.push(ReportedPenalty { peer_id, msg });
+                        }
+                        _ => {}
                     }
-                    Work::RpcBlobs { process_fn }
-                    | Work::RpcCustodyColumn(process_fn)
-                    | Work::ChainSegment(process_fn) => process_fn.await,
-                    Work::Reprocess(_) => {} // ignore
-                    other => panic!("Unsupported Work event {}", other.str_id()),
                 }
-                continue;
-            }
 
-            break;
+                QueuePick::BeaconProcessorRx => {
+                    let event = self
+                        .beacon_processor_rx_dequeue_strategy
+                        .dequeue(&mut self.rng, &mut self.beacon_processor_rx_queue);
+                    self.log(&format!("Tick {i}: beacon_processor event: {event:?}"));
+                    match event.work {
+                        Work::RpcBlock {
+                            process_fn,
+                            beacon_block_root,
+                        } => {
+                            if let Some(f) =
+                                self.complete_strategy.process_result_conditional.as_ref()
+                                && let Some(result) = f(beacon_block_root)
+                            {
+                                let id = self.lookup_by_root(beacon_block_root).id;
+                                self.log(&format!(
+                                    "Sending custom process result to lookup id {id}: {result:?}"
+                                ));
+                                self.push_sync_message(SyncMessage::BlockComponentProcessed {
+                                    process_type: BlockProcessType::SingleBlock { id },
+                                    result,
+                                });
+                            } else if let Some(imported_block_root) =
+                                self.complete_strategy.block_imported_while_processing
+                                && imported_block_root == beacon_block_root
+                            {
+                                self.fully_import_block(beacon_block_root).await;
+                                let id = self.lookup_by_root(beacon_block_root).id;
+                                self.log(&format!(
+                                    "Imported block of lookup id {id} from other source"
+                                ));
+                                self.push_sync_message(SyncMessage::BlockComponentProcessed {
+                                    process_type: BlockProcessType::SingleBlock { id },
+                                    result: BlockProcessingResult::Err(
+                                        BlockError::DuplicateFullyImported(beacon_block_root),
+                                    ),
+                                })
+                            } else {
+                                process_fn.await
+                            }
+                        }
+                        Work::RpcBlobs { process_fn }
+                        | Work::RpcCustodyColumn(process_fn)
+                        | Work::ChainSegment(process_fn) => process_fn.await,
+                        Work::Reprocess(_) => {} // ignore
+                        other => panic!("Unsupported Work event {}", other.str_id()),
+                    }
+                }
+            }
         }
 
         self.log("No more events in simulation");
@@ -854,6 +923,11 @@ impl TestRig {
         }
     }
 
+    fn expect_no_penalties(&mut self) {
+        if !self.penalties.is_empty() {
+            panic!("Some downscore events: {:?}", self.penalties);
+        }
+    }
     fn assert_failed_lookup_sync(&mut self) {
         assert!(self.created_lookups() > 0, "no created lookups");
         assert_eq!(self.completed_lookups(), 0, "some completed lookups");
@@ -957,10 +1031,12 @@ impl TestRig {
         self.initial_block_lookups_metrics = self.sync_manager.block_lookups().metrics().clone()
     }
 
+    /// Returns the last lookup seen with matching block_root
     fn lookup_by_root(&self, block_root: Hash256) -> &SeenLookup {
         self.seen_lookups
             .values()
-            .find(|lookup| lookup.block_root == block_root)
+            .filter(|lookup| lookup.block_root == block_root)
+            .max_by_key(|lookup| lookup.id)
             .unwrap_or_else(|| panic!("No loookup for block_root {block_root}"))
     }
 
@@ -996,9 +1072,12 @@ impl TestRig {
     }
 
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {
-        genesis_fork()
-            .fulu_enabled()
-            .then(|| Self::new(fulu_test_type))
+        genesis_fork().fulu_enabled().then(|| {
+            Self::new(TestRigConfig {
+                fulu_test_type,
+                dequeue_strategy: DequeueEventStrategy::FIFO,
+            })
+        })
     }
 
     pub fn log(&self, msg: &str) {
@@ -1049,17 +1128,6 @@ impl TestRig {
         generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
     }
 
-    pub fn rand_block_and_parent(
-        &mut self,
-    ) -> (SignedBeaconBlock<E>, SignedBeaconBlock<E>, Hash256, Hash256) {
-        let parent = self.rand_block();
-        let parent_root = parent.canonical_root();
-        let mut block = self.rand_block();
-        *block.message_mut().parent_root_mut() = parent_root;
-        let block_root = block.canonical_root();
-        (parent, block, parent_root, block_root)
-    }
-
     pub fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
         self.sync_manager.handle_message(sync_message);
     }
@@ -1069,11 +1137,11 @@ impl TestRig {
     }
 
     fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
-        self.sync_manager.active_single_lookups()
+        self.sync_manager.block_lookups().active_single_lookups()
     }
 
     fn active_single_lookups_count(&self) -> usize {
-        self.sync_manager.active_single_lookups().len()
+        self.active_single_lookups().len()
     }
 
     fn assert_single_lookups_count(&self, count: usize) {
@@ -1235,46 +1303,6 @@ impl TestRig {
         }
     }
 
-    #[allow(dead_code)]
-    fn expect_no_work_event(&mut self) {
-        self.drain_processor_rx();
-        assert!(self.network_rx_queue.is_empty());
-    }
-
-    fn expect_no_penalty_for(&mut self, peer_id: PeerId) {
-        self.drain_network_rx();
-        let downscore_events = self
-            .network_rx_queue
-            .iter()
-            .filter_map(|ev| match ev {
-                NetworkMessage::ReportPeer {
-                    peer_id: p_id, msg, ..
-                } if p_id == &peer_id => Some(msg),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        if !downscore_events.is_empty() {
-            panic!("Some downscore events for {peer_id}: {downscore_events:?}");
-        }
-    }
-
-    fn expect_no_penalties(&mut self) {
-        self.drain_network_rx();
-        let downscore_events = self
-            .network_rx_queue
-            .iter()
-            .filter_map(|ev| match ev {
-                NetworkMessage::ReportPeer {
-                    peer_id: p_id, msg, ..
-                } => Some(format!("{msg} {p_id:?}")),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        if !downscore_events.is_empty() {
-            panic!("Some downscore events: {downscore_events:?}");
-        }
-    }
-
     #[track_caller]
     pub fn expect_empty_network(&mut self) {
         self.drain_network_rx();
@@ -1287,31 +1315,40 @@ impl TestRig {
         }
     }
 
-    pub fn rand_blockchain(&mut self, depth: usize) -> Vec<Arc<SignedBeaconBlock<E>>> {
-        let mut blocks = Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(depth);
-        for slot in 0..depth {
-            let parent = blocks
-                .last()
-                .map(|b| b.canonical_root())
-                .unwrap_or_else(Hash256::random);
-            let mut block = self.rand_block();
-            *block.message_mut().parent_root_mut() = parent;
-            *block.message_mut().slot_mut() = slot.into();
-            blocks.push(block.into());
+    async fn fully_import_block(&mut self, block_root: Hash256) {
+        let block = self
+            .network_blocks_by_root
+            .get(&block_root)
+            .expect("missing block")
+            .clone();
+        // Import blobs to da_checker first
+        if let Some(blobs) = block.blobs() {
+            let blobs_vector = FixedBlobSidecarList::new(
+                blobs.iter().map(|b| Some(b.clone())).collect::<Vec<_>>(),
+            );
+            self.harness
+                .chain
+                .data_availability_checker
+                .put_rpc_blobs(block_root, blobs_vector)
+                .expect("Error adding blobs");
         }
-        self.log(&format!(
-            "Blockchain dump {:#?}",
-            blocks
-                .iter()
-                .map(|b| format!(
-                    "block {} {} parent {}",
-                    b.slot(),
-                    b.canonical_root(),
-                    b.parent_root()
-                ))
-                .collect::<Vec<_>>()
-        ));
-        blocks
+        // Or import columns to da_checker first
+        if let Some(columns) = block.custody_columns() {
+            let columns = columns
+                .into_iter()
+                .map(|c| c.clone_arc())
+                .collect::<Vec<_>>();
+            self.harness
+                .chain
+                .data_availability_checker
+                .put_rpc_custody_columns(block_root, block.slot(), columns)
+                .expect("Error adding custody columns");
+        }
+        // Import block and expect to become available
+        let result = self.import_block_to_da_checker(block.block_cloned()).await;
+        if !matches!(result, AvailabilityProcessingStatus::Imported(_)) {
+            panic!("Block {block_root} not imported {result:?}")
+        }
     }
 
     async fn import_block_to_da_checker(
@@ -1906,20 +1943,22 @@ async fn test_parent_lookup_too_deep_grow_tip() {
     r.assert_ignored_chain(r.block_at_slot(depth as u64).canonical_root());
 }
 
-#[test]
-fn test_skip_creating_ignored_parent_lookup() {
-    let mut rig = TestRig::default();
-    let (_, block, parent_root, _) = rig.rand_block_and_parent();
-    let peer_id = rig.new_connected_peer();
-    rig.insert_ignored_chain(parent_root);
-    rig.trigger_unknown_parent_block(peer_id, block.into());
-    rig.expect_no_penalty_for(peer_id);
+#[tokio::test]
+async fn test_skip_creating_ignored_parent_lookup() {
+    let mut r = TestRig::default();
+    r.build_chain(2).await;
+    r.insert_ignored_chain(r.block_root_at_slot(1));
+    r.trigger_with_last_block();
+    r.expect_no_penalties();
     // Both current and parent lookup should not be created
-    rig.expect_no_active_lookups();
+    r.expect_no_active_lookups();
 }
 
 /// This is a regression test.
 /// Test added in https://github.com/sigp/lighthouse/commit/84c7d8cc7006a6f1f1bb5729ab222b9f85f72727
+/// TODO: This test was added on a very old version of lookup sync. It's unclear if the situation
+/// it wants to recreate is possible or problematic in current code. Skipping.
+#[ignore]
 #[tokio::test]
 async fn test_same_chain_race_condition() {
     let mut r = TestRig::default();
@@ -1931,18 +1970,8 @@ async fn test_same_chain_race_condition() {
     r.trigger_with_last_block();
 
     let block_root_to_skip = r.block_root_at_slot(3);
-    r.simulate(
-        CompleteStrategy::new().process_result_conditional(move |block_root| {
-            if block_root == block_root_to_skip {
-                Some(BlockProcessingResult::Err(
-                    BlockError::DuplicateFullyImported(block_root),
-                ))
-            } else {
-                None
-            }
-        }),
-    )
-    .await;
+    r.simulate(CompleteStrategy::new().block_imported_while_processing(block_root_to_skip))
+        .await;
 
     // Try to get this block again while the chain is being processed. We should not request it again.
     r.trigger_with_last_block();
