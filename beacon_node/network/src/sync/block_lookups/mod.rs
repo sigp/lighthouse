@@ -768,6 +768,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let lookup_result = if imported {
             Ok(LookupResult::Completed)
         } else {
+            // A lookup may be in the following state:
+            // - Block awaiting processing from a different source
+            // - Blobs downloaded processed, and inserted into the da_checker
+            //
+            // At this point the block fails processing (e.g. execution engine offline) and it is
+            // removed from the da_checker. Note that ALL components are removed from the da_checker
+            // so when we re-download and process the block we get the error
+            // MissingComponentsAfterAllProcessed and get stuck.
+            lookup.reset_requests();
             lookup.continue_requests(cx)
         };
         let id = *id;
