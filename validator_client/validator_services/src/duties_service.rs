@@ -1445,11 +1445,11 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 /// However, we also have the slashing protection as a second line of defence. These two factors
 /// provide an acceptable level of safety.
 ///
-/// It's important to note that since there is a 0-epoch look-ahead (i.e., no look-ahead) for block
-/// proposers then it's very likely that a proposal for the first slot of the epoch will need go
-/// through the slow path every time. I.e., the proposal will only happen after we've been able to
-/// download and process the duties from the BN. This means it is very important to ensure this
-/// function is as fast as possible.
+/// With Fulu's proposer_lookahead feature, we poll at epoch boundaries instead of every slot,
+/// since proposer duties don't change within an epoch. This significantly reduces beacon node
+/// load while maintaining the same functionality. The dependent_root check ensures we detect
+/// and handle reorgs that might change proposer assignments.
+
 async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
