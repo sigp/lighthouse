@@ -568,12 +568,27 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
     /*
      * Spawn the task which keeps track of local block proposal duties.
+     *
+     * With Fulu's proposer_lookahead feature, we can poll only at epoch boundaries
+     * instead of every slot, since proposer duties don't change within an epoch.
      */
     let duties_service = core_duties_service.clone();
     core_duties_service.executor.spawn(
         async move {
+            // Poll immediately on startup to ensure we have duties for the current epoch
+            if let Err(e) = poll_beacon_proposers(&duties_service, &mut block_service_tx).await {
+                error!(
+                    error = ?e,
+                   "Failed to poll beacon proposers on startup"
+                )
+            }
+
             loop {
-                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                // Wait until the next epoch boundary instead of next slot
+                if let Some(duration) = duties_service
+                    .slot_clock
+                    .duration_to_next_epoch(S::E::slots_per_epoch())
+                {
                     sleep(duration).await;
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
