@@ -821,6 +821,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             }
             AvailableBlockData::DataColumns(data_columns) => {
                 if !columns_required {
+                    println!("columns required? {:?}", columns_required);
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
                 }
 

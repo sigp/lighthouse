@@ -196,7 +196,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// Returns `None` if not all expected requests have completed.
     /// Returns `Some(Ok(_))` with valid RPC blocks if all data is present and valid.
     /// Returns `Some(Err(_))` if there are issues coupling blocks with their data.
-    /// // TODO() clean this up
     pub fn responses<T>(
         &mut self,
         da_checker: Arc<DataAvailabilityChecker<T>>,
@@ -284,7 +283,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
-    // TODO clean this up
     fn responses_with_blobs<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
@@ -354,7 +352,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Ok(responses)
     }
 
-    // TODO() clean this up
     fn responses_with_custody_columns<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         data_columns: DataColumnSidecarList<E>,
@@ -601,19 +598,22 @@ mod tests {
         // Expect no blobs returned
         info.add_blobs(blobs_req_id, vec![]).unwrap();
 
-        let _spec = Arc::new(test_spec::<E>());
-
+        let spec = Arc::new(test_spec::<E>());
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
         // Assert response is finished and RpcBlocks can be constructed, even if blobs weren't returned.
         // This makes sure we don't expect blobs here when they have expired. Checking this logic should
         // be hendled elsewhere.
-        // TODO fix this
-        // info.responses(spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().unwrap();
     }
 
     #[test]
     fn rpc_block_with_custody_columns() {
         let spec = Arc::new(test_spec::<E>());
-        let expects_custody_columns = vec![1, 2, 3, 4];
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
+        let expects_custody_columns = da_checker
+            .custody_context()
+            .custody_columns_for_epoch(None, &spec)
+            .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -677,13 +677,13 @@ mod tests {
         }
 
         // All completed construct response
-        // TODO fix this
-        // info.responses(spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().unwrap();
     }
 
     #[test]
     fn rpc_block_with_custody_columns_batched() {
         let spec = Arc::new(test_spec::<E>());
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
         let batched_column_requests = [vec![1_u64, 2], vec![3, 4]];
         let expects_custody_columns = batched_column_requests
             .iter()
@@ -763,15 +763,18 @@ mod tests {
         }
 
         // All completed construct response
-        // TODO fix this
-        // info.responses(spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().unwrap();
     }
 
     #[test]
     fn missing_custody_columns_from_faulty_peers() {
         // GIVEN: A request expecting custody columns from multiple peers
         let spec = Arc::new(test_spec::<E>());
-        let expected_custody_columns = vec![1, 2, 3, 4];
+        let da_checker = Arc::new(test_da_checker(spec.clone()));
+        let expected_custody_columns = da_checker
+            .custody_context()
+            .custody_columns_for_epoch(None, &spec)
+            .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..2)
             .map(|_| {
@@ -833,25 +836,24 @@ mod tests {
         }
 
         // WHEN: Attempting to construct RPC blocks
-        // TODO(fix)
-        // let result = info.responses(spec).unwrap();
+        let result = info.responses(da_checker, spec).unwrap();
 
-        // // THEN: Should fail with PeerFailure identifying the faulty peers
-        // assert!(result.is_err());
-        // if let Err(super::CouplingError::DataColumnPeerFailure {
-        //     error,
-        //     faulty_peers,
-        //     exceeded_retries,
-        // }) = result
-        // {
-        //     assert!(error.contains("Peers did not return column"));
-        //     assert_eq!(faulty_peers.len(), 2); // columns 3 and 4 missing
-        //     assert_eq!(faulty_peers[0].0, 3); // column index 3
-        //     assert_eq!(faulty_peers[1].0, 4); // column index 4
-        //     assert!(!exceeded_retries); // First attempt, should be false
-        // } else {
-        //     panic!("Expected PeerFailure error");
-        // }
+        // THEN: Should fail with PeerFailure identifying the faulty peers
+        assert!(result.is_err());
+        if let Err(super::CouplingError::DataColumnPeerFailure {
+            error,
+            faulty_peers,
+            exceeded_retries,
+        }) = result
+        {
+            assert!(error.contains("Peers did not return column"));
+            assert_eq!(faulty_peers.len(), 2); // columns 3 and 4 missing
+            assert_eq!(faulty_peers[0].0, expected_custody_columns[2]); // column index 2
+            assert_eq!(faulty_peers[1].0, expected_custody_columns[3]); // column index 3
+            assert!(!exceeded_retries); // First attempt, should be false
+        } else {
+            panic!("Expected PeerFailure error");
+        }
     }
 
     #[test]
@@ -859,7 +861,10 @@ mod tests {
         // GIVEN: A request expecting custody columns where some peers initially fail
         let spec = Arc::new(test_spec::<E>());
         let da_checker = Arc::new(test_da_checker(spec.clone()));
-        let expected_custody_columns = vec![1, 2];
+        let expected_custody_columns = da_checker
+            .custody_context()
+            .custody_columns_for_epoch(None, &spec)
+            .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..2)
             .map(|_| {
