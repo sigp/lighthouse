@@ -6,11 +6,6 @@ use crate::sync::{
     SyncMessage,
     manager::{BlockProcessType, BlockProcessingResult, SyncManager},
 };
-use itertools::Itertools;
-use rand::prelude::IndexedRandom;
-use std::sync::Arc;
-use std::time::Duration;
-
 use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::chain_config::TestConfig;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -24,6 +19,8 @@ use beacon_chain::{
     },
 };
 use beacon_processor::{BeaconProcessorChannels, DuplicateCache, Work, WorkEvent};
+use educe::Educe;
+use itertools::Itertools;
 use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     NetworkConfig, NetworkGlobals, PeerId,
@@ -31,7 +28,10 @@ use lighthouse_network::{
     service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
 };
+use rand::prelude::IndexedRandom;
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
@@ -44,7 +44,8 @@ use types::{
 const D: Duration = Duration::new(0, 0);
 
 /// Instruct the testing rig how to complete requests for _by_range requests
-#[derive(Default)]
+#[derive(Default, Educe)]
+#[educe(Debug)]
 pub struct CompleteStrategy {
     return_rpc_error: Option<RPCError>,
     return_wrong_blocks_n_times: usize,
@@ -56,6 +57,7 @@ pub struct CompleteStrategy {
     return_no_columns_on_indices: Vec<ColumnIndex>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
+    #[educe(Debug(ignore))]
     process_result_conditional:
         Option<Box<dyn Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync>>,
     block_imported_while_processing: Option<Hash256>,
@@ -298,6 +300,10 @@ impl TestRig {
 
     async fn simulate(&mut self, complete_strategy: CompleteStrategy) {
         self.complete_strategy = complete_strategy;
+        self.log(&format!(
+            "Running simulate with config {:?}",
+            self.complete_strategy
+        ));
 
         let mut i = 0;
 
@@ -454,6 +460,11 @@ impl TestRig {
             self.head_slot()
         ));
         self.log(&format!("Penalties: {:?}", self.penalties));
+        self.log(&format!(
+            "Total requests {}: {:?}",
+            self.requests.len(),
+            self.requests_count()
+        ))
     }
 
     fn simulate_on_request(
@@ -555,13 +566,22 @@ impl TestRig {
                     return self.send_rpc_columns_response(req_id, peer_id, &[]);
                 }
 
-                let columns_to_omit =
-                    if self.complete_strategy.return_no_columns_on_indices_n_times > 0 {
-                        self.complete_strategy.return_no_columns_on_indices_n_times -= 1;
-                        self.complete_strategy.return_no_columns_on_indices.clone()
-                    } else {
-                        Vec::new()
-                    };
+                let will_omit_columns = req.data_column_ids.iter().any(|id| {
+                    id.columns.iter().any(|c| {
+                        self.complete_strategy
+                            .return_no_columns_on_indices
+                            .contains(c)
+                    })
+                });
+                let columns_to_omit = if will_omit_columns
+                    && self.complete_strategy.return_no_columns_on_indices_n_times > 0
+                {
+                    self.log(&format!("OMIT {:?}", req));
+                    self.complete_strategy.return_no_columns_on_indices_n_times -= 1;
+                    self.complete_strategy.return_no_columns_on_indices.clone()
+                } else {
+                    vec![]
+                };
 
                 let mut columns = req
                     .data_column_ids
@@ -741,8 +761,13 @@ impl TestRig {
             .map(|block| block.slot())
             .unique()
             .collect::<Vec<_>>();
+        let indices = columns
+            .iter()
+            .map(|column| column.index)
+            .unique()
+            .collect::<Vec<_>>();
         self.log(&format!(
-            "Completing request {sync_request_id:?} to {peer_id} with blobs {slots:?}"
+            "Completing request {sync_request_id:?} to {peer_id} with columns {slots:?} indices {indices:?}"
         ));
 
         for column in columns {
@@ -763,7 +788,8 @@ impl TestRig {
 
     // Preparation steps
 
-    async fn build_chain(&mut self, block_count: usize) {
+    /// Returns the block root of the tip of the built chain
+    async fn build_chain(&mut self, block_count: usize) -> Hash256 {
         let mut blocks = vec![];
 
         for i in 0..block_count {
@@ -790,13 +816,15 @@ impl TestRig {
         }
 
         // Re-log to have a nice list of block roots at the end
-        for block in blocks {
+        for block in &blocks {
             self.log(&format!("Build chain {block:?}"));
         }
 
         // Auto-update the clock on the main harness to accept the blocks
         self.harness
             .set_current_slot(self.external_harness.get_current_slot());
+
+        blocks.last().expect("empty blocks").1
     }
 
     fn get_last_block(&self) -> &RpcBlock<E> {
@@ -1064,7 +1092,7 @@ impl TestRig {
 
     fn new_after_deneb_before_fulu() -> Option<Self> {
         let fork = genesis_fork();
-        if fork.deneb_enabled() && fork.fulu_enabled() {
+        if fork.deneb_enabled() && !fork.fulu_enabled() {
             Some(Self::default())
         } else {
             None
@@ -1154,6 +1182,7 @@ impl TestRig {
     }
 
     fn insert_ignored_chain(&mut self, block_root: Hash256) {
+        self.log(&format!("Inserting block in ignored chains {block_root:?}"));
         self.sync_manager.insert_ignored_chain(block_root);
     }
 
@@ -1185,34 +1214,61 @@ impl TestRig {
             .peers
             .write()
             .__add_connected_peer_testing_only(false, &self.harness.spec, key);
-        self.log(&format!("Added new peer for testing {peer_id:?}"));
+
+        // Assumes custody subnet count == column count
+        let custody_subnets = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(&peer_id)
+            .expect("Peer should be known")
+            .custody_subnets_iter()
+            .map(|i| *i)
+            .collect::<Vec<_>>();
+        let peer_custody_str =
+            if custody_subnets.len() == self.harness.spec.number_of_custody_groups as usize {
+                "all".to_owned()
+            } else {
+                format!("{custody_subnets:?}")
+            };
+
+        self.log(&format!(
+            "Added new peer for testing {peer_id:?}, custody: {peer_custody_str}"
+        ));
         peer_id
     }
 
     pub fn new_connected_supernode_peer(&mut self) -> PeerId {
         let key = self.determinstic_key();
-        self.network_globals
+        let peer_id = self
+            .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec, key)
+            .__add_connected_peer_testing_only(true, &self.harness.spec, key);
+        self.log(&format!(
+            "Added new peer for testing {peer_id:?}, custody: supernode"
+        ));
+        peer_id
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
         k256::ecdsa::SigningKey::random(&mut self.rng_08).into()
     }
 
-    pub fn new_connected_peers_for_peerdas(&mut self) {
+    pub fn new_connected_peers_for_peerdas(&mut self) -> Vec<PeerId> {
         match self.fulu_test_type.them_node_custody_type() {
             NodeCustodyType::Fullnode => {
                 // Enough sampling peers with few columns
-                for _ in 0..100 {
-                    self.new_connected_peer();
-                }
+                let mut peers = (0..100)
+                    .map(|_| self.new_connected_peer())
+                    .collect::<Vec<_>>();
                 // One supernode peer to ensure all columns have at least one peer
-                self.new_connected_supernode_peer();
+                peers.push(self.new_connected_supernode_peer());
+                peers
             }
             NodeCustodyType::Supernode | NodeCustodyType::SemiSupernode => {
-                self.new_connected_supernode_peer();
+                let peer = self.new_connected_supernode_peer();
+                vec![peer]
             }
         }
     }
@@ -1454,6 +1510,16 @@ impl TestRig {
             block_root,
             imported: false,
         });
+    }
+
+    fn requests_count(&self) -> HashMap<&'static str, usize> {
+        let mut requests_count = HashMap::new();
+        for (request, _) in &self.requests {
+            *requests_count
+                .entry(Into::<&'static str>::into(request))
+                .or_default() += 1;
+        }
+        requests_count
     }
 }
 
@@ -1895,8 +1961,9 @@ async fn test_parent_lookup_too_deep_grow_ancestor_zero() {
 #[tokio::test]
 async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     let mut r = TestRig::default();
-    r.build_chain(PARENT_DEPTH_TOLERANCE + 2).await;
-    r.trigger_with_block_at_slot(PARENT_DEPTH_TOLERANCE as u64 + 1);
+    let depth = PARENT_DEPTH_TOLERANCE + 1;
+    r.build_chain(depth + 1).await;
+    r.trigger_with_block_at_slot(depth as u64);
     r.simulate(CompleteStrategy::new().no_range_sync()).await;
 
     // At this point, the chain should have been deemed too deep and pruned.
@@ -1905,10 +1972,11 @@ async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing
     r.assert_head_slot(0);
     r.expect_no_active_lookups();
     r.expect_no_penalties();
+    r.assert_ignored_chain(r.block_at_slot(depth as u64).canonical_root());
 
     // WHEN: Trigger the extending block that points to the tip.
     let peer = r.new_connected_peer();
-    r.trigger_unknown_parent_block(peer, r.block_at_slot(PARENT_DEPTH_TOLERANCE as u64 + 2));
+    r.trigger_unknown_parent_block(peer, r.block_at_slot(depth as u64 + 1));
     // THEN: The extending block should not create a lookup because the tip was inserted into
     // ignored chains.
     r.expect_no_active_lookups();
@@ -1920,27 +1988,26 @@ async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing
 /// Assert that if a lookup chain (by appending tips) is too long we drop it
 async fn test_parent_lookup_too_deep_grow_tip() {
     let depth = PARENT_DEPTH_TOLERANCE + 1;
-    // TODO: Debug why this test fails on phase0
-    let Some(mut r) = TestRig::new_after_deneb() else {
-        return;
-    };
+    let mut r = TestRig::default();
     r.build_chain(depth).await;
     for slot in (1..=depth).rev() {
         r.trigger_with_block_at_slot(slot as u64);
     }
     r.simulate(CompleteStrategy::happy_path()).await;
 
+    // Even if the chain is longer than `PARENT_DEPTH_TOLERANCE` because the lookups are created all
+    // at once they chain by sections and it's possible that the oldest ancestors start processing
+    // before the full chain is connected.
     assert!(r.created_lookups() > 0, "no created lookups");
-    assert_eq!(r.completed_lookups(), 0, "some completed lookups");
     assert_eq!(
-        r.dropped_lookups(),
+        r.completed_lookups(),
         r.created_lookups(),
-        "no dropped lookups"
+        "not all completed lookups"
     );
-    r.assert_successful_range_sync();
+    assert_eq!(r.dropped_lookups(), 0, "some dropped lookups");
+    r.assert_successful_lookup_sync();
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     r.expect_no_penalties();
-    r.assert_ignored_chain(r.block_at_slot(depth as u64).canonical_root());
 }
 
 #[tokio::test]
@@ -1949,6 +2016,7 @@ async fn test_skip_creating_ignored_parent_lookup() {
     r.build_chain(2).await;
     r.insert_ignored_chain(r.block_root_at_slot(1));
     r.trigger_with_last_block();
+    r.simulate(CompleteStrategy::happy_path()).await;
     r.expect_no_penalties();
     // Both current and parent lookup should not be created
     r.expect_no_active_lookups();
@@ -2121,10 +2189,11 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    r.build_chain(1).await;
-    r.new_connected_peers_for_peerdas();
-    r.trigger_with_last_block();
-
+    let block_root = r.build_chain(1).await;
+    // Send the same trigger from all peers, so that the lookup has all peers
+    for peer in r.new_connected_peers_for_peerdas() {
+        r.trigger_unknown_block_from_attestation(block_root, peer);
+    }
     let custody_columns = r.custody_columns();
     r.simulate(CompleteStrategy::new().return_no_columns_on_indices(&custody_columns[..4], 3))
         .await;
@@ -2136,15 +2205,20 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    r.build_chain(1).await;
-    r.new_connected_peers_for_peerdas();
-    r.trigger_with_last_block();
+    let block_root = r.build_chain(1).await;
+
+    // Send the same trigger from all peers, so that the lookup has all peers
+    for peer in r.new_connected_peers_for_peerdas() {
+        r.trigger_unknown_block_from_attestation(block_root, peer);
+    }
 
     let custody_columns = r.custody_columns();
     r.simulate(
-        CompleteStrategy::new().return_no_columns_on_indices(&custody_columns[..4], usize::MAX),
+        CompleteStrategy::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX),
     )
     .await;
+    // Every peer that does not return a column is part of the lookup because it claimed to have
+    // imported the lookup, so we will penalize.
     r.expect_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_failed_lookup_sync();
 }

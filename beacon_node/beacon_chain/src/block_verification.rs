@@ -1423,7 +1423,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     started_execution,
                 );
             }
-
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             Ok(PayloadVerificationOutcome {

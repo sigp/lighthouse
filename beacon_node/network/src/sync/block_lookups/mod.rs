@@ -847,7 +847,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 if let Some(lookup) = self.single_block_lookups.remove(&id) {
                     debug!(
                         block = ?lookup.block_root(),
-                        block_slot = ?lookup.peek_downloaded_block_slot(),
                         id,
                         "Dropping completed lookup"
                     );

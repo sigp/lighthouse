@@ -280,13 +280,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 lookup_peers = lookup_peers.len(),
                 "Requesting {} columns from {} peers", columns_requested_count, peer_requests,
             );
-        } else {
+        } else if !columns_without_peers.is_empty() {
             debug!(
                 lookup_peers = lookup_peers.len(),
                 total_requests,
                 completed_requests,
                 ?columns_without_peers,
-                "No column peers found for look up",
+                "No column peers found for lookup",
             );
         }
 

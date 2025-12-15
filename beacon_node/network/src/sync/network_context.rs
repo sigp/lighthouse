@@ -1093,13 +1093,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })?;
 
         // Include only the blob indexes not yet imported (received through gossip)
-        let custody_indexes_to_fetch = self
+        let mut custody_indexes_to_fetch = self
             .chain
             .sampling_columns_for_epoch(current_epoch)
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
+        custody_indexes_to_fetch.sort_unstable();
 
         if custody_indexes_to_fetch.is_empty() {
             // No indexes required, do not issue any request
