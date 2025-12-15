@@ -9,6 +9,7 @@ use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
 pub use block_hash::calculate_execution_block_hash;
+use bls::{PublicKeyBytes, Signature};
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
@@ -18,7 +19,6 @@ use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
 use eth2::types::{ForkVersionedResponse, builder_bid::SignedBuilderBid};
-use ethers_core::types::Transaction as EthersTransaction;
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
@@ -56,7 +56,7 @@ use types::{
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
-    FullPayload, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
+    FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -171,9 +171,16 @@ pub enum Error {
     InvalidPayloadBody(String),
     InvalidPayloadConversion,
     InvalidBlobConversion(String),
+    SszTypesError(ssz_types::Error),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
     VerifyingVersionedHashes(versioned_hashes::Error),
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszTypesError(e)
+    }
 }
 
 impl From<BeaconStateError> for Error {
@@ -2102,6 +2109,7 @@ enum InvalidBuilderPayload {
         payload: u64,
         expected: u64,
     },
+    SszTypesError(ssz_types::Error),
 }
 
 impl fmt::Display for InvalidBuilderPayload {
@@ -2143,6 +2151,7 @@ impl fmt::Display for InvalidBuilderPayload {
             InvalidBuilderPayload::GasLimitMismatch { payload, expected } => {
                 write!(f, "payload gas limit was {} not {}", payload, expected)
             }
+            Self::SszTypesError(e) => write!(f, "{:?}", e),
         }
     }
 }
@@ -2198,7 +2207,13 @@ fn verify_builder_bid<E: EthSpec>(
         .withdrawals()
         .ok()
         .cloned()
-        .map(|withdrawals| Withdrawals::<E>::from(withdrawals).tree_hash_root());
+        .map(|withdrawals| {
+            Withdrawals::<E>::try_from(withdrawals)
+                .map_err(InvalidBuilderPayload::SszTypesError)
+                .map(|w| w.tree_hash_root())
+        })
+        .transpose()?;
+
     let payload_withdrawals_root = header.withdrawals_root().ok();
     let expected_gas_limit = proposer_gas_limit
         .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));

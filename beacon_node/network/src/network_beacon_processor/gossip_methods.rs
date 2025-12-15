@@ -735,12 +735,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // Data column is available via either the EL or reconstruction.
                         // Do not penalise the peer.
                         // Gossip filter should filter any duplicates received after this.
-                        debug!(
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Received already available column sidecar. Ignoring the column sidecar"
-                        )
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
                     }
                     GossipDataColumnError::FutureSlot { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
@@ -2741,6 +2740,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                 }
+            }
+            AttnError::SszTypesError(_) => {
+                error!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    ?attestation_type,
+                    "Rejecting attestation due to a critical SSZ types error"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "attn_ssz_types_error",
+                );
             }
         }
 

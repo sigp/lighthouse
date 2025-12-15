@@ -1,16 +1,14 @@
 use crate::api_types::EndpointVersion;
+use eth2::beacon_response::{
+    BeaconResponse, ExecutionOptimisticFinalizedBeaconResponse,
+    ExecutionOptimisticFinalizedMetadata, ForkVersionedResponse, UnversionedResponse,
+};
 use eth2::{
     CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
     EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, SSZ_CONTENT_TYPE_HEADER,
 };
 use serde::Serialize;
-use types::{
-    BeaconResponse, ForkName, ForkVersionedResponse, InconsistentFork, Uint256,
-    UnversionedResponse,
-    beacon_response::{
-        ExecutionOptimisticFinalizedBeaconResponse, ExecutionOptimisticFinalizedMetadata,
-    },
-};
+use types::{ForkName, InconsistentFork, Uint256};
 use warp::reply::{self, Reply, Response};
 
 pub const V1: EndpointVersion = EndpointVersion(1);

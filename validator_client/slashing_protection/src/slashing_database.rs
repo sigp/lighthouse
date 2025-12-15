@@ -1,6 +1,7 @@
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot, signing_root_from_row};
+use bls::PublicKeyBytes;
 use eip_3076::{
     Interchange, InterchangeData, InterchangeMetadata, SignedAttestation as InterchangeAttestation,
     SignedBlock as InterchangeBlock,
@@ -11,7 +12,8 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
-use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
+use tracing::instrument;
+use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, SignedRoot, Slot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 
@@ -639,6 +641,7 @@ impl SlashingDatabase {
     /// to prevent concurrent checks and inserts from resulting in slashable data being inserted.
     ///
     /// This is the safe, externally-callable interface for checking attestations.
+    #[instrument(skip_all, level = "debug")]
     pub fn check_and_insert_attestation(
         &self,
         validator_pubkey: &PublicKeyBytes,

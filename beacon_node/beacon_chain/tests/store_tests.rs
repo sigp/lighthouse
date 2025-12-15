@@ -11,7 +11,9 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
     mock_execution_layer_from_parts, test_spec,
 };
-use beacon_chain::test_utils::{SyncCommitteeStrategy, generate_data_column_indices_rand_order};
+use beacon_chain::test_utils::{
+    SyncCommitteeStrategy, fork_name_from_env, generate_data_column_indices_rand_order,
+};
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
@@ -23,11 +25,14 @@ use beacon_chain::{
     historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
+use bls::{Keypair, Signature, SignatureBytes};
+use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
 use rand::rngs::StdRng;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -1415,7 +1420,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
 
     let execution_requests = ExecutionRequests::<E> {
         deposits: VariableList::new(vec![deposit_request]).unwrap(),
-        withdrawals: vec![].into(),
+        withdrawals: vec![].try_into().unwrap(),
         consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
     };
 
@@ -2703,7 +2708,7 @@ async fn weak_subjectivity_sync_easy() {
     let num_initial_slots = E::slots_per_epoch() * 11;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 #[tokio::test]
@@ -2711,7 +2716,7 @@ async fn weak_subjectivity_sync_single_block_batches() {
     let num_initial_slots = E::slots_per_epoch() * 11;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, Some(1)).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, Some(1), true).await
 }
 
 #[tokio::test]
@@ -2725,7 +2730,7 @@ async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
             slot <= checkpoint_slot - 3 || slot > checkpoint_slot
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 #[tokio::test]
@@ -2739,7 +2744,7 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
             slot <= checkpoint_slot || slot > checkpoint_slot + 3
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 // Regression test for https://github.com/sigp/lighthouse/issues/4817
@@ -2751,7 +2756,7 @@ async fn weak_subjectivity_sync_skips_at_genesis() {
     let end_slot = E::slots_per_epoch() * 4;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
 }
 
 // Checkpoint sync from the genesis state.
@@ -2764,7 +2769,17 @@ async fn weak_subjectivity_sync_from_genesis() {
     let end_slot = E::slots_per_epoch() * 2;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(0);
-    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, true).await
+}
+
+// Test checkpoint sync without providing blobs - backfill should fetch them.
+#[tokio::test]
+async fn weak_subjectivity_sync_without_blobs() {
+    let start_slot = 4;
+    let end_slot = E::slots_per_epoch() * 4;
+    let slots = (start_slot..end_slot).map(Slot::new).collect();
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None, false).await
 }
 
 // Ensures that an unaligned checkpoint sync (the block is older than the state)
@@ -2923,6 +2938,7 @@ async fn weak_subjectivity_sync_test(
     slots: Vec<Slot>,
     checkpoint_slot: Slot,
     backfill_batch_size: Option<usize>,
+    provide_blobs: bool,
 ) {
     // Build an initial chain on one harness, representing a synced node with full history.
     let num_final_blocks = E::slots_per_epoch() * 2;
@@ -3024,7 +3040,11 @@ async fn weak_subjectivity_sync_test(
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
-            wss_blobs_opt.clone(),
+            if provide_blobs {
+                wss_blobs_opt.clone()
+            } else {
+                None
+            },
             genesis_state,
         )
         .unwrap()
@@ -3300,6 +3320,10 @@ async fn weak_subjectivity_sync_test(
             .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
+        assert_eq!(
+            state_root,
+            beacon_chain.state_root_at_slot(slot).unwrap().unwrap()
+        );
         assert_eq!(state.slot(), slot);
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
@@ -3363,11 +3387,12 @@ async fn test_import_historical_data_columns_batch() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             data_columns_list.push(data_column);
         }
     }
+
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3412,8 +3437,18 @@ async fn test_import_historical_data_columns_batch() {
     // Assert that data columns now exist for epoch 0
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some())
+        if !harness
+            .get_block(block_root.into())
+            .unwrap()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .is_empty()
+        {
+            let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+            assert!(data_columns.is_some())
+        };
     }
 }
 
@@ -3451,9 +3486,8 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
 
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
             if data_column.index % 2 == 0 {
                 data_column.signed_block_header.message.body_root = Hash256::ZERO;
@@ -3462,6 +3496,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
             data_columns_list.push(Arc::new(data_column));
         }
     }
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3500,6 +3535,90 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
             data_columns_list,
             cgc,
         )
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::NoBlockFound { .. }
+    ));
+}
+
+// This should verify that a data column sidecar associated to a block root that doesn't exist in the store cannot
+// be imported.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_no_block_found() {
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = test_spec::<E>();
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+    let cgc = 128;
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+
+        for data_column in data_columns.unwrap_or_default() {
+            let mut data_column = (*data_column).clone();
+            data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            data_columns_list.push(Arc::new(data_column));
+        }
+    }
+
+    assert!(!data_columns_list.is_empty());
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
         .unwrap_err();
 
     assert!(matches!(
@@ -4195,6 +4314,12 @@ async fn deneb_prune_blobs_no_finalization() {
 /// Check that blob pruning does not fail trying to prune across the fork boundary.
 #[tokio::test]
 async fn prune_blobs_across_fork_boundary() {
+    // This test covers earlier forks and only need to be executed once.
+    // Note: this test is quite expensive (building a chain to epoch 15) and we should revisit this
+    if fork_name_from_env() != Some(ForkName::latest_stable()) {
+        return;
+    }
+
     let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
     let deneb_fork_epoch = Epoch::new(4);
@@ -4211,6 +4336,7 @@ async fn prune_blobs_across_fork_boundary() {
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness.execution_block_generator().set_min_blob_count(1);
 
     let blocks_to_deneb_finalization = E::slots_per_epoch() * 7;
     let blocks_to_electra_finalization = E::slots_per_epoch() * 4;
@@ -4366,7 +4492,7 @@ async fn prune_blobs_across_fork_boundary() {
             // Fulu fork epochs
             // Pruning should have been triggered
             assert!(store.get_blob_info().oldest_blob_slot <= Some(oldest_slot));
-            // Oldest blost slot should never be greater than the first fulu slot
+            // Oldest blob slot should never be greater than the first fulu slot
             let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
             assert!(store.get_blob_info().oldest_blob_slot <= Some(fulu_first_slot));
             // Blobs should not exist post-Fulu
@@ -4851,7 +4977,7 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
     check_data_column_existence(&harness, oldest_data_column_slot, harness.head_slot(), true);
 }
 
-/// Check tat there are data column sidecars (or not) at every slot in the range.
+/// Check that there are data column sidecars (or not) at every slot in the range.
 fn check_data_column_existence(
     harness: &TestHarness,
     start_slot: Slot,
@@ -5554,7 +5680,6 @@ fn get_finalized_epoch_boundary_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
@@ -5563,7 +5688,6 @@ fn get_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
 }

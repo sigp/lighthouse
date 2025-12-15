@@ -225,13 +225,14 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
 mod tests {
     use crate::ChainConfig;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use bls::Keypair;
     use execution_layer::EngineCapabilities;
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
     use tracing::info;
-    use types::{ChainSpec, GRAFFITI_BYTES_LEN, Graffiti, Keypair, MinimalEthSpec};
+    use types::{ChainSpec, GRAFFITI_BYTES_LEN, Graffiti, MinimalEthSpec};
 
     const VALIDATOR_COUNT: usize = 48;
     /// A cached set of keys.

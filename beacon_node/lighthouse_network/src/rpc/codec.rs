@@ -8,7 +8,7 @@ use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{RuntimeVariableList, VariableList};
 use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
@@ -18,10 +18,10 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
+    SignedBeaconBlockGloas,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -908,11 +908,12 @@ mod tests {
     use super::*;
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
+    use bls::Signature;
+    use fixed_bytes::FixedBytesExtended;
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FixedBytesExtended, FullPayload,
-        KzgCommitment, KzgProof, Signature, SignedBeaconBlockHeader, Slot,
-        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
+        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
+        SignedBeaconBlockHeader, Slot, blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -1002,8 +1003,9 @@ mod tests {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
 
-        let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
+        let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+        let txs =
+            VariableList::try_from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>()).unwrap();
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -1021,8 +1023,9 @@ mod tests {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
 
-        let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
+        let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+        let txs =
+            VariableList::try_from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>()).unwrap();
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -1080,7 +1083,7 @@ mod tests {
             data_column_ids: RuntimeVariableList::new(
                 vec![DataColumnsByRootIdentifier {
                     block_root: Hash256::zero(),
-                    columns: VariableList::from(vec![0, 1, 2]),
+                    columns: VariableList::try_from(vec![0, 1, 2]).unwrap(),
                 }],
                 spec.max_request_blocks(fork_name),
             )

@@ -18,6 +18,7 @@ use crate::{
     metrics::{self, COLD_METRIC, HOT_METRIC},
     parse_data_column_key,
 };
+use fixed_bytes::FixedBytesExtended;
 use itertools::{Itertools, process_results};
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -38,6 +39,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
+use typenum::Unsigned;
 use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
@@ -1314,8 +1316,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         state_root.as_slice().to_vec(),
                     ));
 
-                    if let Some(slot) = slot {
-                        match self.hot_storage_strategy(slot)? {
+                    // NOTE: `hot_storage_strategy` can error if there are states in the database
+                    // prior to the `anchor_slot`. This can happen if checkpoint sync has been
+                    // botched and left some states in the database prior to completing.
+                    if let Some(slot) = slot
+                        && let Ok(strategy) = self.hot_storage_strategy(slot)
+                    {
+                        match strategy {
                             StorageStrategy::Snapshot => {
                                 // Full state stored in this position
                                 key_value_batch.push(KeyValueStoreOp::DeleteKey(

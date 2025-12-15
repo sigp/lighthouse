@@ -7,8 +7,9 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
-    types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
+    types::{Epoch, EthSpec, MinimalEthSpec},
 };
+use bls::Keypair;
 use eth2::types::{StandardAttestationRewards, TotalAttestationRewards, ValidatorId};
 use state_processing::{BlockReplayError, BlockReplayer};
 use std::array::IntoIter;
