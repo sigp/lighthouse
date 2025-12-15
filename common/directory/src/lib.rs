@@ -1,5 +1,6 @@
 use clap::ArgMatches;
 pub use eth2_network_config::DEFAULT_HARDCODED_NETWORK;
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -64,22 +65,57 @@ pub fn parse_path_or_default_with_flag(
 
 /// Get the approximate size of a directory and its contents.
 ///
-/// Will skip unreadable files, and files. Not 100% accurate if files are being created and deleted
-/// while this function is running.
+/// - Skips unreadable entries and symlinks.
+/// - Bounds traversal by depth and total entries to limit potential DoS from deeply nested trees.
+/// - Not 100% accurate if files are being created and deleted while this function is running.
 pub fn size_of_dir(path: &Path) -> u64 {
-    if let Ok(iter) = fs::read_dir(path) {
-        iter.filter_map(std::result::Result::ok)
-            .map(size_of_dir_entry)
-            .sum()
-    } else {
-        0
-    }
-}
+    const MAX_DEPTH: usize = 64;
+    const MAX_TOTAL_ENTRIES: usize = 100_000;
 
-fn size_of_dir_entry(dir: fs::DirEntry) -> u64 {
-    match dir.metadata() {
-        Ok(metadata) if metadata.is_dir() => size_of_dir(&dir.path()),
-        Ok(metadata) => metadata.len(),
-        Err(_) => 0,
+    let mut total_size = 0u64;
+    let mut entries_seen = 0usize;
+
+    let mut stack = VecDeque::new();
+    stack.push_back((path.to_path_buf(), 0usize));
+
+    while let Some((dir_path, depth)) = stack.pop_back() {
+        if depth > MAX_DEPTH {
+            continue;
+        }
+
+        let Ok(iter) = fs::read_dir(&dir_path) else {
+            continue;
+        };
+
+        for entry_result in iter {
+            if entries_seen >= MAX_TOTAL_ENTRIES {
+                return total_size;
+            }
+
+            let Ok(entry) = entry_result else {
+                continue;
+            };
+            entries_seen += 1;
+
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+
+            if file_type.is_dir() {
+                if depth < MAX_DEPTH {
+                    stack.push_back((entry.path(), depth + 1));
+                }
+            } else {
+                let Ok(metadata) = entry.metadata() else {
+                    continue;
+                };
+                total_size = total_size.saturating_add(metadata.len());
+            }
+        }
     }
+
+     total_size
 }
