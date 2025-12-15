@@ -646,31 +646,37 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
-    // unzip chain segment and verify kzg in bulk
-    let (roots, available_blocks): (Vec<_>, Vec<_>) = chain_segment
-        .into_iter()
-        .filter_map(|(block_root, block)| match block {
-            RpcBlock::FullyAvailable(available_block) => Some((block_root, available_block)),
+    // Filter `chain_segment` for `RpcBlock::FullyAvailable` and verify KZG.
+    let available_blocks = chain_segment
+        .iter()
+        .filter_map(|(_, block)| match block {
+            RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
             RpcBlock::BlockOnly { .. } => None,
         })
-        .unzip();
+        .collect();
 
     chain
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
 
-    // zip it back up
-    let mut signature_verified_blocks = roots
+    let mut signature_verified_blocks = chain_segment
         .into_iter()
-        .zip(available_blocks)
-        .map(|(block_root, available_block)| {
+        .map(|(block_root, block)| {
             let consensus_context =
-                ConsensusContext::new(available_block.slot()).set_current_block_root(block_root);
-            SignatureVerifiedBlock {
-                block: MaybeAvailableBlock::Available(available_block),
-                block_root,
-                parent: None,
-                consensus_context,
+                ConsensusContext::new(block.slot()).set_current_block_root(block_root);
+            match block {
+                RpcBlock::FullyAvailable(available_block) => SignatureVerifiedBlock {
+                    block: MaybeAvailableBlock::Available(available_block),
+                    block_root,
+                    parent: None,
+                    consensus_context,
+                },
+                RpcBlock::BlockOnly { block, block_root } => SignatureVerifiedBlock {
+                    block: MaybeAvailableBlock::AvailabilityPending { block_root, block },
+                    block_root,
+                    parent: None,
+                    consensus_context,
+                },
             }
         })
         .collect::<Vec<_>>();
