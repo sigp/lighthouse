@@ -408,231 +408,93 @@ mod tests {
         let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
+        let graffiti_vec = vec![
+            // less than 20 characters, example blow is 19 characters
+            "lido staking pool!!",
+            // 20-23 characters, example below is 22 characters
+            "now this is pod racing",
+            // 24-27 characters, example below is 27 characters
+            "This is where the fun begin",
+            // 28-29 characters, example below is 29 characters
+            "I don't like sand, its coarse",
+            // 30-32 characters, example below is 30 characters
+            "I do not like sand, its coarse",
+        ];
         // user graffiti is 19 characters
-        let graffiti_str = "lido staking pool!!";
-        let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
-        graffiti_bytes[..graffiti_str.len()].copy_from_slice(graffiti_str.as_bytes());
 
-        // To test appending client version info with user specified graffiti
-        let policy = GraffitiPolicy::AppendClientVersions;
-        let found_graffiti_bytes = harness
-            .chain
-            .graffiti_calculator
-            .get_graffiti(GraffitiSettings::Specified {
-                graffiti: Graffiti::from(graffiti_bytes),
-                policy,
-            })
-            .await
-            .0;
+        for graffiti in graffiti_vec {
+            let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
+            graffiti_bytes[..graffiti.len()].copy_from_slice(graffiti.as_bytes());
 
-        let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
-        let append_graffiti_string = format!(
-            "{}{}{}{}",
-            DEFAULT_CLIENT_VERSION.code,
-            mock_commit
-                .strip_prefix("0x")
-                .unwrap_or("&mock_commit")
-                .get(0..4)
-                .expect("should get first 2 bytes in hex"),
-            "LH",
-            lighthouse_version::COMMIT_PREFIX
-                .get(0..4)
-                .expect("should get first 2 bytes in hex")
-        );
+            // To test appending client version info with user specified graffiti
+            let policy = GraffitiPolicy::AppendClientVersions;
+            let found_graffiti_bytes = harness
+                .chain
+                .graffiti_calculator
+                .get_graffiti(GraffitiSettings::Specified {
+                    graffiti: Graffiti::from(graffiti_bytes),
+                    policy,
+                })
+                .await
+                .0;
 
-        // There is a space between the client version info and user graffiti
-        // as defined in calculate_graffiti fn in execution_api.rs
-        let expected_graffiti_string = format!("{} {}", append_graffiti_string, graffiti_str);
+            let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
+            let graffiti_length = graffiti.len();
 
-        let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
-        let expected_graffiti_prefix_len =
-            std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
+            let append_graffiti_string = match graffiti_length {
+                0..=19 => format!(
+                    "{}{}{}{}",
+                    DEFAULT_CLIENT_VERSION.code,
+                    mock_commit
+                        .strip_prefix("0x")
+                        .unwrap_or("&mock_commit")
+                        .get(0..4)
+                        .expect("should get first 2 bytes in hex"),
+                    "LH",
+                    lighthouse_version::COMMIT_PREFIX
+                        .get(0..4)
+                        .expect("should get first 2 bytes in hex")
+                ),
+                20..=23 => format!(
+                    "{}{}{}{}",
+                    DEFAULT_CLIENT_VERSION.code,
+                    mock_commit
+                        .strip_prefix("0x")
+                        .unwrap_or("&mock_commit")
+                        .get(0..2)
+                        .expect("should get first 2 bytes in hex"),
+                    "LH",
+                    lighthouse_version::COMMIT_PREFIX
+                        .get(0..2)
+                        .expect("should get first 2 bytes in hex")
+                ),
+                24..=27 => format!("{}{}", DEFAULT_CLIENT_VERSION.code, "LH",),
+                28..=29 => DEFAULT_CLIENT_VERSION.code.to_string(),
+                // when user graffiti length is 30-32 characters, append nothing
+                30..=32 => String::new(),
+                _ => panic!(
+                    "graffiti length should be less than or equal to GRAFFITI_BYTES_LEN (32)"
+                ),
+            };
 
-        let found_graffiti_string =
-            std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
-                .expect("bytes should convert nicely to ascii");
+            let expected_graffiti_string = if append_graffiti_string.is_empty() {
+                // for the case of empty append_graffiti_string
+                graffiti.to_string()
+            } else {
+                // There is a space between the client version info and user graffiti
+                // as defined in calculate_graffiti function in engine_api.rs
+                format!("{} {}", append_graffiti_string, graffiti)
+            };
 
-        info!(expected_graffiti_string, found_graffiti_string, "results");
-        println!("expected graffiti string: '{}'", expected_graffiti_string);
-        println!("found graffiti string: '{}'", found_graffiti_string);
+            let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
+            let expected_graffiti_prefix_len =
+                std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
 
-        assert_eq!(expected_graffiti_string, found_graffiti_string);
-    }
+            let found_graffiti_string =
+                std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
+                    .expect("bytes should convert nicely to ascii");
 
-    #[tokio::test]
-    async fn check_append_el_version_graffiti_user_graffiti_from_20_to_23_characters() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
-        let harness = get_harness(VALIDATOR_COUNT, spec, None);
-
-        // user graffiti is 22 characters
-        let graffiti_str = "now this is pod racing";
-        let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
-        graffiti_bytes[..graffiti_str.len()].copy_from_slice(graffiti_str.as_bytes());
-
-        // To test appending client version info with user specified graffiti
-        let policy = GraffitiPolicy::AppendClientVersions;
-        let found_graffiti_bytes = harness
-            .chain
-            .graffiti_calculator
-            .get_graffiti(GraffitiSettings::Specified {
-                graffiti: Graffiti::from(graffiti_bytes),
-                policy,
-            })
-            .await
-            .0;
-
-        let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
-        // only append 1 byte (2 characters from the EL and CL commit)
-        let append_graffiti_string = format!(
-            "{}{}{}{}",
-            DEFAULT_CLIENT_VERSION.code,
-            mock_commit
-                .strip_prefix("0x")
-                .unwrap_or("&mock_commit")
-                .get(0..2)
-                .expect("should get first 2 bytes in hex"),
-            "LH",
-            lighthouse_version::COMMIT_PREFIX
-                .get(0..2)
-                .expect("should get first 2 bytes in hex")
-        );
-
-        let expected_graffiti_string = format!("{} {}", append_graffiti_string, graffiti_str);
-
-        let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
-        let expected_graffiti_prefix_len =
-            std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
-
-        let found_graffiti_string =
-            std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
-                .expect("bytes should convert nicely to ascii");
-
-        info!(expected_graffiti_string, found_graffiti_string, "results");
-        println!("expected graffiti string: '{}'", expected_graffiti_string);
-        println!("found graffiti string: '{}'", found_graffiti_string);
-
-        assert_eq!(expected_graffiti_string, found_graffiti_string);
-    }
-
-    #[tokio::test]
-    async fn check_append_el_version_graffiti_user_graffiti_from_24_to_27_characters() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
-        let harness = get_harness(VALIDATOR_COUNT, spec, None);
-
-        // user graffiti is 23 characters
-        let graffiti_str = "This is where the fun begin";
-        let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
-        graffiti_bytes[..graffiti_str.len()].copy_from_slice(graffiti_str.as_bytes());
-
-        // To test appending client version info with user specified graffiti
-        let policy = GraffitiPolicy::AppendClientVersions;
-        let found_graffiti_bytes = harness
-            .chain
-            .graffiti_calculator
-            .get_graffiti(GraffitiSettings::Specified {
-                graffiti: Graffiti::from(graffiti_bytes),
-                policy,
-            })
-            .await
-            .0;
-
-        // only append EL and CL clients code
-        let append_graffiti_string = format!("{}{}", DEFAULT_CLIENT_VERSION.code, "LH",);
-
-        let expected_graffiti_string = format!("{} {}", append_graffiti_string, graffiti_str);
-
-        let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
-        let expected_graffiti_prefix_len =
-            std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
-
-        let found_graffiti_string =
-            std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
-                .expect("bytes should convert nicely to ascii");
-
-        info!(expected_graffiti_string, found_graffiti_string, "results");
-        println!("expected graffiti string: '{}'", expected_graffiti_string);
-        println!("found graffiti string: '{}'", found_graffiti_string);
-
-        assert_eq!(expected_graffiti_string, found_graffiti_string);
-    }
-
-    #[tokio::test]
-    async fn check_append_el_version_graffiti_user_graffiti_from_28_to_29_characters() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
-        let harness = get_harness(VALIDATOR_COUNT, spec, None);
-
-        // user graffiti is 29 characters
-        let graffiti_str = "I don't like sand, its coarse";
-        let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
-        graffiti_bytes[..graffiti_str.len()].copy_from_slice(graffiti_str.as_bytes());
-
-        // To test appending client version info with user specified graffiti
-        let policy = GraffitiPolicy::AppendClientVersions;
-        let found_graffiti_bytes = harness
-            .chain
-            .graffiti_calculator
-            .get_graffiti(GraffitiSettings::Specified {
-                graffiti: Graffiti::from(graffiti_bytes),
-                policy,
-            })
-            .await
-            .0;
-
-        // only append EL client code
-        let append_graffiti_string = DEFAULT_CLIENT_VERSION.code.to_string();
-
-        let expected_graffiti_string = format!("{} {}", append_graffiti_string, graffiti_str);
-
-        let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
-        let expected_graffiti_prefix_len =
-            std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
-
-        let found_graffiti_string =
-            std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
-                .expect("bytes should convert nicely to ascii");
-
-        info!(expected_graffiti_string, found_graffiti_string, "results");
-        println!("expected graffiti string: '{}'", expected_graffiti_string);
-        println!("found graffiti string: '{}'", found_graffiti_string);
-
-        assert_eq!(expected_graffiti_string, found_graffiti_string);
-    }
-
-    #[tokio::test]
-    async fn check_append_el_version_graffiti_user_graffiti_from_30_to_32_characters() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
-        let harness = get_harness(VALIDATOR_COUNT, spec, None);
-
-        // user graffiti is 30 characters
-        let expected_graffiti_string = "I do not like sand, its coarse";
-        let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
-        graffiti_bytes[..expected_graffiti_string.len()]
-            .copy_from_slice(expected_graffiti_string.as_bytes());
-
-        // To test appending client version info with user specified graffiti
-        let policy = GraffitiPolicy::AppendClientVersions;
-        let found_graffiti_bytes = harness
-            .chain
-            .graffiti_calculator
-            .get_graffiti(GraffitiSettings::Specified {
-                graffiti: Graffiti::from(graffiti_bytes),
-                policy,
-            })
-            .await
-            .0;
-
-        let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
-        let expected_graffiti_prefix_len =
-            std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
-
-        let found_graffiti_string =
-            std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
-                .expect("bytes should convert nicely to ascii");
-
-        info!(expected_graffiti_string, found_graffiti_string, "results");
-        println!("expected graffiti string: '{}'", expected_graffiti_string);
-        println!("found graffiti string: '{}'", found_graffiti_string);
-
-        assert_eq!(expected_graffiti_string, found_graffiti_string);
+            assert_eq!(expected_graffiti_string, found_graffiti_string);
+        }
     }
 }

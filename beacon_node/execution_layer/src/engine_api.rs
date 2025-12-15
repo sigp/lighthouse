@@ -811,12 +811,16 @@ impl ClientVersionV1 {
             // that leaves user specified graffiti to be 32-12-1 = 19 characters max, i.e., <20
             if graffiti_length < 20 {
                 format!("{} {}", append_graffiti_full, graffiti_str)
+            // user-specified graffiti is between 20-23 characters
             } else if (20..24).contains(&graffiti_length) {
                 format!("{} {}", append_graffiti_one_byte, graffiti_str)
+            // user-specified graffiti is between 24-27 characters
             } else if (24..28).contains(&graffiti_length) {
                 format!("{} {}", append_graffiti_no_commit, graffiti_str)
+            // user-specified graffiti is between 28-29 characters
             } else if (28..30).contains(&graffiti_length) {
                 format!("{} {}", append_graffiti_only_el, graffiti_str)
+            // if user-specified graffiti is between 30-32 characters, append nothing
             } else {
                 return graffiti;
             }
