@@ -409,7 +409,7 @@ mod tests {
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let graffiti_vec = vec![
-            // less than 20 characters, example blow is 19 characters
+            // less than 20 characters, example below is 19 characters
             "This is my graffiti",
             // 20-23 characters, example below is 22 characters
             "This is my graffiti yo",
