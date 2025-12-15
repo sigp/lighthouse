@@ -6887,7 +6887,7 @@ impl ApiTester {
             .unwrap();
 
         let query_default_path = default_path.query().unwrap_or("");
-        // When GraffitiPolicy is None, the HTTP API query path should be the same as the default
+        // When GraffitiPolicy is None, the HTTP API query path should not containt "graffiti_policy"
         assert!(
             !query_default_path.contains("graffiti_policy"),
             "URL should not contain graffiti_policy parameter (same as PreserveUserGraffiti). URL is: {}",
@@ -6908,15 +6908,14 @@ impl ApiTester {
             .unwrap();
 
         let query_preserve_path = preserve_path.query().unwrap_or("");
-        // When GraffitiPolicy is PreserveUserGraffiti, the HTTP API query path should be the same as the default
-        // i.e., without graffity_policy in the query path
+        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should not containt "graffiti_policy"
         assert!(
             !query_preserve_path.contains("graffiti_policy"),
             "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
             query_preserve_path
         );
 
-        // Assert that the current HTTP API path is the same as PreserveUserGraffiti
+        // The HTTP API query path for PreserveUserGraffiti should be the same as the default
         assert_eq!(query_default_path, query_preserve_path);
 
         let append_path = self
