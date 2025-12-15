@@ -63,8 +63,7 @@ impl ForkContext {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let current_fork = epoch_to_forks
             .values()
-            .filter(|&fork| fork.fork_epoch <= current_epoch)
-            .next_back()
+            .rfind(|&fork| fork.fork_epoch <= current_epoch)
             .cloned()
             .expect("should match at least genesis epoch");
 
