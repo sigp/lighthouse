@@ -859,7 +859,10 @@ mod tests {
     #[test]
     fn retry_logic_after_peer_failures() {
         // GIVEN: A request expecting custody columns where some peers initially fail
-        let spec = Arc::new(test_spec::<E>());
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone()));
         let expected_custody_columns = da_checker
             .custody_context()
@@ -906,22 +909,35 @@ mod tests {
         )
         .unwrap();
 
-        // AND: Only partial custody columns are received (column 1 but not 2)
+        // AND: Only partial custody columns are received (first column but not second)
         let (req1, _) = columns_req_id.first().unwrap();
         info.add_custody_columns(
             *req1,
             blocks
                 .iter()
-                .flat_map(|b| b.1.iter().filter(|d| d.index == 1).cloned())
+                .flat_map(|b| {
+                    b.1.iter()
+                        .filter(|d| d.index == expected_custody_columns[0])
+                        .cloned()
+                })
                 .collect(),
         )
         .unwrap();
 
-        // AND: The missing column request is completed with empty data (peer failure)
+        // AND: The missing column requests are completed with empty data (peer failure)
         let (req2, _) = columns_req_id.get(1).unwrap();
         info.add_custody_columns(*req2, vec![]).unwrap();
 
-        let result = info.responses(da_checker.clone(), spec.clone()).unwrap();
+        let (req3, _) = columns_req_id.get(2).unwrap();
+        info.add_custody_columns(*req3, vec![]).unwrap();
+
+        let (req4, _) = columns_req_id.get(3).unwrap();
+        info.add_custody_columns(*req4, vec![]).unwrap();
+
+        let result: Result<
+            Vec<beacon_chain::block_verification_types::RpcBlock<E>>,
+            crate::sync::block_sidecar_coupling::CouplingError,
+        > = info.responses(da_checker.clone(), spec.clone()).unwrap();
         assert!(result.is_err());
 
         // AND: We retry with a new peer for the failed column
@@ -929,7 +945,15 @@ mod tests {
             10 as Id,
             DataColumnsByRangeRequester::ComponentsByRange(components_id),
         );
-        let failed_column_requests = vec![(new_columns_req_id, vec![2])];
+        let failed_column_requests = vec![(new_columns_req_id, vec![expected_custody_columns[1]])];
+        info.reinsert_failed_column_requests(failed_column_requests)
+            .unwrap();
+
+        let failed_column_requests = vec![(new_columns_req_id, vec![expected_custody_columns[2]])];
+        info.reinsert_failed_column_requests(failed_column_requests)
+            .unwrap();
+
+        let failed_column_requests = vec![(new_columns_req_id, vec![expected_custody_columns[3]])];
         info.reinsert_failed_column_requests(failed_column_requests)
             .unwrap();
 
@@ -957,7 +981,10 @@ mod tests {
         // GIVEN: A request where peers consistently fail to provide required columns
         let spec = Arc::new(test_spec::<E>());
         let da_checker = Arc::new(test_da_checker(spec.clone()));
-        let expected_custody_columns = vec![1, 2];
+        let expected_custody_columns = da_checker
+            .custody_context()
+            .custody_columns_for_epoch(None, &spec)
+            .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..1)
             .map(|_| {
@@ -992,6 +1019,8 @@ mod tests {
             Span::none(),
         );
 
+        println!("{:?}", columns_req_id);
+
         // AND: All blocks are received
         info.add_blocks(
             blocks_req_id,
@@ -1013,6 +1042,14 @@ mod tests {
         // AND: Column 2 request completes with empty data (persistent peer failure)
         let (req2, _) = columns_req_id.get(1).unwrap();
         info.add_custody_columns(*req2, vec![]).unwrap();
+
+        // AND: Column 3 request completes with empty data (persistent peer failure)
+        let (req3, _) = columns_req_id.get(2).unwrap();
+        info.add_custody_columns(*req3, vec![]).unwrap();
+
+        // AND: Column 4 request completes with empty data (persistent peer failure)
+        let (req4, _) = columns_req_id.get(3).unwrap();
+        info.add_custody_columns(*req4, vec![]).unwrap();
 
         // WHEN: Multiple retry attempts are made (up to max retries)
         for _ in 0..MAX_COLUMN_RETRIES {
@@ -1040,7 +1077,7 @@ mod tests {
         }) = result
         {
             assert_eq!(faulty_peers.len(), 1); // column 2 missing
-            assert_eq!(faulty_peers[0].0, 2); // column index 2
+            assert_eq!(faulty_peers[0].0, expected_custody_columns[1]); // column index 2
             assert!(exceeded_retries); // Should be true after max retries
         } else {
             panic!("Expected PeerFailure error with exceeded_retries=true");
