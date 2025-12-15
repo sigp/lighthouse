@@ -3,13 +3,14 @@ participants:
   - el_type: geth
     el_image: ethereum/client-go:latest
     cl_type: lighthouse
-    cl_image: lighthouse:local
+    cl_image: lighthouse-postgres:local
     cl_extra_params:
       - --target-peers=3
     count: 4
 network_params:
   electra_fork_epoch: 0
   seconds_per_slot: 3
+  network: fusaka-devnet-3
 global_log_level: debug
 snooper_enabled: false
 additional_services:
@@ -17,3 +18,6 @@ additional_services:
   - spamoor
   - prometheus_grafana
   - tempo
+checkpoint_sync_enabled: true
+checkpoint_sync_url: "https://checkpoint-sync.fusaka-devnet-3.ethpandaops.io"
+  
