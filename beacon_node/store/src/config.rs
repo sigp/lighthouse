@@ -1,12 +1,12 @@
 use crate::hdiff::HierarchyConfig;
-use crate::superstruct;
 use crate::{DBColumn, Error, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
-use strum::{Display, EnumString, EnumVariantNames};
+use strum::{Display, EnumString, VariantNames};
+use superstruct::superstruct;
 use types::EthSpec;
 use types::non_zero_usize::new_non_zero_usize;
 use zstd::{Decoder, Encoder};
@@ -267,7 +267,7 @@ mod test {
 }
 
 #[derive(
-    Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
+    Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Display, EnumString, VariantNames,
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum DatabaseBackend {

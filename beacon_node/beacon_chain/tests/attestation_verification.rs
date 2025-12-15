@@ -13,15 +13,17 @@ use beacon_chain::{
         single_attestation_to_attestation, test_spec,
     },
 };
+use bls::{AggregateSignature, Keypair, SecretKey};
+use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
 use state_processing::per_slot_processing;
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
+use typenum::Unsigned;
 use types::{
-    Address, AggregateSignature, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec,
-    FixedBytesExtended, ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, SingleAttestation, Slot, SubnetId, Unsigned,
+    Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
+    MainnetEthSpec, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
     signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
     test_utils::generate_deterministic_keypair,
 };

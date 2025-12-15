@@ -20,8 +20,8 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
     Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
-    Uint256, VariableList, Withdrawal, Withdrawals,
+    ExecutionPayloadHeader, ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256,
+    Withdrawal, Withdrawals,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -770,7 +770,7 @@ impl ClientVersionV1 {
             self.commit
                 .0
                 .get(..4)
-                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .unwrap_or(self.commit.0.as_str())
                 .to_lowercase(),
             lighthouse_commit_prefix
                 .0

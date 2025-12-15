@@ -2,16 +2,17 @@ use crate::version::inconsistent_fork_rejection;
 use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
 use eth2::types::{BlobIndicesQuery, BlobWrapper, BlobsVersionedHashesQuery};
+use fixed_bytes::FixedBytesExtended;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, UnversionedResponse,
-    beacon_response::ExecutionOptimisticFinalizedMetadata,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -474,7 +475,7 @@ impl BlockId {
                 )
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reconstruct_blobs(&chain.kzg, &data_columns, blob_indices, block, &chain.spec).map_err(
+            reconstruct_blobs(&chain.kzg, data_columns, blob_indices, block, &chain.spec).map_err(
                 |e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Error reconstructing data columns: {e:?}"
