@@ -115,8 +115,15 @@ impl ValidatorRegistrations {
             // inconsistent column counts within an epoch.
             let effective_delay_slots =
                 CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.seconds_per_slot;
-            let effective_epoch =
-                (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
+
+            // If we're still within the delay window from genesis (slot 0), use epoch 0
+            // directly since we're at the very start of the chain. Otherwise, apply the
+            // normal delay to give the network time to propagate the change.
+            let effective_epoch = if current_slot < effective_delay_slots {
+                Epoch::new(0)
+            } else {
+                (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1
+            };
             self.epoch_validator_custody_requirements
                 .insert(effective_epoch, validator_custody_requirement);
             Some((effective_epoch, validator_custody_requirement))
@@ -311,8 +318,13 @@ impl<E: EthSpec> CustodyContext<E> {
             );
 
             if cgc_from_cli > validator_custody_at_head {
-                // Make the CGC from CLI effective from the next epoch
-                let effective_epoch = head_epoch + 1;
+                // Make the CGC from CLI effective from the next epoch.
+                // For genesis (head_epoch = 0), use epoch 0 since we're at the start of the chain.
+                let effective_epoch = if head_epoch == 0 {
+                    Epoch::new(0)
+                } else {
+                    head_epoch + 1
+                };
                 let old_custody_group_count = validator_custody_at_head;
                 validator_custody_at_head = cgc_from_cli;
 
@@ -573,7 +585,7 @@ impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
 mod tests {
     use super::*;
     use crate::test_utils::generate_data_column_indices_rand_order;
-    use types::MainnetEthSpec;
+    use types::{MainnetEthSpec, MinimalEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -922,6 +934,77 @@ mod tests {
         // CGC update is applied for the next epoch.
         assert_eq!(
             custody_context.num_of_custody_groups_to_sample(current_epoch + 1, &spec),
+            validator_custody_units
+        );
+    }
+
+    #[test]
+    fn cgc_change_at_genesis_should_be_effective_immediately_minimal() {
+        let spec = MinimalEthSpec::default_spec();
+        let custody_context = CustodyContext::<MinimalEthSpec>::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<MinimalEthSpec>(),
+            &spec,
+        );
+        let validator_custody_units = 10;
+
+        // Register validators at slot 0 (genesis)
+        let current_slot = Slot::new(0);
+        let current_epoch = current_slot.epoch(MinimalEthSpec::slots_per_epoch());
+        assert_eq!(current_epoch, Epoch::new(0));
+
+        let cgc_changed = custody_context.register_validators(
+            vec![(
+                0,
+                validator_custody_units * spec.balance_per_additional_custody_group,
+            )],
+            current_slot,
+            &spec,
+        );
+
+        // At genesis, CGC change should be effective immediately at epoch 0
+        assert!(cgc_changed.is_some());
+        assert_eq!(cgc_changed.unwrap().effective_epoch, Epoch::new(0));
+
+        // CGC should be applied for epoch 0
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
+            validator_custody_units
+        );
+    }
+
+    #[test]
+    fn cgc_change_within_delay_window_should_be_effective_immediately_minimal() {
+        let spec = MinimalEthSpec::default_spec();
+        let custody_context = CustodyContext::<MinimalEthSpec>::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<MinimalEthSpec>(),
+            &spec,
+        );
+        let validator_custody_units = 10;
+
+        // Register validators at slot 3 (still within delay window for minimal preset)
+        // effective_delay_slots = 30 / 6 = 5, so slot 3 < 5
+        let current_slot = Slot::new(3);
+        let current_epoch = current_slot.epoch(MinimalEthSpec::slots_per_epoch());
+        assert_eq!(current_epoch, Epoch::new(0));
+
+        let cgc_changed = custody_context.register_validators(
+            vec![(
+                0,
+                validator_custody_units * spec.balance_per_additional_custody_group,
+            )],
+            current_slot,
+            &spec,
+        );
+
+        // Within delay window from genesis, CGC change should be effective at epoch 0
+        assert!(cgc_changed.is_some());
+        assert_eq!(cgc_changed.unwrap().effective_epoch, Epoch::new(0));
+
+        // CGC should be applied for epoch 0
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
             validator_custody_units
         );
     }
