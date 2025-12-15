@@ -501,7 +501,7 @@ mod tests {
         },
     };
     use rand::SeedableRng;
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
     use tracing::Span;
     use types::{Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock, test_utils::XorShiftRng};
 
@@ -1094,8 +1094,13 @@ mod tests {
             exceeded_retries,
         }) = result
         {
-            assert_eq!(faulty_peers.len(), 4); // column 2,3,4 missing
-            assert_eq!(faulty_peers[0].0, expected_custody_columns[2]); // column index 3
+            assert_eq!(faulty_peers.len(), 4);
+
+            let mut faulty_peers = faulty_peers.into_iter().collect::<HashMap<u64, PeerId>>();
+            for column in expected_custody_columns {
+                faulty_peers.remove(&column);
+            }
+            assert!(faulty_peers.is_empty());
             assert!(exceeded_retries); // Should be true after max retries
         } else {
             panic!("Expected PeerFailure error with exceeded_retries=true");
