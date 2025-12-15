@@ -238,7 +238,7 @@ store = { path = "beacon_node/store" }
 strum = { version = "0.27", features = ["derive"] }
 superstruct = "0.10"
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
-syn = "1"
+syn = "2"
 sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
