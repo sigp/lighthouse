@@ -598,12 +598,13 @@ mod tests {
         // Expect no blobs returned
         info.add_blobs(blobs_req_id, vec![]).unwrap();
 
-        let spec = Arc::new(test_spec::<E>());
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone()));
-        // Assert response is finished and RpcBlocks can be constructed, even if blobs weren't returned.
-        // This makes sure we don't expect blobs here when they have expired. Checking this logic should
-        // be hendled elsewhere.
-        info.responses(da_checker, spec).unwrap().unwrap();
+        // Assert response is finished and RpcBlocks cannot be constructed, because blobs weren't returned.
+        let result = info.responses(da_checker, spec).unwrap();
+        assert!(result.is_err())
     }
 
     #[test]
