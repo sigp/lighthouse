@@ -1,11 +1,16 @@
+use bls::Signature;
+use kzg::{KzgCommitment, KzgProof};
 use rand::Rng;
 
-use kzg::{KzgCommitment, KzgProof};
-
-use crate::beacon_block_body::KzgCommitments;
-use crate::*;
-
-use super::*;
+use crate::{
+    block::{BeaconBlock, SignedBeaconBlock},
+    core::{EthSpec, MainnetEthSpec},
+    data::{Blob, BlobSidecar, BlobsList},
+    execution::FullPayload,
+    fork::{ForkName, map_fork_name},
+    kzg_ext::{KzgCommitments, KzgProofs},
+    test_utils::TestRandom,
+};
 
 type BlobsBundle<E> = (KzgCommitments<E>, KzgProofs<E>, BlobsList<E>);
 
@@ -73,6 +78,7 @@ pub fn generate_blobs<E: EthSpec>(n_blobs: usize) -> Result<BlobsBundle<E>, Stri
 mod test {
     use super::*;
     use rand::rng;
+    use ssz_types::FixedVector;
 
     #[test]
     fn test_verify_blob_inclusion_proof() {

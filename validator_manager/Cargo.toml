@@ -6,6 +6,7 @@ edition = { workspace = true }
 
 [dependencies]
 account_utils = { workspace = true }
+bls = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
 educe = { workspace = true }
