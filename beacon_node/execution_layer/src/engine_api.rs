@@ -791,7 +791,7 @@ impl ClientVersionV1 {
             self.commit
                 .0
                 .get(..2)
-                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .unwrap_or(self.commit.0.as_str())
                 .to_lowercase(),
             lighthouse_commit_prefix
                 .0

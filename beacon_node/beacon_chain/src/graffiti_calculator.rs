@@ -404,21 +404,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_append_el_version_graffiti_user_graffiti_less_than_20_characters() {
+    async fn check_append_el_version_graffiti_various_length() {
         let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let graffiti_vec = vec![
             // less than 20 characters, example blow is 19 characters
-            "lido staking pool!!",
+            "This is my graffiti",
             // 20-23 characters, example below is 22 characters
-            "now this is pod racing",
-            // 24-27 characters, example below is 27 characters
-            "This is where the fun begin",
+            "This is my graffiti yo",
+            // 24-27 characters, example below is 26 characters
+            "This is my graffiti string",
             // 28-29 characters, example below is 29 characters
-            "I don't like sand, its coarse",
-            // 30-32 characters, example below is 30 characters
-            "I do not like sand, its coarse",
+            "This is my graffiti string yo",
+            // 30-32 characters, example below is 32 characters
+            "This is my graffiti string yo yo",
         ];
         // user graffiti is 19 characters
 
@@ -439,8 +439,8 @@ mod tests {
                 .0;
 
             let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
-            let graffiti_length = graffiti.len();
 
+            let graffiti_length = graffiti.len();
             let append_graffiti_string = match graffiti_length {
                 0..=19 => format!(
                     "{}{}{}{}",
@@ -473,12 +473,12 @@ mod tests {
                 // when user graffiti length is 30-32 characters, append nothing
                 30..=32 => String::new(),
                 _ => panic!(
-                    "graffiti length should be less than or equal to GRAFFITI_BYTES_LEN (32)"
+                    "graffiti length should be less than or equal to GRAFFITI_BYTES_LEN (32 characters)"
                 ),
             };
 
             let expected_graffiti_string = if append_graffiti_string.is_empty() {
-                // for the case of empty append_graffiti_string
+                // for the case of empty append_graffiti_string, i.e., user-specified graffiti is 30-32 characters
                 graffiti.to_string()
             } else {
                 // There is a space between the client version info and user graffiti
