@@ -608,7 +608,10 @@ mod tests {
 
     #[test]
     fn rpc_block_with_custody_columns() {
-        let spec = Arc::new(test_spec::<E>());
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone()));
         let expects_custody_columns = da_checker
             .custody_context()
@@ -682,14 +685,19 @@ mod tests {
 
     #[test]
     fn rpc_block_with_custody_columns_batched() {
-        let spec = Arc::new(test_spec::<E>());
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone()));
-        let batched_column_requests = [vec![1_u64, 2], vec![3, 4]];
-        let expects_custody_columns = batched_column_requests
-            .iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
+        let expected_custody_columns = da_checker
+            .custody_context()
+            .custody_columns_for_epoch(None, &spec)
+            .to_vec();
+        let batched_column_requests = [
+            vec![expected_custody_columns[0], expected_custody_columns[1]],
+            vec![expected_custody_columns[2], expected_custody_columns[3]],
+        ];
         let custody_column_request_ids =
             (0..batched_column_requests.len() as u32).collect::<Vec<_>>();
         let num_of_data_column_requests = custody_column_request_ids.len();
@@ -713,7 +721,7 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
             None,
-            Some((columns_req_id.clone(), expects_custody_columns.clone())),
+            Some((columns_req_id.clone(), expected_custody_columns.clone())),
             Span::none(),
         );
 
@@ -962,7 +970,15 @@ mod tests {
             new_columns_req_id,
             blocks
                 .iter()
-                .flat_map(|b| b.1.iter().filter(|d| d.index == 2).cloned())
+                .flat_map(|b| {
+                    b.1.iter()
+                        .filter(|d| {
+                            d.index == expected_custody_columns[1]
+                                || d.index == expected_custody_columns[2]
+                                || d.index == expected_custody_columns[3]
+                        })
+                        .cloned()
+                })
                 .collect(),
         )
         .unwrap();
@@ -979,7 +995,10 @@ mod tests {
     #[test]
     fn max_retries_exceeded_behavior() {
         // GIVEN: A request where peers consistently fail to provide required columns
-        let spec = Arc::new(test_spec::<E>());
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone()));
         let expected_custody_columns = da_checker
             .custody_context()
@@ -1018,8 +1037,6 @@ mod tests {
             Some((columns_req_id.clone(), expected_custody_columns.clone())),
             Span::none(),
         );
-
-        println!("{:?}", columns_req_id);
 
         // AND: All blocks are received
         info.add_blocks(
@@ -1076,8 +1093,8 @@ mod tests {
             exceeded_retries,
         }) = result
         {
-            assert_eq!(faulty_peers.len(), 1); // column 2 missing
-            assert_eq!(faulty_peers[0].0, expected_custody_columns[1]); // column index 2
+            assert_eq!(faulty_peers.len(), 4); // column 2,3,4 missing
+            assert_eq!(faulty_peers[0].0, expected_custody_columns[2]); // column index 3
             assert!(exceeded_retries); // Should be true after max retries
         } else {
             panic!("Expected PeerFailure error with exceeded_retries=true");
