@@ -100,6 +100,7 @@ pub fn size_of_dir(path: &Path) -> u64 {
             let Ok(file_type) = entry.file_type() else {
                 continue;
             };
+            // Use file_type() (non-following) so symlinks are skipped before any metadata lookup.
             if file_type.is_symlink() {
                 continue;
             }
