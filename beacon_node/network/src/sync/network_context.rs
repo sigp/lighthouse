@@ -1537,12 +1537,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }
         }
         if let Some(Err(RpcResponseError::VerifyError(e))) = &resp {
-            self.report_peer(
-                peer_id,
-                PeerAction::LowToleranceError,
-                // Force conversion to static string to have the summary of the error
-                Into::<&'static str>::into(e),
-            );
+            self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
         }
         resp
     }
