@@ -8,7 +8,8 @@ use syn::{DeriveInput, parse_macro_input};
 /// The field attribute is: `#[test_random(default)]`
 fn should_use_default(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
-        attr.path.is_ident("test_random") && attr.tokens.to_string().replace(' ', "") == "(default)"
+        attr.path().is_ident("test_random")
+            && matches!(&attr.meta, syn::Meta::List(list) if list.tokens.to_string().replace(' ', "") == "default")
     })
 }
 
