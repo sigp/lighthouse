@@ -15,7 +15,6 @@ pub enum Error {
     SszDecodeError(DecodeError),
     VectorChunkError(ChunkError),
     BeaconStateError(BeaconStateError),
-    PartialBeaconStateError,
     HotColdDBError(HotColdDBError),
     DBError {
         message: String,
