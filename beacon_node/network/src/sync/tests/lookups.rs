@@ -292,7 +292,7 @@ impl TestRig {
         // Before Fulu, FuluTestType is irrelevant
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
-            dequeue_strategy: DequeueEventStrategy::FIFO,
+            dequeue_strategy: DequeueEventStrategy::Random,
         })
     }
 
@@ -1103,7 +1103,7 @@ impl TestRig {
         genesis_fork().fulu_enabled().then(|| {
             Self::new(TestRigConfig {
                 fulu_test_type,
-                dequeue_strategy: DequeueEventStrategy::FIFO,
+                dequeue_strategy: DequeueEventStrategy::Random,
             })
         })
     }

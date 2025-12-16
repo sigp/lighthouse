@@ -1,5 +1,11 @@
+use bls::Hash256;
+use milhouse::{List, Vector};
+use ssz_types::BitVector;
 use std::mem;
-use types::{BeaconState, BeaconStateError as Error, BeaconStateGloas, ChainSpec, EthSpec, Fork};
+use types::{
+    BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
+    EthSpec, ExecutionPayloadBid, Fork,
+};
 
 /// Transform a `Fulu` state into a `Gloas` state.
 pub fn upgrade_to_gloas<E: EthSpec>(
@@ -63,8 +69,8 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Sync committees
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
-        // Execution
-        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_gloas(),
+        // Execution Bid
+        latest_execution_payload_bid: ExecutionPayloadBid::default(),
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
@@ -79,6 +85,15 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         pending_deposits: pre.pending_deposits.clone(),
         pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
         pending_consolidations: pre.pending_consolidations.clone(),
+        // Gloas
+        execution_payload_availability: BitVector::default(), // All bits set to false initially
+        builder_pending_payments: Vector::new(vec![
+            BuilderPendingPayment::default();
+            E::builder_pending_payments_limit()
+        ])?,
+        builder_pending_withdrawals: List::default(), // Empty list initially,
+        latest_block_hash: pre.latest_execution_payload_header.block_hash,
+        latest_withdrawals_root: Hash256::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
