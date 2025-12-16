@@ -32,7 +32,10 @@ PROFILE ?= release
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
 # Include phase0 to test the code paths in sync that are pre blobs
-RECENT_FORKS=phase0 electra fulu gloas
+RECENT_FORKS=electra fulu gloas
+
+# For network tests include phase0 to cover genesis syncing (blocks without blobs or columns)
+TEST_NETWORK_FORKS=phase0 $(RECENT_FORKS)
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -220,7 +223,7 @@ test-op-pool-%:
 		-p operation_pool
 
 # Run the tests in the `network` crate for recent forks.
-test-network: $(patsubst %,test-network-%,$(RECENT_FORKS))
+test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
