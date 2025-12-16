@@ -326,6 +326,15 @@ install-audit:
 audit-CI:
 	cargo audit
 
+# Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
+deny: install-deny deny-CI
+
+install-deny:
+	cargo install --force cargo-deny --version 0.18.2
+
+deny-CI:
+	cargo deny check bans sources --hide-inclusion-graph
+
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:
 	cargo vendor
