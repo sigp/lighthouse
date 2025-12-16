@@ -909,12 +909,8 @@ pub fn generate_genesis_header<E: EthSpec>(
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
-        ForkName::Gloas => {
-            let mut header = ExecutionPayloadHeader::Gloas(<_>::default());
-            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
-            *header.transactions_root_mut() = empty_transactions_root;
-            Some(header)
-        }
+        // TODO(EIP-7732): need to look into this
+        ForkName::Gloas => None,
     }
 }
 

@@ -3300,9 +3300,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
-        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
-            ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadGloas<E>, num_blobs, rng, fork_name),
+        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
         _ => return (block, blob_sidecars),
     };
 

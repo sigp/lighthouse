@@ -541,34 +541,6 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Gloas(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Gloas(ExecutionPayloadGloas {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                        blob_gas_used: header.blob_gas_used,
-                        excess_blob_gas: header.excess_blob_gas,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is post capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
-            }
         }
     }
 }
