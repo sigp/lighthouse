@@ -1223,7 +1223,7 @@ impl TestRig {
             .peer_info(&peer_id)
             .expect("Peer should be known")
             .custody_subnets_iter()
-            .map(|i| *i)
+            .copied()
             .collect::<Vec<_>>();
         let peer_custody_str =
             if custody_subnets.len() == self.harness.spec.number_of_custody_groups as usize {
