@@ -3,7 +3,7 @@
 EF_TESTS = "testing/ef_tests"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 EXECUTION_ENGINE_INTEGRATION = "testing/execution_engine_integration"
-GIT_TAG := $(shell git describe --tags --candidates 1)
+GIT_TAG = $(shell git describe --tags --candidates 1)
 BIN_DIR = "bin"
 
 X86_64_TAG = "x86_64-unknown-linux-gnu"

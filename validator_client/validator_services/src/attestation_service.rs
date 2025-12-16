@@ -193,6 +193,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         // Create and publish an `Attestation` for all validators only once
         // as the committee_index is not included in AttestationData post-Electra
         let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
+
+        // Return early if there is no attestation duties
+        if attestation_duties.is_empty() {
+            return Ok(());
+        }
+
         let attestation_service = self.clone();
 
         let attestation_data_handle = self
@@ -370,10 +376,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             &validator_metrics::ATTESTATION_SERVICE_TIMES,
             &[validator_metrics::ATTESTATIONS],
         );
-
-        if validator_duties.is_empty() {
-            return Ok(());
-        }
 
         let current_epoch = self
             .slot_clock

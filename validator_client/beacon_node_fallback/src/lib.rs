@@ -20,7 +20,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
-use strum::EnumVariantNames;
+use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{debug, error, warn};
@@ -752,7 +752,7 @@ async fn sort_nodes_by_health(nodes: &mut Vec<CandidateBeaconNode>) {
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumVariantNames, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, VariantNames, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
     None,
