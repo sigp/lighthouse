@@ -222,8 +222,9 @@ Flags:
           higher validator counts will lead to higher volume of prometheus
           metrics being collected.
       --graffiti-append
-          When used, client version info will be automatically appended to user
-          custom graffiti.
+          When used, client version info will be prepended to user custom
+          graffiti, with a space in between. This should only be used with a
+          Lighthouse beacon node.
   -h, --help
           Prints help information
       --http

@@ -153,7 +153,8 @@ pub struct ValidatorClient {
     #[clap(
         long,
         requires = "graffiti",
-        help = "When used, client version info will be automatically appended to user custom graffiti.",
+        help = "When used, client version info will be prepended to user custom graffiti, with a space in between. \
+        This should only be used with a Lighthouse beacon node.",
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
