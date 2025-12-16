@@ -420,7 +420,6 @@ mod tests {
             // 30-32 characters, example below is 32 characters
             "This is my graffiti string yo yo",
         ];
-        // user graffiti is 19 characters
 
         for graffiti in graffiti_vec {
             let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
