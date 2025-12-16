@@ -593,7 +593,6 @@ pub async fn handle_rpc<E: EthSpec>(
                 .lock()
                 .on_forkchoice_updated(forkchoice_state.clone(), payload_attributes.clone())
             {
-                debug!("Returning hook response");
                 return Ok(serde_json::to_value(hook_response).unwrap());
             }
 
@@ -601,7 +600,6 @@ pub async fn handle_rpc<E: EthSpec>(
 
             // Canned responses set by block hash take priority.
             if let Some(status) = ctx.get_fcu_payload_status(&head_block_hash) {
-                debug!(?head_block_hash, "Canned response set by block hash");
                 return status
                     .map(|status| {
                         let response = JsonForkchoiceUpdatedV1Response {
