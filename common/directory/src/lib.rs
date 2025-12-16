@@ -97,22 +97,15 @@ pub fn size_of_dir(path: &Path) -> u64 {
             };
             entries_seen += 1;
 
-            let Ok(file_type) = entry.file_type() else {
+            let Ok(metadata) = entry.metadata() else {
                 continue;
             };
-            // Use file_type() (non-following) so symlinks are skipped before any metadata lookup.
-            if file_type.is_symlink() {
-                continue;
-            }
-
-            if file_type.is_dir() {
+            // Note: Metadata::is_dir() is false for symlinks, so we won't recurse into them.
+            if metadata.is_dir() {
                 if depth < MAX_DEPTH {
                     stack.push_back((entry.path(), depth + 1));
                 }
             } else {
-                let Ok(metadata) = entry.metadata() else {
-                    continue;
-                };
                 total_size = total_size.saturating_add(metadata.len());
             }
         }
