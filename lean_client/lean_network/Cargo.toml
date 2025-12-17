@@ -4,7 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+async-trait = "0.1"
 enr = { version = "0.13", features = ["ed25519", "k256"] }
+ethereum_ssz_derive = "0.10.0"
 futures = { workspace = true }
 gossipsub = { workspace = true }
 lean_consensus = { workspace = true }
@@ -29,6 +31,7 @@ features = [
     "tokio",
     "macros",
     "quic",
-    "mdns"
+    "mdns",
+    "request-response",
 ]
 

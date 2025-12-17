@@ -1,6 +1,6 @@
 use ssz_derive::{Decode, Encode};
-use tree_hash_derive::TreeHash;
 use ssz_types::FixedVector;
+use tree_hash_derive::TreeHash;
 use typenum::*;
 
 /// XMSS signature size in bytes (3112 bytes)
@@ -134,4 +134,3 @@ pub fn verify_signature(
     let epoch32 = epoch as u32;
     Ok(LeanSigScheme::verify(&pk, epoch32, &message_array, &sig))
 }
-

@@ -6,13 +6,15 @@ use tracing::debug;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::lean_block::{LeanBlock, LeanBlockBody, LeanBlockHeader, SignedLeanBlockWithAttestation};
+use crate::lean_block::{
+    LeanBlock, LeanBlockBody, LeanBlockHeader, SignedLeanBlockWithAttestation,
+};
 use crate::validator::Validator;
 use crate::validator::ValidatorIndex;
 
-use ssz_types::{VariableList, BitList};
-use types::{EthSpec, Hash256};
 use ssz_types::typenum::U1073741824;
+use ssz_types::{BitList, VariableList};
+use types::{EthSpec, Hash256};
 
 #[derive(TreeHash, Encode, Decode, Debug)]
 pub struct LeanState<E: EthSpec> {
@@ -47,8 +49,8 @@ impl<E: EthSpec> LeanState<E> {
         };
 
         let genesis_checkpoint = Checkpoint {
-            root: Hash256::ZERO,  
-            slot: Slot(0),        
+            root: Hash256::ZERO,
+            slot: Slot(0),
         };
 
         Self {
@@ -66,8 +68,10 @@ impl<E: EthSpec> LeanState<E> {
         }
     }
 
-    pub fn generate_genesis(genesis_time: u64, validators: VariableList<Validator, E::ValidatorRegistryLimit>) -> Self {
-
+    pub fn generate_genesis(
+        genesis_time: u64,
+        validators: VariableList<Validator, E::ValidatorRegistryLimit>,
+    ) -> Self {
         let genesis_config = Config { genesis_time };
         let genesis_header = LeanBlockHeader {
             slot: Slot(0),
@@ -107,8 +111,6 @@ impl<E: EthSpec> LeanState<E> {
                 .expect("Failed to create justifications_validators BitList"),
         }
     }
-
-
 
     pub fn is_proposer(&self, validator_index: ValidatorIndex) -> bool {
         self.slot.0 % self.validators.len() as u64 == validator_index.0
@@ -169,7 +171,7 @@ impl<E: EthSpec> LeanState<E> {
             ));
         }
 
-        if self.justifications_roots.iter().any(|r| *r == root) {
+        if self.justifications_roots.contains(&root) {
             return Err(format!(
                 "Root {:?} already exists in justifications_roots",
                 root

@@ -75,7 +75,7 @@ pub fn load_bootstrap_nodes<P: AsRef<Path>>(nodes_path: P) -> Result<Vec<String>
                 parse_errors[0].1
             )
         } else {
-            format!("No ENR records found in file")
+            "No ENR records found in file".to_string()
         };
         error!(
             "No valid bootstrap nodes found in {:?}. {}",
@@ -115,8 +115,8 @@ pub fn parse_enr_to_multiaddr(enr_str: &str) -> Result<Multiaddr, String> {
     // Extract IP address - use standard ENR fields
     let ip = enr
         .ip4()
-        .map(|ip| IpAddr::V4(ip))
-        .or_else(|| enr.ip6().map(|ip| IpAddr::V6(ip)))
+        .map(IpAddr::V4)
+        .or_else(|| enr.ip6().map(IpAddr::V6))
         .ok_or_else(|| {
             let has_ip4 = enr.ip4().is_some();
             let has_ip6 = enr.ip6().is_some();

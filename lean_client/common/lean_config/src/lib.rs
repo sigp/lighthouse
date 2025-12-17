@@ -12,11 +12,11 @@ use lean_network::NetworkConfig;
 use lean_network_config::load_network_files;
 use lean_store::LeanStore;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
+use ssz_types::VariableList;
 use store::database::interface::BeaconNodeBackend;
 use tracing::info;
 use tree_hash::TreeHash;
 use types::{EthSpec, Slot};
-use ssz_types::VariableList;
 
 use validators::build_validators_from_config;
 
@@ -100,24 +100,29 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     let genesis_time = if let Some(path) = &genesis_json_path {
         match std::fs::read(path) {
             Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
-                Ok(json) => {
-                    json.get("config")
-                        .and_then(|c| c.get("genesis_time"))
-                        .and_then(|t| {
-                            t.as_str()
-                                .and_then(|s| s.parse::<u64>().ok())
-                                .or_else(|| t.as_u64())
-                        })
-                        .inspect(|&time| info!("Using genesis_time from genesis.json: {}", time))
-                        .unwrap_or(0)
-                }
+                Ok(json) => json
+                    .get("config")
+                    .and_then(|c| c.get("genesis_time"))
+                    .and_then(|t| {
+                        t.as_str()
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .or_else(|| t.as_u64())
+                    })
+                    .inspect(|&time| info!("Using genesis_time from genesis.json: {}", time))
+                    .unwrap_or(0),
                 Err(e) => {
-                    info!("Failed to parse genesis.json: {}, using default genesis_time=0", e);
+                    info!(
+                        "Failed to parse genesis.json: {}, using default genesis_time=0",
+                        e
+                    );
                     0
                 }
             },
             Err(e) => {
-                info!("Failed to read genesis.json: {}, using default genesis_time=0", e);
+                info!(
+                    "Failed to read genesis.json: {}, using default genesis_time=0",
+                    e
+                );
                 0
             }
         }
@@ -132,10 +137,10 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
 
     // Generate fresh genesis state to align with spec logic, ignoring any existing genesis.ssz.
     info!("Forcing fresh genesis state generation (ignoring genesis.ssz to align with spec)");
-    
+
     let validators = VariableList::new(validators_list)
         .map_err(|e| format!("Failed to create validators list: {:?}", e))?;
-    
+
     let genesis_state = LeanState::<E>::generate_genesis(genesis_time, validators);
 
     // Calculate the Genesis State Root
@@ -165,8 +170,6 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     lean_store
         .save_safe_target(genesis_root)
         .map_err(|e| format!("Failed to set safe target: {}", e))?;
-
-
 
     info!(
         slot = genesis_state.slot.0,

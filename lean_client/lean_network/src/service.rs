@@ -1,4 +1,5 @@
 use crate::config::NetworkConfig;
+use crate::rpc::{LeanBlocksByRootProtocol, RPCRequest, RPCResponse, SSZSnappyCodec};
 use crate::topics::{self, Topic};
 use futures::StreamExt;
 use lean_consensus::attestation::SignedAttestation;
@@ -7,6 +8,7 @@ use libp2p::identity::{self, Keypair};
 use libp2p::{
     Multiaddr, PeerId, Swarm, Transport,
     gossipsub::{self, MessageId},
+    request_response::{self, ProtocolSupport},
     swarm::{NetworkBehaviour, SwarmEvent},
 };
 use sha2::{Digest, Sha256};
@@ -24,16 +26,22 @@ use types::EthSpec;
 const MESSAGE_DOMAIN_VALID_SNAPPY: &[u8] = &[0x01, 0x00, 0x00, 0x00];
 
 #[derive(NetworkBehaviour)]
-pub struct LeanBehaviour {
+pub struct LeanBehaviour<E: EthSpec> {
     gossipsub: gossipsub::Behaviour,
+    req_resp: request_response::Behaviour<SSZSnappyCodec<E>>,
 }
 
 /// Messages received from the network that need to be processed
 pub enum NetworkMessage<E: EthSpec> {
     /// Signed attestation received from network
     Attestation(Arc<SignedAttestation>),
-    /// Block received from network
-    Block(Arc<SignedLeanBlockWithAttestation<E>>),
+    /// Block received from network or to be published (peer_id is None for local)
+    Block(Option<PeerId>, Arc<SignedLeanBlockWithAttestation<E>>),
+    /// Request to send an RPC request to a peer
+    SendRequest {
+        peer_id: PeerId,
+        request: RPCRequest,
+    },
 }
 
 /// Bootstrap node status tracking
@@ -50,7 +58,7 @@ struct BootstrapNode {
 }
 
 pub struct NetworkService<E: EthSpec> {
-    swarm: Swarm<LeanBehaviour>,
+    swarm: Swarm<LeanBehaviour<E>>,
     network_recv: mpsc::UnboundedSender<NetworkMessage<E>>,
     network_send: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     /// Cache of bootstrap nodes with retry state
@@ -126,7 +134,15 @@ impl<E: EthSpec> NetworkService<E> {
         )
         .map_err(|e| format!("Failed to create gossipsub behaviour: {}", e))?;
 
-        let behaviour = LeanBehaviour { gossipsub };
+        let req_resp = request_response::Behaviour::new(
+            vec![(LeanBlocksByRootProtocol, ProtocolSupport::Full)],
+            request_response::Config::default(),
+        );
+
+        let behaviour = LeanBehaviour {
+            gossipsub,
+            req_resp,
+        };
 
         let mut swarm = Swarm::new(
             transport,
@@ -179,15 +195,16 @@ impl<E: EthSpec> NetworkService<E> {
                 }
             };
 
-            if let Some(peer_in_addr) = peer_id_from_multiaddr(multiaddr.clone()) {
-                if peer_in_addr != local_peer_id {
-                    bootstrap_nodes.push_back(BootstrapNode {
-                        multiaddr,
-                        last_attempt: None,
-                        attempt_count: 0,
-                        connected: false,
-                    });
-                }
+            if let Some(peer_in_addr) = peer_id_from_multiaddr(multiaddr.clone())
+                && peer_in_addr != local_peer_id
+            {
+                bootstrap_nodes.push_back(BootstrapNode {
+                    multiaddr: multiaddr.clone(),
+                    // Always try bootstrap nodes immediately initially
+                    last_attempt: None,
+                    attempt_count: 0,
+                    connected: false,
+                });
             }
         }
 
@@ -208,13 +225,15 @@ impl<E: EthSpec> NetworkService<E> {
 
     /// Decode message based on topic and create appropriate NetworkMessage
     /// Messages are expected to be snappy-compressed
-    fn decode_network_message(&self, topic: &str, data: &[u8]) -> Option<NetworkMessage<E>> {
-        let base_topic = match topics::parse_topic_name(topic, &self.network_name) {
-            Some(name) => name,
-            None => {
-                debug!("Unknown topic format: {}", topic);
-                return None;
-            }
+    fn decode_network_message(
+        &self,
+        topic: &str,
+        data: &[u8],
+        peer_id: PeerId,
+    ) -> Option<NetworkMessage<E>> {
+        let Some(base_topic) = topics::parse_topic_name(topic, &self.network_name) else {
+            debug!("Unknown topic format: {}", topic);
+            return None;
         };
 
         // Decompress snappy-compressed message
@@ -230,7 +249,7 @@ impl<E: EthSpec> NetworkService<E> {
             Topic::Block => match SignedLeanBlockWithAttestation::from_ssz_bytes(&decompressed) {
                 Ok(block) => {
                     debug!("Successfully decoded lean block from network");
-                    Some(NetworkMessage::Block(Arc::new(block)))
+                    Some(NetworkMessage::Block(Some(peer_id), Arc::new(block)))
                 }
                 Err(e) => {
                     warn!("Failed to decode lean block: {:?}", e);
@@ -281,9 +300,9 @@ impl<E: EthSpec> NetworkService<E> {
                     self.attempt_bootstrap_connections();
                 }
 
-                // Handle messages to publish
+                // Handle messages to publish or requests to send
                 Some(msg) = self.network_send.recv() => {
-                    self.publish_message(msg).await;
+                    self.handle_command(msg).await;
                 }
 
                 // Handle swarm events
@@ -306,14 +325,17 @@ impl<E: EthSpec> NetworkService<E> {
 
                             // Decode the message based on topic
                             if let Some(network_msg) =
-                                self.decode_network_message(message.topic.as_str(), &message.data)
+                                self.decode_network_message(message.topic.as_str(), &message.data, propagation_source)
                             {
                                 match &network_msg {
                                     NetworkMessage::Attestation(_) => {
                                         info!("Forwarding attestation to attestation service");
                                     }
-                                    NetworkMessage::Block(_) => {
+                                    NetworkMessage::Block(_, _) => {
                                         info!("Forwarding block to attestation service");
+                                    }
+                                    NetworkMessage::SendRequest { .. } => {
+                                        warn!("Received SendRequest from network decode (unexpected)");
                                     }
                                 }
 
@@ -330,6 +352,27 @@ impl<E: EthSpec> NetworkService<E> {
                         }
                         LeanBehaviourEvent::Gossipsub(other_gossipsub_event) => {
                             trace!("Gossipsub behaviour event: {:?}", other_gossipsub_event);
+                        }
+                        LeanBehaviourEvent::ReqResp(request_response::Event::Message {
+                            peer,
+                            message: request_response::Message::Response { response, .. },
+                            ..
+                        }) => {
+                            match response {
+                                RPCResponse::BlocksByRoot(block) => {
+                                    info!(
+                                        slot = block.message.block.slot.0,
+                                        peer = ?peer,
+                                        "Received BlocksByRoot response"
+                                    );
+                                    if let Err(e) = self.network_recv.send(NetworkMessage::Block(Some(peer), Arc::new(block))) {
+                                        warn!("Failed to send received block to attestation service: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        LeanBehaviourEvent::ReqResp(other_event) => {
+                            trace!("ReqResp behaviour event: {:?}", other_event);
                         }
                     }
                 }
@@ -369,26 +412,37 @@ impl<E: EthSpec> NetworkService<E> {
         }
     }
 
-    /// Publishes a message to the gossipsub network
-    async fn publish_message(&mut self, msg: NetworkMessage<E>) {
-        let (topic_variant, data) = match &msg {
+    /// Handles a command from the validator service (publish message or send request)
+    async fn handle_command(&mut self, msg: NetworkMessage<E>) {
+        match msg {
+            NetworkMessage::SendRequest { peer_id, request } => {
+                let request_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .req_resp
+                    .send_request(&peer_id, request);
+                debug!(?peer_id, ?request_id, "Sent RPC request");
+            }
             NetworkMessage::Attestation(signed_attestation) => {
                 info!(
                     slot = signed_attestation.message.attestation_data.slot.0,
                     validator_id = signed_attestation.message.validator_id,
                     "Publishing attestation to network"
                 );
-                (Topic::Attestation, signed_attestation.as_ssz_bytes())
+                self.publish_gossip_data(Topic::Attestation, signed_attestation.as_ssz_bytes());
             }
-            NetworkMessage::Block(block) => {
+            NetworkMessage::Block(_, block) => {
                 info!(
                     slot = block.message.block.slot.0,
                     "Publishing block to network"
                 );
-                (Topic::Block, block.as_ssz_bytes())
+                self.publish_gossip_data(Topic::Block, block.as_ssz_bytes());
             }
-        };
+        }
+    }
 
+    /// Publishes data to the gossipsub network
+    fn publish_gossip_data(&mut self, topic_variant: Topic, data: Vec<u8>) {
         // Compress data using snappy before publishing (required by Eth2 networking spec)
         let compressed_data = match self.compress_snappy(&data) {
             Ok(compressed) => compressed,
@@ -431,10 +485,10 @@ impl<E: EthSpec> NetworkService<E> {
             }
 
             // Check if enough time has passed since the last attempt
-            if let Some(last_attempt) = bootstrap_node.last_attempt {
-                if now.duration_since(last_attempt) < self.bootstrap_retry_interval {
-                    continue;
-                }
+            if let Some(last_attempt) = bootstrap_node.last_attempt
+                && now.duration_since(last_attempt) < self.bootstrap_retry_interval
+            {
+                continue;
             }
 
             // Attempt to dial the bootstrap node

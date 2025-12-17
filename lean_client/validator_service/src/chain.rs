@@ -7,10 +7,10 @@ use lean_consensus::lean_state::LeanState;
 use lean_forkchoice::proto_array::{ProtoArray, ProtoArrayError};
 use lean_store::LeanStore;
 use ssz::{Decode, Encode};
+use ssz_types::VariableList;
 use store::KeyValueStore;
 use tree_hash::TreeHash;
 use types::{EthSpec, Hash256};
-use ssz_types::VariableList;
 
 use fixed_bytes::FixedBytesExtended;
 
@@ -86,12 +86,14 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
             self.ensure_block_in_proto_array(parent_root)?;
         }
 
-        let res = self.proto_array
+        let res = self
+            .proto_array
             .on_block(block_root, slot, parent_root)
             .map_err(Self::format_proto_error);
 
-        if res.is_ok() {
-
+        if let Err(e) = res {
+             // Handle error or just ignore for now as per previous logic
+             return Err(format!("Failed to persist state: {:?}", e));
         }
         res
     }
@@ -102,12 +104,6 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
             return Ok(true);
         }
         self.store.block_exists(block_root)
-    }
-
-    /// Gets a block from the cache by root.
-    /// Returns None if the block is not in the cache.
-    pub fn get_block(&self, block_root: &Hash256) -> Option<&LeanBlock<E>> {
-        self.blocks.get(block_root)
     }
 
     /// Gets a state from the cache by block root.
@@ -291,13 +287,10 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
             match self.proto_array.find_head(candidate) {
                 Ok(head) => {
                     self.store.save_head_root(head)?;
-                    
+
                     // Update metrics
 
-                    
-                    if Some(head) != stored_head {
 
-                    }
 
                     return Ok(head);
                 }
@@ -316,6 +309,7 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
         Ok(Hash256::zero())
     }
 
+    #[allow(clippy::type_complexity)]
     fn initialize_fork_choice(
         store: &LeanStore<E, D>,
     ) -> Result<
@@ -327,16 +321,13 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
         ),
         String,
     > {
-        let state = match store.fetch_state()? {
-            Some(state) => state,
-            None => {
-                return Ok((
-                    ProtoArray::new(Hash256::zero(), LeanSlot(0)),
-                    HashMap::new(),
-                    HashMap::new(),
-                    HashMap::new(),
-                ));
-            }
+        let Some(state) = store.fetch_state()? else {
+            return Ok((
+                ProtoArray::new(Hash256::zero(), LeanSlot(0)),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            ));
         };
 
         let stored_head = store.fetch_head_root()?;
@@ -347,9 +338,9 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
         let genesis_root = if genesis_slot == LeanSlot(0) {
             stored_head.unwrap_or_else(|| state.latest_block_header.tree_hash_root())
         } else {
-             state.latest_block_header.tree_hash_root()
+            state.latest_block_header.tree_hash_root()
         };
-        let genesis_proposer = state.latest_block_header.proposer_index.0 as u64;
+        let genesis_proposer = state.latest_block_header.proposer_index.0;
         let genesis_parent_root = state.latest_block_header.parent_root;
         let genesis_state_root = state.latest_block_header.state_root;
 

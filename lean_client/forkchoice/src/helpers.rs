@@ -28,10 +28,10 @@ pub fn get_fork_choice_head<E: EthSpec>(
             // Walk up from attestation target, incrementing ancestor weights
             let mut block_hash = head_root;
             while let Some(block) = blocks.get(&block_hash) {
-                if let Some(root_block) = blocks.get(&current_root) {
-                    if block.slot <= root_block.slot {
-                        break;
-                    }
+                if let Some(root_block) = blocks.get(&current_root)
+                    && block.slot <= root_block.slot
+                {
+                    break;
                 }
 
                 *attestation_weights.entry(block_hash).or_insert(0) += 1;
@@ -49,7 +49,7 @@ pub fn get_fork_choice_head<E: EthSpec>(
             if min_score == 0 || weight >= min_score {
                 children_map
                     .entry(block.parent_root)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(*block_hash);
             }
         }

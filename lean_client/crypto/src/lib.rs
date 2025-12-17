@@ -1,2 +1,2 @@
 pub mod signature;
-pub use signature::{verify_signature, Signature};
+pub use signature::{Signature, verify_signature};

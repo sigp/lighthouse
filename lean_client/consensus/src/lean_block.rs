@@ -81,7 +81,9 @@ impl<E: EthSpec> SignedLeanBlockWithAttestation<E> {
         let validators = &parent_state.validators;
 
         // Verify each attestation signature
-        for (_i, (attestation, _signature)) in all_attestations.iter().zip(signatures.iter()).enumerate() {
+        for (attestation, _signature) in
+            all_attestations.iter().zip(signatures.iter())
+        {
             // Identify the validator who created this attestation
             let validator_id = attestation.validator_id as usize;
 
@@ -95,29 +97,29 @@ impl<E: EthSpec> SignedLeanBlockWithAttestation<E> {
             }
 
             let validator = validators
-            .get(validator_id)
-            .ok_or_else(|| format!("Failed to get validator at index {}", validator_id))?;
+                .get(validator_id)
+                .ok_or_else(|| format!("Failed to get validator at index {}", validator_id))?;
 
-        // Calculate the hash of the attestation message (this is what's signed)
-        let message_hash = attestation.attestation_data.tree_hash_root();
+            // Calculate the hash of the attestation message (this is what's signed)
+            let message_hash = attestation.attestation_data.tree_hash_root();
 
-        // Verify the signature
-        let is_valid = lean_crypto::verify_signature(
-            validator.get_pubkey(),
-            message_hash.as_slice(),
-            _signature,
-            attestation.attestation_data.slot.0,
-        )
-        .map_err(|e| format!("Signature verification error: {}", e))?;
+            // Verify the signature
+            let is_valid = lean_crypto::verify_signature(
+                validator.get_pubkey(),
+                message_hash.as_slice(),
+                _signature,
+                attestation.attestation_data.slot.0,
+            )
+            .map_err(|e| format!("Signature verification error: {}", e))?;
 
-        if !is_valid {
-            return Err(format!(
-                "Invalid signature for validator {} at slot {}",
-                validator_id, attestation.attestation_data.slot.0
-            ));
+            if !is_valid {
+                return Err(format!(
+                    "Invalid signature for validator {} at slot {}",
+                    validator_id, attestation.attestation_data.slot.0
+                ));
+            }
         }
-    }
 
-    Ok(())
-}
+        Ok(())
+    }
 }

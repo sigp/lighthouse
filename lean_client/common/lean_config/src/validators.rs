@@ -1,6 +1,5 @@
 use lean_consensus::validator::Validator;
 use lean_keystore::ValidatorKeyPair;
-use serde_yaml;
 use std::collections::HashMap;
 use ssz_types::FixedVector;
 

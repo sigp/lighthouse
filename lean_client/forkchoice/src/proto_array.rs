@@ -1,7 +1,7 @@
+use fixed_bytes::FixedBytesExtended;
 use lean_consensus::attestation::Slot;
 use std::collections::HashMap;
 use types::Hash256;
-use fixed_bytes::FixedBytesExtended;
 
 /// Errors returned by [`ProtoArray`].
 #[derive(Debug, PartialEq, Eq)]
@@ -85,7 +85,7 @@ impl ProtoArray {
         self.indices
             .get(root)
             .copied()
-            .ok_or_else(|| ProtoArrayError::UnknownBlock(*root))
+            .ok_or(ProtoArrayError::UnknownBlock(*root))
     }
 
     /// Registers a new block in the proto array.
@@ -157,12 +157,9 @@ impl ProtoArray {
             let node = self
                 .nodes
                 .get(index)
-                .ok_or_else(|| ProtoArrayError::UnknownBlock(start_root))?;
+                .ok_or(ProtoArrayError::UnknownBlock(start_root))?;
 
-            let best_child_idx = match node.best_child {
-                Some(idx) => idx,
-                None => return Ok(node.root),
-            };
+            let Some(best_child_idx) = node.best_child else { return Ok(node.root) };
 
             let next = self.nodes[best_child_idx]
                 .best_descendant

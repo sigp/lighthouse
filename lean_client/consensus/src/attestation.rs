@@ -42,9 +42,9 @@ impl Slot {
                         == (delta.wrapping_sub(1) >> 2).trailing_ones()
             })
         {
-            return Err(format!(
-                "the slot is not justifiable after the finalized slot"
-            ));
+            return Err(
+                "the slot is not justifiable after the finalized slot".to_string()
+            );
         }
         Ok(())
     }
@@ -102,8 +102,8 @@ impl Decode for Slot {
 
 #[derive(Debug, Clone, Default, Encode, Decode, TreeHash)]
 pub struct Checkpoint {
-    pub root: Hash256,  
-    pub slot: Slot,     
+    pub root: Hash256,
+    pub slot: Slot,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

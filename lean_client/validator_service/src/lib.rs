@@ -4,14 +4,17 @@ use lean_consensus::attestation::{
 use lean_consensus::lean_block::{
     LeanBlock, LeanBlockBody, LeanBlockWithAttestation, SignedLeanBlockWithAttestation,
 };
-use lean_consensus::lean_state::{INTERVALS_PER_SLOT, JUSTIFICATION_LOOKBACK_SLOTS, LeanState, SECONDS_PER_INTERVAL};
+use lean_consensus::lean_state::{
+    INTERVALS_PER_SLOT, JUSTIFICATION_LOOKBACK_SLOTS, LeanState, SECONDS_PER_INTERVAL,
+};
 use lean_crypto::Signature;
 use lean_forkchoice::helpers::get_fork_choice_head;
 use lean_keystore::{KeyStore, ValidatorKeyPair};
-pub use lean_network::NetworkMessage;
+pub use lean_network::{BlocksByRootRequest, NetworkMessage, PeerId, RPCRequest};
 use leansig::serialization::Serializable;
 use leansig::signature::SignatureScheme;
 use slot_clock::SlotClock;
+use ssz_types::VariableList;
 use std::sync::Arc;
 use store::KeyValueStore;
 use tokio::sync::mpsc;
@@ -19,9 +22,6 @@ use tokio::time::{Duration as TokioDuration, sleep};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::{EthSpec, Hash256, Slot};
-use ssz_types::VariableList;
-
-
 
 mod chain;
 
@@ -47,7 +47,7 @@ pub struct ValidatorService<T: SlotClock, E: EthSpec, D: KeyValueStore<E>> {
     /// Hash-sig secret key decoded from the keystore JSON
     hashsig_secret_key: <Scheme as SignatureScheme>::SecretKey,
     /// Key store for loading validator public keys for signature verification
-    keystore: KeyStore,
+    _keystore: KeyStore,
     /// Counter for periodic status logging
     status_interval_counter: u64,
 }
@@ -75,7 +75,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             chain,
             validator_index,
             hashsig_secret_key,
-            keystore,
+            _keystore: keystore,
             status_interval_counter: 0,
         })
     }
@@ -139,12 +139,9 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // SystemTimeSlotClock::genesis_duration() returns the duration since UNIX_EPOCH to genesis
         let genesis_time = self.slot_clock.genesis_duration();
 
-        let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            Ok(n) => n,
-            Err(_) => {
-                error!("System time is before UNIX EPOCH!");
-                return;
-            }
+        let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+            error!("System time is before UNIX EPOCH!");
+            return;
         };
 
         if now < genesis_time {
@@ -174,17 +171,14 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         loop {
             // Use slot_clock to determine when the next interval occurs
-            let next_interval_duration = match self.get_time_to_next_interval() {
-                Some(d) => d,
-                None => {
-                    // Critical failure: slot clock is unavailable or broken
-                    // The validator service cannot function without access to the slot clock
-                    error!(
-                        "CRITICAL: Unable to determine next interval - slot clock is unavailable. \
-                        Validator service cannot proceed. This indicates a serious system failure."
-                    );
-                    break;
-                }
+            let Some(next_interval_duration) = self.get_time_to_next_interval() else {
+                // Critical failure: slot clock is unavailable or broken
+                // The validator service cannot function without access to the slot clock
+                error!(
+                    "CRITICAL: Unable to determine next interval - slot clock is unavailable. \
+                    Validator service cannot proceed. This indicates a serious system failure."
+                );
+                break;
             };
 
             tokio::select! {
@@ -283,30 +277,21 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
     /// Log the current chain status (similar to other clients' CHAIN STATUS)
     fn log_chain_status(&self, current_slot: Slot) -> Result<(), String> {
         // Get head root, return early if not available
-        let head_root = match self.chain.fetch_head_root()? {
-            Some(root) => root,
-            None => {
-                debug!("Head root not available for chain status logging");
-                return Ok(());
-            }
+        let Some(head_root) = self.chain.fetch_head_root()? else {
+            debug!("Head root not available for chain status logging");
+            return Ok(());
         };
 
         // Get head block, return early if not available
-        let head_block = match self.chain.fetch_block(head_root)? {
-            Some(block) => block,
-            None => {
-                debug!("Head block not found for chain status logging");
-                return Ok(());
-            }
+        let Some(head_block) = self.chain.fetch_block(head_root)? else {
+            debug!("Head block not found for chain status logging");
+            return Ok(());
         };
 
         // Get head state, return early if not available
-        let state = match self.chain.get_head_state() {
-            Some(state) => state,
-            None => {
-                debug!("Head state not available for chain status logging");
-                return Ok(());
-            }
+        let Some(state) = self.chain.get_head_state() else {
+            debug!("Head state not available for chain status logging");
+            return Ok(());
         };
 
         let justified = &state.latest_justified;
@@ -489,15 +474,14 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         let num_validators = state.validators.len();
 
         // Calculate 2/3 majority threshold (ceiling division)
-        let min_target_score = (num_validators * 2 + 2) / 3; // Ceiling division
-
+        let threshold_2_3 = (num_validators * 2).div_ceil(3);
         // Find head with minimum attestation threshold
         let latest_justified = &state.latest_justified;
         let safe_target = get_fork_choice_head(
             &all_blocks,
             latest_justified.root,
             &all_attestations,
-            min_target_score,
+            threshold_2_3,
         );
 
         // Persist safe target to database
@@ -505,7 +489,8 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         debug!(
             ?safe_target,
-            num_validators, min_target_score, "Updated and persisted safe target"
+            threshold_2_3,
+            "Found latest justified and safe target"
         );
 
         Ok(())
@@ -522,7 +507,8 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
                 self.verify_and_handle_attestation(signed_attestation, false)
                     .await
             }
-            NetworkMessage::Block(block) => self.handle_block(block).await,
+            NetworkMessage::Block(peer_id, block) => self.handle_block(peer_id, block).await,
+            _ => Ok(()), // Ignore other messages (like SendRequest if it loops back)
         }
     }
 
@@ -594,18 +580,18 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         if is_from_block {
             // On-chain attestation: process immediately as "known"
             // Check if this supersedes existing known attestation
-            if let Ok(existing_known) = self.chain.load_known_attestations() {
-                if let Some(existing) = existing_known.get(&validator_id) {
-                    // Only replace if new attestation is from a later slot
-                    if existing.message.attestation_data.slot.0 >= attestation_slot {
-                        debug!(
-                            validator_id,
-                            existing_slot = existing.message.attestation_data.slot.0,
-                            new_slot = attestation_slot,
-                            "Skipping attestation - existing known attestation is newer or equal"
-                        );
-                        return Ok(());
-                    }
+            if let Ok(existing_known) = self.chain.load_known_attestations()
+                && let Some(existing) = existing_known.get(&validator_id)
+            {
+                // Only replace if new attestation is from a later slot
+                if existing.message.attestation_data.slot.0 >= attestation_slot {
+                    debug!(
+                        validator_id,
+                        existing_slot = existing.message.attestation_data.slot.0,
+                        new_slot = attestation_slot,
+                        "Skipping attestation - existing known attestation is newer or equal"
+                    );
+                    return Ok(());
                 }
             }
 
@@ -625,13 +611,12 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
             // Remove from new attestations if this supersedes it
             // Check if there's a new attestation that should be removed
-            if let Ok(new_attestations) = self.chain.load_new_attestations() {
-                if let Some(new_att) = new_attestations.get(&validator_id) {
-                    if new_att.message.attestation_data.slot.0 <= attestation_slot {
-                        // Remove the new attestation as it's superseded by the known one
-                        self.chain.delete_new_attestation(validator_id)?;
-                    }
-                }
+            if let Ok(new_attestations) = self.chain.load_new_attestations()
+                && let Some(new_att) = new_attestations.get(&validator_id)
+                && new_att.message.attestation_data.slot.0 <= attestation_slot
+            {
+                // Remove the new attestation as it's superseded by the known one
+                self.chain.delete_new_attestation(validator_id)?;
             }
 
             debug!(
@@ -642,18 +627,18 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         } else {
             // Network gossip attestation: save as "new" (pending)
             // Check if this supersedes existing new attestation
-            if let Ok(existing_new) = self.chain.load_new_attestations() {
-                if let Some(existing) = existing_new.get(&validator_id) {
-                    // Only replace if new attestation is from a later slot
-                    if existing.message.attestation_data.slot.0 >= attestation_slot {
-                        debug!(
-                            validator_id,
-                            existing_slot = existing.message.attestation_data.slot.0,
-                            new_slot = attestation_slot,
-                            "Skipping attestation - existing new attestation is newer or equal"
-                        );
-                        return Ok(());
-                    }
+            if let Ok(existing_new) = self.chain.load_new_attestations()
+                && let Some(existing) = existing_new.get(&validator_id)
+            {
+                // Only replace if new attestation is from a later slot
+                if existing.message.attestation_data.slot.0 >= attestation_slot {
+                    debug!(
+                        validator_id,
+                        existing_slot = existing.message.attestation_data.slot.0,
+                        new_slot = attestation_slot,
+                        "Skipping attestation - existing new attestation is newer or equal"
+                    );
+                    return Ok(());
                 }
             }
 
@@ -688,6 +673,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
     /// 5. Processing the proposer's attestation (as if gossiped)
     async fn handle_block(
         &mut self,
+        peer_id: Option<PeerId>,
         signed_block: Arc<SignedLeanBlockWithAttestation<E>>,
     ) -> Result<(), String> {
         // Unpack block components
@@ -712,13 +698,35 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         //
         // The parent state must exist before processing this block.
         // If missing, the node must sync the parent chain first.
-        let parent_state = self.chain.fetch_state(&block.parent_root)
-            .ok_or_else(|| {
-                format!(
-                    "Parent state not found in cache (root={:?}). Sync parent chain before processing block at slot {}.",
-                    block.parent_root, block.slot.0
-                )
-            })?;
+        // If missing, the node must sync the parent chain first.
+        let Some(parent_state) = self.chain.fetch_state(&block.parent_root) else {
+            // If we have a peer ID, request the missing parent
+            if let Some(peer) = peer_id {
+                info!(
+                    slot = block.slot.0,
+                    parent_root = ?block.parent_root,
+                    peer = ?peer,
+                    "Parent state missing, requesting block from peer"
+                );
+
+                let request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                    block_roots: vec![block.parent_root],
+                });
+
+                if let Err(e) = self.network_send.send(NetworkMessage::SendRequest {
+                    peer_id: peer,
+                    request,
+                }) {
+                    error!("Failed to send block request: {}", e);
+                }
+                return Ok(());
+            }
+
+            return Err(format!(
+                "Parent state not found in cache (root={:?}) and no peer available to request from.",
+                block.parent_root
+            ));
+        };
 
         debug!(
             parent_slot = parent_state.slot.0,
@@ -881,17 +889,12 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             "Performing proposal duties"
         );
 
-
-
         if let Err(e) = self.produce_block(slot).await {
-
             debug!(
                 slot = slot_u64,
                 error = %e,
                 "Failed to produce block"
             );
-        } else {
-
         }
 
         Ok(())
@@ -1038,10 +1041,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // For now, create an empty signature list
         // In a full implementation, we would sign the block and add signatures
-        let signatures = {
-
-            VariableList::<Signature, E::ValidatorRegistryLimit>::empty()
-        };
+        let signatures = { VariableList::<Signature, E::ValidatorRegistryLimit>::empty() };
 
         // Create signed block
         let signed_block = Arc::new(SignedLeanBlockWithAttestation {
@@ -1098,7 +1098,10 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // Publish block to network
         debug!(slot = slot_u64, ?block_root, "Sending block to network");
-        if let Err(e) = self.network_send.send(NetworkMessage::Block(signed_block)) {
+        if let Err(e) = self
+            .network_send
+            .send(NetworkMessage::Block(None, signed_block))
+        {
             error!(
                 slot = slot_u64,
                 ?block_root,
@@ -1128,18 +1131,13 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             "Performing attestation duties for assigned validator"
         );
 
-
-
         if let Err(e) = self.produce_attestation(slot, self.validator_index).await {
-
             warn!(
                 slot,
                 validator_id = self.validator_index,
                 error = %e,
                 "Failed to produce attestation for validator"
             );
-        } else {
-
         }
 
         Ok(())
@@ -1231,7 +1229,6 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Sign attestation with XMSS key
         let epoch = slot / 32;
         let signature = {
-
             self.sign_attestation(validator_id, &attestation, epoch)
                 .map_err(|e| format!("Failed to sign attestation: {}", e))?
         };
@@ -1287,24 +1284,24 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // if safe target exists and is newer than current target
         if let Some(safe_target) = safe_target_root {
             // Check if safe target is newer than current head
-            if let Ok(Some(safe_target_block)) = self.chain.fetch_block(safe_target) {
-                if safe_target_block.slot > target_block.slot {
-                    // Walk back toward safe target (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
-                    let mut steps = 0;
-                    while steps < justification_lookback_slots
-                        && target_block.slot > safe_target_block.slot
-                        && target_block.parent_root != Hash256::ZERO
-                    {
-                        target_block_root = target_block.parent_root;
-                        target_block =
-                            self.chain.fetch_block(target_block_root)?.ok_or_else(|| {
-                                format!(
-                                    "Parent block not found while walking toward safe target: {:?}",
-                                    target_block_root
-                                )
-                            })?;
-                        steps += 1;
-                    }
+            if let Ok(Some(safe_target_block)) = self.chain.fetch_block(safe_target)
+                && safe_target_block.slot > target_block.slot
+            {
+                // Walk back toward safe target (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
+                let mut steps = 0;
+                while steps < justification_lookback_slots
+                    && target_block.slot > safe_target_block.slot
+                    && target_block.parent_root != Hash256::ZERO
+                {
+                    target_block_root = target_block.parent_root;
+                    target_block =
+                        self.chain.fetch_block(target_block_root)?.ok_or_else(|| {
+                            format!(
+                                "Parent block not found while walking toward safe target: {:?}",
+                                target_block_root
+                            )
+                        })?;
+                    steps += 1;
                 }
             }
         }
