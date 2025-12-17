@@ -482,7 +482,8 @@ pub struct ValidatorClient {
                 primary is detected. \
                 This keeps the attestation service responsive when using multiple beacon nodes, but it relies on the \
                 fallback service streaming head events which may increase network usage. \
-                When not enabled (default), duties are only triggered on slot boundaries and ignore fallback head changes.",
+                When is not enabled, duties are only triggered on slot boundaries and ignore fallback head changes. \
+                The current default behaviour is to have this feature enabled.",
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
