@@ -723,6 +723,22 @@ impl<E: EthSpec> AvailableBlockData<E> {
         }
     }
 
+    pub fn new_with_blobs(blobs: Option<BlobSidecarList<E>>) -> Self {
+        if let Some(blobs) = blobs {
+            Self::Blobs(blobs)
+        } else {
+            Self::NoData
+        }
+    }
+
+    pub fn new_with_data_columns(columns: Option<DataColumnSidecarList<E>>) -> Self {
+        if let Some(columns) = columns {
+            Self::DataColumns(columns)
+        } else {
+            Self::NoData
+        }
+    }
+
     pub fn blobs(&self) -> Option<BlobSidecarList<E>> {
         match self {
             AvailableBlockData::NoData => None,
@@ -1149,7 +1165,7 @@ mod test {
                         .collect::<Vec<_>>()
                 };
 
-                let block_data = AvailableBlockData::new(None, Some(custody_columns));
+                let block_data = AvailableBlockData::new_with_data_columns(Some(custody_columns));
                 let da_checker = Arc::new(new_da_checker(spec.clone()));
                 RpcBlock::new(Arc::new(block), Some(block_data), da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")

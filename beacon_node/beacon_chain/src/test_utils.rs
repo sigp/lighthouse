@@ -2489,7 +2489,7 @@ where
                 // TODO(investigate the custody data column conversion)
                 // .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            let block_data = AvailableBlockData::new(None, Some(custody_columns));
+            let block_data = AvailableBlockData::new_with_data_columns(Some(custody_columns));
             RpcBlock::new(
                 block,
                 Some(block_data),
@@ -2499,7 +2499,8 @@ where
             .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
-            let block_data = AvailableBlockData::new(blobs, None);
+            let block_data = AvailableBlockData::new_with_blobs(blobs);
+
             RpcBlock::new(
                 block,
                 Some(block_data),
@@ -2532,8 +2533,7 @@ where
                     // .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
                 if is_available {
-                    let block_data: AvailableBlockData<E> =
-                        AvailableBlockData::new(None, Some(columns));
+                    let block_data = AvailableBlockData::new_with_data_columns(Some(columns));
                     RpcBlock::new(
                         block,
                         Some(block_data),
@@ -2571,7 +2571,7 @@ where
                 .transpose()
                 .unwrap();
             if is_available {
-                let block_data: AvailableBlockData<E> = AvailableBlockData::new(blobs, None);
+                let block_data = AvailableBlockData::new_with_blobs(blobs);
                 RpcBlock::new(
                     block,
                     Some(block_data),

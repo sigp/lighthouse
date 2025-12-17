@@ -333,7 +333,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             .map_err(|_| {
                 CouplingError::BlobPeerFailure("Blobs returned exceeds max length".to_string())
             })?;
-            let block_data = AvailableBlockData::new(Some(blobs), None);
+            let block_data = AvailableBlockData::new_with_blobs(Some(blobs));
             responses.push(
                 RpcBlock::new(block, Some(block_data), da_checker.clone(), spec.clone())
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
@@ -439,7 +439,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     );
                 }
 
-                let block_data = AvailableBlockData::new(None, Some(custody_columns.iter().map(|c| c.as_data_column().clone()).collect::<Vec<_>>()));
+                let block_data = AvailableBlockData::new_with_data_columns(Some(custody_columns.iter().map(|c| c.as_data_column().clone()).collect::<Vec<_>>()));
 
                 RpcBlock::new(block, Some(block_data), da_checker.clone(), spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
