@@ -14,6 +14,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 ssz_types = { workspace = true }
+metrics = { workspace = true }
+lazy_static = "1.4.0"
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }

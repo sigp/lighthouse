@@ -13,7 +13,6 @@ pub struct Config {
     pub private_key: PathBuf,
     pub socket_port: u16,
     pub genesis_json_path: Option<PathBuf>,
-    pub enable_metrics: bool,
 }
 
 impl Config {
@@ -28,7 +27,6 @@ impl Config {
             private_key: cli.private_key,
             socket_port: cli.socket_port,
             genesis_json_path: cli.genesis_json,
-            enable_metrics: cli.metrics,
         }
     }
 }

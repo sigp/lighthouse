@@ -10,4 +10,6 @@ fixed_bytes = { workspace = true }
 parking_lot = { workspace = true }
 store = { workspace = true, features = ["redb"] }
 tracing = { workspace = true }
+metrics = { workspace = true }
+lazy_static = "1.4.0"
 types = { workspace = true }

@@ -23,3 +23,5 @@ tree_hash = { workspace = true }
 types = { workspace = true }
 ssz_types = { workspace = true }
 milhouse = { workspace = true }
+metrics = { workspace = true }
+lazy_static = "1.4.0"

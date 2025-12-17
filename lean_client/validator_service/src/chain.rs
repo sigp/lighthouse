@@ -11,6 +11,7 @@ use store::KeyValueStore;
 use tree_hash::TreeHash;
 use types::{EthSpec, Hash256};
 use ssz_types::VariableList;
+
 use fixed_bytes::FixedBytesExtended;
 
 /// Central coordinator for fork-choice state and database access.
@@ -85,9 +86,14 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
             self.ensure_block_in_proto_array(parent_root)?;
         }
 
-        self.proto_array
+        let res = self.proto_array
             .on_block(block_root, slot, parent_root)
-            .map_err(Self::format_proto_error)
+            .map_err(Self::format_proto_error);
+
+        if res.is_ok() {
+
+        }
+        res
     }
 
     /// Returns true if the block root is in cache or on disk.
@@ -237,6 +243,7 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
             .add_weight(head_root, 1)
             .map_err(Self::format_proto_error)?;
         self.latest_votes.insert(validator_id, head_root);
+
         Ok(())
     }
 
@@ -284,6 +291,14 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
             match self.proto_array.find_head(candidate) {
                 Ok(head) => {
                     self.store.save_head_root(head)?;
+                    
+                    // Update metrics
+
+                    
+                    if Some(head) != stored_head {
+
+                    }
+
                     return Ok(head);
                 }
                 Err(err) => {

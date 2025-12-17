@@ -6,11 +6,10 @@ use tracing::debug;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::lean_block::{LeanBlock, LeanBlockBody};
+use crate::lean_block::{LeanBlock, LeanBlockBody, LeanBlockHeader, SignedLeanBlockWithAttestation};
 use crate::validator::Validator;
 use crate::validator::ValidatorIndex;
 
-use crate::lean_block::LeanBlockHeader;
 use ssz_types::{VariableList, BitList};
 use types::{EthSpec, Hash256};
 use ssz_types::typenum::U1073741824;
@@ -48,8 +47,8 @@ impl<E: EthSpec> LeanState<E> {
         };
 
         let genesis_checkpoint = Checkpoint {
-            root: Hash256::ZERO,  // Field 0: root comes FIRST in Checkpoint struct
-            slot: Slot(0),        // Field 1: slot comes SECOND
+            root: Hash256::ZERO,  
+            slot: Slot(0),        
         };
 
         Self {
@@ -59,12 +58,9 @@ impl<E: EthSpec> LeanState<E> {
             latest_justified: genesis_checkpoint.clone(),
             latest_finalized: genesis_checkpoint,
             historical_block_hashes: VariableList::empty(),
-            // justified_slots: Empty at genesis (aligned with Zeam)
-            // Will be populated as blocks are processed and slots become justified
             justified_slots: justified_slots.clone(),
             validators: validators.clone(),
             justifications_roots: VariableList::empty(),
-            // justifications_validators stores validator bits for each justification
             justifications_validators: BitList::with_capacity(0)
                 .expect("Failed to create justifications_validators BitList"),
         }
@@ -315,7 +311,6 @@ impl<E: EthSpec> LeanState<E> {
         );
 
         // Following the spec pattern: build new justified_slots by growing the BitList
-        // (spec: leanSpec/state.py lines 264-268)
         //
         // The spec pattern: justified_slots + [Boolean(is_genesis_parent)] + ([Boolean(False)] * num_empty_slots)
         // This means justified_slots grows in parallel with historical_block_hashes.
@@ -493,12 +488,14 @@ impl<E: EthSpec> LeanState<E> {
     }
     pub fn state_transition(
         &mut self,
-        block: &LeanBlock<E>,
+        signed_block: &SignedLeanBlockWithAttestation<E>,
         validate_signatures: bool,
     ) -> Result<(), String> {
         if validate_signatures {
-            return Err("Signature validation not yet implemented".to_string());
+            signed_block.verify_signatures(self)?;
         }
+
+        let block = &signed_block.message.block;
 
         if self.slot < block.slot {
             self.process_slots(block.slot)?;

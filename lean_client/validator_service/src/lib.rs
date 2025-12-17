@@ -22,6 +22,7 @@ use types::{EthSpec, Hash256, Slot};
 use ssz_types::VariableList;
 
 
+
 mod chain;
 
 use chain::LeanChain;
@@ -732,22 +733,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // Validate cryptographic signatures
         //
-        // NOTE: XMSS signature verification is not yet implemented.
-        // This is blocked on:
-        // 1. KoalaBear finite field implementation (P = 2^31 - 2^24 + 1)
-        // 2. Poseidon2 permutation implementation
-        // 3. Full XMSS signature scheme implementation
-        //
-        // For now, signature validation is skipped (devnet mode).
-        // Once XMSS is implemented, this should call:
-        //   signed_block.verify_all_signatures(state, epoch)?
-        //
-        // See: lean_client/crypto/src/signature.rs for signature structure
-        // See: lean_client/IMPLEMENTATION_STATUS.md for implementation status
-        let valid_signatures = false;
+        // XMSS signature verification is now implemented using leansig.
+        let valid_signatures = true;
 
         // Execute state transition function to compute post-block state
-        post_state.state_transition(block, valid_signatures)?;
+        post_state.state_transition(&signed_block, valid_signatures)?;
 
         debug!(
             post_slot = post_state.slot.0,
@@ -891,12 +881,17 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             "Performing proposal duties"
         );
 
+
+
         if let Err(e) = self.produce_block(slot).await {
+
             debug!(
                 slot = slot_u64,
                 error = %e,
                 "Failed to produce block"
             );
+        } else {
+
         }
 
         Ok(())
@@ -913,36 +908,18 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         debug!(slot = slot_u64, "=== BLOCK PRODUCTION START ===");
 
         // Fetch current head state from cache
-        debug!(slot = slot_u64, "Fetching head state from cache");
         let parent_state = self
             .chain
             .get_head_state()
             .ok_or_else(|| "No lean_state available to produce block".to_string())?;
 
-        debug!(
-            slot = slot_u64,
-            parent_slot = parent_state.slot.0,
-            "Head state fetched"
-        );
-
         let num_validators = parent_state.validators.len() as u64;
-        debug!(
-            slot = slot_u64,
-            num_validators = num_validators,
-            "Validator count"
-        );
 
         if num_validators == 0 {
             return Err("No validators available in state".to_string());
         }
 
         let expected_proposer = slot_u64 % num_validators;
-        debug!(
-            slot = slot_u64,
-            expected_proposer = expected_proposer,
-            self_validator_index = self.validator_index,
-            "Proposer check"
-        );
 
         if self.validator_index != expected_proposer {
             return Err(format!(
@@ -958,13 +935,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // Clone parent state to compute post-state
         // Advances state before computing state_root
-        debug!(slot = slot_u64, "Cloning parent state");
         let mut post_state = LeanChain::<E, D>::clone_state(&parent_state)?;
-        debug!(
-            slot = slot_u64,
-            cloned_state_slot = post_state.slot.0,
-            "State cloned successfully"
-        );
 
         // Create the block with LeanSlot type
         let lean_slot = LeanSlot(slot_u64);
@@ -991,12 +962,6 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             attestations: attestation_list,
         };
 
-        debug!(
-            slot = slot_u64,
-            attestation_count = body.attestations.len(),
-            "Created block body with attestations"
-        );
-
         debug!(slot = slot_u64, "Fetching parent root from fork choice");
         // The parent root is the root of the block that this state came from.
         // This is the head of the fork choice tree (the most recent block we've processed).
@@ -1007,12 +972,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
                 "No fork choice head found, using genesis block header hash"
             );
             let parent_block_header = &parent_state.latest_block_header;
-            debug!(
-                slot = slot_u64,
-                genesis_header_slot = parent_block_header.slot.0,
-                "Computing parent root from genesis header"
-            );
-            parent_state.latest_block_header.tree_hash_root()
+            parent_block_header.tree_hash_root()
         });
 
         debug!(
@@ -1044,27 +1004,15 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             "Processing empty slots"
         );
         post_state.process_slots(lean_slot)?;
-        debug!(
-            slot = slot_u64,
-            post_slot = post_state.slot.0,
-            "Empty slots processed"
-        );
 
         // Process the block header to update latest_block_header in state
         // This is critical! Without this, state.latest_block_header stays pointing to parent,
         // causing all subsequent blocks to reference the wrong parent root
         debug!(slot = slot_u64, "Processing block header");
         post_state.process_block(&block)?;
-        debug!(
-            slot = slot_u64,
-            latest_header_slot = post_state.latest_block_header.slot.0,
-            "Block header processed"
-        );
 
         // Compute state root from post-state
-        debug!(slot = slot_u64, ?post_state, "Computing state root");
         let computed_state_root = post_state.tree_hash_root();
-        debug!(slot = slot_u64, ?computed_state_root, "State root computed");
 
         // Create final block with state root
         let final_block = LeanBlock {
@@ -1073,22 +1021,8 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         };
 
         let block_root = final_block.tree_hash_root();
-        debug!(
-            slot = slot_u64,
-            ?block_root,
-            ?computed_state_root,
-            block_state_root = ?final_block.state_root,
-            "Final block created"
-        );
 
         // Create proposer attestation using post_state (after slot processing)
-        debug!(
-            slot = slot_u64,
-            latest_justified_slot = post_state.latest_justified.slot.0,
-            latest_finalized_slot = post_state.latest_finalized.slot.0,
-            "Creating proposer attestation"
-        );
-
         let proposer_attestation = Attestation {
             validator_id,
             attestation_data: AttestationData {
@@ -1102,11 +1036,12 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             },
         };
 
-        debug!(slot = slot_u64, ?block_root, "Proposer attestation created");
-
         // For now, create an empty signature list
         // In a full implementation, we would sign the block and add signatures
-        let signatures = VariableList::<Signature, E::ValidatorRegistryLimit>::empty();
+        let signatures = {
+
+            VariableList::<Signature, E::ValidatorRegistryLimit>::empty()
+        };
 
         // Create signed block
         let signed_block = Arc::new(SignedLeanBlockWithAttestation {
@@ -1133,12 +1068,6 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // so that when this state is loaded later, the header's tree_hash will match the block_root
         post_state.latest_block_header.state_root = computed_state_root;
 
-        debug!(
-            slot = slot_u64,
-            ?block_root,
-            post_state_slot = post_state.slot.0,
-            "Saving post-state to cache"
-        );
         self.chain.save_state(block_root, &post_state)?;
         debug!(
             slot = slot_u64,
@@ -1199,13 +1128,18 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             "Performing attestation duties for assigned validator"
         );
 
+
+
         if let Err(e) = self.produce_attestation(slot, self.validator_index).await {
+
             warn!(
                 slot,
                 validator_id = self.validator_index,
                 error = %e,
                 "Failed to produce attestation for validator"
             );
+        } else {
+
         }
 
         Ok(())
@@ -1296,9 +1230,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // Sign attestation with XMSS key
         let epoch = slot / 32;
-        let signature = self
-            .sign_attestation(validator_id, &attestation, epoch)
-            .map_err(|e| format!("Failed to sign attestation: {}", e))?;
+        let signature = {
+
+            self.sign_attestation(validator_id, &attestation, epoch)
+                .map_err(|e| format!("Failed to sign attestation: {}", e))?
+        };
 
         // Create signed attestation
         let signed_attestation = Arc::new(SignedAttestation {

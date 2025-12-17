@@ -1,5 +1,5 @@
 pub use clap::{FromArgMatches, Parser};
-use clap_utils::FLAG_HEADER;
+
 use clap_utils::get_color_style;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -72,13 +72,4 @@ pub struct LeanNode {
         display_order = 6
     )]
     pub genesis_json: Option<PathBuf>,
-
-    /* Prometheus metrics HTTP server related arguments */
-    #[clap(
-        long,
-        help = "Enable the Prometheus metrics HTTP server. Disabled by default.",
-        display_order = 6,
-        help_heading = FLAG_HEADER
-    )]
-    pub metrics: bool,
 }

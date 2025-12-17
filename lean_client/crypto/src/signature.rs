@@ -90,3 +90,48 @@ impl AsRef<[u8]> for Signature {
 
 // SSZ Encoding/Decoding is derived from FixedVector implementation
 // TreeHash is also derived from FixedVector implementation
+
+use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
+use leansig::signature::SignatureScheme;
+use leansig::serialization::Serializable;
+use leansig::MESSAGE_LENGTH;
+
+pub type LeanSigScheme = SIGTopLevelTargetSumLifetime32Dim64Base8;
+type PublicKeyType = <LeanSigScheme as SignatureScheme>::PublicKey;
+type SignatureType = <LeanSigScheme as SignatureScheme>::Signature;
+
+/// Verify an XMSS signature
+pub fn verify_signature(
+    pubkey_bytes: &[u8],
+    message: &[u8],
+    signature: &Signature,
+    epoch: u64,
+) -> Result<bool, String> {
+    if message.len() != MESSAGE_LENGTH {
+        return Err(format!(
+            "Invalid message length: expected {}, got {}",
+            MESSAGE_LENGTH,
+            message.len()
+        ));
+    }
+
+    // Convert message slice to fixed array
+    let mut message_array = [0u8; MESSAGE_LENGTH];
+    message_array.copy_from_slice(message);
+
+    // Deserialize public key
+    // The public key in Lighthouse is just the raw bytes (FixedVector<u8, U52>)
+    // We need to parse it into the leanSig PublicKey type
+    let pk = PublicKeyType::from_bytes(pubkey_bytes)
+        .map_err(|_| "Failed to deserialize public key".to_string())?;
+
+    // Deserialize signature
+    // The signature in Lighthouse is a wrapper around the raw bytes
+    let sig = SignatureType::from_bytes(&signature.bytes[..])
+        .map_err(|_| "Failed to deserialize signature".to_string())?;
+
+    // Verify
+    let epoch32 = epoch as u32;
+    Ok(LeanSigScheme::verify(&pk, epoch32, &message_array, &sig))
+}
+
