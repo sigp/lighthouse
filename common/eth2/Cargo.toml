@@ -5,35 +5,35 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [features]
-default = ["lighthouse"]
-lighthouse = []
+default = []
+lighthouse = ["proto_array", "eth2_keystore", "eip_3076", "zeroize"]
+events = ["reqwest-eventsource", "futures", "futures-util"]
 
 [dependencies]
+bls = { workspace = true }
+context_deserialize = { workspace = true }
 educe = { workspace = true }
-eip_3076 = { workspace = true }
-either = { workspace = true }
-enr = { version = "0.13.0", features = ["ed25519"] }
-eth2_keystore = { workspace = true }
+eip_3076 = { workspace = true, optional = true }
+eth2_keystore = { workspace = true, optional = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-futures = { workspace = true }
-futures-util = "0.3.8"
-libp2p-identity = { version = "0.2", features = ["peerid"] }
+futures = { workspace = true, optional = true }
+futures-util = { version = "0.3.8", optional = true }
 mediatype = "0.19.13"
-multiaddr = "0.18.2"
 pretty_reqwest_error = { workspace = true }
-proto_array = { workspace = true }
-rand = { workspace = true }
+proto_array = { workspace = true, optional = true }
 reqwest = { workspace = true }
-reqwest-eventsource = "0.6.0"
+reqwest-eventsource = { version = "0.6.0", optional = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ssz_types = { workspace = true }
-test_random_derive = { path = "../../common/test_random_derive" }
+superstruct = { workspace = true }
 types = { workspace = true }
-zeroize = { workspace = true }
+zeroize = { workspace = true, optional = true }
 
 [dev-dependencies]
+rand = { workspace = true }
+test_random_derive = { path = "../../common/test_random_derive" }
 tokio = { workspace = true }

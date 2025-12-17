@@ -2,6 +2,7 @@
 use crate::{DBColumn, StoreConfig, StoreItem, metrics};
 use bls::PublicKeyBytes;
 use itertools::Itertools;
+use milhouse::List;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -11,7 +12,7 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 use superstruct::superstruct;
 use types::historical_summary::HistoricalSummary;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, List, Slot, Validator};
+use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, Validator};
 
 static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
 

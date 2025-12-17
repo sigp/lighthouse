@@ -464,9 +464,10 @@ fn parse_state_download_url(url: &str) -> Result<Url, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fixed_bytes::FixedBytesExtended;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, FixedBytesExtended, GnosisEthSpec, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 

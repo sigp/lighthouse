@@ -1,9 +1,10 @@
 use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::JsonAbi;
 use alloy_primitives::FixedBytes;
+use bls::{PublicKeyBytes, SignatureBytes};
 use ssz::{Decode, DecodeError as SszDecodeError, Encode};
 use tree_hash::TreeHash;
-use types::{DepositData, Hash256, PublicKeyBytes, SignatureBytes};
+use types::{DepositData, Hash256};
 
 #[derive(Debug)]
 pub enum Error {
@@ -126,10 +127,8 @@ pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Ha
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{
-        ChainSpec, EthSpec, Keypair, MinimalEthSpec, Signature,
-        test_utils::generate_deterministic_keypair,
-    };
+    use bls::{Keypair, Signature};
+    use types::{ChainSpec, EthSpec, MinimalEthSpec, test_utils::generate_deterministic_keypair};
 
     type E = MinimalEthSpec;
 
