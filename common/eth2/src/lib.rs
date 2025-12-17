@@ -2207,6 +2207,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<Url, Error> {
         let mut path = self.eth_path(V3)?;
 
@@ -2234,6 +2235,14 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
+        // Only append the HTTP URL request if the graffiti_policy is to AppendClientVersions
+        // If PreserveUserGraffiti (default), then the HTTP URL request does not contain graffiti_policy
+        // so that the default case is compliant to the spec
+        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+            path.query_pairs_mut()
+                .append_pair("graffiti_policy", "AppendClientVersions");
+        }
+
         Ok(path)
     }
 
@@ -2244,6 +2253,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular(
             slot,
@@ -2251,6 +2261,7 @@ impl BeaconNodeHttpClient {
             graffiti,
             SkipRandaoVerification::No,
             builder_booster_factor,
+            graffiti_policy,
         )
         .await
     }
@@ -2263,6 +2274,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         let path = self
             .get_validator_blocks_v3_path(
@@ -2271,6 +2283,7 @@ impl BeaconNodeHttpClient {
                 graffiti,
                 skip_randao_verification,
                 builder_booster_factor,
+                graffiti_policy,
             )
             .await?;
 
@@ -2313,6 +2326,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular_ssz::<E>(
             slot,
@@ -2320,6 +2334,7 @@ impl BeaconNodeHttpClient {
             graffiti,
             SkipRandaoVerification::No,
             builder_booster_factor,
+            graffiti_policy,
         )
         .await
     }
@@ -2332,6 +2347,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         let path = self
             .get_validator_blocks_v3_path(
@@ -2340,6 +2356,7 @@ impl BeaconNodeHttpClient {
                 graffiti,
                 skip_randao_verification,
                 builder_booster_factor,
+                graffiti_policy,
             )
             .await?;
 

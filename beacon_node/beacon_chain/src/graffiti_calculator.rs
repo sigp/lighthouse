@@ -1,5 +1,6 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
+use eth2::types::GraffitiPolicy;
 use execution_layer::{CommitPrefix, ExecutionLayer, http::ENGINE_GET_CLIENT_VERSION_V1};
 use logging::crit;
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,25 @@ impl Debug for GraffitiOrigin {
     }
 }
 
+pub enum GraffitiSettings {
+    Unspecified,
+    Specified {
+        graffiti: Graffiti,
+        policy: GraffitiPolicy,
+    },
+}
+
+impl GraffitiSettings {
+    pub fn new(validator_graffiti: Option<Graffiti>, policy: Option<GraffitiPolicy>) -> Self {
+        validator_graffiti
+            .map(|graffiti| Self::Specified {
+                graffiti,
+                policy: policy.unwrap_or(GraffitiPolicy::PreserveUserGraffiti),
+            })
+            .unwrap_or(Self::Unspecified)
+    }
+}
+
 pub struct GraffitiCalculator<T: BeaconChainTypes> {
     pub beacon_graffiti: GraffitiOrigin,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
@@ -73,11 +93,19 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
     /// 2. Graffiti specified by the user via beacon node CLI options.
     /// 3. The EL & CL client version string, applicable when the EL supports version specification.
     /// 4. The default lighthouse version string, used if the EL lacks version specification support.
-    pub async fn get_graffiti(&self, validator_graffiti: Option<Graffiti>) -> Graffiti {
-        if let Some(graffiti) = validator_graffiti {
-            return graffiti;
+    pub async fn get_graffiti(&self, graffiti_settings: GraffitiSettings) -> Graffiti {
+        match graffiti_settings {
+            GraffitiSettings::Specified { graffiti, policy } => match policy {
+                GraffitiPolicy::PreserveUserGraffiti => graffiti,
+                GraffitiPolicy::AppendClientVersions => {
+                    self.calculate_combined_graffiti(Some(graffiti)).await
+                }
+            },
+            GraffitiSettings::Unspecified => self.calculate_combined_graffiti(None).await,
         }
+    }
 
+    async fn calculate_combined_graffiti(&self, validator_graffiti: Option<Graffiti>) -> Graffiti {
         match self.beacon_graffiti {
             GraffitiOrigin::UserSpecified(graffiti) => graffiti,
             GraffitiOrigin::Calculated(default_graffiti) => {
@@ -133,7 +161,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                             CommitPrefix("00000000".to_string())
                         });
 
-                engine_version.calculate_graffiti(lighthouse_commit_prefix)
+                engine_version.calculate_graffiti(lighthouse_commit_prefix, validator_graffiti)
             }
         }
     }
@@ -224,8 +252,10 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
 #[cfg(test)]
 mod tests {
     use crate::ChainConfig;
+    use crate::graffiti_calculator::GraffitiSettings;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
+    use eth2::types::GraffitiPolicy;
     use execution_layer::EngineCapabilities;
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use std::sync::Arc;
@@ -281,8 +311,12 @@ mod tests {
 
         let version_bytes = std::cmp::min(lighthouse_version::VERSION.len(), GRAFFITI_BYTES_LEN);
         // grab the slice of the graffiti that corresponds to the lighthouse version
-        let graffiti_slice =
-            &harness.chain.graffiti_calculator.get_graffiti(None).await.0[..version_bytes];
+        let graffiti_slice = &harness
+            .chain
+            .graffiti_calculator
+            .get_graffiti(GraffitiSettings::Unspecified)
+            .await
+            .0[..version_bytes];
 
         // convert graffiti bytes slice to ascii for easy debugging if this test should fail
         let graffiti_str =
@@ -303,7 +337,12 @@ mod tests {
         let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
-        let found_graffiti_bytes = harness.chain.graffiti_calculator.get_graffiti(None).await.0;
+        let found_graffiti_bytes = harness
+            .chain
+            .graffiti_calculator
+            .get_graffiti(GraffitiSettings::Unspecified)
+            .await
+            .0;
 
         let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
         let expected_graffiti_string = format!(
@@ -352,12 +391,109 @@ mod tests {
         let found_graffiti = harness
             .chain
             .graffiti_calculator
-            .get_graffiti(Some(Graffiti::from(graffiti_bytes)))
+            .get_graffiti(GraffitiSettings::new(
+                Some(Graffiti::from(graffiti_bytes)),
+                Some(GraffitiPolicy::PreserveUserGraffiti),
+            ))
             .await;
 
         assert_eq!(
             found_graffiti.to_string(),
             "0x6e6963652067726166666974692062726f000000000000000000000000000000"
         );
+    }
+
+    #[tokio::test]
+    async fn check_append_el_version_graffiti_various_length() {
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
+        let harness = get_harness(VALIDATOR_COUNT, spec, None);
+
+        let graffiti_vec = vec![
+            // less than 20 characters, example below is 19 characters
+            "This is my graffiti",
+            // 20-23 characters, example below is 22 characters
+            "This is my graffiti yo",
+            // 24-27 characters, example below is 26 characters
+            "This is my graffiti string",
+            // 28-29 characters, example below is 29 characters
+            "This is my graffiti string yo",
+            // 30-32 characters, example below is 32 characters
+            "This is my graffiti string yo yo",
+        ];
+
+        for graffiti in graffiti_vec {
+            let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
+            graffiti_bytes[..graffiti.len()].copy_from_slice(graffiti.as_bytes());
+
+            // To test appending client version info with user specified graffiti
+            let policy = GraffitiPolicy::AppendClientVersions;
+            let found_graffiti_bytes = harness
+                .chain
+                .graffiti_calculator
+                .get_graffiti(GraffitiSettings::Specified {
+                    graffiti: Graffiti::from(graffiti_bytes),
+                    policy,
+                })
+                .await
+                .0;
+
+            let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
+
+            let graffiti_length = graffiti.len();
+            let append_graffiti_string = match graffiti_length {
+                0..=19 => format!(
+                    "{}{}{}{}",
+                    DEFAULT_CLIENT_VERSION.code,
+                    mock_commit
+                        .strip_prefix("0x")
+                        .unwrap_or("&mock_commit")
+                        .get(0..4)
+                        .expect("should get first 2 bytes in hex"),
+                    "LH",
+                    lighthouse_version::COMMIT_PREFIX
+                        .get(0..4)
+                        .expect("should get first 2 bytes in hex")
+                ),
+                20..=23 => format!(
+                    "{}{}{}{}",
+                    DEFAULT_CLIENT_VERSION.code,
+                    mock_commit
+                        .strip_prefix("0x")
+                        .unwrap_or("&mock_commit")
+                        .get(0..2)
+                        .expect("should get first 2 bytes in hex"),
+                    "LH",
+                    lighthouse_version::COMMIT_PREFIX
+                        .get(0..2)
+                        .expect("should get first 2 bytes in hex")
+                ),
+                24..=27 => format!("{}{}", DEFAULT_CLIENT_VERSION.code, "LH",),
+                28..=29 => DEFAULT_CLIENT_VERSION.code.to_string(),
+                // when user graffiti length is 30-32 characters, append nothing
+                30..=32 => String::new(),
+                _ => panic!(
+                    "graffiti length should be less than or equal to GRAFFITI_BYTES_LEN (32 characters)"
+                ),
+            };
+
+            let expected_graffiti_string = if append_graffiti_string.is_empty() {
+                // for the case of empty append_graffiti_string, i.e., user-specified graffiti is 30-32 characters
+                graffiti.to_string()
+            } else {
+                // There is a space between the client version info and user graffiti
+                // as defined in calculate_graffiti function in engine_api.rs
+                format!("{} {}", append_graffiti_string, graffiti)
+            };
+
+            let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
+            let expected_graffiti_prefix_len =
+                std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
+
+            let found_graffiti_string =
+                std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
+                    .expect("bytes should convert nicely to ascii");
+
+            assert_eq!(expected_graffiti_string, found_graffiti_string);
+        }
     }
 }

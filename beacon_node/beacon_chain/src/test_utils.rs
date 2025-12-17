@@ -2,6 +2,7 @@ use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, AvailableBlockData, RpcBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
+use crate::graffiti_calculator::GraffitiSettings;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -23,7 +24,7 @@ use bls::get_withdrawal_credentials;
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
 };
-use eth2::types::SignedBlockContentsTuple;
+use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
@@ -970,6 +971,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -983,7 +986,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 builder_boost_factor,
                 BlockProductionVersion::V3,
@@ -1027,6 +1030,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1037,7 +1042,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -1086,6 +1091,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1098,7 +1105,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -2484,11 +2491,7 @@ where
         // Blobs are stored as data columns from Fulu (PeerDAS)
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
-            let custody_columns = columns
-                .into_iter()
-                // TODO(investigate the custody data column conversion)
-                // .map(CustodyDataColumn::from_asserted_custody)
-                .collect::<Vec<_>>();
+            let custody_columns = columns.into_iter().collect::<Vec<_>>();
             let block_data = AvailableBlockData::new_with_data_columns(Some(custody_columns));
             RpcBlock::new(
                 block,
@@ -2529,8 +2532,6 @@ where
                 let columns = generate_data_column_sidecars_from_block(&block, &self.spec)
                     .into_iter()
                     .filter(|d| sampling_columns.contains(&d.index))
-                    // TODO(investigate the custody data column conversion)
-                    // .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
                 if is_available {
                     let block_data = AvailableBlockData::new_with_data_columns(Some(columns));
@@ -3401,9 +3402,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
-        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
-            ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadGloas<E>, num_blobs, rng, fork_name),
+        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
         _ => return (block, blob_sidecars),
     };
 
