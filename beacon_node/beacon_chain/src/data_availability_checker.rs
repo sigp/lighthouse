@@ -812,9 +812,7 @@ impl<E: EthSpec> AvailableBlock<E> {
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        // check blob lengths match
-        // POSSIBLY - verify kzg - but probably not
-        // but this variant *should* ensure the data IS available
+        // Ensure block availability
         let blobs_required = da_checker.blobs_required_for_block(&block);
         let columns_required = da_checker.data_columns_required_for_block(&block);
 
@@ -837,7 +835,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             }
             AvailableBlockData::DataColumns(data_columns) => {
                 if !columns_required {
-                    println!("columns required? {:?}", columns_required);
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
                 }
 
