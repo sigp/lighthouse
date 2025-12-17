@@ -396,7 +396,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let (head_monitor_tx, head_receiver) =
                 mpsc::channel::<HeadEvent>(MAX_HEAD_EVENT_QUEUE_LEN);
             beacon_nodes.set_head_send(Arc::new(head_monitor_tx));
-            Some(Arc::new(Mutex::new(head_receiver)))
+            Some(Mutex::new(head_receiver))
         } else {
             None
         };

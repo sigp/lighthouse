@@ -25,20 +25,27 @@ pub struct BeaconHeadCache {
 }
 
 impl BeaconHeadCache {
+    /// Creates a new empty beacon head cache.
     pub fn new() -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
         }
     }
 
+    /// Retrieves the cached head for a specific beacon node.
+    /// Returns `None` if no head has been cached for that node yet.
     pub async fn get(&self, beacon_node_index: usize) -> Option<SseHead> {
         self.cache.read().await.get(&beacon_node_index).cloned()
     }
 
+    /// Stores or updates the head event for a specific beacon node.
+    /// Replaces any previously cached head for the given node.
     pub async fn insert(&self, beacon_node_index: usize, head: SseHead) {
         self.cache.write().await.insert(beacon_node_index, head);
     }
 
+    /// Checks if the given head is the latest among all cached heads.
+    /// Returns `true` if the head's slot is >= all cached heads' slots.
     pub async fn is_latest(&self, head: &SseHead) -> bool {
         let cache = self.cache.read().await;
         cache
@@ -46,6 +53,8 @@ impl BeaconHeadCache {
             .all(|cache_head| head.slot >= cache_head.slot)
     }
 
+    /// Clears all cached heads, removing entries for all beacon nodes.
+    /// Useful when beacon node candidates are refreshed to avoid stale references.
     pub async fn purge_cache(&self) {
         self.cache.write().await.clear();
     }
@@ -73,11 +82,11 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
     let head_cache = beacon_nodes
         .beacon_head_cache
         .clone()
-        .expect("Unable to start head monitor without beacon_head_cache");
+        .ok_or("Unable to start head monitor without beacon_head_cache")?;
     let head_monitor_send = beacon_nodes
         .head_monitor_send
         .clone()
-        .expect("Unable to start head monitor without head_monitor_send");
+        .ok_or("Unable to start head monitor without head_monitor_send")?;
 
     info!("Starting head monitoring service");
     let candidates = {

@@ -132,7 +132,7 @@ impl Default for Config {
             builder_registration_timestamp_override: None,
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
-            enable_beacon_head_monitor: false,
+            enable_beacon_head_monitor: true,
             validator_registration_batch_size: 500,
             distributed: false,
             initialized_validators: <_>::default(),

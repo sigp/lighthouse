@@ -1,6 +1,4 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
-use tokio::sync::Mutex;
-
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, beacon_head_monitor::HeadEvent};
 use futures::future::join_all;
 use logging::crit;
@@ -9,6 +7,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, Span, debug, error, info, info_span, instrument, warn};
@@ -25,7 +24,7 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> 
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
     chain_spec: Option<Arc<ChainSpec>>,
-    head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
+    head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
     disable: bool,
 }
 
@@ -80,7 +79,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
 
     pub fn head_monitor_rx(
         mut self,
-        head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
+        head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
     ) -> Self {
         self.head_monitor_rx = head_monitor_rx;
         self
@@ -122,7 +121,7 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
-    head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
+    head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
     disable: bool,
     latest_attested_slot: Mutex<Slot>,
 }
@@ -235,7 +234,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// Spawn only one new task for attestation post-Electra
     /// For each required aggregates, spawn a new task that downloads, signs and uploads the
     /// aggregates to the beacon node.
-    fn spawn_attestation_tasks(&self, slot_duration: Duration, beacon_node_index: Option<usize>,) -> Result<(), String> {
+    fn spawn_attestation_tasks(
+        &self,
+        slot_duration: Duration,
+        beacon_node_index: Option<usize>,
+    ) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -432,7 +435,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .now()
             .ok_or("Unable to determine current slot from clock")?
             .epoch(S::E::slots_per_epoch());
-        
+
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;
         let signing_futures = validator_duties.iter().map(|duty_and_proof| {
