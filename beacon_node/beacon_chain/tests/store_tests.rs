@@ -3195,15 +3195,16 @@ async fn weak_subjectivity_sync_test(
         let mut batch_with_invalid_first_block =
             available_blocks.iter().map(clone_block).collect::<Vec<_>>();
         batch_with_invalid_first_block[0] = {
-            let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
+            let (_, block, data) = clone_block(&available_blocks[0]).deconstruct();
             let mut corrupt_block = (*block).clone();
             *corrupt_block.signature_mut() = Signature::empty();
-            AvailableBlock::__new_for_testing(
-                block_root,
+            AvailableBlock::new(
                 Arc::new(corrupt_block),
-                data.expect("Expect block data"),
+                data,
+                beacon_chain.data_availability_checker.clone(),
                 Arc::new(spec),
             )
+            .expect("available block")
         };
 
         // Importing the invalid batch should error.

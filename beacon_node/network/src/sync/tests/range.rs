@@ -449,7 +449,7 @@ fn build_rpc_block(
 ) -> RpcBlock<E> {
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
-            let block_data = AvailableBlockData::new_with_blobs(Some(blobs.clone()));
+            let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
             RpcBlock::new(
                 block,
                 Some(block_data),
@@ -459,12 +459,12 @@ fn build_rpc_block(
             .unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
-            let block_data = AvailableBlockData::new_with_data_columns(Some(
+            let block_data = AvailableBlockData::new_with_data_columns(
                 columns
                     .iter()
                     .map(|c| c.as_data_column().clone())
                     .collect::<Vec<_>>(),
-            ));
+            );
             RpcBlock::new(
                 block,
                 Some(block_data),

@@ -2492,7 +2492,7 @@ where
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
             let custody_columns = columns.into_iter().collect::<Vec<_>>();
-            let block_data = AvailableBlockData::new_with_data_columns(Some(custody_columns));
+            let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
             RpcBlock::new(
                 block,
                 Some(block_data),
@@ -2502,7 +2502,11 @@ where
             .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
-            let block_data = AvailableBlockData::new_with_blobs(blobs);
+            let block_data = if let Some(blobs) = blobs {
+                AvailableBlockData::new_with_blobs(blobs)
+            } else {
+                AvailableBlockData::NoData
+            };
 
             RpcBlock::new(
                 block,
@@ -2534,7 +2538,7 @@ where
                     .filter(|d| sampling_columns.contains(&d.index))
                     .collect::<Vec<_>>();
                 if is_available {
-                    let block_data = AvailableBlockData::new_with_data_columns(Some(columns));
+                    let block_data = AvailableBlockData::new_with_data_columns(columns);
                     RpcBlock::new(
                         block,
                         Some(block_data),
@@ -2572,7 +2576,12 @@ where
                 .transpose()
                 .unwrap();
             if is_available {
-                let block_data = AvailableBlockData::new_with_blobs(blobs);
+                let block_data = if let Some(blobs) = blobs {
+                    AvailableBlockData::new_with_blobs(blobs)
+                } else {
+                    AvailableBlockData::NoData
+                };
+
                 RpcBlock::new(
                     block,
                     Some(block_data),

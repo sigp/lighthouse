@@ -702,20 +702,19 @@ pub enum AvailableBlockData<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlockData<E> {
-
-    pub fn new_with_blobs(blobs: Option<BlobSidecarList<E>>) -> Self {
-        if let Some(blobs) = blobs {
-            Self::Blobs(blobs)
-        } else {
+    pub fn new_with_blobs(blobs: BlobSidecarList<E>) -> Self {
+        if blobs.is_empty() {
             Self::NoData
+        } else {
+            Self::Blobs(blobs)
         }
     }
 
-    pub fn new_with_data_columns(columns: Option<DataColumnSidecarList<E>>) -> Self {
-        if let Some(columns) = columns {
-            Self::DataColumns(columns)
-        } else {
+    pub fn new_with_data_columns(columns: DataColumnSidecarList<E>) -> Self {
+        if columns.is_empty() {
             Self::NoData
+        } else {
+            Self::DataColumns(columns)
         }
     }
 
@@ -768,21 +767,6 @@ pub struct AvailableBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
-    pub fn __new_for_testing(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<E>>,
-        data: AvailableBlockData<E>,
-        spec: Arc<ChainSpec>,
-    ) -> Self {
-        Self {
-            block_root,
-            block,
-            blob_data: data,
-            blobs_available_timestamp: None,
-            spec,
-        }
-    }
-
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
@@ -871,20 +855,14 @@ impl<E: EthSpec> AvailableBlock<E> {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Hash256,
-        Arc<SignedBeaconBlock<E>>,
-        Option<AvailableBlockData<E>>,
-    ) {
+    pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
         let AvailableBlock {
             block_root,
             block,
             blob_data,
             ..
         } = self;
-        (block_root, block, Some(blob_data))
+        (block_root, block, blob_data)
     }
 
     /// Only used for testing
@@ -1142,7 +1120,7 @@ mod test {
                         .collect::<Vec<_>>()
                 };
 
-                let block_data = AvailableBlockData::new_with_data_columns(Some(custody_columns));
+                let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
                 let da_checker = Arc::new(new_da_checker(spec.clone()));
                 RpcBlock::new(Arc::new(block), Some(block_data), da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")

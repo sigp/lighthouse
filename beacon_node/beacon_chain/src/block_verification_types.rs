@@ -102,7 +102,10 @@ impl<E: EthSpec> RpcBlock<E> {
         Option<AvailableBlockData<E>>,
     ) {
         match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.deconstruct(),
+            RpcBlock::FullyAvailable(available_block) => {
+                let (block_root, block, block_data) = available_block.deconstruct();
+                (block_root, block, Some(block_data))
+            }
             RpcBlock::BlockOnly { block, block_root } => (block_root, block, None),
         }
     }
