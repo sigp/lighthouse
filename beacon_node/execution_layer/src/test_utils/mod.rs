@@ -754,7 +754,7 @@ pub fn serve<E: EthSpec>(
 
     info!(
         listen_address = listening_socket.to_string(),
-        "Metrics HTTP server started"
+        "Mock Execution Client started"
     );
 
     Ok((listening_socket, server))
