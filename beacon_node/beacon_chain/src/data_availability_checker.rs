@@ -702,26 +702,6 @@ pub enum AvailableBlockData<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlockData<E> {
-    pub fn new(
-        blobs: Option<BlobSidecarList<E>>,
-        columns: Option<DataColumnSidecarList<E>>,
-    ) -> Self {
-        if let Some(blobs) = blobs {
-            if blobs.is_empty() {
-                Self::NoData
-            } else {
-                Self::Blobs(blobs)
-            }
-        } else if let Some(columns) = columns {
-            if columns.is_empty() {
-                Self::NoData
-            } else {
-                Self::DataColumns(columns)
-            }
-        } else {
-            Self::NoData
-        }
-    }
 
     pub fn new_with_blobs(blobs: Option<BlobSidecarList<E>>) -> Self {
         if let Some(blobs) = blobs {
