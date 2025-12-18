@@ -8,8 +8,6 @@
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
 pub mod blob_sidecar_list_from_root;
-pub mod chunked_iter;
-pub mod chunked_vector;
 pub mod config;
 pub mod consensus_context;
 pub mod errors;
@@ -21,7 +19,6 @@ mod impls;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
