@@ -286,8 +286,8 @@ debug = true
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
 # FIXME(sproul): REMOVE patch
-milhouse = { path = "../milhouse" }
-ethereum_ssz = { path = "../packages/ethereum_ssz/ssz" }
-ethereum_ssz_derive = { path = "../packages/ethereum_ssz/ssz_derive" }
-tree_hash = { path = "../packages/tree_hash/tree_hash" }
-tree_hash_derive = { path = "../packages/tree_hash/tree_hash_derive" }
+milhouse = { git = "https://github.com/sigp/milhouse", branch = "progressive-list" }
+ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", branch = "progressive" }
+ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", branch = "progressive" }
+tree_hash = { git = "https://github.com/sigp/tree_hash", branch = "progressive" }
+tree_hash_derive = { git = "https://github.com/sigp/tree_hash", branch = "progressive" }
