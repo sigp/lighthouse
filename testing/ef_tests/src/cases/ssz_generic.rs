@@ -8,13 +8,15 @@ use context_deserialize::{ContextDeserialize, context_deserialize};
 use serde::{Deserialize, Deserializer, de::Error as SerdeError};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
-use tree_hash::{PackedEncoding, ProgressiveMerkleHasher, TreeHashType};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
 use types::{
-    BitList, BitVector, FixedVector, ForkName, Hash256, ProgressiveBitList, ProgressiveList,
+    BitList, BitVector, FixedVector, ForkName, List, ProgressiveBitList, ProgressiveList,
     VariableList, Vector,
 };
+
+type U1280 = op!(U128 * U10);
+type U1281 = op!(U1280 + U1);
 
 #[derive(Debug, Clone, Deserialize)]
 #[context_deserialize(ForkName)]
@@ -115,7 +117,12 @@ macro_rules! type_dispatch {
             "VarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* VarTestStruct>, $($rest)*),
             "ComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ComplexTestStruct>, $($rest)*),
             "BitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* BitsStruct>, $($rest)*),
+            "ProgressiveBitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveBitsStruct>, $($rest)*),
             "ProgressiveSingleFieldContainerTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveSingleFieldContainerTestStruct>, $($rest)*),
+            "ProgressiveSingleListContainerTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveSingleListContainerTestStruct>, $($rest)*),
+            "ProgressiveVarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveVarTestStruct>, $($rest)*),
+            "ProgressiveComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveComplexTestStruct>, $($rest)*),
+            "ProgressiveTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveTestStruct>, $($rest)*),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
@@ -234,11 +241,6 @@ impl Case for SszGeneric {
             "progressive_containers" => {
                 let type_name = parts[0];
 
-                // FIXME(sproul): delete
-                if type_name != "ProgressiveSingleFieldContainerTestStruct" {
-                    return Ok(());
-                }
-
                 type_dispatch!(
                     ssz_generic_test,
                     (&self.path, fork_name),
@@ -340,12 +342,38 @@ struct ComplexTestStruct {
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 #[context_deserialize(ForkName)]
+struct ProgressiveTestStruct {
+    A: ProgressiveList<u8>,
+    B: ProgressiveList<u64>,
+    C: ProgressiveList<SmallTestStruct>,
+    D: ProgressiveList<ProgressiveList<VarTestStruct>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct BitsStruct {
     A: BitList<U5>,
     B: BitVector<U2>,
     C: BitVector<U1>,
     D: BitList<U6>,
     E: BitVector<U8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
+struct ProgressiveBitsStruct {
+    A: BitVector<U256>,
+    B: BitList<U256>,
+    C: ProgressiveBitList,
+    D: BitVector<U257>,
+    E: BitList<U257>,
+    F: ProgressiveBitList,
+    G: BitVector<U1280>,
+    H: BitList<U1280>,
+    I: ProgressiveBitList,
+    J: BitVector<U1281>,
+    K: BitList<U1281>,
+    L: ProgressiveBitList,
 }
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
@@ -356,10 +384,42 @@ struct ProgressiveSingleFieldContainerTestStruct {
 }
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
-#[tree_hash(struct_behaviour = "progressive_container", active_fields(1))]
+#[tree_hash(
+    struct_behaviour = "progressive_container",
+    active_fields(0, 0, 0, 0, 1)
+)]
 #[context_deserialize(ForkName)]
 struct ProgressiveSingleListContainerTestStruct {
     C: ProgressiveBitList,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(
+    struct_behaviour = "progressive_container",
+    active_fields(1, 0, 1, 0, 1)
+)]
+#[context_deserialize(ForkName)]
+struct ProgressiveVarTestStruct {
+    A: u8,
+    B: List<u16, U123>,
+    C: ProgressiveBitList,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[tree_hash(
+    struct_behaviour = "progressive_container",
+    active_fields(1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1)
+)]
+#[context_deserialize(ForkName)]
+struct ProgressiveComplexTestStruct {
+    A: u8,
+    B: List<u16, U123>,
+    C: ProgressiveBitList,
+    D: ProgressiveList<u64>,
+    E: ProgressiveList<SmallTestStruct>,
+    F: ProgressiveList<ProgressiveList<VarTestStruct>>,
+    G: List<ProgressiveSingleFieldContainerTestStruct, U10>,
+    H: ProgressiveList<ProgressiveVarTestStruct>,
 }
 
 fn byte_list_from_hex_str<'de, D, N: Unsigned>(

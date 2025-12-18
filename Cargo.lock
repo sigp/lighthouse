@@ -5857,7 +5857,6 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.9.0"
-source = "git+https://github.com/sigp/milhouse?branch=progressive-list#52bae1f50da93519cfb4ec31f7dab19659be4d14"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
