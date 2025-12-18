@@ -15,13 +15,15 @@ use types::{
 
 /// A block that has been received over RPC. It has 2 internal variants:
 ///
-/// 1. `BlockAndBlobs`: A fully available post deneb block with all the blobs available. This variant
-///    is only constructed after making consistency checks between blocks and blobs.
-///    Hence, it is fully self contained w.r.t verification. i.e. this block has all the required
-///    data to get verified and imported into fork choice.
+/// 1. `FullyAvailable`: A fully available block. This can either be a:
+///     - Pre-deneb block
+///     - Post-Deneb block with blobs
+///     - Post-Fulu block with the columns the node is required to custody
+///     - Post-Deneb block that doesn't require blobs/columns.
+///     Hence, it is fully self contained w.r.t verification. i.e. this block has all the required
+///     data to get verified and imported into fork choice.
 ///
-/// 2. `Block`: This can be a fully available pre-deneb block **or** a post-deneb block that may or may
-///    not require blobs to be considered fully available.
+/// 2. `BlockOnly`: This is a post-deneb block that may or may not require blobs to be considered fully available.
 ///
 /// Note: We make a distinction over blocks received over gossip because
 /// in a post-deneb world, the blobs corresponding to a given block that are received
