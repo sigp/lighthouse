@@ -541,34 +541,6 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Gloas(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Gloas(ExecutionPayloadGloas {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                        blob_gas_used: header.blob_gas_used,
-                        excess_blob_gas: header.excess_blob_gas,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is post capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
-            }
         }
     }
 }
@@ -763,8 +735,12 @@ pub struct ClientVersionV1 {
 }
 
 impl ClientVersionV1 {
-    pub fn calculate_graffiti(&self, lighthouse_commit_prefix: CommitPrefix) -> Graffiti {
-        let graffiti_string = format!(
+    pub fn calculate_graffiti(
+        &self,
+        lighthouse_commit_prefix: CommitPrefix,
+        validator_graffiti: Option<Graffiti>,
+    ) -> Graffiti {
+        let append_graffiti_full = format!(
             "{}{}LH{}",
             self.code,
             self.commit
@@ -778,6 +754,53 @@ impl ClientVersionV1 {
                 .unwrap_or("0000")
                 .to_lowercase(),
         );
+
+        // Implement the special case here:
+        // https://hackmd.io/@wmoBhF17RAOH2NZ5bNXJVg/BJX2c9gja#SPECIAL-CASE-the-flexible-standard
+        let append_graffiti_one_byte = format!(
+            "{}{}LH{}",
+            self.code,
+            self.commit
+                .0
+                .get(..2)
+                .unwrap_or(self.commit.0.as_str())
+                .to_lowercase(),
+            lighthouse_commit_prefix
+                .0
+                .get(..2)
+                .unwrap_or("00")
+                .to_lowercase(),
+        );
+
+        let append_graffiti_no_commit = format!("{}LH", self.code);
+        let append_graffiti_only_el = format!("{}", self.code);
+
+        let graffiti_string = if let Some(graffiti) = validator_graffiti {
+            let graffiti_length = graffiti.as_utf8_lossy().len();
+            let graffiti_str = graffiti.as_utf8_lossy();
+
+            // 12 characters for append_graffiti_full, plus one character for spacing
+            // that leaves user specified graffiti to be 32-12-1 = 19 characters max, i.e., <20
+            if graffiti_length < 20 {
+                format!("{} {}", append_graffiti_full, graffiti_str)
+            // user-specified graffiti is between 20-23 characters
+            } else if (20..24).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_one_byte, graffiti_str)
+            // user-specified graffiti is between 24-27 characters
+            } else if (24..28).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_no_commit, graffiti_str)
+            // user-specified graffiti is between 28-29 characters
+            } else if (28..30).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_only_el, graffiti_str)
+            // if user-specified graffiti is between 30-32 characters, append nothing
+            } else {
+                return graffiti;
+            }
+        } else {
+            // if no validator_graffiti (user doesn't specify), use the full client version info graffiti
+            append_graffiti_full
+        };
+
         let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
         let bytes_to_copy = std::cmp::min(graffiti_string.len(), GRAFFITI_BYTES_LEN);
         graffiti_bytes[..bytes_to_copy]

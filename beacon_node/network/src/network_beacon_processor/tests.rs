@@ -1699,8 +1699,9 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
+    // This test focuses on Electra→Fulu blob counts (epoch 0 to 1). Build 62 blocks since no need for Gloas activation at slot 64.
     let mut rig = TestRig::new_parametric(
-        64,
+        62,
         BeaconProcessorConfig::default(),
         NodeCustodyType::Fullnode,
         spec,
