@@ -1,0 +1,23 @@
+# cargo-deny configuration for Lighthouse
+# See https://embarkstudios.github.io/cargo-deny/
+
+[bans]
+# Warn when multiple versions of the same crate are detected
+multiple-versions = "warn"
+deny = [
+    # Legacy Ethereum crates that have been replaced with alloy
+    { crate = "ethers", reason = "use alloy instead" },
+    { crate = "ethereum-types", reason = "use alloy-primitives instead" },
+    # Replaced by quick-protobuf
+    { crate = "protobuf", reason = "use quick-protobuf instead" },
+    # Prevent duplicate versions of reqwest - heavy crate with build scripts
+    { crate = "reqwest", deny-multiple-versions = true, reason = "prevent duplicate versions" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[sources.allow-org]
+github = ["sigp"]
