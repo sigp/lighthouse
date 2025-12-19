@@ -956,10 +956,7 @@ async fn pseudo_finalize_test_generic(
     };
 
     // pseudo finalize
-    harness
-        .chain
-        .manual_finalization(checkpoint, head.beacon_state_root())
-        .unwrap();
+    harness.chain.manual_finalization(checkpoint).await.unwrap();
 
     let split = harness.chain.store.get_split_info();
     let pseudo_finalized_slot = split.slot;
