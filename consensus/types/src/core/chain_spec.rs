@@ -408,6 +408,41 @@ impl ChainSpec {
         }
     }
 
+    pub fn set_fork_epoch(
+        mut self,
+        fork_name: ForkName,
+        value: Option<Epoch>,
+    ) -> Result<Self, String> {
+        if fork_name == ForkName::Base {
+            return Err("Can't change fork epoch for base hardfork".to_string());
+        }
+
+        let fork_epoch_field = match fork_name {
+            ForkName::Base => unreachable!("Base fork already handled"),
+            ForkName::Altair => &mut self.altair_fork_epoch,
+            ForkName::Bellatrix => &mut self.bellatrix_fork_epoch,
+            ForkName::Capella => &mut self.capella_fork_epoch,
+            ForkName::Deneb => &mut self.deneb_fork_epoch,
+            ForkName::Electra => &mut self.electra_fork_epoch,
+            ForkName::Fulu => &mut self.fulu_fork_epoch,
+            ForkName::Gloas => &mut self.gloas_fork_epoch,
+        };
+
+        *fork_epoch_field = value;
+        Ok(self)
+    }
+
+    pub fn set_all_fork_epochs_to_zero(mut self) -> Self {
+        for fork_name in ForkName::list_all() {
+            if fork_name == ForkName::Base {
+                continue;
+            } else {
+                self = self.set_fork_epoch(fork_name, Some(Epoch::new(0))).unwrap();
+            }
+        }
+        self
+    }
+
     pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
         if fork_name >= ForkName::Bellatrix {
             self.inactivity_penalty_quotient_bellatrix

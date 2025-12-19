@@ -3876,10 +3876,19 @@ async fn revert_minority_fork_on_resume() {
     let initial_blocks = slots_per_epoch * fork_epoch.as_u64() - 1;
     let post_fork_blocks = slots_per_epoch * 3;
 
-    let mut spec1 = MinimalEthSpec::default_spec();
-    spec1.altair_fork_epoch = None;
-    let mut spec2 = MinimalEthSpec::default_spec();
-    spec2.altair_fork_epoch = Some(fork_epoch);
+    let spec1 = MinimalEthSpec::default_spec()
+        .set_all_fork_epochs_to_zero()
+        .set_fork_epoch(ForkName::latest(), None)
+        .unwrap()
+        .set_fork_epoch(ForkName::latest_stable(), None)
+        .unwrap();
+
+    let spec2 = MinimalEthSpec::default_spec()
+        .set_all_fork_epochs_to_zero()
+        .set_fork_epoch(ForkName::latest(), None)
+        .unwrap()
+        .set_fork_epoch(ForkName::latest_stable(), Some(fork_epoch))
+        .unwrap();
 
     let seconds_per_slot = spec1.seconds_per_slot;
 
