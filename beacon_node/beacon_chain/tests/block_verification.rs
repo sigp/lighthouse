@@ -1,10 +1,11 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
-use beacon_chain::data_availability_checker::AvailableBlockData;
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
+    WhenSlotSkipped,
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
@@ -12,7 +13,7 @@ use beacon_chain::{
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
-    InvalidSignature, NotifyExecutionLayer,
+    InvalidSignature, NotifyExecutionLayer, signature_verify_chain_segment,
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
@@ -1969,4 +1970,200 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
             Err("AvailabilityPending not expected in this test. Block not imported.".to_string())
         }
     }
+}
+
+// Test that `signature_verify_chain_segment` correctly handles a mix of `FullyAvailable`
+// and `BlockOnly` RpcBlocks. This situation should not happen in production
+// but this test may help catch potential future regressions.
+#[tokio::test]
+async fn signature_verify_mixed_rpc_block_variants() {
+    let (snapshots, data_sidecars) = get_chain_segment().await;
+    let snapshots: Vec<_> = snapshots.into_iter().take(10).collect();
+    let data_sidecars: Vec<_> = data_sidecars.into_iter().take(10).collect();
+
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+
+    let mut chain_segment = Vec::new();
+
+    for (i, (snapshot, blobs)) in snapshots.iter().zip(data_sidecars.iter()).enumerate() {
+        let block = snapshot.beacon_block.clone();
+        let block_root = snapshot.beacon_block_root;
+
+        // Alternate between FullyAvailable and BlockOnly
+        let rpc_block = if i % 2 == 0 {
+            // FullyAvailable - with blobs/columns if needed
+            build_rpc_block(block, blobs, harness.chain.clone())
+        } else {
+            // BlockOnly - no data
+            RpcBlock::new(
+                block,
+                None,
+                harness.chain.data_availability_checker.clone(),
+                harness.chain.spec.clone(),
+            )
+            .unwrap()
+        };
+
+        chain_segment.push((block_root, rpc_block));
+    }
+
+    // This should NOT silently drop the BlockOnly variants
+    let verified = signature_verify_chain_segment(chain_segment.clone(), &harness.chain).unwrap();
+
+    // Assert we got all blocks back, not just the FullyAvailable ones
+    assert_eq!(
+        verified.len(),
+        chain_segment.len(),
+        "All blocks should be verified, not dropped"
+    );
+
+    // Verify block roots match
+    for (i, (expected_root, _)) in chain_segment.iter().enumerate() {
+        assert_eq!(verified[i].block_root(), *expected_root);
+    }
+}
+
+// Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
+#[tokio::test]
+async fn rpc_block_construction_fails_with_wrong_blob_count() {
+    let spec = test_spec::<E>();
+
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).deneb_enabled()
+        || spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+    {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Get a block with blobs
+    for slot in 1..=5 {
+        let root = harness
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let block = harness.chain.get_block(&root).await.unwrap().unwrap();
+
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
+            if !commitments.is_empty() {
+                let blobs = harness.chain.get_blobs(&root).unwrap().blobs().unwrap();
+
+                // Create AvailableBlockData with wrong number of blobs (remove one)
+                let mut wrong_blobs_vec: Vec<_> = blobs.iter().cloned().collect();
+                wrong_blobs_vec.pop();
+
+                let max_blobs = harness.spec.max_blobs_per_block(block.epoch()) as usize;
+                let wrong_blobs = ssz_types::RuntimeVariableList::new(wrong_blobs_vec, max_blobs)
+                    .expect("should create BlobSidecarList");
+                let block_data = AvailableBlockData::new_with_blobs(wrong_blobs);
+
+                // Try to create RpcBlock with wrong blob count
+                let result = RpcBlock::new(
+                    Arc::new(block),
+                    Some(block_data),
+                    harness.chain.data_availability_checker.clone(),
+                    harness.chain.spec.clone(),
+                );
+
+                // Should fail with MissingBlobs
+                assert!(
+                    matches!(result, Err(AvailabilityCheckError::MissingBlobs)),
+                    "RpcBlock construction should fail with wrong blob count, got: {:?}",
+                    result
+                );
+                return;
+            }
+        }
+    }
+
+    panic!("No block with blobs found");
+}
+
+// Test that RpcBlock::new() rejects blocks when custody columns are incomplete.
+#[tokio::test]
+async fn rpc_block_rejects_missing_custody_columns() {
+    let spec = test_spec::<E>();
+
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    // Extend chain to create some blocks with data columns
+    harness
+        .extend_chain(
+            5,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Get a block with data columns
+    for slot in 1..=5 {
+        let root = harness
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let block = harness.chain.get_block(&root).await.unwrap().unwrap();
+
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
+            if !commitments.is_empty() {
+                let columns = harness.chain.get_data_columns(&root).unwrap().unwrap();
+
+                if columns.len() > 1 {
+                    // Create AvailableBlockData with incomplete columns (remove one)
+                    let mut incomplete_columns: Vec<_> =
+                        columns.iter().map(|c| c.clone()).collect();
+                    incomplete_columns.pop();
+
+                    let block_data = AvailableBlockData::new_with_data_columns(incomplete_columns);
+
+                    // Try to create RpcBlock with incomplete custody columns
+                    let result = RpcBlock::new(
+                        Arc::new(block),
+                        Some(block_data),
+                        harness.chain.data_availability_checker.clone(),
+                        harness.chain.spec.clone(),
+                    );
+
+                    // Should fail with MissingCustodyColumns
+                    assert!(
+                        matches!(result, Err(AvailabilityCheckError::MissingCustodyColumns)),
+                        "RpcBlock construction should fail with missing custody columns, got: {:?}",
+                        result
+                    );
+                    return;
+                }
+            }
+        }
+    }
+
+    panic!("No block with data columns found");
 }
