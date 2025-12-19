@@ -265,15 +265,7 @@ pub async fn build_linear(
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
         nodes.push(
-            build_libp2p_instance(
-                rt.clone(),
-                vec![],
-                fork_name,
-                spec.clone(),
-                false,
-                None,
-            )
-            .await,
+            build_libp2p_instance(rt.clone(), vec![], fork_name, spec.clone(), false, None).await,
         );
     }
 

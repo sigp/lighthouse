@@ -107,6 +107,16 @@ impl TaskExecutor {
         }
     }
 
+    /// Clones the task executor adding a service name.
+    pub fn clone_with_name(&self) -> Self {
+        TaskExecutor {
+            handle_provider: self.handle_provider.clone(),
+            exit: self.exit.clone(),
+            signal_tx: self.signal_tx.clone(),
+            rayon_pool_provider: self.rayon_pool_provider.clone(),
+        }
+    }
+
     /// A convenience wrapper for `Self::spawn` which ignores a `Result` as long as both `Ok`/`Err`
     /// are of type `()`.
     ///

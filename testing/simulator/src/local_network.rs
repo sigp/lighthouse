@@ -206,10 +206,8 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
 
-        let execution_node = LocalExecutionNode::new(
-            self.context.service_context(),
-            mock_execution_config,
-        );
+        let execution_node =
+            LocalExecutionNode::new(self.context.service_context(), mock_execution_config);
 
         beacon_config.execution_layer = Some(execution_layer::Config {
             execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
@@ -218,11 +216,8 @@ impl<E: EthSpec> LocalNetwork<E> {
             ..Default::default()
         });
 
-        let beacon_node = LocalBeaconNode::production(
-            self.context.service_context(),
-            beacon_config,
-        )
-        .await?;
+        let beacon_node =
+            LocalBeaconNode::production(self.context.service_context(), beacon_config).await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -252,10 +247,8 @@ impl<E: EthSpec> LocalNetwork<E> {
         mock_execution_config.server_config.listen_port = EXECUTION_PORT + count;
 
         // Construct execution node.
-        let execution_node = LocalExecutionNode::new(
-            self.context.service_context(),
-            mock_execution_config,
-        );
+        let execution_node =
+            LocalExecutionNode::new(self.context.service_context(), mock_execution_config);
 
         // Pair the beacon node and execution node.
         beacon_config.execution_layer = Some(execution_layer::Config {
@@ -266,11 +259,8 @@ impl<E: EthSpec> LocalNetwork<E> {
         });
 
         // Construct beacon node using the config,
-        let beacon_node = LocalBeaconNode::production(
-            self.context.service_context(),
-            beacon_config,
-        )
-        .await?;
+        let beacon_node =
+            LocalBeaconNode::production(self.context.service_context(), beacon_config).await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -343,9 +333,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_node: usize,
         validator_files: ValidatorFiles,
     ) -> Result<(), String> {
-        let context = self
-            .context
-            .service_context();
+        let context = self.context.service_context();
         let self_1 = self.clone();
         let socket_addr = {
             let read_lock = self.beacon_nodes.read();
@@ -404,9 +392,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_nodes: Vec<usize>,
         validator_files: ValidatorFiles,
     ) -> Result<(), String> {
-        let context = self
-            .context
-            .service_context();
+        let context = self.context.service_context();
         let self_1 = self.clone();
         let mut beacon_node_urls = vec![];
         for beacon_node in beacon_nodes {

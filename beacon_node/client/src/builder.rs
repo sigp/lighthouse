@@ -770,8 +770,7 @@ where
             // Spawn service to publish light_client updates at some interval into the slot.
             if let Some(light_client_server_rv) = self.light_client_server_rv {
                 let inner_chain = beacon_chain.clone();
-                let light_client_update_context =
-                    runtime_context.service_context();
+                let light_client_update_context = runtime_context.service_context();
                 light_client_update_context.executor.spawn(
                     async move {
                         compute_light_client_updates(

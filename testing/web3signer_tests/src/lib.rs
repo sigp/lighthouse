@@ -346,7 +346,6 @@ mod tests {
                 Arc::downgrade(&runtime),
                 exit,
                 shutdown_tx,
-                "test".to_string(),
             );
 
             let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);

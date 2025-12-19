@@ -605,8 +605,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
                 doppelganger_service,
-                self.context
-                    .service_context(),
+                self.context.service_context(),
                 self.validator_store.clone(),
                 self.duties_service.beacon_nodes.clone(),
                 self.duties_service.slot_clock.clone(),
