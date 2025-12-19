@@ -33,6 +33,7 @@ use lighthouse_network::{
 };
 use matches::assert_matches;
 use slot_clock::SlotClock;
+use ssz_types::RuntimeVariableList;
 use std::collections::HashSet;
 use std::iter::Iterator;
 use std::sync::Arc;
@@ -42,8 +43,8 @@ use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
     DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    RuntimeVariableList, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit,
-    SingleAttestation, Slot, SubnetId,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -1698,8 +1699,9 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
+    // This test focuses on Electra→Fulu blob counts (epoch 0 to 1). Build 62 blocks since no need for Gloas activation at slot 64.
     let mut rig = TestRig::new_parametric(
-        64,
+        62,
         BeaconProcessorConfig::default(),
         NodeCustodyType::Fullnode,
         spec,

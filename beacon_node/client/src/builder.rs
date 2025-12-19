@@ -39,7 +39,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 use types::data_column_custody_group::compute_ordered_custody_column_indices;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
@@ -148,6 +148,7 @@ where
 
     /// Initializes the `BeaconChainBuilder`. The `build_beacon_chain` method will need to be
     /// called later in order to actually instantiate the `BeaconChain`.
+    #[instrument(skip_all)]
     pub async fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
@@ -351,15 +352,10 @@ where
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
 
-                // `BlobSidecar` is no longer used from Fulu onwards (superseded by `DataColumnSidecar`),
-                // which will be fetched via rpc instead (unimplemented).
-                let is_before_fulu = !spec
-                    .fork_name_at_slot::<E>(anchor_block.slot())
-                    .fulu_enabled();
-                let anchor_blobs = if is_before_fulu && anchor_block.message().body().has_blobs() {
+                // Providing blobs is optional now and not providing them is recommended.
+                // Backfill can handle downloading the blobs or columns for the checkpoint block.
+                let anchor_blobs = if let Some(anchor_blobs_bytes) = anchor_blobs_bytes {
                     let max_blobs_len = spec.max_blobs_per_block(anchor_block.epoch()) as usize;
-                    let anchor_blobs_bytes = anchor_blobs_bytes
-                        .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
                     Some(
                         BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes, max_blobs_len)
                             .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
@@ -615,6 +611,7 @@ where
     ///
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
+    #[instrument(name = "build_client", skip_all)]
     pub fn build(
         mut self,
     ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
@@ -815,6 +812,7 @@ where
     TColdStore: ItemStore<E> + 'static,
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
+    #[instrument(skip_all)]
     pub fn build_beacon_chain(mut self) -> Result<Self, String> {
         let context = self
             .runtime_context

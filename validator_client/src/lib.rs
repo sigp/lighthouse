@@ -486,7 +486,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
             .graffiti(config.graffiti)
-            .graffiti_file(config.graffiti_file.clone());
+            .graffiti_file(config.graffiti_file.clone())
+            .graffiti_policy(config.graffiti_policy);
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {

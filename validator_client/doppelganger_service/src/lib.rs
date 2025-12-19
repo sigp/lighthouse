@@ -30,6 +30,7 @@
 //! Doppelganger protection is a best-effort, last-line-of-defence mitigation. Do not rely upon it.
 
 use beacon_node_fallback::BeaconNodeFallback;
+use bls::PublicKeyBytes;
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
 use logging::crit;
@@ -41,7 +42,7 @@ use std::sync::Arc;
 use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use tracing::{error, info};
-use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Slot};
 use validator_store::{DoppelgangerStatus, ValidatorStore};
 
 struct LivenessResponses {

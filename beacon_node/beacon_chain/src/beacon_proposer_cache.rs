@@ -18,10 +18,9 @@ use state_processing::state_advance::partial_state_advance;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::instrument;
+use typenum::Unsigned;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned,
-};
+use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot};
 
 /// The number of sets of proposer indices that should be cached.
 const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);

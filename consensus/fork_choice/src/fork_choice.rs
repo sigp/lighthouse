@@ -1,5 +1,6 @@
 use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
+use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
@@ -19,7 +20,7 @@ use tracing::{debug, instrument, warn};
 use types::{
     AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    FixedBytesExtended, Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
     consts::bellatrix::INTERVALS_PER_SLOT,
 };
 

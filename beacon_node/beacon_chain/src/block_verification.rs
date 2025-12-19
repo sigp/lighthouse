@@ -66,6 +66,7 @@ use crate::{
     beacon_chain::{BeaconForkChoice, ForkChoiceError},
     metrics,
 };
+use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
@@ -97,7 +98,7 @@ use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument}
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
-    PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
     data_column_sidecar::DataColumnSidecarError,
 };
 

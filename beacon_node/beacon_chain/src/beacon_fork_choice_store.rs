@@ -17,7 +17,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Slot,
+    Hash256, Slot,
 };
 
 #[derive(Debug)]
@@ -217,7 +217,7 @@ where
             unrealized_justified_checkpoint: justified_checkpoint_on_chain,
             unrealized_justified_state_root: anchor_state_root,
             unrealized_finalized_checkpoint: finalized_checkpoint_on_chain,
-            proposer_boost_root: Hash256::zero(),
+            proposer_boost_root: Hash256::ZERO,
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
         })

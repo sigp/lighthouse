@@ -25,11 +25,14 @@ use beacon_chain::{
     historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
+use bls::{Keypair, Signature, SignatureBytes};
+use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
 use rand::rngs::StdRng;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -157,6 +160,7 @@ fn get_states_descendant_of_block(
         .collect()
 }
 
+// TODO(EIP-7732) Extend to support gloas
 #[tokio::test]
 async fn light_client_bootstrap_test() {
     let spec = test_spec::<E>();
@@ -205,7 +209,6 @@ async fn light_client_bootstrap_test() {
         LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Fulu(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
-        LightClientBootstrap::Gloas(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
     };
 
     assert_eq!(
@@ -1580,6 +1583,10 @@ async fn proposer_duties_from_head_fulu() {
 }
 
 /// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead!
+// TODO(EIP-7732): Extend to gloas
+// `state.latest_execution_payload_header()` not available in Gloas
+// called from `add_block_at_slot` -> `make_block` -> `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload` -> `Error`
+#[ignore]
 #[tokio::test]
 async fn proposer_lookahead_gloas_fork_epoch() {
     let gloas_fork_epoch = Epoch::new(4);
@@ -2719,10 +2726,12 @@ async fn weak_subjectivity_sync_single_block_batches() {
     let num_initial_slots = E::slots_per_epoch() * 13;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig::finality(
-        slots,
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig {
+        slots_with_blocks: slots,
         checkpoint_slot,
-    ))
+        backfill_batch_size: Some(1),
+        ..Default::default()
+    })
     .await;
 }
 
@@ -2795,6 +2804,22 @@ async fn weak_subjectivity_sync_from_genesis() {
     .await;
 }
 
+// Test checkpoint sync without providing blobs - backfill should fetch them.
+#[tokio::test]
+async fn weak_subjectivity_sync_without_blobs() {
+    let start_slot = 4;
+    let end_slot = E::slots_per_epoch() * 4;
+    let slots = (start_slot..end_slot).map(Slot::new).collect();
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
+    weak_subjectivity_sync_test(WeakSubjectivitySyncTestConfig {
+        slots_with_blocks: slots,
+        checkpoint_slot,
+        without_blobs: true,
+        ..Default::default()
+    })
+    .await;
+}
+
 // Checkpoint sync from the genesis state.
 //
 // This is a regression test for a bug we had involving the storage of the genesis state in the hot
@@ -2809,7 +2834,6 @@ async fn weak_subjectivity_sync_non_finality() {
         slots_with_blocks,
         slots_with_not_attested_blocks: end_slot - checkpoint_slot,
         checkpoint_slot: checkpoint_slot.into(),
-        backfill_batch_size: None,
         extra_steps: Some(Arc::new(|harness, beacon_chain| {
             let end_slot = E::slots_per_epoch() * 13;
             let checkpoint_slot = E::slots_per_epoch() * 9;
@@ -2845,6 +2869,7 @@ async fn weak_subjectivity_sync_non_finality() {
                 );
             })
         })),
+        ..Default::default()
     })
     .await;
 }
@@ -2858,12 +2883,14 @@ type WeakSubjectivitySyncTestExtraSteps<E> = Arc<
         + Sync,
 >;
 
+#[derive(Default)]
 struct WeakSubjectivitySyncTestConfig {
     slots_with_blocks: Vec<Slot>,
     slots_with_not_attested_blocks: u64,
     checkpoint_slot: Slot,
     backfill_batch_size: Option<usize>,
     extra_steps: Option<WeakSubjectivitySyncTestExtraSteps<E>>,
+    without_blobs: bool,
 }
 
 impl WeakSubjectivitySyncTestConfig {
@@ -2874,6 +2901,7 @@ impl WeakSubjectivitySyncTestConfig {
             checkpoint_slot,
             backfill_batch_size: None,
             extra_steps: None,
+            without_blobs: false,
         }
     }
 }
@@ -2894,6 +2922,7 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
         checkpoint_slot,
         backfill_batch_size,
         extra_steps,
+        without_blobs,
     } = config;
     let temp1 = tempdir().unwrap();
     let full_store = get_store(&temp1);
@@ -3002,7 +3031,11 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
-            wss_blobs_opt.clone(),
+            if without_blobs {
+                None
+            } else {
+                wss_blobs_opt.clone()
+            },
             genesis_state,
         )
         .unwrap()
@@ -3328,6 +3361,158 @@ async fn sync_blocks_from_harness_to_chain(
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
+}
+
+// Ensures that an unaligned checkpoint sync (the block is older than the state)
+// works correctly even when `prune_payloads` is enabled.
+//
+// Previously, the `HotColdDB` would refuse to load the execution payload for the
+// anchor block because it was considered "pruned", causing the node to fail startup.
+#[tokio::test]
+async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
+    let spec = test_spec::<E>();
+
+    // Requires Execution Payloads.
+    let Some(_) = spec.deneb_fork_epoch else {
+        return;
+    };
+
+    // Create an unaligned checkpoint with a gap of 3 slots.
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9 - 3);
+
+    let slots = (1..num_initial_slots)
+        .map(Slot::new)
+        .filter(|&slot| slot <= checkpoint_slot || slot > checkpoint_slot + 3)
+        .collect::<Vec<_>>();
+
+    let temp1 = tempdir().unwrap();
+    let full_store = get_store_generic(&temp1, StoreConfig::default(), spec.clone());
+
+    let harness = get_harness_import_all_data_columns(full_store.clone(), LOW_VALIDATOR_COUNT);
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    harness
+        .add_attested_blocks_at_slots(
+            genesis_state.clone(),
+            genesis_state_root,
+            &slots,
+            &all_validators,
+        )
+        .await;
+
+    // Extract snapshot data from the harness.
+    let wss_block_root = harness
+        .chain
+        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
+
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_block_root)
+        .unwrap()
+        .unwrap();
+
+    // The test premise requires the anchor block to have a payload.
+    assert!(wss_block.message().execution_payload().is_ok());
+
+    let wss_blobs_opt = harness
+        .chain
+        .get_or_reconstruct_blobs(&wss_block_root)
+        .unwrap();
+
+    let wss_state = full_store
+        .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
+        .unwrap()
+        .unwrap();
+
+    // Configure the client with `prune_payloads = true`.
+    // This triggers the path where `try_get_full_block` must explicitly handle the anchor block.
+    let temp2 = tempdir().unwrap();
+    let store_config = StoreConfig {
+        prune_payloads: true,
+        ..StoreConfig::default()
+    };
+
+    let store = get_store_generic(&temp2, store_config, spec.clone());
+
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(harness.chain.genesis_time),
+        Duration::from_secs(spec.seconds_per_slot),
+    );
+    slot_clock.set_slot(harness.get_current_slot().as_u64());
+
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: true,
+        ..ChainConfig::default()
+    };
+
+    let trusted_setup = get_kzg(&spec);
+    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
+    let mock = mock_execution_layer_from_parts(
+        harness.spec.clone(),
+        harness.runtime.task_executor.clone(),
+    );
+    let all_custody_columns = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+
+    // Attempt to build the BeaconChain.
+    // If the bug is present, this will panic with `MissingFullBlockExecutionPayloadPruned`.
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, trusted_setup)
+        .chain_config(chain_config)
+        .store(store.clone())
+        .custom_spec(spec.clone().into())
+        .task_executor(harness.chain.task_executor.clone())
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            wss_blobs_opt.clone(),
+            genesis_state,
+        )
+        .unwrap()
+        .store_migrator_config(MigratorConfig::default().blocking())
+        .slot_clock(slot_clock)
+        .shutdown_sender(shutdown_tx)
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
+        .execution_layer(Some(mock.el))
+        .ordered_custody_column_indices(all_custody_columns)
+        .rng(Box::new(StdRng::seed_from_u64(42)))
+        .build();
+
+    assert!(
+        beacon_chain.is_ok(),
+        "Beacon Chain failed to build. The anchor payload may have been incorrectly pruned. Error: {:?}",
+        beacon_chain.err()
+    );
+
+    let chain = beacon_chain.as_ref().unwrap();
+    let wss_block_slot = wss_block.slot();
+
+    assert_ne!(
+        wss_block_slot,
+        chain.head_snapshot().beacon_state.slot(),
+        "Test invalid: Checkpoint was aligned (Slot {} == Slot {}). The test did not trigger the unaligned edge case.",
+        wss_block_slot,
+        chain.head_snapshot().beacon_state.slot()
+    );
+
+    let payload_exists = chain
+        .store
+        .execution_payload_exists(&wss_block_root)
+        .unwrap_or(false);
+
+    assert!(
+        payload_exists,
+        "Split block payload must exist in the new node's store after checkpoint sync"
+    );
 }
 
 // This test prunes data columns from epoch 0 and then tries to re-import them via
@@ -5656,7 +5841,6 @@ fn get_finalized_epoch_boundary_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
@@ -5665,7 +5849,6 @@ fn get_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
 }

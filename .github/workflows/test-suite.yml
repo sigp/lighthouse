@@ -324,7 +324,7 @@ jobs:
           channel: stable
           cache-target: release
           components: rustfmt,clippy
-          bins: cargo-audit
+          bins: cargo-audit,cargo-deny
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
     - name: Lint code for quality and style with Clippy
@@ -337,6 +337,8 @@ jobs:
       run:  make arbitrary-fuzz
     - name: Run cargo audit
       run: make audit-CI
+    - name: Run cargo deny
+      run: make deny-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
     - name: Markdown-linter

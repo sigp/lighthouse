@@ -290,6 +290,7 @@ impl BlockShufflingIds {
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
+    use fixed_bytes::FixedBytesExtended;
     use types::*;
 
     use crate::test_utils::EphemeralHarnessType;
