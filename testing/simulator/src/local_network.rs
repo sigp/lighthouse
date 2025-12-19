@@ -207,7 +207,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.discv5_config.table_filter = |_| true;
 
         let execution_node = LocalExecutionNode::new(
-            self.context.service_context("boot_node_el".into()),
+            self.context.service_context(),
             mock_execution_config,
         );
 
@@ -219,7 +219,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         });
 
         let beacon_node = LocalBeaconNode::production(
-            self.context.service_context("boot_node".into()),
+            self.context.service_context(),
             beacon_config,
         )
         .await?;
@@ -253,7 +253,7 @@ impl<E: EthSpec> LocalNetwork<E> {
 
         // Construct execution node.
         let execution_node = LocalExecutionNode::new(
-            self.context.service_context(format!("node_{}_el", count)),
+            self.context.service_context(),
             mock_execution_config,
         );
 
@@ -267,7 +267,7 @@ impl<E: EthSpec> LocalNetwork<E> {
 
         // Construct beacon node using the config,
         let beacon_node = LocalBeaconNode::production(
-            self.context.service_context(format!("node_{}", count)),
+            self.context.service_context(),
             beacon_config,
         )
         .await?;
@@ -345,7 +345,7 @@ impl<E: EthSpec> LocalNetwork<E> {
     ) -> Result<(), String> {
         let context = self
             .context
-            .service_context(format!("validator_{}", beacon_node));
+            .service_context();
         let self_1 = self.clone();
         let socket_addr = {
             let read_lock = self.beacon_nodes.read();
@@ -401,13 +401,12 @@ impl<E: EthSpec> LocalNetwork<E> {
     pub async fn add_validator_client_with_fallbacks(
         &self,
         mut validator_config: ValidatorConfig,
-        validator_index: usize,
         beacon_nodes: Vec<usize>,
         validator_files: ValidatorFiles,
     ) -> Result<(), String> {
         let context = self
             .context
-            .service_context(format!("validator_{}", validator_index));
+            .service_context();
         let self_1 = self.clone();
         let mut beacon_node_urls = vec![];
         for beacon_node in beacon_nodes {

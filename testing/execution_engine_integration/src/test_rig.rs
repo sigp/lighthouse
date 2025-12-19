@@ -120,7 +120,6 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Arc::downgrade(&runtime),
             exit,
             shutdown_tx,
-            "test".to_string(),
         );
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
         spec.terminal_total_difficulty = Uint256::ZERO;

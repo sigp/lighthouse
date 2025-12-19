@@ -112,9 +112,9 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// Returns a sub-context of this context.
     ///
     /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self, service_name: String) -> Self {
+    pub fn service_context(&self) -> Self {
         Self {
-            executor: self.executor.clone_with_name(service_name),
+            executor: self.executor.clone(),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
@@ -349,7 +349,6 @@ impl<E: EthSpec> Environment<E> {
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.signal_tx.clone(),
-                "core".to_string(),
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
@@ -359,13 +358,12 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
+    pub fn service_context(&self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.signal_tx.clone(),
-                service_name,
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),

@@ -54,8 +54,6 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
-const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
-
 /// Compute attestation selection proofs this many slots before they are required.
 ///
 /// At start-up selection proofs will be computed with less lookahead out of necessity.
@@ -608,7 +606,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             DoppelgangerService::start_update_service(
                 doppelganger_service,
                 self.context
-                    .service_context(DOPPELGANGER_SERVICE_NAME.into()),
+                    .service_context(),
                 self.validator_store.clone(),
                 self.duties_service.beacon_nodes.clone(),
                 self.duties_service.slot_clock.clone(),
@@ -618,7 +616,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             info!("Doppelganger protection disabled.")
         }
 
-        let context = self.context.service_context("notifier".into());
+        let context = self.context.service_context();
         spawn_notifier(
             self.duties_service.clone(),
             context.executor,

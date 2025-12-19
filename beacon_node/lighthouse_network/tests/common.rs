@@ -120,7 +120,6 @@ pub async fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     fork_name: ForkName,
     chain_spec: Arc<ChainSpec>,
-    service_name: String,
     disable_peer_scoring: bool,
     inbound_rate_limiter: Option<InboundRateLimiterConfig>,
 ) -> Libp2pInstance {
@@ -129,7 +128,7 @@ pub async fn build_libp2p_instance(
 
     let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor = task_executor::TaskExecutor::new(rt, exit, shutdown_tx, service_name);
+    let executor = task_executor::TaskExecutor::new(rt, exit, shutdown_tx);
     let custody_group_count = chain_spec.custody_requirement;
     let libp2p_context = lighthouse_network::Context {
         config,
@@ -179,7 +178,6 @@ pub async fn build_node_pair(
         vec![],
         fork_name,
         spec.clone(),
-        "sender".to_string(),
         disable_peer_scoring,
         inbound_rate_limiter.clone(),
     )
@@ -189,7 +187,6 @@ pub async fn build_node_pair(
         vec![],
         fork_name,
         spec.clone(),
-        "receiver".to_string(),
         disable_peer_scoring,
         inbound_rate_limiter,
     )
@@ -273,7 +270,6 @@ pub async fn build_linear(
                 vec![],
                 fork_name,
                 spec.clone(),
-                "linear".to_string(),
                 false,
                 None,
             )
