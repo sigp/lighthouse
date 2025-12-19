@@ -1339,10 +1339,16 @@ where
     ) -> Result<(), Error<T::Error>> {
         // Irreversible checkpoint is potentially user input, sanity check it
         if let Some(block) = self.proto_array.get_block(&checkpoint.root) {
-            if block.slot.epoch(E::slots_per_epoch()) > checkpoint.epoch {
+            if checkpoint.epoch < block.slot.epoch(E::slots_per_epoch()) {
                 return Err(Error::BadIrreversibleCheckpoint(format!(
-                    "Epoch {} ahead of block slot {}",
+                    "Epoch {} less than block slot {}",
                     checkpoint.epoch, block.slot
+                )));
+            }
+            if !self.is_finalized_checkpoint_or_descendant(checkpoint.root) {
+                return Err(Error::BadIrreversibleCheckpoint(format!(
+                    "Block {:?} is not descendant of finalized checkpoint",
+                    checkpoint.root
                 )));
             }
         } else {

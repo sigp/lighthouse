@@ -1232,6 +1232,7 @@ pub fn cli_app() -> Command {
                 .value_name("CHECKPOINT_SYNC_STATE_ID")
                 .action(ArgAction::Set)
                 .conflicts_with("checkpoint-state")
+                .requires("checkpoint-sync-url")
                 .default_value("finalized")
                 .display_order(0)
         )
