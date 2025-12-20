@@ -164,11 +164,7 @@ impl TAggregateSignature<PublicKey, AggregatePublicKey, Signature> for Aggregate
     }
 
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
-        let mut bytes = [0; SIGNATURE_BYTES_LEN];
-
-        bytes[..].copy_from_slice(&self.0);
-
-        bytes
+        self.0
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
