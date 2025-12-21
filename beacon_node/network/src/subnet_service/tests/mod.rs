@@ -338,7 +338,7 @@ mod test {
         // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
         let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
 
-        if subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
+        if subnet_service.is_subscribed_permanent(&Subnet::Attestation(subnet_id1)) {
             // If we are permanently subscribed to this subnet, we won't see a subscribe message
             let _ = get_events_until_num_slots(&mut subnet_service, None, 1).await;
         } else {
