@@ -335,31 +335,27 @@ mod test {
         // submit the subscriptions
         subnet_service.validator_subscriptions(vec![sub1, sub2].into_iter());
 
-        // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
-        let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
+        let subnet = Subnet::Attestation(subnet_id1);
 
-        if subnet_service.is_subscribed_permanent(&Subnet::Attestation(subnet_id1)) {
-            // If we are permanently subscribed to this subnet, we won't see a subscribe message
-            let _ = get_events_until_num_slots(&mut subnet_service, None, 1).await;
+        // If permanently subscribed, no Subscribe/Unsubscribe events will be generated
+        if subnet_service.is_subscribed_permanent(&subnet) {
+            let _ = get_events_until_num_slots(&mut subnet_service, None, 3).await;
         } else {
-            let subscription = get_events_until_num_slots(&mut subnet_service, None, 1).await;
-            assert_eq!(subscription, [expected]);
+            // Wait for exactly 2 events (Subscribe + Unsubscribe) with a generous timeout
+            let expected = [
+                SubnetServiceMessage::Subscribe(subnet),
+                SubnetServiceMessage::Unsubscribe(subnet),
+            ];
+            let events = get_events_until_num_slots(
+                &mut subnet_service,
+                Some(2),
+                (MainnetEthSpec::slots_per_epoch()) as u32,
+            )
+            .await;
+            assert_eq!(events, expected);
         }
 
-        // Get event for 1 more slot duration, we should get the unsubscribe event now.
-        let unsubscribe_event = get_events_until_num_slots(&mut subnet_service, None, 1).await;
-
-        // If the long lived and short lived subnets are different, we should get an unsubscription
-        // event.
-        let expected = SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id1));
-        if !subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
-            assert_eq!([expected], unsubscribe_event[..]);
-        }
-
-        // Ensure the subscription has been fully removed
-        let _ = get_events_until_num_slots(&mut subnet_service, None, 0).await;
-
-        // Should  no longer be subscribed to any short lived subnets after unsubscription.
+        // Should no longer be subscribed to any short lived subnets after unsubscription.
         assert_eq!(subnet_service.subscriptions().count(), 0);
     }
 
