@@ -261,11 +261,11 @@ impl Cursor<'_> {
     ) -> Result<Vec<Cow<'_, [u8]>>, Error> {
         match self {
             #[cfg(feature = "mdbx")]
-            Self::Mdbx(txn) => txn.delete_while(f),
+            Self::Mdbx(cursor) => cursor.delete_while(f),
             #[cfg(feature = "lmdb")]
-            Self::Lmdb(txn) => txn.delete_while(f),
+            Self::Lmdb(cursor) => cursor.delete_while(f),
             #[cfg(feature = "redb")]
-            Self::Redb(txn) => txn.delete_while(f),
+            Self::Redb(cursor) => cursor.delete_while(f),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
