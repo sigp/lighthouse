@@ -356,6 +356,9 @@ mod test {
             assert_eq!([expected], unsubscribe_event[..]);
         }
 
+        // Ensure the subscription has been fully removed
+        let _ = get_events_until_num_slots(&mut subnet_service, None, 0).await;
+
         // Should  no longer be subscribed to any short lived subnets after unsubscription.
         assert_eq!(subnet_service.subscriptions().count(), 0);
     }
