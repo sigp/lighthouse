@@ -260,7 +260,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
         pubkeys: &[&GenericPublicKey<blst_core::PublicKey>],
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
-        let signature = self.0.clone().to_signature();
+        let signature = self.0.to_signature();
         // Public keys are already valid due to PoP
         // Check Signature inside function for subgroup
         signature.fast_aggregate_verify(true, msg.as_slice(), DST, &pubkeys)
@@ -274,7 +274,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         let msgs = msgs.iter().map(|hash| hash.as_slice()).collect::<Vec<_>>();
-        let signature = self.0.clone().to_signature();
+        let signature = self.0.to_signature();
         // Public keys have already been checked for subgroup and infinity
         // Check Signature inside function for subgroup
         signature.aggregate_verify(true, &msgs, DST, &pubkeys, false) == BLST_ERROR::BLST_SUCCESS
