@@ -357,7 +357,7 @@ impl<E: EthSpec> Environment<E> {
         }
     }
 
-    /// Returns a `Context` of the logger output.
+    /// Returns a context.
     pub fn service_context(&self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
