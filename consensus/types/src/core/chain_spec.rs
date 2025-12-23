@@ -137,8 +137,9 @@ pub struct ChainSpec {
      * Fork choice
      */
     pub proposer_score_boost: Option<u64>,
-    pub reorg_head_weight_threshold: Option<u64>,
-    pub reorg_parent_weight_threshold: Option<u64>,
+    pub reorg_head_weight_threshold: u64,
+    pub reorg_parent_weight_threshold: u64,
+    pub reorg_max_epochs_since_finalization: u64,
 
     /*
      * Eth1
@@ -1028,8 +1029,9 @@ impl ChainSpec {
              * Fork choice
              */
             proposer_score_boost: Some(40),
-            reorg_head_weight_threshold: Some(20),
-            reorg_parent_weight_threshold: Some(160),
+            reorg_head_weight_threshold: 20,
+            reorg_parent_weight_threshold: 160,
+            reorg_max_epochs_since_finalization: 2,
 
             /*
              * Eth1
@@ -1394,8 +1396,9 @@ impl ChainSpec {
              * Fork choice
              */
             proposer_score_boost: Some(40),
-            reorg_head_weight_threshold: Some(20),
-            reorg_parent_weight_threshold: Some(160),
+            reorg_head_weight_threshold: 20,
+            reorg_parent_weight_threshold: 160,
+            reorg_max_epochs_since_finalization: 2,
 
             /*
              * Eth1
@@ -1811,6 +1814,16 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
+    #[serde(default = "default_reorg_head_weight_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    reorg_head_weight_threshold: u64,
+    #[serde(default = "default_reorg_parent_weight_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    reorg_parent_weight_threshold: u64,
+    #[serde(default = "default_reorg_max_epochs_since_finalization")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    reorg_max_epochs_since_finalization: u64,
+
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1972,6 +1985,18 @@ fn default_attestation_subnet_prefix_bits() -> u8 {
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
+}
+
+const fn default_reorg_head_weight_threshold() -> u64 {
+    20
+}
+
+const fn default_reorg_parent_weight_threshold() -> u64 {
+    160
+}
+
+const fn default_reorg_max_epochs_since_finalization() -> u64 {
+    2
 }
 
 const fn default_gas_limit_adjustment_factor() -> u64 {
@@ -2263,6 +2288,10 @@ impl Config {
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
+            reorg_head_weight_threshold: spec.reorg_head_weight_threshold,
+            reorg_parent_weight_threshold: spec.reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization: spec.reorg_max_epochs_since_finalization,
+
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
@@ -2351,6 +2380,9 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
+            reorg_head_weight_threshold,
+            reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2423,6 +2455,9 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
+            reorg_head_weight_threshold,
+            reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,

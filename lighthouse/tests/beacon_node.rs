@@ -2,7 +2,7 @@ use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
-    DisallowedReOrgOffsets,
+    DisallowedReOrgOffsets, ReOrgThreshold,
 };
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
@@ -2838,4 +2838,41 @@ fn invalid_block_roots_default_mainnet() {
         .with_config(|config| {
             assert!(config.chain.invalid_block_roots.is_empty());
         })
+}
+
+#[test]
+fn test_proposer_reorg_threshold_from_cli() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-threshold", Some("21"))
+        .flag("proposer-reorg-parent-threshold", Some("161"))
+        .flag("proposer-reorg-epochs-since-finalization", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_head_threshold, Some(ReOrgThreshold(21)));
+            assert_eq!(
+                config.chain.re_org_parent_threshold,
+                Some(ReOrgThreshold(161))
+            );
+            assert_eq!(
+                config.chain.re_org_max_epochs_since_finalization,
+                Epoch::new(3)
+            );
+        });
+}
+
+#[test]
+fn test_proposer_reorg_threshold_from_yaml() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_head_threshold, Some(ReOrgThreshold(20)));
+            assert_eq!(
+                config.chain.re_org_parent_threshold,
+                Some(ReOrgThreshold(160))
+            );
+            assert_eq!(
+                config.chain.re_org_max_epochs_since_finalization,
+                Epoch::new(2)
+            );
+        });
 }

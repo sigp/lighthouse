@@ -1,8 +1,7 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
-    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT,
+    ReOrgThreshold,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
@@ -730,21 +729,26 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.re_org_head_threshold = None;
         client_config.chain.re_org_parent_threshold = None;
     } else {
+        // Read reorg values from ChainSpec (from config YAML), then check for CLI overrides
+        let head_threshold_from_spec = spec.reorg_head_weight_threshold;
+        let parent_threshold_from_spec = spec.reorg_parent_weight_threshold;
+        let epochs_from_spec = Epoch::new(spec.reorg_max_epochs_since_finalization);
+
+        // Apply CLI overrides if provided, otherwise use ChainSpec values
         client_config.chain.re_org_head_threshold = Some(
             clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
                 .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_HEAD_THRESHOLD),
+                .unwrap_or(ReOrgThreshold(head_threshold_from_spec)),
         );
         client_config.chain.re_org_max_epochs_since_finalization =
             clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
-                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
+                .unwrap_or(epochs_from_spec);
         client_config.chain.re_org_cutoff_millis =
             clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
-
         client_config.chain.re_org_parent_threshold = Some(
             clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
                 .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
+                .unwrap_or(ReOrgThreshold(parent_threshold_from_spec)),
         );
 
         if let Some(disallowed_offsets_str) =

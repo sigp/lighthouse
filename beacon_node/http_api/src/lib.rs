@@ -70,9 +70,11 @@ pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
+use std::collections::HashMap;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -1821,8 +1823,36 @@ pub fn serve<T: BeaconChainTypes>(
         .then(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let config_and_preset =
-                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
+                    let mut overrides = HashMap::new();
+                    overrides.insert(
+                        "REORG_MAX_EPOCHS_SINCE_FINALIZATION".to_string(),
+                        Value::String(
+                            chain
+                                .config
+                                .re_org_max_epochs_since_finalization
+                                .as_u64()
+                                .to_string(),
+                        ),
+                    );
+                    if chain.config.re_org_head_threshold.is_some() {
+                        overrides.insert(
+                            "REORG_HEAD_WEIGHT_THRESHOLD".to_string(),
+                            Value::String(
+                                chain.config.re_org_head_threshold.unwrap().0.to_string(),
+                            ),
+                        );
+                    }
+                    if chain.config.re_org_parent_threshold.is_some() {
+                        overrides.insert(
+                            "REORG_PARENT_WEIGHT_THRESHOLD".to_string(),
+                            Value::String(
+                                chain.config.re_org_parent_threshold.unwrap().0.to_string(),
+                            ),
+                        );
+                    }
+                    let config_and_preset = ConfigAndPreset::from_chain_spec_with_overrides::<
+                        T::EthSpec,
+                    >(&chain.spec, Some(overrides));
                     Ok(api_types::GenericResponse::from(config_and_preset))
                 })
             },

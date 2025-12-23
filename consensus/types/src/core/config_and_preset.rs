@@ -42,19 +42,28 @@ pub struct ConfigAndPreset {
     #[serde(flatten)]
     pub gloas_preset: GloasPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
+    /// Also allows for overrides of config.yaml values from cli props - be sure to keep this field at the bottom of the struct
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
 }
 
 impl ConfigAndPreset {
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
+        Self::from_chain_spec_with_overrides::<E>(spec, None)
+    }
+
+    /// Create ConfigAndPreset with optional overrides.
+    pub fn from_chain_spec_with_overrides<E: EthSpec>(
+        spec: &ChainSpec,
+        overrides: Option<HashMap<String, Value>>,
+    ) -> Self {
         let mut config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
         let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
         let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
-        let extra_fields = get_extra_fields(spec);
+        let extra_fields = get_extra_fields(spec, overrides);
 
         if spec.is_gloas_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
@@ -109,11 +118,15 @@ impl ConfigAndPreset {
 }
 
 /// Get a hashmap of constants to add to the `PresetAndConfig`
-pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
+pub fn get_extra_fields(
+    spec: &ChainSpec,
+    overrides: Option<HashMap<String, Value>>,
+) -> HashMap<String, Value> {
     let hex_string = |value: &[u8]| format!("0x{}", hex::encode(value)).into();
     let u32_hex = |v: u32| hex_string(&v.to_le_bytes());
     let u8_hex = |v: u8| hex_string(&v.to_le_bytes());
-    hashmap! {
+
+    let mut extra_fields = hashmap! {
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(spec.bls_withdrawal_prefix_byte),
         "eth1_address_withdrawal_prefix".to_uppercase() => u8_hex(spec.eth1_address_withdrawal_prefix_byte),
         "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
@@ -141,7 +154,24 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
         "unset_deposit_requests_start_index".to_uppercase() => spec.unset_deposit_requests_start_index.to_string().into(),
         "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
+    };
+
+    // Handle overrides
+    if let Some(ref overrides_map) = overrides {
+        for (key, value) in overrides_map.iter() {
+            // Handle reorg config overrides given these configs from .yaml can be overidden from cli props
+            match key.as_str() {
+                "REORG_HEAD_WEIGHT_THRESHOLD"
+                | "REORG_PARENT_WEIGHT_THRESHOLD"
+                | "REORG_MAX_EPOCHS_SINCE_FINALIZATION" => {
+                    extra_fields.insert(key.to_string(), value.clone().to_string().into());
+                }
+                _ => {}
+            }
+        }
     }
+
+    extra_fields
 }
 
 #[cfg(test)]
