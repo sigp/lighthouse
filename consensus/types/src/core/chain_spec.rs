@@ -2007,9 +2007,10 @@ fn compute_attestation_subnet_prefix_bits(
     let min_bits_needed = attestation_subnet_count
         .checked_next_power_of_two()
         .and_then(|x| x.checked_ilog2())
-        .unwrap_or(default_attestation_subnet_prefix_bits as u32) as u8; 
+        .unwrap_or(default_attestation_subnet_prefix_bits as u32) as u8;
 
-    min_bits_needed.safe_add(attestation_subnet_extra_bits)
+    min_bits_needed
+        .safe_add(attestation_subnet_extra_bits)
         .unwrap_or(default_attestation_subnet_prefix_bits)
 }
 
