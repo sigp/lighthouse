@@ -605,7 +605,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
                 doppelganger_service,
-                self.context.service_context(),
+                self.context.clone(),
                 self.validator_store.clone(),
                 self.duties_service.beacon_nodes.clone(),
                 self.duties_service.slot_clock.clone(),
@@ -615,7 +615,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             info!("Doppelganger protection disabled.")
         }
 
-        let context = self.context.service_context();
+        let context = self.context.clone();
         spawn_notifier(
             self.duties_service.clone(),
             context.executor,

@@ -109,19 +109,6 @@ pub struct RuntimeContext<E: EthSpec> {
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
-    /// Returns a sub-context of this context.
-    ///
-    /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self) -> Self {
-        Self {
-            executor: self.executor.clone(),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
     /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
@@ -344,21 +331,6 @@ impl<E: EthSpec> Environment<E> {
 
     /// Returns a `Context` where a "core" service has been added to the logger output.
     pub fn core_context(&self) -> RuntimeContext<E> {
-        RuntimeContext {
-            executor: TaskExecutor::new(
-                Arc::downgrade(self.runtime()),
-                self.exit.clone(),
-                self.signal_tx.clone(),
-            ),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
-    /// Returns a context.
-    pub fn service_context(&self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
