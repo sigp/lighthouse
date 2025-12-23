@@ -345,13 +345,12 @@ udeps:
 
 # Checks dependencies for unencrypted HTTP links
 # Tee preserves output. If there are matches, print a message and return 1
+.ONESHELL:
+SHELL = /bin/bash
 insecure-deps:
-	bash -c \
-	  "find -name Cargo.toml \
-			| xargs grep -P \"git\s?=\s?[\\\"']http:\" \
-			| tee /dev/tty \
-			| [ \`wc -l\` == 0 ] && echo \"All Git dependencies use secure HTTPS\" \
-			  || (echo \"Using plain HTTP in dependencies is forbidden\" && false)"
+	BAD_LINKS=`find -name Cargo.toml | xargs grep -P 'git\s?=\s?["]http:'`;
+	if [ "_$$BAD_LINKS" == "_" ]; then echo "All Git dependencies use secure HTTPS"; \
+	else echo $$BAD_LINKS; echo "Using plain HTTP in dependencies is forbidden"; false; fi
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
