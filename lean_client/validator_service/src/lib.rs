@@ -208,7 +208,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         info!("Validator service stopped");
     }
 
-    /// Calculates the time until the next interval boundary using the slot clock
+    /// Calculates the time until the next interval boundary using the slot clock with sub-second precision
     fn get_time_to_next_interval(&self) -> Option<TokioDuration> {
         let now = self.slot_clock.now_duration()?;
         let current_slot = self.slot_clock.now()?;
@@ -216,28 +216,22 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // Time elapsed since slot start
         let time_since_slot_start = now.checked_sub(slot_start)?;
-        let elapsed_secs = time_since_slot_start.as_secs();
 
-        // Current interval (0-3)
-        let current_interval = elapsed_secs / SECONDS_PER_INTERVAL;
+        // Calculate current interval (0-3) with sub-second precision
+        let interval_duration = std::time::Duration::from_secs(SECONDS_PER_INTERVAL);
+        let current_interval =
+            (time_since_slot_start.as_nanos() / interval_duration.as_nanos()) as u64;
 
-        // If we're past all 4 intervals in this slot, wait for next slot
+        // If we're past all intervals in this slot, wait for the next slot
         if current_interval >= INTERVALS_PER_SLOT {
-            return self.slot_clock.duration_to_next_slot().map(|d| {
-                TokioDuration::from_secs(d.as_secs())
-                    + TokioDuration::from_nanos(d.subsec_nanos() as u64)
-            });
+            return self.slot_clock.duration_to_next_slot();
         }
 
-        // Calculate when the next interval starts
-        let next_interval_secs = (current_interval + 1) * SECONDS_PER_INTERVAL;
-        let time_to_next_interval =
-            std::time::Duration::from_secs(next_interval_secs - elapsed_secs);
+        // Calculate the absolute time for the next interval boundary
+        let next_interval_relative_start = interval_duration * (current_interval as u32 + 1);
 
-        Some(
-            TokioDuration::from_secs(time_to_next_interval.as_secs())
-                + TokioDuration::from_nanos(time_to_next_interval.subsec_nanos() as u64),
-        )
+        // Time remaining until the next interval boundary
+        next_interval_relative_start.checked_sub(time_since_slot_start)
     }
 
     /// Processes an interval tick: calculates current interval and executes appropriate duties
@@ -267,9 +261,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Calculate time since slot start
         let time_since_slot_start = now.checked_sub(slot_start)?;
 
-        // Calculate current interval (0-3)
+        // Calculate current interval (0-3) with sub-second precision
+        let interval_duration = std::time::Duration::from_secs(SECONDS_PER_INTERVAL);
         let current_interval =
-            (time_since_slot_start.as_secs() / SECONDS_PER_INTERVAL) % INTERVALS_PER_SLOT;
+            (time_since_slot_start.as_nanos() / interval_duration.as_nanos()) as u64
+                % INTERVALS_PER_SLOT;
 
         Some((current_slot, current_interval))
     }
@@ -341,12 +337,14 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             .start_of(current_slot)
             .ok_or_else(|| format!("Unable to determine start of slot {}", slot_u64))?;
 
-        // Calculate current interval within slot (0-3)
+        // Calculate current interval within slot (0-3) with sub-second precision
         let time_since_slot_start = now
             .checked_sub(slot_start)
             .ok_or_else(|| "Current time is before slot start".to_string())?;
+        let interval_duration = std::time::Duration::from_secs(SECONDS_PER_INTERVAL);
         let interval =
-            (time_since_slot_start.as_secs() / SECONDS_PER_INTERVAL) % INTERVALS_PER_SLOT;
+            (time_since_slot_start.as_nanos() / interval_duration.as_nanos()) as u64
+                % INTERVALS_PER_SLOT;
 
         debug!(slot = slot_u64, interval, "Processing interval tick");
 
