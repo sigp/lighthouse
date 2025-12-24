@@ -1168,7 +1168,7 @@ impl ChainSpec {
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
-            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(64, 0),
+            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(default_attestation_subnet_count(),default_attestation_subnet_extra_bits()),
             max_request_blocks: default_max_request_blocks(),
 
             /*
@@ -1538,7 +1538,7 @@ impl ChainSpec {
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             max_request_blocks: default_max_request_blocks(),
-            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(64, 0),
+            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(default_attestation_subnet_count(),default_attestation_subnet_extra_bits()),
 
             /*
              * Networking Deneb Specific
