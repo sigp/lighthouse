@@ -1,11 +1,13 @@
 pub mod cli;
 pub mod config;
+pub mod http_metrics;
 
 pub use config::Config;
 
 use std::sync::Arc;
 
 use crate::config::Config as LeanClientConfig;
+use crate::config::MetricsConfig;
 use environment::RuntimeContext;
 use lean_config::{LeanClientPaths, initialize as load_runtime};
 use lean_keystore::{KeyStore, ValidatorKeyPair};
@@ -25,10 +27,12 @@ pub struct ProductionLeanClient<E: EthSpec> {
     validator_index: u64,
     keystore: Option<KeyStore>,
     network_config: NetworkConfig,
+    metrics_config: MetricsConfig,
 }
 
 impl<E: EthSpec> ProductionLeanClient<E> {
     pub async fn new(context: RuntimeContext<E>, config: LeanClientConfig) -> Result<Self, String> {
+        let metrics_config = config.metrics.clone();
         let resources = load_runtime::<E>(LeanClientPaths::from(config))?;
 
         info!("Lean client runtime resources prepared");
@@ -41,6 +45,7 @@ impl<E: EthSpec> ProductionLeanClient<E> {
             validator_index: resources.validator_index,
             keystore: Some(resources.keystore),
             network_config: resources.network_config,
+            metrics_config,
         })
     }
 
@@ -84,6 +89,19 @@ impl<E: EthSpec> ProductionLeanClient<E> {
             .executor
             .clone_with_name("lean_validator_service".into())
             .spawn(validator_service.run(), "validator_service");
+
+        if self.metrics_config.enabled {
+            let (listen_addr, server) = http_metrics::serve(
+                self.metrics_config.clone(),
+                self.context.executor.exit(),
+            )
+            .map_err(|e| format!("Failed to start metrics server: {:?}", e))?;
+
+            self.context
+                .executor
+                .spawn_without_exit(server, "http_metrics");
+            info!(%listen_addr, "Metrics server started");
+        }
 
         Ok(())
     }

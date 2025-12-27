@@ -29,6 +29,8 @@ use chain::LeanChain;
 
 use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8 as Scheme;
 
+mod metrics;
+
 /// Validator service that processes validator duties including attestations
 ///
 /// Manages interval ticks and network message processing using tokio::select! for simple
@@ -105,8 +107,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         let epoch_u32 = epoch
             .try_into()
             .map_err(|_| format!("Epoch {} is too large for u32", epoch))?;
+
+        let _timer = metrics::start_timer(&metrics::LEAN_PQ_SIGNATURE_ATTESTATION_SIGNING_TIME);
         let xmss_signature = Scheme::sign(&self.hashsig_secret_key, epoch_u32, &message_hash.0)
             .map_err(|e| format!("Failed to sign attestation with XMSS: {:?}", e))?;
+        drop(_timer);
 
         // Serialize the XMSS signature to bytes using leanSig's serialization
         let signature_bytes_vec = xmss_signature.to_bytes();
@@ -527,6 +532,9 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         // NOTE: Signature verification will be implemented when signature verification functions
         // become available from the leansig library. For now, we accept all attestations.
+        let _timer = metrics::start_timer(&metrics::LEAN_PQ_SIGNATURE_ATTESTATION_VERIFICATION_TIME);
+        // [PLACEHOLDER] verification logic
+        drop(_timer);
 
         debug!(validator_id, epoch, "Attestation received and accepted");
 

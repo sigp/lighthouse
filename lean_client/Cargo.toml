@@ -16,6 +16,9 @@ lean_network_config = { workspace = true }
 lean_store = { path = "store" }
 lean_validator_service = { workspace = true }
 lean_config = { workspace = true }
+lighthouse_version = { workspace = true }
+logging = { workspace = true }
+metrics = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
 store = { workspace = true, features = ["redb"] }
@@ -23,6 +26,8 @@ task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
+warp = { workspace = true }
+warp_utils = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -5049,6 +5049,9 @@ dependencies = [
  "lean_network_config",
  "lean_store",
  "lean_validator_service",
+ "lighthouse_version",
+ "logging",
+ "metrics",
  "serde",
  "slot_clock",
  "store",
@@ -5057,6 +5060,8 @@ dependencies = [
  "tokio",
  "tracing",
  "types",
+ "warp",
+ "warp_utils",
 ]
 
 [[package]]

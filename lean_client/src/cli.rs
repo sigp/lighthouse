@@ -2,6 +2,7 @@ pub use clap::{FromArgMatches, Parser};
 
 use clap_utils::get_color_style;
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -72,4 +73,37 @@ pub struct LeanNode {
         display_order = 6
     )]
     pub genesis_json: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Enable the metrics HTTP server",
+        display_order = 100
+    )]
+    pub metrics: bool,
+
+    #[clap(
+        long,
+        value_name = "ADDRESS",
+        help = "Listen address for the metrics HTTP server",
+        default_value = "127.0.0.1",
+        display_order = 101
+    )]
+    pub metrics_address: IpAddr,
+
+    #[clap(
+        long,
+        value_name = "PORT",
+        help = "Listen port for the metrics HTTP server",
+        default_value = "5064",
+        display_order = 102
+    )]
+    pub metrics_port: u16,
+
+    #[clap(
+        long,
+        value_name = "ORIGIN",
+        help = "CORS allow origin for the metrics HTTP server",
+        display_order = 103
+    )]
+    pub metrics_allow_origin: Option<String>,
 }
