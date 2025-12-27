@@ -2,6 +2,8 @@ mod bootstrap;
 mod config;
 mod service;
 mod topics;
+mod metrics;
+
 
 pub use bootstrap::load_bootstrap_nodes;
 pub use config::NetworkConfig;

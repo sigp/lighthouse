@@ -53,7 +53,12 @@ pub fn serve(
         .and_then(|| async move {
             let mut buffer = String::new();
             let encoder = metrics::TextEncoder::new();
+
+            // Scrape health metrics (CPU, Memory, etc.)
+            health_metrics::metrics::scrape_health_metrics();
+
             // metrics::gather() returns Vec<MetricFamily>, which is what we want to encode.
+
             match encoder.encode_utf8(&metrics::gather(), &mut buffer) {
                 Ok(()) => Ok::<_, warp::Rejection>(
                     Response::builder()

@@ -20,6 +20,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 use types::EthSpec;
+use crate::metrics;
+
 
 /// Domain prefix for valid snappy-compressed messages per Eth2 networking spec
 /// This is prepended to message data before hashing to create unique message IDs
@@ -236,6 +238,9 @@ impl<E: EthSpec> NetworkService<E> {
             return None;
         };
 
+        metrics::inc_counter_vec(&*metrics::LEAN_P2P_MESSAGES_RECEIVED_TOTAL, &[topic]);
+
+
         // Decompress snappy-compressed message
         let decompressed = match self.decompress_snappy(data) {
             Ok(d) => d,
@@ -385,14 +390,17 @@ impl<E: EthSpec> NetworkService<E> {
                         "Connection established with peer: {:?} at {:?}",
                         peer_id, endpoint
                     );
-                    // Mark matching bootstrap nodes as connected
                     self.mark_bootstrap_node_connected_by_endpoint(&endpoint);
+                    metrics::inc_gauge(&*metrics::LEAN_P2P_PEERS);
                 }
                 SwarmEvent::ConnectionClosed {
                     peer_id, cause, ..
                 } => {
                     debug!("Connection closed with peer: {:?}, cause: {:?}", peer_id, cause);
+                    metrics::dec_gauge(&*metrics::LEAN_P2P_PEERS);
                 }
+
+
                 SwarmEvent::IncomingConnection { .. } => {
                     debug!("Incoming connection");
                 }
@@ -469,7 +477,10 @@ impl<E: EthSpec> NetworkService<E> {
             );
         } else {
             debug!("Successfully published message to topic: {}", encoded_topic);
+            metrics::inc_counter_vec(&*metrics::LEAN_P2P_MESSAGES_PUBLISHED_TOTAL, &[&encoded_topic]);
         }
+
+
     }
 
     /// Attempts to connect to bootstrap nodes that are not yet connected

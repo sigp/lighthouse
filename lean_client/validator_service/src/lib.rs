@@ -70,6 +70,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Ensure the public key JSON is well-formed even if we do not store it explicitly.
         let _ = validator_key_pair.hashsig_public_key()?;
 
+        // Ensure all validator metrics are registered in the global Prometheus
+        // registry so that the /metrics endpoint exposes the full Zeam metric
+        // set even before any events have occurred.
+        metrics::init();
+
         Ok(Self {
             network_recv,
             network_send,
@@ -297,6 +302,28 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         let justified = &state.latest_justified;
         let finalized = &state.latest_finalized;
+
+        // Update chain status metrics
+        if let Ok(gauge) = &*metrics::LEAN_HEAD_SLOT {
+            gauge.set(head_block.slot.0 as i64);
+        }
+        if let Ok(gauge) = &*metrics::LEAN_LATEST_JUSTIFIED_SLOT {
+            gauge.set(justified.slot.0 as i64);
+        }
+        if let Ok(gauge) = &*metrics::LEAN_LATEST_FINALIZED_SLOT {
+            gauge.set(finalized.slot.0 as i64);
+        }
+        if let Ok(safe_root) = self.chain.fetch_safe_target()
+            && let Some(root) = safe_root
+            && let Ok(Some(block)) = self.chain.fetch_block(root)
+            && let Ok(gauge) = &*metrics::LEAN_LATEST_SAFE_SLOT
+        {
+            gauge.set(block.slot.0 as i64);
+        }
+        if let Ok(gauge) = &*metrics::LEAN_VALIDATORS_COUNT {
+            gauge.set(state.validators.len() as i64);
+        }
+
 
         let sep = "=".repeat(63);
         info!(
@@ -533,7 +560,15 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // NOTE: Signature verification will be implemented when signature verification functions
         // become available from the leansig library. For now, we accept all attestations.
         let _timer = metrics::start_timer(&metrics::LEAN_PQ_SIGNATURE_ATTESTATION_VERIFICATION_TIME);
+        let _validation_timer = metrics::start_timer(&metrics::LEAN_ATTESTATION_VALIDATION_TIME);
+        
         // [PLACEHOLDER] verification logic
+        // For now considering all valid
+        if let Ok(counter) = &*metrics::LEAN_ATTESTATIONS_VALID_TOTAL {
+            counter.inc();
+        }
+        
+        drop(_validation_timer);
         drop(_timer);
 
         debug!(validator_id, epoch, "Attestation received and accepted");
@@ -687,6 +722,10 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         let proposer_attestation = &signed_block.message.proposer_attestation;
         let block_root = block.tree_hash_root();
 
+        // Track total time spent in the on_block-style handler, matching the
+        // Zeam / beacon-node `chain_onblock_duration_seconds` metric name.
+        let _onblock_timer = metrics::start_timer(&metrics::CHAIN_ONBLOCK_DURATION_SECONDS);
+
         info!(
             slot = block.slot.0,
             proposer_index = block.proposer_index,
@@ -745,13 +784,51 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
 
         debug!("Cloned parent state for state transition");
 
-        // Validate cryptographic signatures
-        //
-        // XMSS signature verification is now implemented using leansig.
-        let valid_signatures = true;
+        // Execute state transition function with metrics
+        let _block_processing_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_DURATION_SECONDS);
+        let _state_timer = metrics::start_timer(&metrics::LEAN_STATE_TRANSITION_TIME);
 
-        // Execute state transition function to compute post-block state
-        post_state.state_transition(&signed_block, valid_signatures)?;
+        let valid_signatures = true;
+        
+        // Verify signatures if enabled
+        if valid_signatures {
+            signed_block.verify_signatures(&post_state)?;
+        }
+
+        let block = &signed_block.message.block;
+
+        // Process slots (catch up)
+        if post_state.slot < block.slot {
+            let slots_processed = block.slot.0.saturating_sub(post_state.slot.0);
+            if let Ok(counter) = &*metrics::LEAN_STATE_TRANSITION_SLOTS_PROCESSED_TOTAL {
+                counter.inc_by(slots_processed);
+            }
+            
+            let _slots_timer = metrics::start_timer(&metrics::LEAN_STATE_TRANSITION_SLOTS_PROCESSING_TIME);
+            post_state.process_slots(block.slot)?;
+            drop(_slots_timer);
+        }
+
+        // Process block
+        if let Ok(counter) = &*metrics::LEAN_STATE_TRANSITION_ATTESTATIONS_PROCESSED_TOTAL {
+            counter.inc_by(block.body.attestations.len() as u64);
+        }
+        let _block_timer = metrics::start_timer(&metrics::LEAN_STATE_TRANSITION_BLOCK_PROCESSING_TIME);
+        post_state.process_block(block)?;
+        drop(_block_timer);
+        
+        // Verify state root
+        let computed_state_root = post_state.tree_hash_root();
+        if block.state_root != computed_state_root {
+             return Err(format!(
+                "Invalid block state root. Expected: {:?}, got: {:?}",
+                computed_state_root, block.state_root
+            ));
+        }
+        
+        drop(_block_processing_timer);
+        drop(_state_timer);
 
         debug!(
             post_slot = post_state.slot.0,
@@ -772,8 +849,10 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         debug!(?block_root, "Block and state saved to cache and database");
 
         // Ensure parent chain exists in proto array and register the new block.
+        let _fc_timer = metrics::start_timer(&metrics::LEAN_FORK_CHOICE_BLOCK_PROCESSING_TIME);
         self.chain
             .register_block(block_root, block.slot, block.parent_root)?;
+        drop(_fc_timer);
 
         // Process block body attestations
         //

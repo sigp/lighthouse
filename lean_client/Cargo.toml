@@ -9,6 +9,8 @@ clap = { workspace = true }
 clap_utils = { workspace = true }
 lean_consensus = { workspace = true }
 environment = { workspace = true }
+health_metrics = { workspace = true }
+
 lean_genesis = { workspace = true }
 lean_keystore = { path = "keystore" }
 lean_network = { workspace = true }

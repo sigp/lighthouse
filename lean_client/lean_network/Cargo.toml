@@ -20,6 +20,8 @@ task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
+metrics = { workspace = true }
+
 
 [dependencies.libp2p]
 version = "0.56"
