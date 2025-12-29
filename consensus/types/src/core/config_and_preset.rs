@@ -141,6 +141,13 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
         "unset_deposit_requests_start_index".to_uppercase() => spec.unset_deposit_requests_start_index.to_string().into(),
         "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
+        // Time parameters
+        "slot_duration_ms".to_uppercase() => spec.slot_duration_ms.to_string().into(),
+        "proposer_reorg_cutoff_bps".to_uppercase() => spec.proposer_reorg_cutoff_bps.to_string().into(),
+        "attestation_due_bps".to_uppercase() => spec.attestation_due_bps.to_string().into(),
+        "aggregate_due_bps".to_uppercase() => spec.aggregate_due_bps.to_string().into(),
+        "contribution_due_bps".to_uppercase() => spec.contribution_due_bps.to_string().into(),
+        "sync_message_due_bps".to_uppercase() => spec.sync_message_due_bps.to_string().into(),
     }
 }
 
