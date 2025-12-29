@@ -190,4 +190,25 @@ mod test {
             serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(ConfigAndPreset::Gloas(from), yamlconfig);
     }
+
+    // This is not exhaustive, but it can be extended as new fields are added to the spec.
+    #[test]
+    fn test_required_spec_fields_exist() {
+        let mainnet_spec = ChainSpec::mainnet();
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        let obj = json.as_object().expect("should be an object");
+        let required_fields = [
+            "SLOT_DURATION_MS",
+            "PROPOSER_REORG_CUTOFF_BPS",
+            "ATTESTATION_DUE_BPS",
+            "AGGREGATE_DUE_BPS",
+            "CONTRIBUTION_DUE_BPS",
+            "SYNC_MESSAGE_DUE_BPS",
+        ];
+        for field in required_fields {
+            assert!(obj.contains_key(field), "Missing required field: {}", field);
+        }
+    }
 }
+
