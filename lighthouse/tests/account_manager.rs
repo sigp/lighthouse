@@ -18,6 +18,7 @@ use account_utils::{
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
 };
+use bls::{Keypair, PublicKey};
 use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use std::env;
 use std::fs::{self, File};
@@ -26,7 +27,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::str::from_utf8;
 use tempfile::{TempDir, tempdir};
-use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
 use zeroize::Zeroizing;
 

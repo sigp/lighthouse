@@ -9,6 +9,7 @@ use crate::{StateId, attester_duties, proposer_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
+use bls::PublicKeyBytes;
 use eth2::StatusCode;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, EndpointVersion, Failure, GenericResponse,
@@ -23,7 +24,7 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 use types::{
-    BeaconState, Epoch, EthSpec, ProposerPreparationData, PublicKeyBytes, SignedAggregateAndProof,
+    BeaconState, Epoch, EthSpec, ProposerPreparationData, SignedAggregateAndProof,
     SignedContributionAndProof, SignedValidatorRegistrationData, Slot, SyncContributionData,
     ValidatorSubscription,
 };

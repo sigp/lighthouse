@@ -10,6 +10,7 @@ use crate::block_service::BlockServiceNotification;
 use crate::sync::SyncDutiesMap;
 use crate::sync::poll_sync_committee_duties;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use bls::PublicKeyBytes;
 use eth2::types::{
     AttesterData, BeaconCommitteeSelection, BeaconCommitteeSubscription, DutiesResponse,
     ProposerData, StateId, ValidatorId,
@@ -29,7 +30,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
+use types::{ChainSpec, Epoch, EthSpec, Hash256, SelectionProof, Slot};
 use validator_metrics::{ATTESTATION_DUTY, get_int_gauge, set_int_gauge};
 use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 

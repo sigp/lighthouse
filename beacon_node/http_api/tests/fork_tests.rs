@@ -4,13 +4,15 @@ use beacon_chain::{
     StateSkipConfig,
     test_utils::{DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, RelativeSyncCommittee},
 };
+use bls::PublicKey;
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use execution_layer::test_utils::generate_genesis_header;
+use fixed_bytes::FixedBytesExtended;
 use genesis::{InteropGenesisBuilder, bls_withdrawal_credentials};
 use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
-    Address, ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, MinimalEthSpec, Slot,
+    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
 };
 
@@ -392,7 +394,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
 
     fn withdrawal_credentials_fn<'a>(
         index: usize,
-        _: &'a types::PublicKey,
+        _: &'a PublicKey,
         spec: &'a ChainSpec,
     ) -> Hash256 {
         // It is a bit inefficient to regenerate the whole keypair here, but this is a workaround.

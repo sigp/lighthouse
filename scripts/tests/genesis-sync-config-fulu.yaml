@@ -21,8 +21,7 @@ participants:
     validator_count: 0
 network_params:
   slot_duration_ms: 6000
-  electra_fork_epoch: 0
-  fulu_fork_epoch: 1
+  fulu_fork_epoch: 0
   preset: "minimal"
 additional_services:
   - tx_fuzz

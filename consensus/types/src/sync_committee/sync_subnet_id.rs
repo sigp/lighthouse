@@ -8,7 +8,7 @@ use std::{
 
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
-use ssz_types::typenum::Unsigned;
+use typenum::Unsigned;
 
 use crate::core::{EthSpec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT};
 

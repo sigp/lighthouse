@@ -7,13 +7,15 @@ use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitList, BitVector, FixedVector, VariableList, typenum::Unsigned};
+use ssz_types::{BitList, BitVector, FixedVector, VariableList};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use typenum::Unsigned;
 
 use crate::{
+    SignedExecutionPayloadBid,
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
@@ -693,11 +695,37 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
-                execution_payload: Payload::Gloas::default(),
                 bls_to_execution_changes: VariableList::empty(),
-                blob_kzg_commitments: VariableList::empty(),
-                execution_requests: ExecutionRequests::default(),
+                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                payload_attestations: VariableList::empty(),
+                _phantom: PhantomData,
             },
+        }
+    }
+}
+
+// TODO(EIP-7732) Mark's branch had the following implementation but not sure if it's needed so will just add header below for reference
+// impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockEIP7732<E, Payload> {
+
+// TODO(EIP-7732) Look into whether we can remove this in the future since no blinded blocks post-gloas
+impl<E: EthSpec> From<BeaconBlockGloas<E, BlindedPayload<E>>>
+    for BeaconBlockGloas<E, FullPayload<E>>
+{
+    fn from(block: BeaconBlockGloas<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockGloas {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body,
+        } = block;
+
+        BeaconBlockGloas {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body: body.into(),
         }
     }
 }

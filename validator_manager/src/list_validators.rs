@@ -1,3 +1,4 @@
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::lighthouse_vc::types::SingleKeystoreResponse;
 use eth2::types::{ConfigAndPreset, StateId, ValidatorId, ValidatorStatus};
@@ -5,7 +6,7 @@ use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{ChainSpec, EthSpec, PublicKeyBytes};
+use types::{ChainSpec, EthSpec};
 
 use crate::exit_validators::get_current_epoch;
 use crate::{DumpConfig, common::vc_http_client};
