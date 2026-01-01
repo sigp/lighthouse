@@ -63,8 +63,7 @@ impl ForkContext {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let current_fork = epoch_to_forks
             .values()
-            .filter(|&fork| fork.fork_epoch <= current_epoch)
-            .next_back()
+            .rfind(|&fork| fork.fork_epoch <= current_epoch)
             .cloned()
             .expect("should match at least genesis epoch");
 
@@ -183,6 +182,7 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(4));
         spec.electra_fork_epoch = Some(Epoch::new(5));
         spec.fulu_fork_epoch = Some(Epoch::new(6));
+        spec.gloas_fork_epoch = Some(Epoch::new(7));
         spec.blob_schedule = BlobSchedule::new(blob_parameters);
         spec
     }
@@ -197,6 +197,7 @@ mod tests {
 
         assert!(context.fork_exists(ForkName::Electra));
         assert!(context.fork_exists(ForkName::Fulu));
+        assert!(context.fork_exists(ForkName::Gloas));
     }
 
     #[test]

@@ -908,11 +908,12 @@ mod tests {
     use super::*;
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
+    use bls::Signature;
+    use fixed_bytes::FixedBytesExtended;
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FixedBytesExtended, FullPayload,
-        KzgCommitment, KzgProof, Signature, SignedBeaconBlockHeader, Slot,
-        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
+        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
+        SignedBeaconBlockHeader, Slot, blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
     };
 
     type Spec = types::MainnetEthSpec;

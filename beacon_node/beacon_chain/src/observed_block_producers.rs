@@ -4,7 +4,8 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{BeaconBlockRef, Epoch, EthSpec, Hash256, Slot, Unsigned};
+use typenum::Unsigned;
+use types::{BeaconBlockRef, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

@@ -1,10 +1,11 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use fixed_bytes::FixedBytesExtended;
 use milhouse::List;
 use rayon::prelude::*;
 use ssz::Encode;
 use std::sync::Arc;
 use types::{
-    BeaconState, Epoch, Eth1Data, EthSpec, FixedBytesExtended, Hash256, MainnetEthSpec, Validator,
+    BeaconState, Epoch, Eth1Data, EthSpec, Hash256, MainnetEthSpec, Validator,
     test_utils::generate_deterministic_keypair,
 };
 

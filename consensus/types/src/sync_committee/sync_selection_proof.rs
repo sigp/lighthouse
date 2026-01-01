@@ -5,7 +5,7 @@ use ethereum_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
-use ssz_types::typenum::Unsigned;
+use typenum::Unsigned;
 
 use crate::{
     core::{
@@ -112,8 +112,9 @@ impl From<Signature> for SyncSelectionProof {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{FixedBytesExtended, MainnetEthSpec};
+    use crate::MainnetEthSpec;
     use eth2_interop_keypairs::keypair;
+    use fixed_bytes::FixedBytesExtended;
 
     #[test]
     fn proof_sign_and_verify() {

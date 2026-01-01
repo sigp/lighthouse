@@ -6,12 +6,13 @@ use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedRes
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
 use eth2::types::{BlobIndicesQuery, BlobWrapper, BlobsVersionedHashesQuery};
+use fixed_bytes::FixedBytesExtended;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 

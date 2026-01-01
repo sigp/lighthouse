@@ -5,7 +5,7 @@ use std::{
 
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
-use ssz_types::typenum::{
+use typenum::{
     U0, U1, U2, U4, U8, U16, U17, U32, U64, U128, U256, U512, U625, U1024, U2048, U4096, U8192,
     U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728, U1073741824,
     U1099511627776, UInt, Unsigned, bit::B0,
@@ -170,6 +170,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxAttestationsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxPendingDepositsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /*
+     * New in Gloas
+     */
+    type PTCSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxPayloadAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BuilderPendingPaymentsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BuilderPendingWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -357,6 +365,16 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::PendingConsolidationsLimit::to_usize()
     }
 
+    /// Returns the `BUILDER_PENDING_PAYMENTS_LIMIT` constant for this specification.
+    fn builder_pending_payments_limit() -> usize {
+        Self::BuilderPendingPaymentsLimit::to_usize()
+    }
+
+    /// Returns the `BUILDER_PENDING_WITHDRAWALS_LIMIT` constant for this specification.
+    fn builder_pending_withdrawals_limit() -> usize {
+        Self::BuilderPendingWithdrawalsLimit::to_usize()
+    }
+
     /// Returns the `MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD` constant for this specification.
     fn max_consolidation_requests_per_payload() -> usize {
         Self::MaxConsolidationRequestsPerPayload::to_usize()
@@ -402,6 +420,16 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn proposer_lookahead_slots() -> usize {
         Self::ProposerLookaheadSlots::to_usize()
     }
+
+    /// Returns the `PTCSize` constant for this specification.
+    fn ptc_size() -> usize {
+        Self::PTCSize::to_usize()
+    }
+
+    /// Returns the `MaxPayloadAttestations` constant for this specification.
+    fn max_payload_attestations() -> usize {
+        Self::MaxPayloadAttestations::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -431,6 +459,8 @@ impl EthSpec for MainnetEthSpec {
     type EpochsPerSlashingsVector = U8192;
     type HistoricalRootsLimit = U16777216;
     type ValidatorRegistryLimit = U1099511627776;
+    type BuilderPendingPaymentsLimit = U64; // 2 * SLOTS_PER_EPOCH = 2 * 32 = 64
+    type BuilderPendingWithdrawalsLimit = U1048576;
     type MaxProposerSlashings = U16;
     type MaxAttesterSlashings = U2;
     type MaxAttestations = U128;
@@ -471,6 +501,8 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
     type MaxPendingDepositsPerEpoch = U16;
+    type PTCSize = U512;
+    type MaxPayloadAttestations = U4;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -513,6 +545,7 @@ impl EthSpec for MinimalEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -522,6 +555,7 @@ impl EthSpec for MinimalEthSpec {
         GenesisEpoch,
         HistoricalRootsLimit,
         ValidatorRegistryLimit,
+        BuilderPendingWithdrawalsLimit,
         MaxProposerSlashings,
         MaxAttesterSlashings,
         MaxAttestations,
@@ -541,7 +575,9 @@ impl EthSpec for MinimalEthSpec {
         MaxAttesterSlashingsElectra,
         MaxAttestationsElectra,
         MaxDepositRequestsPerPayload,
-        MaxWithdrawalRequestsPerPayload
+        MaxWithdrawalRequestsPerPayload,
+        PTCSize,
+        MaxPayloadAttestations
     });
 
     fn default_spec() -> ChainSpec {
@@ -572,6 +608,8 @@ impl EthSpec for GnosisEthSpec {
     type EpochsPerSlashingsVector = U8192;
     type HistoricalRootsLimit = U16777216;
     type ValidatorRegistryLimit = U1099511627776;
+    type BuilderPendingPaymentsLimit = U32; // 2 * SLOTS_PER_EPOCH = 2 * 16 = 32
+    type BuilderPendingWithdrawalsLimit = U1048576;
     type MaxProposerSlashings = U16;
     type MaxAttesterSlashings = U2;
     type MaxAttestations = U128;
@@ -612,6 +650,8 @@ impl EthSpec for GnosisEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type PTCSize = U512;
+    type MaxPayloadAttestations = U2;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
@@ -625,7 +665,7 @@ impl EthSpec for GnosisEthSpec {
 #[cfg(test)]
 mod test {
     use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
-    use ssz_types::typenum::Unsigned;
+    use typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
         let spec = E::default_spec();

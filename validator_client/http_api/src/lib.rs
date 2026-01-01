@@ -17,6 +17,7 @@ pub use api_secret::ApiSecret;
 use axum::Router;
 use axum_utils::server::Server;
 use beacon_node_fallback::CandidateInfo;
+use bls::{PublicKey, PublicKeyBytes};
 use core::convert::Infallible;
 use create_signed_voluntary_exit::create_signed_voluntary_exit;
 use create_validator::{
@@ -26,8 +27,8 @@ use directory::{DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_VALIDATOR_D
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
-        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
-        PublicKeyBytes, SetGraffitiRequest, UpdateCandidatesRequest, UpdateCandidatesResponse,
+        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, SetGraffitiRequest,
+        UpdateCandidatesRequest, UpdateCandidatesResponse,
     },
 };
 use graffiti::{delete_graffiti, get_graffiti, set_graffiti};

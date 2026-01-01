@@ -1,5 +1,6 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use bls::PublicKeyBytes;
 use eth2::types::BlockId;
 use futures::future::FutureExt;
 use futures::future::join_all;
@@ -13,8 +14,8 @@ use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{
-    ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
-    SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
+    ChainSpec, EthSpec, Hash256, Slot, SyncCommitteeSubscription, SyncContributionData, SyncDuty,
+    SyncSelectionProof, SyncSubnetId,
 };
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 

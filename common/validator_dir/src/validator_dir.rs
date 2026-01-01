@@ -2,6 +2,7 @@ use crate::builder::{
     ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE, keystore_password_path,
 };
+use bls::Keypair;
 use deposit_contract::decode_eth1_tx_data;
 use educe::Educe;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
@@ -10,7 +11,7 @@ use std::fs::{File, read, write};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
-use types::{DepositData, Hash256, Keypair};
+use types::{DepositData, Hash256};
 
 /// The file used to save the Eth1 transaction hash from a deposit.
 pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
