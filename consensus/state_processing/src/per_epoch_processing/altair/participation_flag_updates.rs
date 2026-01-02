@@ -1,5 +1,5 @@
 use crate::EpochProcessingError;
-use types::List;
+use milhouse::List;
 use types::beacon_state::BeaconState;
 use types::eth_spec::EthSpec;
 use types::participation_flags::ParticipationFlags;

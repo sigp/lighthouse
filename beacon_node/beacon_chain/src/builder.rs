@@ -21,7 +21,9 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
+use bls::Signature;
 use execution_layer::ExecutionLayer;
+use fixed_bytes::FixedBytesExtended;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
@@ -43,7 +45,7 @@ use tracing::{debug, error, info};
 use types::data_column_custody_group::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
