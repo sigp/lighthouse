@@ -1,16 +1,19 @@
 //! Tests for API behaviour across fork boundaries.
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
-    test_utils::{RelativeSyncCommittee, DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME},
     StateSkipConfig,
+    test_utils::{DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, RelativeSyncCommittee},
 };
+use bls::PublicKey;
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use execution_layer::test_utils::generate_genesis_header;
-use genesis::{bls_withdrawal_credentials, InteropGenesisBuilder};
+use fixed_bytes::FixedBytesExtended;
+use genesis::{InteropGenesisBuilder, bls_withdrawal_credentials};
 use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
+    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
-    Address, ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, MinimalEthSpec, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -149,10 +152,41 @@ async fn attestations_across_fork_with_skip_slots() {
         .flat_map(|(atts, _)| atts.iter().map(|(att, _)| att.clone()))
         .collect::<Vec<_>>();
 
+    let unaggregated_attestations = unaggregated_attestations
+        .into_iter()
+        .map(|attn| {
+            let aggregation_bits = attn.get_aggregation_bits();
+
+            if aggregation_bits.len() != 1 {
+                panic!("Must be an unaggregated attestation")
+            }
+
+            let aggregation_bit = *aggregation_bits.first().unwrap();
+
+            let committee = fork_state
+                .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                .unwrap();
+
+            let attester_index = committee
+                .committee
+                .iter()
+                .enumerate()
+                .find_map(|(i, &index)| {
+                    if aggregation_bit as usize == i {
+                        return Some(index);
+                    }
+                    None
+                })
+                .unwrap();
+            attn.to_single_attestation_with_attester_index(attester_index as u64)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+
     assert!(!unaggregated_attestations.is_empty());
     let fork_name = harness.spec.fork_name_at_slot::<E>(fork_slot);
     client
-        .post_beacon_pool_attestations_v1(&unaggregated_attestations)
+        .post_beacon_pool_attestations_v2::<E>(unaggregated_attestations, fork_name)
         .await
         .unwrap();
 
@@ -360,7 +394,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
 
     fn withdrawal_credentials_fn<'a>(
         index: usize,
-        _: &'a types::PublicKey,
+        _: &'a PublicKey,
         spec: &'a ChainSpec,
     ) -> Hash256 {
         // It is a bit inefficient to regenerate the whole keypair here, but this is a workaround.
@@ -394,6 +428,8 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         })),
         None,
         Default::default(),
+        true,
+        NodeCustodyType::Fullnode,
     )
     .await;
     let harness = &tester.harness;

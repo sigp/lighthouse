@@ -1,4 +1,5 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
+use bls::{PublicKeyBytes, Signature};
 use doppelganger_service::DoppelgangerService;
 use eth2::types::PublishBlockRequest;
 use initialized_validators::InitializedValidators;
@@ -8,23 +9,22 @@ use serde::{Deserialize, Serialize};
 use signing_method::Error as SigningError;
 use signing_method::{SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
-    interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
+    InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
 };
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tracing::{error, info, warn};
-use types::SignedInclusionList;
+use tracing::{error, info, instrument, warn};
 use types::{
-    graffiti::GraffitiString, AbstractExecPayload, Address, AggregateAndProof, Attestation,
-    BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
-    Graffiti, Hash256, InclusionList, PublicKeyBytes, SelectionProof, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit,
+    AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
+    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256,
+    InclusionList, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedInclusionList, SignedRoot, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit, graffiti::GraffitiString,
 };
 use validator_store::{
     DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, SignedBlock, UnsignedBlock,
@@ -56,8 +56,8 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 
 /// Currently used as the default gas limit in execution clients.
 ///
-/// https://ethresear.ch/t/on-increasing-the-block-gas-limit-technical-considerations-path-forward/21225.
-pub const DEFAULT_GAS_LIMIT: u64 = 36_000_000;
+/// https://ethpandaops.io/posts/gaslimit-scaling/.
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 
 pub struct LighthouseValidatorStore<T, E> {
     validators: Arc<RwLock<InitializedValidators>>,
@@ -243,6 +243,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
 
     /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
     /// by doppelganger protection.
+    #[instrument(skip_all, level = "debug")]
     fn doppelganger_checked_signing_method(
         &self,
         validator_pubkey: PublicKeyBytes,
@@ -694,11 +695,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 // If builder boost factor is set to 100 it should be treated
                 // as None to prevent unnecessary calculations that could
                 // lead to loss of information.
-                if factor == 100 {
-                    None
-                } else {
-                    Some(factor)
-                }
+                if factor == 100 { None } else { Some(factor) }
             })
     }
 
@@ -750,6 +747,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         }
     }
 
+    #[instrument(skip_all)]
     async fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,

@@ -44,6 +44,9 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     /// Returns the `justified_checkpoint`.
     fn justified_checkpoint(&self) -> &Checkpoint;
 
+    /// Returns the state root of the justified checkpoint.
+    fn justified_state_root(&self) -> Hash256;
+
     /// Returns balances from the `state` identified by `justified_checkpoint.root`.
     fn justified_balances(&self) -> &JustifiedBalances;
 
@@ -52,6 +55,9 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
 
     /// Returns the `unrealized_justified_checkpoint`.
     fn unrealized_justified_checkpoint(&self) -> &Checkpoint;
+
+    /// Returns the state root of the unrealized justified checkpoint.
+    fn unrealized_justified_state_root(&self) -> Hash256;
 
     /// Returns the `unrealized_finalized_checkpoint`.
     fn unrealized_finalized_checkpoint(&self) -> &Checkpoint;
@@ -63,10 +69,14 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint);
 
     /// Sets the `justified_checkpoint`.
-    fn set_justified_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Self::Error>;
+    fn set_justified_checkpoint(
+        &mut self,
+        checkpoint: Checkpoint,
+        state_root: Hash256,
+    ) -> Result<(), Self::Error>;
 
     /// Sets the `unrealized_justified_checkpoint`.
-    fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint);
+    fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint, state_root: Hash256);
 
     /// Sets the `unrealized_finalized_checkpoint`.
     fn set_unrealized_finalized_checkpoint(&mut self, checkpoint: Checkpoint);

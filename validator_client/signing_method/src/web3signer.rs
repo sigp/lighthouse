@@ -1,6 +1,7 @@
 //! Contains the types required to make JSON requests to Web3Signer servers.
 
 use super::Error;
+use bls::{PublicKeyBytes, Signature};
 use serde::{Deserialize, Serialize};
 use types::*;
 
@@ -32,6 +33,7 @@ pub enum ForkName {
     Electra,
     Eip7805,
     Fulu,
+    Gloas,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -118,6 +120,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             }),
             BeaconBlock::Fulu(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Fulu,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Gloas(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Gloas,
                 block: None,
                 block_header: Some(block.block_header()),
             }),

@@ -20,7 +20,7 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_electra_mut()?;
+    let pre = pre_state.as_fulu_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -89,6 +89,7 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: mem::take(&mut pre.epoch_cache),
+        proposer_lookahead: pre.proposer_lookahead.clone(),
     });
     Ok(post)
 }

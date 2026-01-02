@@ -3,23 +3,25 @@ use crate::{
         decrease_balance, increase_balance,
         update_progressive_balances_cache::initialize_progressive_balances_cache,
     },
-    epoch_cache::{initialize_epoch_cache, PreEpochCache},
+    epoch_cache::{PreEpochCache, initialize_epoch_cache},
     per_block_processing::is_valid_deposit_signature,
     per_epoch_processing::{Delta, Error, ParticipationEpochSummary},
 };
 use itertools::izip;
+use milhouse::{Cow, List, Vector};
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
+use tracing::instrument;
+use typenum::Unsigned;
 use types::{
+    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
+    EthSpec, ExitCache, ForkName, ParticipationFlags, PendingDeposit, ProgressiveBalancesCache,
+    RelativeEpoch, Validator,
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
-    milhouse::Cow,
-    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
-    EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
-    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator,
 };
 
 pub struct SinglePassConfig {
@@ -30,6 +32,7 @@ pub struct SinglePassConfig {
     pub pending_deposits: bool,
     pub pending_consolidations: bool,
     pub effective_balance_updates: bool,
+    pub proposer_lookahead: bool,
 }
 
 impl Default for SinglePassConfig {
@@ -48,6 +51,7 @@ impl SinglePassConfig {
             pending_deposits: true,
             pending_consolidations: true,
             effective_balance_updates: true,
+            proposer_lookahead: true,
         }
     }
 
@@ -60,6 +64,7 @@ impl SinglePassConfig {
             pending_deposits: false,
             pending_consolidations: false,
             effective_balance_updates: false,
+            proposer_lookahead: false,
         }
     }
 }
@@ -131,6 +136,7 @@ impl ValidatorInfo {
     }
 }
 
+#[instrument(skip_all)]
 pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -460,7 +466,41 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             next_epoch_cache.into_epoch_cache(next_epoch_activation_queue, spec)?;
     }
 
+    if conf.proposer_lookahead && fork_name.fulu_enabled() {
+        process_proposer_lookahead(state, spec)?;
+    }
+
     Ok(summary)
+}
+
+// TOOO(EIP-7917): use balances cache
+pub fn process_proposer_lookahead<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let mut lookahead = state.proposer_lookahead()?.clone().to_vec();
+
+    // Shift out proposers in the first epoch
+    lookahead.copy_within((E::slots_per_epoch() as usize).., 0);
+
+    let next_epoch = state
+        .current_epoch()
+        .safe_add(spec.min_seed_lookahead.as_u64())?
+        .safe_add(1)?;
+    let last_epoch_proposers = state.get_beacon_proposer_indices(next_epoch, spec)?;
+
+    // Fill in the last epoch with new proposer indices
+    let last_epoch_start = E::proposer_lookahead_slots().safe_sub(E::slots_per_epoch() as usize)?;
+    for (i, proposer) in last_epoch_proposers.into_iter().enumerate() {
+        let index = last_epoch_start.safe_add(i)?;
+        *lookahead
+            .get_mut(index)
+            .ok_or(Error::ProposerLookaheadOutOfBounds(index))? = proposer as u64;
+    }
+
+    *state.proposer_lookahead_mut()? = Vector::new(lookahead)?;
+
+    Ok(())
 }
 
 fn process_single_inactivity_update(

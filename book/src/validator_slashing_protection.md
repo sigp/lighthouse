@@ -21,7 +21,7 @@ and carefully to keep your validators safe. See the [Troubleshooting](#troublesh
 
 The database will be automatically created, and your validators registered with it when:
 
-* Importing keys from another source (e.g. [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases), Lodestar, Nimbus, Prysm, Teku, [ethdo](https://github.com/wealdtech/ethdo)).
+* Importing keys from another source (e.g. [ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli), Lodestar, Nimbus, Prysm, Teku, [ethdo](https://github.com/wealdtech/ethdo)).
   See [import validator keys](./mainnet_validator.md#step-3-import-validator-keys-to-lighthouse).
 * Creating keys using Lighthouse itself (`lighthouse account validator create`)
 * Creating keys via the [validator client API](./api_vc.md).

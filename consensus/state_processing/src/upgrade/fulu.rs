@@ -1,3 +1,5 @@
+use milhouse::Vector;
+use safe_arith::SafeArith;
 use std::mem;
 use types::{BeaconState, BeaconStateError as Error, BeaconStateFulu, ChainSpec, EthSpec, Fork};
 
@@ -15,12 +17,31 @@ pub fn upgrade_to_fulu<E: EthSpec>(
     Ok(())
 }
 
+fn initialize_proposer_lookahead<E: EthSpec>(
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<Vector<u64, E::ProposerLookaheadSlots>, Error> {
+    let current_epoch = state.current_epoch();
+    let mut lookahead = Vec::with_capacity(E::proposer_lookahead_slots());
+    for i in 0..(spec.min_seed_lookahead.safe_add(1)?.as_u64()) {
+        let target_epoch = current_epoch.safe_add(i)?;
+        lookahead.extend(
+            state
+                .get_beacon_proposer_indices(target_epoch, spec)
+                .map(|vec| vec.into_iter().map(|x| x as u64))?,
+        );
+    }
+
+    Vector::new(lookahead).map_err(|e| e.into())
+}
+
 pub fn upgrade_state_to_fulu<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_eip7805_mut()?;
+    let proposer_lookahead = initialize_proposer_lookahead(pre_state, spec)?;
+    let pre = pre_state.as_electra_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -89,6 +110,7 @@ pub fn upgrade_state_to_fulu<E: EthSpec>(
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: mem::take(&mut pre.epoch_cache),
+        proposer_lookahead,
     });
     Ok(post)
 }

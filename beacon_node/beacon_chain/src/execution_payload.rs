@@ -18,13 +18,14 @@ use execution_layer::{
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slot_clock::SlotClock;
+use ssz_types::VariableList;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
     is_merge_transition_complete, partially_verify_execution_payload,
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
+use tracing::{Instrument, debug, debug_span, info, warn};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -108,11 +109,14 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         {
             // Inclusion lists are those submitted for the prior slot.
             let il_slot = block.slot().saturating_sub(1_u64);
-            let inclusion_list_transactions = chain
-                .inclusion_list_cache
-                .read()
-                .get_inclusion_list_transactions(il_slot)
-                .unwrap_or(vec![].into());
+            let inclusion_list_transactions =
+                chain
+                    .inclusion_list_cache
+                    .read()
+                    .get_inclusion_list_transactions(il_slot)
+                    .unwrap_or(VariableList::new(vec![]).map_err(|_| {
+                        BlockError::InternalError("Cant create empty IL".to_string())
+                    })?);
 
             info!(
                 tx_count = inclusion_list_transactions.len(),
@@ -121,7 +125,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             );
             inclusion_list_transactions
         } else {
-            vec![].into()
+            // TODO(eip7805) what should be done here in terms of error handling
+            VariableList::new(vec![])
+                .map_err(|_| BlockError::InternalError("Cant create empty IL".to_string()))?
         };
 
         Ok(Self {
@@ -168,7 +174,7 @@ async fn notify_new_payload<T: BeaconChainTypes>(
     let execution_block_hash = block.execution_payload()?.block_hash();
 
     // TODO(eip-7805) we can remove this later
-    if il_transactions.len() > 0 {
+    if !il_transactions.is_empty() {
         info!(
             il_tx_count = il_transactions.len(),
             "Submit new payload with il_transactions"
@@ -371,7 +377,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             ExecutionStatus::Invalid(_) => {
                 return Err(BlockError::ParentExecutionPayloadInvalid {
                     parent_root: parent_block.root,
-                })
+                });
             }
         };
 
@@ -464,8 +470,9 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
                     block_production_version,
                 )
                 .await
-            },
-            "get_execution_payload",
+            }
+            .instrument(debug_span!("prepare_execution_payload")),
+            "prepare_execution_payload",
         )
         .ok_or(BlockProductionError::ShuttingDown)?;
 
@@ -564,6 +571,7 @@ where
             },
             "prepare_execution_payload_forkchoice_update_params",
         )
+        .instrument(debug_span!("forkchoice_update_params"))
         .await
         .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
 

@@ -1,12 +1,13 @@
 use crate::{
+    JustifiedBalances,
     error::Error,
     proto_array::{
-        calculate_committee_fraction, InvalidationOperation, Iter, ProposerBoost, ProtoArray,
-        ProtoNode,
+        InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+        calculate_committee_fraction,
     },
     ssz_container::SszContainer,
-    JustifiedBalances,
 };
+use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -15,8 +16,8 @@ use std::{
     fmt,
 };
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
-    FixedBytesExtended, Hash256, Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -158,6 +159,56 @@ pub struct Block {
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
+}
+
+impl Block {
+    /// Compute the proposer shuffling decision root of a child block in `child_block_epoch`.
+    ///
+    /// This function assumes that `child_block_epoch >= self.epoch`. It is the responsibility of
+    /// the caller to check this condition, or else incorrect results will be produced.
+    pub fn proposer_shuffling_root_for_child_block(
+        &self,
+        child_block_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Hash256 {
+        let block_epoch = self.current_epoch_shuffling_id.shuffling_epoch;
+
+        // For child blocks in the Fulu fork epoch itself, we want to use the old logic. There is no
+        // lookahead in the first Fulu epoch. So we check whether Fulu is enabled at
+        // `child_block_epoch - 1`, i.e. whether `child_block_epoch > fulu_fork_epoch`.
+        if !spec
+            .fork_name_at_epoch(child_block_epoch.saturating_sub(1_u64))
+            .fulu_enabled()
+        {
+            // Prior to Fulu the proposer shuffling decision root for the current epoch is the same
+            // as the attestation shuffling for the *next* epoch, i.e. it is determined at the start
+            // of the current epoch.
+            if block_epoch == child_block_epoch {
+                self.next_epoch_shuffling_id.shuffling_decision_block
+            } else {
+                // Otherwise, the child block epoch is greater, so its decision root is its parent
+                // root itself (this block's root).
+                self.root
+            }
+        } else {
+            // After Fulu the proposer shuffling is determined with lookahead, so if the block
+            // lies in the same epoch as its parent, its decision root is the same as the
+            // parent's current epoch attester shuffling
+            //
+            // i.e. the block from the end of epoch N - 2.
+            if child_block_epoch == block_epoch {
+                self.current_epoch_shuffling_id.shuffling_decision_block
+            } else if child_block_epoch == block_epoch + 1 {
+                // If the block is the next epoch, then it instead shares its decision root with
+                // the parent's *next epoch* attester shuffling.
+                self.next_epoch_shuffling_id.shuffling_decision_block
+            } else {
+                // The child block lies in the future beyond the lookahead, at the point where this
+                // block (its parent) will be the decision block.
+                self.root
+            }
+        }
+    }
 }
 
 /// A Vec-wrapper which will grow to match any request.
@@ -375,8 +426,6 @@ impl ProtoArrayForkChoice {
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
-            justified_checkpoint,
-            finalized_checkpoint,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             unsatisfied_inclusion_list_blocks,
@@ -401,7 +450,12 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block::<E>(block, current_slot)
+            .on_block::<E>(
+                block,
+                current_slot,
+                justified_checkpoint,
+                finalized_checkpoint,
+            )
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -425,9 +479,10 @@ impl ProtoArrayForkChoice {
     pub fn process_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
+        finalized_checkpoint: Checkpoint,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation::<E>(op)
+            .propagate_execution_payload_invalidation::<E>(op, finalized_checkpoint)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
@@ -451,13 +506,20 @@ impl ProtoArrayForkChoice {
         &mut self,
         block: Block,
         current_slot: Slot,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
     ) -> Result<(), String> {
         if block.parent_root.is_none() {
             return Err("Missing parent root".to_string());
         }
 
         self.proto_array
-            .on_block::<E>(block, current_slot)
+            .on_block::<E>(
+                block,
+                current_slot,
+                justified_checkpoint,
+                finalized_checkpoint,
+            )
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
@@ -499,7 +561,12 @@ impl ProtoArrayForkChoice {
         *old_balances = new_balances.clone();
 
         self.proto_array
-            .find_head::<E>(&justified_checkpoint.root, current_slot)
+            .find_head::<E>(
+                &justified_checkpoint.root,
+                current_slot,
+                justified_checkpoint,
+                finalized_checkpoint,
+            )
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -707,24 +774,22 @@ impl ProtoArrayForkChoice {
 
                     // If the invalid root was boosted, apply the weight to it and
                     // ancestors.
-                    if let Some(proposer_score_boost) = spec.proposer_score_boost {
-                        if self.proto_array.previous_proposer_boost.root == node.root {
-                            // Compute the score based upon the current balances. We can't rely on
-                            // the `previous_proposr_boost.score` since it is set to zero with an
-                            // invalid node.
-                            let proposer_score = calculate_committee_fraction::<E>(
-                                &self.balances,
-                                proposer_score_boost,
-                            )
-                            .ok_or("Failed to compute proposer boost")?;
-                            // Store the score we've applied here so it can be removed in
-                            // a later call to `apply_score_changes`.
-                            self.proto_array.previous_proposer_boost.score = proposer_score;
-                            // Apply this boost to this node.
-                            restored_weight = restored_weight
-                                .checked_add(proposer_score)
-                                .ok_or("Overflow when adding boost to weight")?;
-                        }
+                    if let Some(proposer_score_boost) = spec.proposer_score_boost
+                        && self.proto_array.previous_proposer_boost.root == node.root
+                    {
+                        // Compute the score based upon the current balances. We can't rely on
+                        // the `previous_proposr_boost.score` since it is set to zero with an
+                        // invalid node.
+                        let proposer_score =
+                            calculate_committee_fraction::<E>(&self.balances, proposer_score_boost)
+                                .ok_or("Failed to compute proposer boost")?;
+                        // Store the score we've applied here so it can be removed in
+                        // a later call to `apply_score_changes`.
+                        self.proto_array.previous_proposer_boost.score = proposer_score;
+                        // Apply this boost to this node.
+                        restored_weight = restored_weight
+                            .checked_add(proposer_score)
+                            .ok_or("Overflow when adding boost to weight")?;
                     }
 
                     // Add the restored weight to the node and all ancestors.
@@ -838,9 +903,10 @@ impl ProtoArrayForkChoice {
     pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(
         &self,
         descendant_root: Hash256,
+        best_finalized_checkpoint: Checkpoint,
     ) -> bool {
         self.proto_array
-            .is_finalized_checkpoint_or_descendant::<E>(descendant_root)
+            .is_finalized_checkpoint_or_descendant::<E>(descendant_root, best_finalized_checkpoint)
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
@@ -858,7 +924,7 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::iter_nodes`
-    pub fn iter_nodes(&self, block_root: &Hash256) -> Iter {
+    pub fn iter_nodes(&self, block_root: &Hash256) -> Iter<'_> {
         self.proto_array.iter_nodes(block_root)
     }
 
@@ -866,18 +932,38 @@ impl ProtoArrayForkChoice {
     pub fn iter_block_roots(
         &self,
         block_root: &Hash256,
-    ) -> impl Iterator<Item = (Hash256, Slot)> + use<'_> {
+    ) -> impl Iterator<Item = (Hash256, Slot)> + '_ {
         self.proto_array.iter_block_roots(block_root)
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
-        SszContainer::from(self).as_ssz_bytes()
+    pub fn as_ssz_container(
+        &self,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+    ) -> SszContainer {
+        SszContainer::from_proto_array(self, justified_checkpoint, finalized_checkpoint)
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn as_bytes(
+        &self,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+    ) -> Vec<u8> {
+        self.as_ssz_container(justified_checkpoint, finalized_checkpoint)
+            .as_ssz_bytes()
+    }
+
+    pub fn from_bytes(bytes: &[u8], balances: JustifiedBalances) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        container
+        Self::from_container(container, balances)
+    }
+
+    pub fn from_container(
+        container: SszContainer,
+        balances: JustifiedBalances,
+    ) -> Result<Self, String> {
+        (container, balances)
             .try_into()
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
@@ -897,8 +983,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
-    pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
-        self.proto_array.heads_descended_from_finalization::<E>()
+    pub fn heads_descended_from_finalization<E: EthSpec>(
+        &self,
+        best_finalized_checkpoint: Checkpoint,
+    ) -> Vec<&ProtoNode> {
+        self.proto_array
+            .heads_descended_from_finalization::<E>(best_finalized_checkpoint)
     }
 }
 
@@ -1008,7 +1098,8 @@ fn compute_deltas(
 #[cfg(test)]
 mod test_compute_deltas {
     use super::*;
-    use types::{FixedBytesExtended, MainnetEthSpec};
+    use fixed_bytes::FixedBytesExtended;
+    use types::MainnetEthSpec;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
@@ -1069,6 +1160,8 @@ mod test_compute_deltas {
                     unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                 },
                 genesis_slot + 1,
+                genesis_checkpoint,
+                genesis_checkpoint,
             )
             .unwrap();
 
@@ -1092,6 +1185,8 @@ mod test_compute_deltas {
                     unrealized_finalized_checkpoint: None,
                 },
                 genesis_slot + 1,
+                genesis_checkpoint,
+                genesis_checkpoint,
             )
             .unwrap();
 
@@ -1105,10 +1200,24 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root));
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_desc));
-        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(not_finalized_desc));
-        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(unknown));
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+            finalized_root,
+            genesis_checkpoint
+        ));
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+            finalized_desc,
+            genesis_checkpoint
+        ));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+            not_finalized_desc,
+            genesis_checkpoint
+        ));
+        assert!(
+            !fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                unknown,
+                genesis_checkpoint
+            )
+        );
 
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
@@ -1205,6 +1314,8 @@ mod test_compute_deltas {
                         unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                     },
                     Slot::from(block.slot),
+                    genesis_checkpoint,
+                    genesis_checkpoint,
                 )
                 .unwrap();
         };
@@ -1259,29 +1370,34 @@ mod test_compute_deltas {
 
         // Set the finalized checkpoint to finalize the first slot of epoch 1 on
         // the canonical chain.
-        fc.proto_array.finalized_checkpoint = Checkpoint {
+        let finalized_checkpoint = Checkpoint {
             root: finalized_root,
             epoch: Epoch::new(1),
         };
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root),
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                    finalized_root,
+                    finalized_checkpoint
+                ),
             "the finalized checkpoint is the finalized checkpoint"
         );
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
-                    canonical_slot
-                )),
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                    get_block_root(canonical_slot),
+                    finalized_checkpoint
+                ),
             "the canonical block is a descendant of the finalized checkpoint"
         );
         assert!(
             !fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
-                    non_canonical_slot
-                )),
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                    get_block_root(non_canonical_slot),
+                    finalized_checkpoint
+                ),
             "although the non-canonical block is a descendant of the finalized block, \
             it's not a descendant of the finalized checkpoint"
         );

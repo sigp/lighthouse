@@ -2,13 +2,14 @@
 
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::test_utils::{
-    generate_deterministic_keypairs, BeaconChainHarness, EphemeralHarnessType,
+    BeaconChainHarness, EphemeralHarnessType, generate_deterministic_keypairs,
 };
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
-    types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
     BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
+    test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
+    types::{Epoch, EthSpec, MinimalEthSpec},
 };
+use bls::Keypair;
 use eth2::types::{StandardAttestationRewards, TotalAttestationRewards, ValidatorId};
 use state_processing::{BlockReplayError, BlockReplayer};
 use std::array::IntoIter;
@@ -424,9 +425,11 @@ async fn test_rewards_altair() {
         .unwrap();
 
     // assert ideal rewards are greater than 0
-    assert!(ideal_rewards
-        .iter()
-        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
+    assert!(
+        ideal_rewards
+            .iter()
+            .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0)
+    );
 
     // apply attestation, proposal, and sync committee rewards and penalties to initial balances
     apply_attestation_rewards(&mut expected_balances, total_rewards);
@@ -507,12 +510,16 @@ async fn test_rewards_altair_inactivity_leak() {
 
     // assert inactivity penalty for both ideal rewards and individual validators
     assert!(ideal_rewards.iter().all(|reward| reward.inactivity == 0));
-    assert!(total_rewards[..half]
-        .iter()
-        .all(|reward| reward.inactivity == 0));
-    assert!(total_rewards[half..]
-        .iter()
-        .all(|reward| reward.inactivity < 0));
+    assert!(
+        total_rewards[..half]
+            .iter()
+            .all(|reward| reward.inactivity == 0)
+    );
+    assert!(
+        total_rewards[half..]
+            .iter()
+            .all(|reward| reward.inactivity < 0)
+    );
 
     // apply attestation, proposal, and sync committee rewards and penalties to initial balances
     apply_attestation_rewards(&mut expected_balances, total_rewards);
@@ -612,9 +619,11 @@ async fn test_rewards_altair_inactivity_leak_justification_epoch() {
         .unwrap();
 
     // assert ideal rewards are greater than 0
-    assert!(ideal_rewards
-        .iter()
-        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
+    assert!(
+        ideal_rewards
+            .iter()
+            .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0)
+    );
 
     // apply attestation, proposal, and sync committee rewards and penalties to initial balances
     apply_attestation_rewards(&mut expected_balances, total_rewards);
@@ -688,9 +697,11 @@ async fn test_rewards_electra() {
         ideal_rewards.len() as u64,
         spec.max_effective_balance_electra / spec.effective_balance_increment
     );
-    assert!(ideal_rewards
-        .iter()
-        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
+    assert!(
+        ideal_rewards
+            .iter()
+            .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0)
+    );
 
     // apply attestation, proposal, and sync committee rewards and penalties to initial balances
     apply_attestation_rewards(&mut expected_balances, total_rewards);
@@ -776,9 +787,11 @@ async fn check_all_electra_rewards(
         harness.spec.max_effective_balance_electra / harness.spec.effective_balance_increment
     );
 
-    assert!(ideal_rewards
-        .iter()
-        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
+    assert!(
+        ideal_rewards
+            .iter()
+            .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0)
+    );
 
     // apply attestation, proposal, and sync committee rewards and penalties to initial balances
     apply_attestation_rewards(&mut balances, total_rewards);

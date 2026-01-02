@@ -5,14 +5,17 @@ authors = ["Michael Sproul <michael@sigmaprime.io>", "pscott <scottpiriou@gmail.
 edition = { workspace = true }
 autotests = false
 
-[[test]]
-name = "slashing_protection_tests"
-path = "tests/main.rs"
+[features]
+arbitrary-fuzz = ["types/arbitrary-fuzz", "eip_3076/arbitrary-fuzz"]
+portable = ["types/portable"]
 
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"] }
+bls = { workspace = true }
+eip_3076 = { workspace = true, features = ["json"] }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
+fixed_bytes = { workspace = true }
 r2d2 = { workspace = true }
 r2d2_sqlite = "0.21.0"
 rusqlite = { workspace = true }
@@ -25,6 +28,6 @@ types = { workspace = true }
 [dev-dependencies]
 rayon = { workspace = true }
 
-[features]
-arbitrary-fuzz = ["types/arbitrary-fuzz"]
-portable = ["types/portable"]
+[[test]]
+name = "slashing_protection_tests"
+path = "tests/main.rs"

@@ -34,11 +34,17 @@ impl<E: EthSpec> HistoricStateCache<E> {
 
     pub fn get_hdiff_buffer(&mut self, slot: Slot) -> Option<HDiffBuffer> {
         if let Some(buffer_ref) = self.hdiff_buffers.get(&slot) {
-            let _timer = metrics::start_timer(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIMES);
+            let _timer = metrics::start_timer_vec(
+                &metrics::BEACON_HDIFF_BUFFER_CLONE_TIME,
+                metrics::COLD_METRIC,
+            );
             Some(buffer_ref.clone())
         } else if let Some(state) = self.states.get(&slot) {
             let buffer = HDiffBuffer::from_state(state.clone());
-            let _timer = metrics::start_timer(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIMES);
+            let _timer = metrics::start_timer_vec(
+                &metrics::BEACON_HDIFF_BUFFER_CLONE_TIME,
+                metrics::COLD_METRIC,
+            );
             let cloned = buffer.clone();
             drop(_timer);
             self.hdiff_buffers.put(slot, cloned);

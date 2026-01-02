@@ -4,15 +4,16 @@
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
 use crate::{default_keystore_password_path, read_password_string, write_file_via_temporary};
+use bls::PublicKey;
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{self, create_dir_all, File};
+use std::fs::{self, File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
 use tracing::error;
-use types::{graffiti::GraffitiString, Address, PublicKey};
+use types::{Address, graffiti::GraffitiString};
 use validator_dir::VOTING_KEYSTORE_FILE;
 use zeroize::Zeroizing;
 
@@ -450,11 +451,11 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
         return true;
     }
 
-    // The format exported by the `eth2.0-deposit-cli` library.
+    // The format exported by the `ethstaker-deposit-cli` library.
     //
     // Reference to function that generates keystores:
     //
-    // https://github.com/ethereum/eth2.0-deposit-cli/blob/7cebff15eac299b3b1b090c896dd3410c8463450/eth2deposit/credentials.py#L58-L62
+    // https://github.com/eth-educators/ethstaker-deposit-cli/blob/80d536374de838ccae142974ed0e747b46beb030/ethstaker_deposit/credentials.py#L186-L190
     //
     // Since we include the key derivation path of `m/12381/3600/x/0/0` this should only ever match
     // with a voting keystore and never a withdrawal keystore.

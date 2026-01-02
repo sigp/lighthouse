@@ -1,13 +1,16 @@
 mod attestation_production;
 mod attestation_verification;
 mod bellatrix;
+mod blob_verification;
 mod block_verification;
 mod capella;
+mod column_verification;
 mod events;
 mod inclusion_list_verification;
 mod op_verification;
 mod payload_invalidation;
 mod rewards;
+mod schema_stability;
 mod store_tests;
 mod sync_committee_verification;
 mod tests;

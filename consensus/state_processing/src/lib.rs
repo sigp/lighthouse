@@ -37,12 +37,12 @@ pub use genesis::{
     process_activations,
 };
 pub use per_block_processing::{
-    block_signature_verifier, errors::BlockProcessingError, per_block_processing, signature_sets,
     BlockSignatureStrategy, BlockSignatureVerifier, VerifyBlockRoot, VerifySignatures,
+    block_signature_verifier, errors::BlockProcessingError, per_block_processing, signature_sets,
 };
 pub use per_epoch_processing::{
     errors::EpochProcessingError, process_epoch as per_epoch_processing,
 };
-pub use per_slot_processing::{per_slot_processing, Error as SlotProcessingError};
+pub use per_slot_processing::{Error as SlotProcessingError, per_slot_processing};
 pub use types::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use verify_operation::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyOperationAt};

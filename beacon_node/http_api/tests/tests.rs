@@ -1,36 +1,42 @@
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
-};
-use either::Either;
-use eth2::{
-    mixin::{RequestAccept, ResponseForkName, ResponseOptional},
-    reqwest::RequestBuilder,
-    types::{
-        BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
+};
+use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
+use eth2::{
     BeaconNodeHttpClient, Error,
     Error::ServerMessage,
     StatusCode, Timeouts,
+    mixin::{RequestAccept, ResponseForkName, ResponseOptional},
+    reqwest::{RequestBuilder, Response},
+    types::{
+        BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
+    },
 };
 use execution_layer::expected_gas_limit;
 use execution_layer::test_utils::{
-    mock_builder_extra_data, mock_el_extra_data, MockBuilder, Operation,
     DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_GAS_LIMIT, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+    MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
-use futures::stream::{Stream, StreamExt};
+use fixed_bytes::FixedBytesExtended;
 use futures::FutureExt;
+use futures::stream::{Stream, StreamExt};
 use http_api::{
-    test_utils::{create_api_server, ApiServer},
     BlockId, StateId,
+    test_utils::{ApiServer, create_api_server},
 };
-use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
+use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
+use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
+use ssz::BitList;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
@@ -40,9 +46,8 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
-    attestation::AttestationBase, AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash,
-    Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, SingleAttestation,
-    Slot,
+    Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
+    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
 };
 
 type E = MainnetEthSpec;
@@ -88,6 +93,7 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
+    node_custody_type: NodeCustodyType,
 }
 
 impl Default for ApiTesterConfig {
@@ -97,6 +103,7 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }
@@ -114,15 +121,11 @@ impl ApiTester {
         Self::new_from_config(ApiTesterConfig::default()).await
     }
 
-    pub async fn new_with_hard_forks(altair: bool, bellatrix: bool) -> Self {
-        let mut config = ApiTesterConfig::default();
-        // Set whether the chain has undergone each hard fork.
-        if altair {
-            config.spec.altair_fork_epoch = Some(Epoch::new(0));
-        }
-        if bellatrix {
-            config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        }
+    pub async fn new_with_hard_forks() -> Self {
+        let config = ApiTesterConfig {
+            spec: test_spec::<E>(),
+            ..Default::default()
+        };
         Self::new_from_config(config).await
     }
 
@@ -138,7 +141,8 @@ impl ApiTester {
             .deterministic_keypairs(VALIDATOR_COUNT)
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
-            .mock_execution_layer_with_config()
+            .mock_execution_layer()
+            .node_custody_type(config.node_custody_type)
             .build();
 
         harness
@@ -175,6 +179,9 @@ impl ApiTester {
             head.beacon_block.slot() + 1,
             "precondition: current slot is one after head"
         );
+
+        // Set a min blob count for the next block for get_blobs testing
+        harness.execution_block_generator().set_min_blob_count(2);
 
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
@@ -292,7 +299,19 @@ impl ApiTester {
         let beacon_api_port = listening_socket.port();
         let beacon_url =
             SensitiveUrl::parse(format!("http://127.0.0.1:{beacon_api_port}").as_str()).unwrap();
-        let mock_builder_server = harness.set_mock_builder(beacon_url.clone());
+
+        // Be strict with validator registrations, but don't bother applying operations, that flag
+        // is only used by mock-builder tests.
+        let strict_registrations = true;
+        let apply_operations = true;
+        let broadcast_to_bn = true;
+
+        let mock_builder_server = harness.set_mock_builder(
+            beacon_url.clone(),
+            strict_registrations,
+            apply_operations,
+            broadcast_to_bn,
+        );
 
         // Start the mock builder service prior to building the chain out.
         harness
@@ -335,6 +354,7 @@ impl ApiTester {
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
+                .mock_execution_layer()
                 .build(),
         );
 
@@ -420,7 +440,7 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester() -> Self {
-        let tester = Self::new_with_hard_forks(true, true)
+        let tester = Self::new_with_hard_forks()
             .await
             .test_post_validator_register_validator()
             .await;
@@ -430,10 +450,7 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester_default_payload_value() -> Self {
-        let mut config = ApiTesterConfig {
-            retain_historic_states: false,
-            spec: E::default_spec(),
-        };
+        let mut config = ApiTesterConfig::default();
         config.spec.altair_fork_epoch = Some(Epoch::new(0));
         config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         let tester = Self::new_from_config(config)
@@ -965,6 +982,87 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_validator_identities(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            for validator_indices in self.interesting_validator_indices() {
+                let state_opt = state_id.state(&self.chain).ok();
+                let validators: Vec<Validator> = match state_opt.as_ref() {
+                    Some((state, _execution_optimistic, _finalized)) => {
+                        state.validators().clone().to_vec()
+                    }
+                    None => vec![],
+                };
+
+                let validator_index_ids = validator_indices
+                    .iter()
+                    .cloned()
+                    .map(ValidatorId::Index)
+                    .collect::<Vec<ValidatorId>>();
+
+                let validator_pubkey_ids = validator_indices
+                    .iter()
+                    .cloned()
+                    .map(|i| {
+                        ValidatorId::PublicKey(
+                            validators
+                                .get(i as usize)
+                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
+                        )
+                    })
+                    .collect::<Vec<ValidatorId>>();
+
+                let result_index_ids = self
+                    .client
+                    .post_beacon_states_validator_identities(state_id.0, validator_index_ids)
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
+                let result_pubkey_ids = self
+                    .client
+                    .post_beacon_states_validator_identities(state_id.0, validator_pubkey_ids)
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
+
+                let expected = state_opt.map(|(state, _execution_optimistic, _finalized)| {
+                    // If validator_indices is empty, return identities for all validators
+                    if validator_indices.is_empty() {
+                        state
+                            .validators()
+                            .iter()
+                            .enumerate()
+                            .map(|(index, validator)| ValidatorIdentityData {
+                                index: index as u64,
+                                pubkey: validator.pubkey,
+                                activation_epoch: validator.activation_epoch,
+                            })
+                            .collect()
+                    } else {
+                        let mut validators = Vec::with_capacity(validator_indices.len());
+
+                        for i in validator_indices {
+                            if i < state.validators().len() as u64 {
+                                // access each validator, and then transform the data into ValidatorIdentityData
+                                let validator = state.validators().get(i as usize).unwrap();
+                                validators.push(ValidatorIdentityData {
+                                    index: i,
+                                    pubkey: validator.pubkey,
+                                    activation_epoch: validator.activation_epoch,
+                                });
+                            }
+                        }
+
+                        validators
+                    }
+                });
+
+                assert_eq!(result_index_ids, expected, "{:?}", state_id);
+                assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+            }
+        }
+        self
+    }
+
     pub async fn test_beacon_states_validators(self) -> Self {
         for state_id in self.interesting_state_ids() {
             for statuses in self.interesting_validator_statuses() {
@@ -999,7 +1097,7 @@ impl ApiTester {
                         .get_beacon_states_validators(
                             state_id.0,
                             Some(validator_index_ids.as_slice()),
-                            None,
+                            Some(statuses.as_slice()),
                         )
                         .await
                         .unwrap()
@@ -1009,20 +1107,28 @@ impl ApiTester {
                         .get_beacon_states_validators(
                             state_id.0,
                             Some(validator_pubkey_ids.as_slice()),
-                            None,
+                            Some(statuses.as_slice()),
                         )
                         .await
                         .unwrap()
                         .map(|res| res.data);
                     let post_result_index_ids = self
                         .client
-                        .post_beacon_states_validators(state_id.0, Some(validator_index_ids), None)
+                        .post_beacon_states_validators(
+                            state_id.0,
+                            Some(validator_index_ids),
+                            Some(statuses.clone()),
+                        )
                         .await
                         .unwrap()
                         .map(|res| res.data);
                     let post_result_pubkey_ids = self
                         .client
-                        .post_beacon_states_validators(state_id.0, Some(validator_pubkey_ids), None)
+                        .post_beacon_states_validators(
+                            state_id.0,
+                            Some(validator_pubkey_ids),
+                            Some(statuses.clone()),
+                        )
                         .await
                         .unwrap()
                         .map(|res| res.data);
@@ -1033,7 +1139,13 @@ impl ApiTester {
 
                         let mut validators = Vec::with_capacity(validator_indices.len());
 
-                        for i in validator_indices {
+                        let expected_indices = if validator_indices.is_empty() {
+                            (0..state.validators().len() as u64).collect()
+                        } else {
+                            validator_indices.clone()
+                        };
+
+                        for i in expected_indices {
                             if i >= state.validators().len() as u64 {
                                 continue;
                             }
@@ -1043,8 +1155,8 @@ impl ApiTester {
                                 epoch,
                                 far_future_epoch,
                             );
-                            if statuses.contains(&status)
-                                || statuses.is_empty()
+                            if statuses.is_empty()
+                                || statuses.contains(&status)
                                 || statuses.contains(&status.superstatus())
                             {
                                 validators.push(ValidatorData {
@@ -1209,12 +1321,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_deposits(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1223,7 +1337,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_deposits().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -1236,12 +1355,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_partial_withdrawals(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1250,7 +1371,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_partial_withdrawals().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -1263,12 +1389,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_consolidations(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1277,7 +1405,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_consolidations().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -1445,7 +1578,10 @@ impl ApiTester {
     pub async fn test_post_beacon_blocks_valid(mut self) -> Self {
         let next_block = self.next_block.clone();
 
-        self.client.post_beacon_blocks(&next_block).await.unwrap();
+        self.client
+            .post_beacon_blocks_v2(&next_block, None)
+            .await
+            .unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1459,7 +1595,7 @@ impl ApiTester {
         let next_block = &self.next_block;
 
         self.client
-            .post_beacon_blocks_ssz(next_block)
+            .post_beacon_blocks_v2_ssz(next_block, None)
             .await
             .unwrap();
 
@@ -1484,11 +1620,14 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(self
+        let response: Result<Response, Error> = self
             .client
-            .post_beacon_blocks(&PublishBlockRequest::from(block))
-            .await
-            .is_err());
+            .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
+            .await;
+
+        assert!(response.is_ok());
+
+        assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1511,12 +1650,13 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(self
+        let response: Result<Response, Error> = self
             .client
-            .post_beacon_blocks_ssz(&PublishBlockRequest::from(block))
-            .await
-            .is_err());
+            .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
+            .await;
 
+        assert!(response.is_ok());
+        assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
             "gossip valid blocks should be sent to network"
@@ -1536,11 +1676,12 @@ impl ApiTester {
             .0
             .into();
 
-        assert!(self
-            .client
-            .post_beacon_blocks(&block_contents)
-            .await
-            .is_ok());
+        assert!(
+            self.client
+                .post_beacon_blocks_v2(&block_contents, None)
+                .await
+                .is_ok()
+        );
 
         // Blinded deneb block contents is just the blinded block
         let blinded_block_contents = block_contents.signed_block().clone_as_blinded();
@@ -1548,44 +1689,24 @@ impl ApiTester {
         // Test all the POST methods in sequence, they should all behave the same.
         let responses = vec![
             self.client
-                .post_beacon_blocks(&block_contents)
-                .await
-                .unwrap_err(),
-            self.client
                 .post_beacon_blocks_v2(&block_contents, None)
                 .await
-                .unwrap_err(),
-            self.client
-                .post_beacon_blocks_ssz(&block_contents)
-                .await
-                .unwrap_err(),
+                .unwrap(),
             self.client
                 .post_beacon_blocks_v2_ssz(&block_contents, None)
                 .await
-                .unwrap_err(),
-            self.client
-                .post_beacon_blinded_blocks(&blinded_block_contents)
-                .await
-                .unwrap_err(),
+                .unwrap(),
             self.client
                 .post_beacon_blinded_blocks_v2(&blinded_block_contents, None)
                 .await
-                .unwrap_err(),
-            self.client
-                .post_beacon_blinded_blocks_ssz(&blinded_block_contents)
-                .await
-                .unwrap_err(),
+                .unwrap(),
             self.client
                 .post_beacon_blinded_blocks_v2_ssz(&blinded_block_contents, None)
                 .await
-                .unwrap_err(),
+                .unwrap(),
         ];
         for (i, response) in responses.into_iter().enumerate() {
-            assert_eq!(
-                response.status().unwrap(),
-                StatusCode::ACCEPTED,
-                "response {i}"
-            );
+            assert_eq!(response.status(), StatusCode::ACCEPTED, "response {i}");
         }
 
         self
@@ -1753,7 +1874,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_blob_sidecars(self, use_indices: bool) -> Self {
-        let block_id = BlockId(CoreBlockId::Finalized);
+        let block_id = BlockId(CoreBlockId::Head);
         let (block_root, _, _) = block_id.root(&self.chain).unwrap();
         let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
         let num_blobs = block.num_expected_blobs();
@@ -1764,7 +1885,7 @@ impl ApiTester {
         };
         let result = match self
             .client
-            .get_blobs::<E>(
+            .get_blob_sidecars::<E>(
                 CoreBlockId::Root(block_root),
                 blob_indices.as_deref(),
                 &self.chain.spec,
@@ -1781,6 +1902,77 @@ impl ApiTester {
         );
         let expected = block.slot();
         assert_eq!(result.first().unwrap().slot(), expected);
+
+        self
+    }
+
+    pub async fn test_get_blobs(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Head);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(response) => response.unwrap().into_data(),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        assert_eq!(
+            result.len(),
+            versioned_hashes.map_or(num_blobs, |versioned_hashes| versioned_hashes.len())
+        );
+
+        self
+    }
+
+    pub async fn test_get_blobs_post_fulu_full_node(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Head);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(result) => panic!("Full node are unable to return blobs post-Fulu: {result:?}"),
+            // Post-Fulu, full nodes don't store blobs and return error 500
+            Err(e) => assert_eq!(e.status().unwrap(), 500),
+        };
 
         self
     }
@@ -1824,7 +2016,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => {
@@ -1862,7 +2054,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => panic!("queries for pre-Deneb slots should fail. got: {result:?}"),
@@ -1907,18 +2099,46 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_pool_attestations_valid(mut self) -> Self {
-        self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
-            .await
-            .unwrap();
-
         let fork_name = self
             .attestations
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
 
-        let attestations = Either::Left(self.attestations.clone());
+        let state = &self.chain.head_snapshot().beacon_state;
+
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
 
         self.client
             .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
@@ -1943,9 +2163,8 @@ impl ApiTester {
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data.slot))
             .unwrap();
 
-        let attestations = Either::Right(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(self.single_attestations.clone(), fork_name)
             .await
             .unwrap();
         assert!(
@@ -1958,18 +2177,87 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_attestations_invalid_v1(mut self) -> Self {
         let mut attestations = Vec::new();
+        let state = &self.chain.head_snapshot().beacon_state;
         for attestation in &self.attestations {
             let mut invalid_attestation = attestation.clone();
             invalid_attestation.data_mut().slot += 1;
+
+            // Convert valid attestation into valid `SingleAttestation`
+            let aggregation_bits = attestation.get_aggregation_bits();
+
+            if aggregation_bits.len() != 1 {
+                panic!("Must be an unaggregated attestation")
+            }
+
+            let aggregation_bit = *aggregation_bits.first().unwrap();
+
+            let committee = state
+                .get_beacon_committee(
+                    attestation.data().slot,
+                    attestation.committee_index().unwrap(),
+                )
+                .unwrap();
+
+            let attester_index = committee
+                .committee
+                .iter()
+                .enumerate()
+                .find_map(|(i, &index)| {
+                    if aggregation_bit as usize == i {
+                        return Some(index);
+                    }
+                    None
+                })
+                .unwrap();
+            let attestation = attestation
+                .to_single_attestation_with_attester_index(attester_index as u64)
+                .unwrap();
+
+            // Convert invalid attestation to invalid `SingleAttestation`
+            let aggregation_bits = invalid_attestation.get_aggregation_bits();
+
+            if aggregation_bits.len() != 1 {
+                panic!("Must be an unaggregated attestation")
+            }
+
+            let aggregation_bit = *aggregation_bits.first().unwrap();
+
+            let committee = state
+                .get_beacon_committee(
+                    invalid_attestation.data().slot,
+                    invalid_attestation.committee_index().unwrap(),
+                )
+                .unwrap();
+
+            let attester_index = committee
+                .committee
+                .iter()
+                .enumerate()
+                .find_map(|(i, &index)| {
+                    if aggregation_bit as usize == i {
+                        return Some(index);
+                    }
+                    None
+                })
+                .unwrap();
+            let invalid_attestation = invalid_attestation
+                .to_single_attestation_with_attester_index(attester_index as u64)
+                .unwrap();
 
             // add both to ensure we only fail on invalid attestations
             attestations.push(attestation.clone());
             attestations.push(invalid_attestation);
         }
 
+        let fork_name = self
+            .attestations
+            .first()
+            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
+            .unwrap();
+
         let err = self
             .client
-            .post_beacon_pool_attestations_v1(attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap_err();
 
@@ -2011,7 +2299,6 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
-        let attestations = Either::Right(attestations);
         let err_v2 = self
             .client
             .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
@@ -2034,6 +2321,24 @@ impl ApiTester {
             self.network_rx.network_recv.recv().await.is_some(),
             "if some attestations are valid, we should send them to the network"
         );
+
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_updates_ssz(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+        let current_sync_committee_period = current_epoch
+            .sync_committee_period(&self.chain.spec)
+            .unwrap();
+
+        match self
+            .client
+            .get_beacon_light_client_updates_ssz::<E>(current_sync_committee_period, 1)
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
 
         self
     }
@@ -2263,10 +2568,10 @@ impl ApiTester {
     pub async fn test_post_beacon_pool_attester_slashings_invalid_v1(mut self) -> Self {
         let mut slashing = self.attester_slashing.clone();
         match &mut slashing {
-            AttesterSlashing::Base(ref mut slashing) => {
+            AttesterSlashing::Base(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
-            AttesterSlashing::Electra(ref mut slashing) => {
+            AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
         }
@@ -2287,10 +2592,10 @@ impl ApiTester {
     pub async fn test_post_beacon_pool_attester_slashings_invalid_v2(mut self) -> Self {
         let mut slashing = self.attester_slashing.clone();
         match &mut slashing {
-            AttesterSlashing::Base(ref mut slashing) => {
+            AttesterSlashing::Base(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
-            AttesterSlashing::Electra(ref mut slashing) => {
+            AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
         }
@@ -2441,13 +2746,24 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = self
-            .client
-            .get_config_spec::<ConfigAndPresetFulu>()
-            .await
-            .map(|res| ConfigAndPreset::Fulu(res.data))
-            .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
+        let result = if self.chain.spec.is_gloas_scheduled() {
+            self.client
+                .get_config_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        } else if self.chain.spec.is_fulu_scheduled() {
+            self.client
+                .get_config_spec::<ConfigAndPresetFulu>()
+                .await
+                .map(|res| ConfigAndPreset::Fulu(res.data))
+        } else {
+            self.client
+                .get_config_spec::<ConfigAndPresetElectra>()
+                .await
+                .map(|res| ConfigAndPreset::Electra(res.data))
+        }
+        .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec);
 
         assert_eq!(result, expected);
 
@@ -2539,9 +2855,19 @@ impl ApiTester {
 
         let expected = IdentityData {
             peer_id: self.local_enr.peer_id().to_string(),
-            enr: self.local_enr.clone(),
-            p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
-            discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
+            enr: self.local_enr.to_base64(),
+            p2p_addresses: self
+                .local_enr
+                .multiaddr_p2p_tcp()
+                .iter()
+                .map(|a| a.to_string())
+                .collect(),
+            discovery_addresses: self
+                .local_enr
+                .multiaddr_p2p_udp()
+                .iter()
+                .map(|a| a.to_string())
+                .collect(),
             metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
@@ -2570,7 +2896,7 @@ impl ApiTester {
     pub async fn test_get_node_peers_by_id(self) -> Self {
         let result = self
             .client
-            .get_node_peers_by_id(self.external_peer_id)
+            .get_node_peers_by_id(&self.external_peer_id.to_string())
             .await
             .unwrap()
             .data;
@@ -2743,11 +3069,11 @@ impl ApiTester {
 
         assert_eq!(
             result.justified_checkpoint,
-            expected_proto_array.justified_checkpoint
+            beacon_fork_choice.justified_checkpoint()
         );
         assert_eq!(
             result.finalized_checkpoint,
-            expected_proto_array.finalized_checkpoint
+            beacon_fork_choice.finalized_checkpoint()
         );
 
         let expected_fork_choice_nodes: Vec<ForkChoiceNode> = expected_proto_array
@@ -2774,6 +3100,32 @@ impl ApiTester {
                         .execution_status
                         .block_hash()
                         .map(|block_hash| block_hash.into_root()),
+                    extra_data: ForkChoiceExtraData {
+                        target_root: node.target_root,
+                        justified_root: node.justified_checkpoint.root,
+                        finalized_root: node.finalized_checkpoint.root,
+                        unrealized_justified_root: node
+                            .unrealized_justified_checkpoint
+                            .map(|checkpoint| checkpoint.root),
+                        unrealized_finalized_root: node
+                            .unrealized_finalized_checkpoint
+                            .map(|checkpoint| checkpoint.root),
+                        unrealized_justified_epoch: node
+                            .unrealized_justified_checkpoint
+                            .map(|checkpoint| checkpoint.epoch),
+                        unrealized_finalized_epoch: node
+                            .unrealized_finalized_checkpoint
+                            .map(|checkpoint| checkpoint.epoch),
+                        execution_status: node.execution_status.to_string(),
+                        best_child: node
+                            .best_child
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|child| child.root),
+                        best_descendant: node
+                            .best_descendant
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|descendant| descendant.root),
+                    },
                 }
             })
             .collect();
@@ -3199,7 +3551,7 @@ impl ApiTester {
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
 
             self.client
-                .post_beacon_blocks(&signed_block_contents)
+                .post_beacon_blocks_v2(&signed_block_contents, None)
                 .await
                 .unwrap();
 
@@ -3264,7 +3616,7 @@ impl ApiTester {
                 block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
-                .post_beacon_blocks_ssz(&signed_block_contents)
+                .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
                 .await
                 .unwrap();
 
@@ -3344,7 +3696,7 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None, None)
+                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None, None, None)
                 .await
                 .unwrap();
 
@@ -3382,7 +3734,7 @@ impl ApiTester {
                         block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
                     self.client
-                        .post_beacon_blocks_ssz(&signed_block_contents)
+                        .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
                         .await
                         .unwrap();
 
@@ -3900,10 +4252,10 @@ impl ApiTester {
     pub async fn test_get_validator_aggregate_and_proofs_invalid_v1(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
         match &mut aggregate {
-            SignedAggregateAndProof::Base(ref mut aggregate) => {
+            SignedAggregateAndProof::Base(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
-            SignedAggregateAndProof::Electra(ref mut aggregate) => {
+            SignedAggregateAndProof::Electra(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
@@ -3937,10 +4289,10 @@ impl ApiTester {
     pub async fn test_get_validator_aggregate_and_proofs_invalid_v2(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
         match &mut aggregate {
-            SignedAggregateAndProof::Base(ref mut aggregate) => {
+            SignedAggregateAndProof::Base(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
-            SignedAggregateAndProof::Electra(ref mut aggregate) => {
+            SignedAggregateAndProof::Electra(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
@@ -4192,9 +4544,47 @@ impl ApiTester {
 
         assert_eq!(result, expected);
 
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = head_state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+
         // Attest to the current slot
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -4271,7 +4661,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4298,7 +4688,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(0))
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(0), None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4326,7 +4716,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(u64::MAX))
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(u64::MAX), None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4368,13 +4758,14 @@ impl ApiTester {
 
         // If this cache is empty, it indicates fallback was not used, so the payload came from the
         // mock builder.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
 
         self
     }
@@ -4413,13 +4804,14 @@ impl ApiTester {
         assert_eq!(payload.gas_limit(), builder_limit);
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -4453,13 +4845,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4471,7 +4864,7 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .add_operation(Operation::GasLimit(30_000_000));
+            .add_operation(Operation::GasLimit(DEFAULT_GAS_LIMIT as usize));
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -4480,7 +4873,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4494,7 +4887,7 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 30_000_000);
+        assert_eq!(payload.gas_limit(), DEFAULT_GAS_LIMIT);
 
         self
     }
@@ -4529,13 +4922,14 @@ impl ApiTester {
         assert_eq!(payload.fee_recipient(), test_fee_recipient);
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -4560,7 +4954,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4615,13 +5009,14 @@ impl ApiTester {
         assert_eq!(payload.parent_hash(), expected_parent_hash);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4654,7 +5049,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4707,13 +5102,14 @@ impl ApiTester {
         assert_eq!(payload.prev_randao(), expected_prev_randao);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4744,7 +5140,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4797,13 +5193,14 @@ impl ApiTester {
         assert_eq!(payload.block_number(), expected_block_number);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4834,7 +5231,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4886,13 +5283,14 @@ impl ApiTester {
         assert!(payload.timestamp() > min_expected_timestamp);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4922,7 +5320,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4959,13 +5357,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4982,7 +5381,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5022,13 +5421,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5052,7 +5452,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5098,13 +5498,14 @@ impl ApiTester {
             .into();
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5129,13 +5530,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5165,7 +5567,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5186,7 +5588,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5237,13 +5639,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5278,13 +5681,14 @@ impl ApiTester {
             .into();
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5319,7 +5723,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5350,7 +5754,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5397,13 +5801,14 @@ impl ApiTester {
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5431,7 +5836,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5475,13 +5880,14 @@ impl ApiTester {
             .into();
 
         // The builder's payload should've been chosen, so this cache should not be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5504,7 +5910,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5543,13 +5949,14 @@ impl ApiTester {
             .into();
 
         // The local payload should've been chosen, so this cache should be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5572,7 +5979,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5611,13 +6018,14 @@ impl ApiTester {
             .into();
 
         // The local payload should've been chosen, so this cache should be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5640,7 +6048,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5678,13 +6086,14 @@ impl ApiTester {
             .into();
 
         // The builder's payload should've been chosen, so this cache should not be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5706,7 +6115,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5749,13 +6158,14 @@ impl ApiTester {
             .into();
 
         // The local payload should've been chosen because the builder's was invalid
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         self
     }
 
@@ -5779,7 +6189,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5834,40 +6244,6 @@ impl ApiTester {
             .get_lighthouse_validator_inclusion(epoch, ValidatorId::Index(0))
             .await
             .unwrap();
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_eth1_syncing(self) -> Self {
-        self.client.get_lighthouse_eth1_syncing().await.unwrap();
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_eth1_block_cache(self) -> Self {
-        let blocks = self.client.get_lighthouse_eth1_block_cache().await.unwrap();
-
-        assert!(blocks.data.is_empty());
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_eth1_deposit_cache(self) -> Self {
-        let deposits = self
-            .client
-            .get_lighthouse_eth1_deposit_cache()
-            .await
-            .unwrap();
-
-        assert!(deposits.data.is_empty());
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_staking(self) -> Self {
-        let result = self.client.get_lighthouse_staking().await.unwrap();
-
-        assert_eq!(result, self.chain.eth1_chain.is_some());
 
         self
     }
@@ -5931,9 +6307,47 @@ impl ApiTester {
 
         assert_eq!(result, expected);
 
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = head_state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+
         // Attest to the current slot
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -5988,8 +6402,47 @@ impl ApiTester {
 
         let expected_attestation_len = self.attestations.len();
 
+        let state = self.harness.get_current_state();
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -6023,7 +6476,9 @@ impl ApiTester {
 
         // Produce a BLS to execution change event
         self.client
-            .post_beacon_pool_bls_to_execution_changes(&[self.bls_to_execution_change.clone()])
+            .post_beacon_pool_bls_to_execution_changes(std::slice::from_ref(
+                &self.bls_to_execution_change,
+            ))
             .await
             .unwrap();
 
@@ -6085,7 +6540,7 @@ impl ApiTester {
         });
 
         self.client
-            .post_beacon_blocks(&self.next_block)
+            .post_beacon_blocks_v2(&self.next_block, None)
             .await
             .unwrap();
 
@@ -6130,7 +6585,7 @@ impl ApiTester {
         self.harness.advance_slot();
 
         self.client
-            .post_beacon_blocks(&self.reorg_block)
+            .post_beacon_blocks_v2(&self.reorg_block, None)
             .await
             .unwrap();
 
@@ -6278,9 +6733,9 @@ impl ApiTester {
             .chain
             .spec
             .fork_name_at_slot::<E>(self.chain.slot().unwrap());
-        let attestations = Either::Right(self.single_attestations.clone());
+
         self.client
-            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(self.single_attestations.clone(), fork_name)
             .await
             .unwrap();
 
@@ -6368,7 +6823,7 @@ impl ApiTester {
         });
 
         self.client
-            .post_beacon_blocks(&self.next_block)
+            .post_beacon_blocks_v2(&self.next_block, None)
             .await
             .unwrap();
 
@@ -6438,6 +6893,82 @@ impl ApiTester {
             let api_beacon_block_reward = self.test_get_beacon_rewards_blocks_at_head().await;
             assert_eq!(beacon_block_reward, api_beacon_block_reward);
         }
+        self
+    }
+
+    async fn get_validator_blocks_v3_path_graffiti_policy(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+        let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
+        let builder_boost_factor = None;
+
+        // Default case where GraffitiPolicy is None
+        let default_path = self
+            .client
+            .get_validator_blocks_v3_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                builder_boost_factor,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let query_default_path = default_path.query().unwrap_or("");
+        // When GraffitiPolicy is None, the HTTP API query path should not contain "graffiti_policy"
+        assert!(
+            !query_default_path.contains("graffiti_policy"),
+            "URL should not contain graffiti_policy parameter (same as PreserveUserGraffiti). URL is: {}",
+            query_default_path
+        );
+
+        let preserve_path = self
+            .client
+            .get_validator_blocks_v3_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                builder_boost_factor,
+                Some(GraffitiPolicy::PreserveUserGraffiti),
+            )
+            .await
+            .unwrap();
+
+        let query_preserve_path = preserve_path.query().unwrap_or("");
+        // When GraffitiPolicy is set to PreserveUserGraffiti, the HTTP API query path should not contain "graffiti_policy"
+        assert!(
+            !query_preserve_path.contains("graffiti_policy"),
+            "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
+            query_preserve_path
+        );
+
+        // The HTTP API query path for PreserveUserGraffiti should be the same as the default
+        assert_eq!(query_default_path, query_preserve_path);
+
+        let append_path = self
+            .client
+            .get_validator_blocks_v3_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::No,
+                builder_boost_factor,
+                Some(GraffitiPolicy::AppendClientVersions),
+            )
+            .await
+            .unwrap();
+
+        let query_append_path = append_path.query().unwrap_or("");
+        // When GraffitiPolicy is AppendClientVersions, the HTTP API query path should contain "graffiti_policy"
+        assert!(
+            query_append_path.contains("graffiti_policy"),
+            "URL should contain graffiti_policy=AppendClientVersions parameter. URL is: {}",
+            query_append_path
+        );
         self
     }
 }
@@ -6540,6 +7071,8 @@ async fn beacon_get_state_info() {
         .test_beacon_states_validators()
         .await
         .test_beacon_states_validator_balances()
+        .await
+        .test_beacon_states_validator_identities()
         .await
         .test_beacon_states_committees()
         .await
@@ -6815,6 +7348,8 @@ async fn get_light_client_updates() {
     ApiTester::new_from_config(config)
         .await
         .test_get_beacon_light_client_updates()
+        .await
+        .test_get_beacon_light_client_updates_ssz()
         .await;
 }
 
@@ -7410,10 +7945,7 @@ async fn builder_payload_chosen_by_profit_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7430,10 +7962,7 @@ async fn builder_works_post_capella() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_deneb() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7451,10 +7980,7 @@ async fn builder_works_post_deneb() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blob_sidecars() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7467,6 +7993,56 @@ async fn get_blob_sidecars() {
         .test_get_blob_sidecars(false)
         .await
         .test_get_blob_sidecars(true)
+        .await
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_supernode() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+        node_custody_type: NodeCustodyType::Supernode,
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_beacon_blocks_valid()
+        .await
+        // We can call the same get_blobs function in this test
+        // because the function will call get_blobs_by_versioned_hashes which handles peerDAS post-Fulu
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_full_node() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_beacon_blocks_valid()
+        .await
+        .test_get_blobs_post_fulu_full_node(false)
+        .await
+        .test_get_blobs_post_fulu_full_node(true)
         .await;
 }
 
@@ -7522,14 +8098,6 @@ async fn lighthouse_endpoints() {
         .await
         .test_get_lighthouse_validator_inclusion_global()
         .await
-        .test_get_lighthouse_eth1_syncing()
-        .await
-        .test_get_lighthouse_eth1_block_cache()
-        .await
-        .test_get_lighthouse_eth1_deposit_cache()
-        .await
-        .test_get_lighthouse_staking()
-        .await
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
@@ -7540,7 +8108,7 @@ async fn lighthouse_endpoints() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn optimistic_responses() {
-    ApiTester::new_with_hard_forks(true, true)
+    ApiTester::new_with_hard_forks()
         .await
         .test_check_optimistic_responses()
         .await;
@@ -7602,6 +8170,7 @@ async fn create_signed_inclusion_lists() {
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
     config.spec.deneb_fork_epoch = Some(Epoch::new(0));
     config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
     config.spec.eip7805_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_config(config)
         .await
@@ -7617,9 +8186,17 @@ async fn test_post_validator_duties_inclusion_list() {
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
     config.spec.deneb_fork_epoch = Some(Epoch::new(0));
     config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
     config.spec.eip7805_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_config(config)
         .await
         .test_post_validator_duties_inclusion_list()
+        .await;
+}
+
+async fn get_validator_blocks_v3_http_api_path() {
+    ApiTester::new()
+        .await
+        .get_validator_blocks_v3_path_graffiti_policy()
         .await;
 }

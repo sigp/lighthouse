@@ -1,7 +1,8 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
-use crate::{type_name, FeatureName};
-use derivative::Derivative;
+use crate::{FeatureName, type_name};
+use context_deserialize::ContextDeserialize;
+use educe::Educe;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -21,7 +22,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Fulu]
+        vec![ForkName::Gloas]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -47,6 +48,19 @@ pub trait Handler {
             if self.is_enabled_for_feature(feature_name) {
                 self.run_for_feature(feature_name);
             }
+        }
+    }
+
+    // Do NOT override this function.
+    // TODO: use default keyword when stable.
+    fn rayon_enabled() -> bool {
+        #[cfg(feature = "disable_rayon")]
+        {
+            false
+        }
+        #[cfg(not(feature = "disable_rayon"))]
+        {
+            Self::use_rayon()
         }
     }
 
@@ -79,13 +93,12 @@ pub trait Handler {
             .filter_map(as_directory)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
-
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
                 (path, case)
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+        let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
         let name = format!(
             "{}/{}/{}",
@@ -127,7 +140,7 @@ pub trait Handler {
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+        let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
         let name = format!(
             "{}/{}/{}",
@@ -141,8 +154,8 @@ pub trait Handler {
 
 macro_rules! bls_eth_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
-        #[derive(Derivative)]
-        #[derivative(Default(bound = ""))]
+        #[derive(Educe)]
+        #[educe(Default)]
         pub struct $runner_name;
 
         impl Handler for $runner_name {
@@ -161,8 +174,8 @@ macro_rules! bls_eth_handler {
 
 macro_rules! bls_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
-        #[derive(Derivative)]
-        #[derivative(Default(bound = ""))]
+        #[derive(Educe)]
+        #[educe(Default)]
         pub struct $runner_name;
 
         impl Handler for $runner_name {
@@ -205,7 +218,7 @@ macro_rules! bls_handler {
                     })
                     .collect();
 
-                let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+                let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
                 let name = format!(
                     "{}/{}/{}",
@@ -322,18 +335,42 @@ impl<T, E> SszStaticHandler<T, E> {
 }
 
 /// Handler for SSZ types that implement `CachedTreeHash`.
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
 
 /// Handler for SSZ types that don't implement `ssz::Decode`.
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
-pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
+pub struct SszStaticWithSpecHandler<T, E> {
+    supported_forks: Vec<ForkName>,
+    _phantom: PhantomData<(T, E)>,
+}
+
+impl<T, E> Default for SszStaticWithSpecHandler<T, E> {
+    fn default() -> Self {
+        Self::for_forks(ForkName::list_all())
+    }
+}
+
+impl<T, E> SszStaticWithSpecHandler<T, E> {
+    pub fn for_forks(supported_forks: Vec<ForkName>) -> Self {
+        SszStaticWithSpecHandler {
+            supported_forks,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn fulu_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[6..].to_vec())
+    }
+}
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
-    T: cases::SszStaticType + tree_hash::TreeHash + ssz::Decode + TypeName,
+    T: cases::SszStaticType
+        + for<'de> ContextDeserialize<'de, ForkName>
+        + tree_hash::TreeHash
+        + ssz::Decode
+        + TypeName,
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;
@@ -353,25 +390,6 @@ where
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        // TODO(fulu): to be removed once Fulu types start differing from Electra. We currently run Fulu tests as a
-        // "feature" - this means we use Electra types for Fulu SSZ tests (except for PeerDAS types, e.g. `DataColumnSidecar`).
-        //
-        // This ensures we only run the tests **once** for `Fulu`, using the types matching the
-        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` as of spec test version
-        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Deneb types.
-        //
-        // e.g. Fulu test vectors are executed in the 2nd line below, but excluded in the 1st
-        // line when testing the type `AttestationElectra`:
-        //
-        // ```
-        // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
-        // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
-        // ```
-        feature_name == FeatureName::Fulu
-            && self.supported_forks.contains(&feature_name.fork_name())
-    }
 }
 
 impl<E> Handler for SszStaticTHCHandler<BeaconState<E>, E>
@@ -390,10 +408,6 @@ where
 
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
-    }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
     }
 }
 
@@ -417,13 +431,13 @@ where
         T::name().into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        self.supported_forks.contains(&fork_name)
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct ShufflingHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
@@ -446,8 +460,8 @@ impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SanityBlocksHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
@@ -472,8 +486,8 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SanitySlotsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
@@ -497,8 +511,8 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct RandomHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
@@ -517,8 +531,8 @@ impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct EpochProcessingHandler<E, T>(PhantomData<(E, T)>);
 
 impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHandler<E, T> {
@@ -567,8 +581,8 @@ impl<E: EthSpec + TypeName> Handler for RewardsHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct ForkHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
@@ -587,8 +601,8 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct TransitionHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
@@ -607,8 +621,8 @@ impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct FinalityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
@@ -691,8 +705,8 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct OptimisticSyncHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
@@ -720,8 +734,8 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
@@ -740,8 +754,8 @@ impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct GenesisInitializationHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
@@ -760,8 +774,8 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGBlobToKZGCommitmentHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGBlobToKZGCommitmentHandler<E> {
@@ -780,8 +794,8 @@ impl<E: EthSpec> Handler for KZGBlobToKZGCommitmentHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeBlobKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeBlobKZGProofHandler<E> {
@@ -800,8 +814,8 @@ impl<E: EthSpec> Handler for KZGComputeBlobKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeKZGProofHandler<E> {
@@ -820,8 +834,8 @@ impl<E: EthSpec> Handler for KZGComputeKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyBlobKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofHandler<E> {
@@ -840,8 +854,8 @@ impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyBlobKZGProofBatchHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofBatchHandler<E> {
@@ -860,8 +874,8 @@ impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofBatchHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
@@ -880,8 +894,8 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct GetCustodyGroupsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
@@ -898,14 +912,10 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
     fn handler_name(&self) -> String {
         "get_custody_groups".into()
     }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
-    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct ComputeColumnsForCustodyGroupHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> {
@@ -922,14 +932,30 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
     fn handler_name(&self) -> String {
         "compute_columns_for_custody_group".into()
     }
+}
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+#[derive(Educe)]
+#[educe(Default)]
+pub struct KZGComputeCellsHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
+    type Case = cases::KZGComputeCells<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_cells".into()
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeCellsAndKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
@@ -946,14 +972,10 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
     fn handler_name(&self) -> String {
         "compute_cells_and_kzg_proofs".into()
     }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
-    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyCellKZGProofBatchHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
@@ -970,14 +992,10 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
     fn handler_name(&self) -> String {
         "verify_cell_kzg_proof_batch".into()
     }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
-    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGRecoverCellsAndKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
@@ -994,14 +1012,10 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
     fn handler_name(&self) -> String {
         "recover_cells_and_kzg_proofs".into()
     }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
-    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KzgInclusionMerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E> {
@@ -1022,14 +1036,10 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.deneb_enabled()
     }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
-    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
@@ -1052,8 +1062,8 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct LightClientUpdateHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
@@ -1077,8 +1087,8 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
 
 impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O> {
@@ -1097,8 +1107,8 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SszGenericHandler<H>(PhantomData<H>);
 
 impl<H: TypeName> Handler for SszGenericHandler<H> {

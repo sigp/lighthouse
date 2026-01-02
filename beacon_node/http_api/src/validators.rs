@@ -2,7 +2,7 @@ use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::{
     self as api_types, ExecutionOptimisticFinalizedResponse, ValidatorBalanceData, ValidatorData,
-    ValidatorId, ValidatorStatus,
+    ValidatorId, ValidatorIdentityData, ValidatorStatus,
 };
 use std::{collections::HashSet, sync::Arc};
 
@@ -18,8 +18,18 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
             |state, execution_optimistic, finalized| {
                 let epoch = state.current_epoch();
                 let far_future_epoch = chain.spec.far_future_epoch;
-                let ids_filter_set: Option<HashSet<&ValidatorId>> =
-                    query_ids.as_ref().map(HashSet::from_iter);
+
+                // Map [] to None, indicating that no filtering should be applied (return all
+                // validators).
+                let ids_filter_set: Option<HashSet<&ValidatorId>> = query_ids
+                    .as_ref()
+                    .filter(|list| !list.is_empty())
+                    .map(HashSet::from_iter);
+
+                let statuses_filter_set: Option<HashSet<&ValidatorStatus>> = query_statuses
+                    .as_ref()
+                    .filter(|list| !list.is_empty())
+                    .map(HashSet::from_iter);
 
                 Ok((
                     state
@@ -42,10 +52,11 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                                 far_future_epoch,
                             );
 
-                            let status_matches = query_statuses.as_ref().is_none_or(|statuses| {
-                                statuses.contains(&status)
-                                    || statuses.contains(&status.superstatus())
-                            });
+                            let status_matches =
+                                statuses_filter_set.as_ref().is_none_or(|statuses| {
+                                    statuses.contains(&status)
+                                        || statuses.contains(&status.superstatus())
+                                });
 
                             if status_matches {
                                 Some(ValidatorData {
@@ -105,6 +116,54 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                         .map(|(index, (_, balance))| ValidatorBalanceData {
                             index: index as u64,
                             balance: *balance,
+                        })
+                        .collect::<Vec<_>>(),
+                    execution_optimistic,
+                    finalized,
+                ))
+            },
+        )?;
+
+    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+        data,
+        execution_optimistic: Some(execution_optimistic),
+        finalized: Some(finalized),
+    })
+}
+
+pub fn get_beacon_state_validator_identities<T: BeaconChainTypes>(
+    state_id: StateId,
+    chain: Arc<BeaconChain<T>>,
+    optional_ids: Option<&[ValidatorId]>,
+) -> Result<ExecutionOptimisticFinalizedResponse<Vec<ValidatorIdentityData>>, warp::Rejection> {
+    let (data, execution_optimistic, finalized) = state_id
+        .map_state_and_execution_optimistic_and_finalized(
+            &chain,
+            |state, execution_optimistic, finalized| {
+                let ids_filter_set: Option<HashSet<&ValidatorId>> = match optional_ids {
+                    // Same logic as validator_balances endpoint above
+                    Some([]) => None,
+                    Some(ids) => Some(HashSet::from_iter(ids.iter())),
+                    None => None,
+                };
+
+                Ok((
+                    // From the BeaconState, extract the Validator data and convert it into ValidatorIdentityData type
+                    state
+                        .validators()
+                        .iter()
+                        .enumerate()
+                        // filter by validator id(s) if provided
+                        .filter(|(index, validator)| {
+                            ids_filter_set.as_ref().is_none_or(|ids_set| {
+                                ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
+                                    || ids_set.contains(&ValidatorId::Index(*index as u64))
+                            })
+                        })
+                        .map(|(index, validator)| ValidatorIdentityData {
+                            index: index as u64,
+                            pubkey: validator.pubkey,
+                            activation_epoch: validator.activation_epoch,
                         })
                         .collect::<Vec<_>>(),
                     execution_optimistic,

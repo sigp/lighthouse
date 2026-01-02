@@ -1,13 +1,14 @@
 use crate::{
     test_utils::{
-        MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
+        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, MockServer,
     },
     *,
 };
 use alloy_primitives::B256 as H256;
+use fixed_bytes::FixedBytesExtended;
 use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::{FixedBytesExtended, MainnetEthSpec};
+use types::MainnetEthSpec;
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
@@ -30,6 +31,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             Arc::new(spec),
             None,
@@ -45,6 +47,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         prague_time: Option<u64>,
         eip7805_time: Option<u64>,
         osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
@@ -63,7 +66,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             prague_time,
             eip7805_time,
             osaka_time,
-            spec.clone(),
+            amsterdam_time,
             kzg,
         );
 
@@ -171,10 +174,11 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         assert_eq!(payload.prev_randao(), prev_randao);
 
         // Ensure the payload cache is empty.
-        assert!(self
-            .el
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.el
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),
             slot,

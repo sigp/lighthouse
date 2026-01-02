@@ -577,13 +577,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz_types::BitList;
-    use store::BitVector;
+    use fixed_bytes::FixedBytesExtended;
+    use ssz_types::{BitList, BitVector};
     use tree_hash::TreeHash;
     use types::{
+        Attestation, AttestationBase, AttestationElectra, Fork, Hash256, SyncCommitteeMessage,
         test_utils::{generate_deterministic_keypair, test_random_instance},
-        Attestation, AttestationBase, AttestationElectra, FixedBytesExtended, Fork, Hash256,
-        SyncCommitteeMessage,
     };
 
     type E = types::MainnetEthSpec;
@@ -647,11 +646,11 @@ mod tests {
 
     fn unset_attestation_bit(a: &mut Attestation<E>, i: usize) {
         match a {
-            Attestation::Base(ref mut att) => att
+            Attestation::Base(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),
-            Attestation::Electra(ref mut att) => att
+            Attestation::Electra(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),

@@ -5,8 +5,9 @@ use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
-    upgrade_to_eip7805, upgrade_to_fulu,
+    upgrade_to_eip7805, upgrade_to_fulu, upgrade_to_gloas,
 };
+use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -167,9 +168,24 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         state.fork_mut().previous_version = spec.fulu_fork_version;
 
         // Override latest execution payload header.
-        if let Some(ExecutionPayloadHeader::Fulu(header)) = execution_payload_header {
+        if let Some(ExecutionPayloadHeader::Fulu(ref header)) = execution_payload_header {
             *state.latest_execution_payload_header_fulu_mut()? = header.clone();
         }
+    }
+
+    // Upgrade to gloas if configured from genesis.
+    if spec
+        .gloas_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_gloas(&mut state, spec)?;
+
+        // Remove intermediate Fulu fork from `state.fork`.
+        state.fork_mut().previous_version = spec.gloas_fork_version;
+
+        // Override latest execution payload header.
+        // Here's where we *would* clone the header but there is no header here so..
+        // TODO(EIP7732): check this
     }
 
     // Now that we have our validators, initialize the caches (including the committees)

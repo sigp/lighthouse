@@ -1,7 +1,7 @@
 use super::*;
 use state_processing::{
-    per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
-    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    per_block_processing, per_block_processing::errors::ExitInvalid,
 };
 use types::{BeaconBlock, Epoch};
 

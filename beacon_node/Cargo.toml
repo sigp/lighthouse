@@ -1,6 +1,6 @@
 [package]
 name = "beacon_node"
-version = "7.1.0-beta.0"
+version = { workspace = true }
 authors = [
     "Paul Hauner <paul@paulhauner.com>",
     "Age Manning <Age@AgeManning.com",
@@ -11,17 +11,16 @@ edition = { workspace = true }
 name = "beacon_node"
 path = "src/lib.rs"
 
-[dev-dependencies]
-node_test_rig = { path = "../testing/node_test_rig" }
-
 [features]
 write_ssz_files = [
     "beacon_chain/write_ssz_files",
 ] # Writes debugging .ssz files to /tmp during block processing.
+testing = [] # Enables testing-only CLI flags
 
 [dependencies]
 account_utils = { workspace = true }
 beacon_chain = { workspace = true }
+bls = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
 client = { path = "client" }
@@ -36,6 +35,7 @@ http_api = { workspace = true }
 hyper = { workspace = true }
 lighthouse_network = { workspace = true }
 monitoring_api = { workspace = true }
+network_utils = { workspace = true }
 sensitive_url = { workspace = true }
 serde_json = { workspace = true }
 slasher = { workspace = true }
@@ -44,4 +44,6 @@ strum = { workspace = true }
 task_executor = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
-unused_port = { workspace = true }
+
+[dev-dependencies]
+node_test_rig = { path = "../testing/node_test_rig" }

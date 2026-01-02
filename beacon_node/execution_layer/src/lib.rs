@@ -7,28 +7,29 @@
 use crate::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
-use auth::{strip_prefix, Auth, JwtKey};
+use auth::{Auth, JwtKey, strip_prefix};
 pub use block_hash::calculate_execution_block_hash;
+use bls::{PublicKeyBytes, Signature};
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
-pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
+pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
 use eth2::types::{BlobsBundle, FullPayloadContents};
-use ethers_core::types::Transaction as EthersTransaction;
+use eth2::types::{ForkVersionedResponse, builder_bid::SignedBuilderBid};
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
 use lru::LruCache;
-use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
+use payload_status::process_payload_status;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
-use std::collections::{hash_map::Entry, HashMap};
+use ssz_types::VariableList;
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
@@ -43,7 +44,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
@@ -56,7 +57,7 @@ use types::{
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadEip7805, ExecutionPayloadElectra,
-    ExecutionPayloadFulu, FullPayload, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
+    ExecutionPayloadFulu, FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -136,8 +137,7 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                // TODO(fulu): update this with builder api returning the requests
-                requests: None,
+                requests: Some(builder_bid.execution_requests),
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -172,6 +172,7 @@ pub enum Error {
     InvalidPayloadBody(String),
     InvalidPayloadConversion,
     InvalidBlobConversion(String),
+    SszTypesError(ssz_types::Error),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
     VerifyingVersionedHashes(versioned_hashes::Error),
@@ -376,11 +377,11 @@ impl ProposerPreparationDataEntry {
         // Update `gas_limit` if `updated.gas_limit` is `Some` and:
         // - `self.gas_limit` is `None`, or
         // - both are `Some` but the values differ.
-        if let Some(updated_gas_limit) = updated.gas_limit {
-            if self.gas_limit != Some(updated_gas_limit) {
-                self.gas_limit = Some(updated_gas_limit);
-                changed = true;
-            }
+        if let Some(updated_gas_limit) = updated.gas_limit
+            && self.gas_limit != Some(updated_gas_limit)
+        {
+            self.gas_limit = Some(updated_gas_limit);
+            changed = true;
         }
 
         // Update `update_epoch` if it differs
@@ -431,6 +432,11 @@ pub enum FailedCondition {
     Skips,
     SkipsPerEpoch,
     EpochsSinceFinalization,
+}
+
+pub enum SubmitBlindedBlockResponse<E: EthSpec> {
+    V1(Box<FullPayloadContents<E>>),
+    V2,
 }
 
 type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
@@ -757,18 +763,18 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Returns the `Self::is_synced` response if unable to get latest block.
     pub async fn is_synced_for_notifier(&self, current_slot: Slot) -> bool {
         let synced = self.is_synced().await;
-        if synced {
-            if let Ok(Some(block)) = self
+        if synced
+            && let Ok(Some(block)) = self
                 .engine()
                 .api
                 .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
                 .await
-            {
-                if block.block_number == 0 && current_slot > 0 {
-                    return false;
-                }
-            }
+            && block.block_number == 0
+            && current_slot > 0
+        {
+            return false;
         }
+
         synced
     }
 
@@ -861,6 +867,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Returns the fee-recipient address that should be used to build a block
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
         if let Some(preparation_data_entry) =
             self.proposer_preparation_data().await.get(&proposer_index)
@@ -885,6 +892,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_proposer_gas_limit(&self, proposer_index: u64) -> Option<u64> {
         self.proposer_preparation_data()
             .await
@@ -901,6 +909,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_payload(
         &self,
         payload_parameters: PayloadParameters<'_>,
@@ -1006,6 +1015,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
                 builder
                     .get_builder_header::<E>(slot, parent_hash, pubkey)
+                    .instrument(debug_span!("get_builder_header"))
                     .await
             }),
             timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
@@ -1247,6 +1257,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn get_full_payload_with(
         &self,
         payload_parameters: PayloadParameters<'_>,
@@ -1366,6 +1377,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
+    /// TODO(EIP-7732) figure out how and why Mark relaxed new_payload_request param's typ to NewPayloadRequest<E>
     pub async fn notify_new_payload(
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
@@ -1497,17 +1509,17 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
-        if let Some(ref payload_attributes) = payload_attributes {
-            if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                let timestamp = Duration::from_secs(payload_attributes.timestamp());
-                if let Some(lookahead) = timestamp.checked_sub(now) {
-                    metrics::observe_duration(
-                        &metrics::EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD,
-                        lookahead,
-                    );
-                } else {
-                    debug!(?timestamp, ?now, "Late payload attributes")
-                }
+        if let Some(ref payload_attributes) = payload_attributes
+            && let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH)
+        {
+            let timestamp = Duration::from_secs(payload_attributes.timestamp());
+            if let Some(lookahead) = timestamp.checked_sub(now) {
+                metrics::observe_duration(
+                    &metrics::EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD,
+                    lookahead,
+                );
+            } else {
+                debug!(?timestamp, ?now, "Late payload attributes")
             }
         }
 
@@ -1577,10 +1589,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         age_limit: Option<Duration>,
     ) -> Result<Vec<ClientVersionV1>, Error> {
-        self.engine()
+        let versions = self
+            .engine()
             .request(|engine| engine.get_engine_version(age_limit))
             .await
-            .map_err(Into::into)
+            .map_err(Into::<Error>::into)?;
+        metrics::expose_execution_layer_info(&versions);
+
+        Ok(versions)
     }
 
     /// Used during block production to determine if the merge has been triggered.
@@ -1731,14 +1747,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         self.engine()
             .request(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
-                    if let Some(pow_parent) =
+                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await?
+                    && let Some(pow_parent) =
                         self.get_pow_block(engine, pow_block.parent_hash).await?
-                    {
-                        return Ok(Some(
-                            self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
-                        ));
-                    }
+                {
+                    return Ok(Some(
+                        self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
+                    ));
                 }
                 Ok(None)
             })
@@ -1839,6 +1854,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
+                ForkName::Gloas => {
+                    return Err(Error::InvalidForkForPayload);
+                }
             };
             return Ok(Some(payload));
         }
@@ -1884,7 +1902,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_blobs_v2(
         &self,
         query: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+    ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_blobs_v2 {
@@ -1913,9 +1931,35 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         block_root: Hash256,
         block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<FullPayloadContents<E>, Error> {
+        spec: &ChainSpec,
+    ) -> Result<SubmitBlindedBlockResponse<E>, Error> {
         debug!(?block_root, "Sending block to builder");
+        if spec.is_fulu_scheduled() {
+            let resp = self
+                .post_builder_blinded_blocks_v2(block_root, block)
+                .await
+                .map(|()| SubmitBlindedBlockResponse::V2);
+            // Fallback to v1 if v2 fails because the relay doesn't support it.
+            // Note: we should remove the fallback post fulu when all relays have support for v2.
+            if resp.is_err() {
+                self.post_builder_blinded_blocks_v1(block_root, block)
+                    .await
+                    .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
+            } else {
+                resp
+            }
+        } else {
+            self.post_builder_blinded_blocks_v1(block_root, block)
+                .await
+                .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
+        }
+    }
 
+    async fn post_builder_blinded_blocks_v1(
+        &self,
+        block_root: Hash256,
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<FullPayloadContents<E>, Error> {
         if let Some(builder) = self.builder() {
             let (payload_result, duration) =
                 timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
@@ -1923,16 +1967,16 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     debug!(
                         ?block_root,
                         ssz = ssz_enabled,
-                        "Calling submit_blinded_block on builder"
+                        "Calling submit_blinded_block v1 on builder"
                     );
                     if ssz_enabled {
                         builder
-                            .post_builder_blinded_blocks_ssz(block)
+                            .post_builder_blinded_blocks_v1_ssz(block)
                             .await
                             .map_err(Error::Builder)
                     } else {
                         builder
-                            .post_builder_blinded_blocks(block)
+                            .post_builder_blinded_blocks_v1(block)
                             .await
                             .map_err(Error::Builder)
                             .map(|d| d.data)
@@ -1994,14 +2038,75 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         let Some(raw_transactions) = raw_transactions else {
             debug!(%parent_hash, "The EL sent an empty inclusion list");
-            return Ok(transactions.into());
+            return Ok(transactions.try_into()?);
         };
         for raw_tx in raw_transactions {
             let decoded_hex_tx =
                 VariableList::new(hex::decode(raw_tx.strip_prefix("0x").unwrap_or(&raw_tx))?)?;
             transactions.push(decoded_hex_tx);
         }
-        Ok(transactions.into())
+        Ok(transactions.try_into()?)
+    }
+
+    async fn post_builder_blinded_blocks_v2(
+        &self,
+        block_root: Hash256,
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<(), Error> {
+        if let Some(builder) = self.builder() {
+            let (result, duration) = timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
+                let ssz_enabled = builder.is_ssz_available();
+                debug!(
+                    ?block_root,
+                    ssz = ssz_enabled,
+                    "Calling submit_blinded_block v2 on builder"
+                );
+                if ssz_enabled {
+                    builder
+                        .post_builder_blinded_blocks_v2_ssz(block)
+                        .await
+                        .map_err(Error::Builder)
+                } else {
+                    builder
+                        .post_builder_blinded_blocks_v2(block)
+                        .await
+                        .map_err(Error::Builder)
+                }
+            })
+            .await;
+
+            match result {
+                Ok(()) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::SUCCESS],
+                    );
+                    info!(
+                        relay_response_ms = duration.as_millis(),
+                        ?block_root,
+                        "Successfully submitted blinded block to the builder"
+                    );
+
+                    Ok(())
+                }
+                Err(e) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::FAILURE],
+                    );
+                    error!(
+                        info = "this may result in a missed block proposal",
+                        error = ?e,
+                        relay_response_ms = duration.as_millis(),
+                        ?block_root,
+                        "Failed to submit blinded block to the builder"
+                    );
+                    Err(e)
+                }
+            }
+        } else {
+            Err(Error::NoPayloadBuilder)
+        }
     }
 }
 
@@ -2040,6 +2145,7 @@ enum InvalidBuilderPayload {
         payload: u64,
         expected: u64,
     },
+    SszTypesError(ssz_types::Error),
 }
 
 impl fmt::Display for InvalidBuilderPayload {
@@ -2081,6 +2187,7 @@ impl fmt::Display for InvalidBuilderPayload {
             InvalidBuilderPayload::GasLimitMismatch { payload, expected } => {
                 write!(f, "payload gas limit was {} not {}", payload, expected)
             }
+            Self::SszTypesError(e) => write!(f, "{:?}", e),
         }
     }
 }
@@ -2136,7 +2243,13 @@ fn verify_builder_bid<E: EthSpec>(
         .withdrawals()
         .ok()
         .cloned()
-        .map(|withdrawals| Withdrawals::<E>::from(withdrawals).tree_hash_root());
+        .map(|withdrawals| {
+            Withdrawals::<E>::try_from(withdrawals)
+                .map_err(InvalidBuilderPayload::SszTypesError)
+                .map(|w| w.tree_hash_root())
+        })
+        .transpose()?;
+
     let payload_withdrawals_root = header.withdrawals_root().ok();
     let expected_gas_limit = proposer_gas_limit
         .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));
@@ -2263,12 +2376,13 @@ mod test {
         let (mock, block_hash) = MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .produce_forked_pow_block();
-        assert!(mock
-            .el
-            .is_valid_terminal_pow_block_hash(block_hash, &mock.spec)
-            .await
-            .unwrap()
-            .unwrap());
+        assert!(
+            mock.el
+                .is_valid_terminal_pow_block_hash(block_hash, &mock.spec)
+                .await
+                .unwrap()
+                .unwrap()
+        );
     }
 
     #[tokio::test]

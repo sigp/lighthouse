@@ -1,9 +1,10 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::{metrics, BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
+use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
-    signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
+    signature_sets::{Error as SignatureSetError, block_proposal_signature_set_from_parts},
 };
 use std::borrow::Cow;
 use std::iter;
@@ -11,8 +12,8 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
-use tracing::debug;
-use types::{FixedBytesExtended, Hash256, Slot};
+use tracing::{debug, instrument};
+use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -34,6 +35,8 @@ pub enum HistoricalBlockError {
     ValidatorPubkeyCacheTimeout,
     /// Logic error: should never occur.
     IndexOutOfBounds,
+    /// Logic error: should never occur.
+    MissingOldestBlockRoot { slot: Slot },
     /// Internal store error
     StoreError(StoreError),
 }
@@ -56,13 +59,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `SignatureSetError` or `InvalidSignature` will be returned.
     ///
     /// To align with sync we allow some excess blocks with slots greater than or equal to
-    /// `oldest_block_slot` to be provided. They will be ignored without being checked.
+    /// `oldest_block_slot` to be provided. They will be re-imported to fill the columns of the
+    /// checkpoint sync block.
     ///
     /// This function should not be called concurrently with any other function that mutates
     /// the anchor info (including this function itself). If a concurrent mutation occurs that
     /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
     ///
     /// Return the number of blocks successfully imported.
+    #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
@@ -71,9 +76,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
 
-        // Take all blocks with slots less than the oldest block slot.
+        // Take all blocks with slots less than or equal to the oldest block slot.
+        //
+        // This allows for reimport of the blobs/columns for the finalized block after checkpoint
+        // sync.
         let num_relevant = blocks.partition_point(|available_block| {
-            available_block.block().slot() < anchor_info.oldest_block_slot
+            available_block.block().slot() <= anchor_info.oldest_block_slot
         });
 
         let total_blocks = blocks.len();
@@ -94,6 +102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
+        let mut last_block_root = expected_block_root;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
@@ -106,7 +115,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for available_block in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
 
-            if block_root != expected_block_root {
+            if block.slot() == anchor_info.oldest_block_slot {
+                // When reimporting, verify that this is actually the same block (same block root).
+                let oldest_block_root = self
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
+                    .ok()
+                    .flatten()
+                    .ok_or(HistoricalBlockError::MissingOldestBlockRoot { slot: block.slot() })?;
+                if block_root != oldest_block_root {
+                    return Err(HistoricalBlockError::MismatchedBlockRoot {
+                        block_root,
+                        expected_block_root: oldest_block_root,
+                    });
+                }
+
+                debug!(
+                    ?block_root,
+                    slot = %block.slot(),
+                    "Re-importing historic block"
+                );
+                last_block_root = block_root;
+            } else if block_root != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
                     block_root,
                     expected_block_root,
@@ -139,7 +168,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store the blobs or data columns too
             if let Some(op) = self
-                .get_blobs_or_columns_store_op(block_root, block_data)
+                .get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
                 .map_err(|e| {
                     HistoricalBlockError::StoreError(StoreError::DBError {
                         message: format!("get_blobs_or_columns_store_op error {e:?}"),
@@ -151,6 +180,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
+                debug!(%slot, ?block_root, "Storing frozen block to root mapping");
                 cold_batch.push(KeyValueStoreOp::PutKeyValue(
                     DBColumn::BeaconBlockRoots,
                     slot.to_be_bytes().to_vec(),
@@ -196,11 +226,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?
             .iter()
             .map(|block| block.parent_root())
-            .chain(iter::once(anchor_info.oldest_block_parent));
+            .chain(iter::once(last_block_root));
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
-            .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
+            .filter(|&(_block, block_root)| block_root != self.genesis_block_root)
             .map(|(block, block_root)| {
                 block_proposal_signature_set_from_parts(
                     block,
@@ -235,30 +265,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut anchor_and_blob_batch = Vec::with_capacity(3);
 
         // Update the blob info.
-        if new_oldest_blob_slot != blob_info.oldest_blob_slot {
-            if let Some(oldest_blob_slot) = new_oldest_blob_slot {
-                let new_blob_info = BlobInfo {
-                    oldest_blob_slot: Some(oldest_blob_slot),
-                    ..blob_info.clone()
-                };
-                anchor_and_blob_batch.push(
-                    self.store
-                        .compare_and_set_blob_info(blob_info, new_blob_info)?,
-                );
-            }
+        if new_oldest_blob_slot != blob_info.oldest_blob_slot
+            && let Some(oldest_blob_slot) = new_oldest_blob_slot
+        {
+            let new_blob_info = BlobInfo {
+                oldest_blob_slot: Some(oldest_blob_slot),
+                ..blob_info.clone()
+            };
+            anchor_and_blob_batch.push(
+                self.store
+                    .compare_and_set_blob_info(blob_info, new_blob_info)?,
+            );
         }
 
         // Update the data column info.
-        if new_oldest_data_column_slot != data_column_info.oldest_data_column_slot {
-            if let Some(oldest_data_column_slot) = new_oldest_data_column_slot {
-                let new_data_column_info = DataColumnInfo {
-                    oldest_data_column_slot: Some(oldest_data_column_slot),
-                };
-                anchor_and_blob_batch.push(
-                    self.store
-                        .compare_and_set_data_column_info(data_column_info, new_data_column_info)?,
-                );
-            }
+        if new_oldest_data_column_slot != data_column_info.oldest_data_column_slot
+            && let Some(oldest_data_column_slot) = new_oldest_data_column_slot
+        {
+            let new_data_column_info = DataColumnInfo {
+                oldest_data_column_slot: Some(oldest_data_column_slot),
+            };
+            anchor_and_blob_batch.push(
+                self.store
+                    .compare_and_set_data_column_info(data_column_info, new_data_column_info)?,
+            );
         }
 
         // Update the anchor.

@@ -6,11 +6,9 @@ use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, trace, warn};
-use types::{
-    inclusion_list, ChainSpec, EthSpec, InclusionList, InclusionListDuty, Slot, VariableList,
-};
+use types::{ChainSpec, EthSpec, InclusionList, InclusionListDuty, Slot, Transactions};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -281,11 +279,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
             }
         }
 
+        let transactions: Transactions<S::E> = trimmed_il
+            .clone()
+            .try_into()
+            .map_err(|_| "Failed to create inclusion list".to_string())?;
+
         // Create futures to produce signed `InclusionList` objects.
         let signing_futures = validator_duties.iter().map(|duty| {
             let inclusion_list = InclusionList {
                 slot,
-                transactions: trimmed_il.clone().into(),
+                transactions: transactions.clone(),
                 inclusion_list_committee_root: duty.committee_root,
                 validator_index: duty.validator_index,
             };

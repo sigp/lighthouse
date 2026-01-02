@@ -1,21 +1,18 @@
-use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
-use crate::hot_cold_store::HotColdDBError;
-use crate::{hdiff, DBColumn};
+use crate::hot_cold_store::{HotColdDBError, StateSummaryIteratorError};
+use crate::{DBColumn, hdiff};
 #[cfg(feature = "leveldb")]
 use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
     SszDecodeError(DecodeError),
-    VectorChunkError(ChunkError),
     BeaconStateError(BeaconStateError),
-    PartialBeaconStateError,
     HotColdDBError(HotColdDBError),
     DBError {
         message: String,
@@ -26,6 +23,9 @@ pub enum Error {
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
     MigrationError(String),
+    /// The store's `anchor_info` is still the default uninitialized value when attempting a state
+    /// write
+    AnchorUninitialized,
     /// The store's `anchor_info` was mutated concurrently, the latest modification wasn't applied.
     AnchorInfoConcurrentMutation,
     /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.
@@ -47,11 +47,16 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    MissingState(Hash256),
+    MissingHotStateSummary(Hash256),
+    MissingHotStateSnapshot(Hash256, Slot),
     MissingGenesisState,
     MissingSnapshot(Slot),
+    LoadingHotHdiffBufferError(String, Hash256, Box<Error>),
+    LoadingHotStateError(String, Hash256, Box<Error>),
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
-    InvalidKey,
+    InvalidKey(String),
     InvalidBytes,
     InconsistentFork(InconsistentFork),
     #[cfg(feature = "leveldb")]
@@ -61,6 +66,7 @@ pub enum Error {
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
     MilhouseError(milhouse::Error),
+    SszTypesError(ssz_types::Error),
     Compression(std::io::Error),
     FinalizedStateDecreasingSlot,
     FinalizedStateUnaligned,
@@ -75,6 +81,26 @@ pub enum Error {
     MissingBlock(Hash256),
     GenesisStateUnknown,
     ArithError(safe_arith::ArithError),
+    MismatchedDiffBaseState {
+        expected_slot: Slot,
+        stored_slot: Slot,
+    },
+    SnapshotDiffBaseState {
+        slot: Slot,
+    },
+    LoadAnchorInfo(Box<Error>),
+    LoadSplit(Box<Error>),
+    LoadBlobInfo(Box<Error>),
+    LoadDataColumnInfo(Box<Error>),
+    LoadConfig(Box<Error>),
+    LoadHotStateSummary(Hash256, Box<Error>),
+    LoadHotStateSummaryForSplit(Box<Error>),
+    StateSummaryIteratorError {
+        error: StateSummaryIteratorError,
+        from_state_root: Hash256,
+        from_state_slot: Slot,
+        target_slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {
@@ -94,12 +120,6 @@ impl<T> HandleUnavailable<T> for Result<T> {
 impl From<DecodeError> for Error {
     fn from(e: DecodeError) -> Error {
         Error::SszDecodeError(e)
-    }
-}
-
-impl From<ChunkError> for Error {
-    fn from(e: ChunkError) -> Error {
-        Error::VectorChunkError(e)
     }
 }
 
@@ -130,6 +150,12 @@ impl From<StoreConfigError> for Error {
 impl From<milhouse::Error> for Error {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Self::SszTypesError(e)
     }
 }
 

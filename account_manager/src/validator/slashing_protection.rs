@@ -1,13 +1,14 @@
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use environment::Environment;
 use slashing_protection::{
-    interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
-    SLASHING_PROTECTION_FILENAME,
+    InterchangeError, InterchangeImportOutcome, SLASHING_PROTECTION_FILENAME, SlashingDatabase,
+    interchange::Interchange,
 };
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Slot};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -90,7 +91,7 @@ pub fn cli_run<E: EthSpec>(
             let slashing_protection_database =
                 SlashingDatabase::open_or_create(&slashing_protection_db_path).map_err(|e| {
                     format!(
-                        "Unable to open database at {}: {:?}",
+                        "Unable to open slashing protection database at {}: {:?}",
                         slashing_protection_db_path.display(),
                         e
                     )
@@ -198,7 +199,7 @@ pub fn cli_run<E: EthSpec>(
             let slashing_protection_database = SlashingDatabase::open(&slashing_protection_db_path)
                 .map_err(|e| {
                     format!(
-                        "Unable to open database at {}: {:?}",
+                        "Unable to open slashing protection database at {}: {:?}",
                         slashing_protection_db_path.display(),
                         e
                     )

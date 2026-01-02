@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::{
-    validator_monitor::{get_slot_delay_ms, timestamp_now},
     BeaconChain, BeaconChainError, BeaconChainTypes,
+    validator_monitor::{get_slot_delay_ms, timestamp_now},
 };
 
 use slot_clock::SlotClock;
@@ -119,7 +119,7 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             return Err(GossipInclusionListError::InvalidSignature);
         }
 
-        if chain.inclusion_list_seen(&signed_il) {
+        if chain.inclusion_list_seen(signed_il) {
             return Err(GossipInclusionListError::PriorInclusionListKnown);
         }
 

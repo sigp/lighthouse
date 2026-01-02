@@ -2,7 +2,6 @@
 
 ## [Beacon Node](#beacon-node-1)
 
-- [I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?](#bn-deposit-contract)
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#bn-ee)
 - [I see beacon logs showing `Error during execution engine upcheck`, what should I do?](#bn-upcheck)
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#bn-download-historical)
@@ -14,6 +13,7 @@
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
 - [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
 - [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?](#bn-deposit-cache)
+- [How can I construct only partial state history?](#bn-partial-history)
 
 ## [Validator](#validator-1)
 
@@ -49,31 +49,6 @@
 - [My hard disk is full and my validator is down. What should I do?](#misc-full)
 
 ## Beacon Node
-
-### <a name="bn-deposit-contract"></a> I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?
-
-The error can be a warning:
-
-```text
-Nov 30 21:04:28.268 WARN Syncing deposit contract block cache   est_blocks_remaining: initializing deposits, service: slot_notifier
-```
-
-or an error:
-
-```text
-ERRO Error updating deposit contract cache   error: Failed to get remote head and new block ranges: EndpointError(FarBehind), retry_millis: 60000, service: deposit_contract_rpc
-```
-
-This log indicates that your beacon node is downloading blocks and deposits
-from your execution node. When the `est_blocks_remaining` is
-`initializing_deposits`, your node is downloading deposit logs. It may stay in
-this stage for several minutes. Once the deposits logs are finished
-downloading, the `est_blocks_remaining` value will start decreasing.
-
-It is perfectly normal to see this log when starting a node for the first time
-or after being off for more than several minutes.
-
-If this log continues appearing during operation, it means your execution client is still syncing and it cannot provide Lighthouse the information about the deposit contract yet. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
 
 ### <a name="bn-ee"></a> I see beacon logs showing `WARN: Execution engine called failed`, what should I do?
 
@@ -190,6 +165,40 @@ If the node is syncing or downloading historical blocks, the error should disapp
 
 This is a known [bug](https://github.com/sigp/lighthouse/issues/3707) that will fix by itself.
 
+### <a name="bn-partial-history"></a> How can I construct only partial state history?
+
+Lighthouse prunes finalized states by default. Nevertheless, it is quite often that users may be interested in the state history of a few epochs before finalization. To have access to these pruned states, Lighthouse typically requires a full reconstruction of states using the flag `--reconstruct-historic-states` (which will usually take a week). Partial state history can be achieved with some "tricks". Here are the general steps:
+
+  1. Delete the current database. You can do so with `--purge-db-force` or manually deleting the database from the data directory: `$datadir/beacon`.
+
+  1. If you are interested in the states from the current slot and beyond, perform a checkpoint sync with the flag `--reconstruct-historic-states`, then you can skip the following and jump straight to Step 5 to check the database.
+
+      If you are interested in the states before the current slot, identify the slot to perform a manual checkpoint sync. With the default configuration, this slot should be divisible by 2<sup>21</sup>, as this is where a full state snapshot is stored. With the flag `--reconstruct-historic-states`, the state upper limit will be adjusted to the next full snapshot slot, a slot that satisfies: `slot % 2**21 == 0`. In other words, to have the state history available before the current slot, we have to checkpoint sync 2<sup>21</sup> slots before the next full snapshot slot.
+
+      Example: Say the current mainnet is at slot `12000000`. As the next full state snapshot is at slot `12582912`, the slot that we want is slot `10485760`. You can calculate this (in Python) using `12000000 // 2**21 * 2**21`.
+
+  1. [Export](./advanced_checkpoint_sync.md#manual-checkpoint-sync) the blobs, block and state data for the slot identified in Step 2. This can be done from another beacon node that you have access to, or you could use any available public beacon API, e.g., [QuickNode](https://www.quicknode.com/docs/ethereum).
+
+  1. Perform a [manual checkpoint sync](./advanced_checkpoint_sync.md#manual-checkpoint-sync) using the data from the previous step, and provide the flag `--reconstruct-historic-states`.
+
+  1. Check the database:
+
+  ```bash
+  curl "http://localhost:5052/lighthouse/database/info" | jq '.anchor'
+  ```
+
+  and look for the field `state_upper_limit`. It should show the slot of the snapshot:
+
+  ```json
+  "state_upper_limit": "10485760",
+  ```
+
+Lighthouse will now start to reconstruct historic states from slot `10485760`. At this point, if you do not want a full state reconstruction, you may remove the flag `--reconstruct-historic-states` (and restart). When the process is completed, you will have the state data from slot `10485760`. Going forward, Lighthouse will continue retaining all historical states newer than the snapshot. Eventually this can lead to increased disk usage, which presently can only be reduced by repeating the process starting from a more recent snapshot.
+
+> Note: You may only be interested in very recent historic states. To do so, you may configure the full snapshot to be, for example, every 2<sup>11</sup> slots, see [database configuration](./advanced_database.md#hierarchical-state-diffs) for more details. This can be configured with the flag `--hierarchy-exponents 5,7,11` together with the flag `--reconstruct-historic-states`. This will affect the slot number in Step 2, while other steps remain the same. Note that this comes at the expense of a higher storage requirement.
+
+> With `--hierarchy-exponents 5,7,11`, using the same example as above, the next full state snapshot is at slot `12001280`. So the slot to checkpoint sync from is: slot `11999232`.
+
 ## Validator
 
 ### <a name="vc-redundancy"></a> Can I use redundancy in my staking setup?
@@ -209,7 +218,7 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
+You can see more information on the [EthStaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
 
 Another cause for missing attestations is the block arriving late, or there are delays during block processing.
 
@@ -300,7 +309,7 @@ expect, there are a few things to check on:
 
     If you have incoming peers, it should return a lot of data containing information of peers. If the response is empty, it means that you have no incoming peers and there the ports are not open. You may want to double check if the port forward was correctly set up.
 
-1. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 100. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers.
+1. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 200. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers.
 
 1. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence struggling to keep up the number of peers. Therefore, using a quality router for the node is important to keep a healthy number of peers.
 

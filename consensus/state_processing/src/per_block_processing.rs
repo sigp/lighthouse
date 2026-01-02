@@ -5,6 +5,7 @@ use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
+use typenum::Unsigned;
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -40,13 +41,13 @@ mod verify_exit;
 mod verify_proposer_slashing;
 
 use crate::common::decrease_balance;
-
 use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_metrics,
 };
 use crate::epoch_cache::initialize_epoch_cache;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
+use tracing::instrument;
 
 /// The strategy to be used when validating the block's signatures.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
@@ -97,6 +98,7 @@ pub enum VerifyBlockRoot {
 /// re-calculating the root when it is already known. Note `block_root` should be equal to the
 /// tree hash root of the block, NOT the signing root of the block. This function takes
 /// care of mixing in the domain.
+#[instrument(skip_all)]
 pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     signed_block: &SignedBeaconBlock<E, Payload>,
@@ -170,9 +172,13 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let body = block.body();
+        // TODO(EIP-7732): build out process_withdrawals variant for gloas
         process_withdrawals::<E, Payload>(state, body.execution_payload()?, spec)?;
         process_execution_payload::<E, Payload>(state, body, spec)?;
     }
+
+    // TODO(EIP-7732): build out process_execution_bid
+    // process_execution_bid(state, block, verify_signatures, spec)?;
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
@@ -467,6 +473,7 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
 /// repeatedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<E: EthSpec>(state: &BeaconState<E>) -> bool {
+    // TODO(EIP7732): check this cause potuz modified this function for god knows what reason
     if state.fork_name_unchecked().capella_enabled() {
         true
     } else if state.fork_name_unchecked().bellatrix_enabled() {
@@ -626,10 +633,16 @@ pub fn get_expected_withdrawals<E: EthSpec>(
             .safe_rem(state.validators().len() as u64)?;
     }
 
-    Ok((withdrawals.into(), processed_partial_withdrawals_count))
+    Ok((
+        withdrawals
+            .try_into()
+            .map_err(BlockProcessingError::SszTypesError)?,
+        processed_partial_withdrawals_count,
+    ))
 }
 
 /// Apply withdrawals to the state.
+/// TODO(EIP-7732): abstract this out and create gloas variant
 pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     payload: Payload::Ref<'_>,

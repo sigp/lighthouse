@@ -2,11 +2,10 @@ use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
 use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
-use crate::EthersTransaction;
-use crate::Transactions;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
+use types::Transaction;
 
 pub const GENERIC_ERROR_CODE: i64 = -1234;
 pub const BAD_PARAMS_ERROR_CODE: i64 = -32602;
@@ -101,35 +100,37 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_NEW_PAYLOAD_V1
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
-        | ENGINE_NEW_PAYLOAD_V4
-        | ENGINE_NEW_PAYLOAD_V5 => {
+        | ENGINE_NEW_PAYLOAD_V4 => {
             let request = match method {
-                ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
-                    get_param::<JsonExecutionPayloadV1<E>>(params, 0)
+                ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::Bellatrix(
+                    get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ),
-                ENGINE_NEW_PAYLOAD_V2 => get_param::<JsonExecutionPayloadV2<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::V2(jep))
+                ENGINE_NEW_PAYLOAD_V2 => get_param::<JsonExecutionPayloadCapella<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Capella(jep))
                     .or_else(|_| {
-                        get_param::<JsonExecutionPayloadV1<E>>(params, 0)
-                            .map(|jep| JsonExecutionPayload::V1(jep))
+                        get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::Bellatrix(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                // From v3 onwards, we use the newPayload version only for the corresponding
-                // ExecutionPayload version. So we return an error instead of falling back to
-                // older versions of newPayload
-                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV3<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::V3(jep))
+                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadDeneb<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Deneb(jep))
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::V4(jep))
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Gloas(jep))
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadFulu<E>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::Fulu(jep))
+                    })
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadElectra<E>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::Electra(jep))
+                    })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadV5<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::V5(jep))
-                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadV5<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::V5(jep))
-                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                // TODO(EIP7805) fix
+                // ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadV5<E>>(params, 0)
+                //    .map(|jep| JsonExecutionPayload::V5(jep))
+                //    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
 
@@ -140,10 +141,10 @@ pub async fn handle_rpc<E: EthSpec>(
             // validate method called correctly according to fork time
             match fork {
                 ForkName::Bellatrix => {
-                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                    if matches!(request, JsonExecutionPayload::Capella(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV2` before Capella fork!",
+                                "{} called with `ExecutionPayloadCapella` before Capella fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -157,10 +158,10 @@ pub async fn handle_rpc<E: EthSpec>(
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                    if matches!(request, JsonExecutionPayload::Bellatrix(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV1` after Capella fork!",
+                                "{} called with `ExecutionPayloadBellatrix` after Capella fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -174,7 +175,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                    if matches!(request, JsonExecutionPayload::Bellatrix(_)) {
                         return Err((
                             format!(
                                 "{} called with `ExecutionPayloadV1` after Deneb fork!",
@@ -183,7 +184,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                    if matches!(request, JsonExecutionPayload::Capella(_)) {
                         return Err((
                             format!(
                                 "{} called with `ExecutionPayloadV2` after Deneb fork!",
@@ -193,7 +194,7 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
-                ForkName::Electra => {
+                ForkName::Electra | ForkName::Fulu | ForkName::Eip7805 | ForkName::Gloas => {
                     if method == ENGINE_NEW_PAYLOAD_V1
                         || method == ENGINE_NEW_PAYLOAD_V2
                         || method == ENGINE_NEW_PAYLOAD_V3
@@ -203,121 +204,33 @@ pub async fn handle_rpc<E: EthSpec>(
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                    if matches!(request, JsonExecutionPayload::Bellatrix(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV1` after Electra fork!",
+                                "{} called with `ExecutionPayloadBellatrix after Electra fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                    if matches!(request, JsonExecutionPayload::Capella(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV2` after Electra fork!",
+                                "{} called with `ExecutionPayloadCapella` after Electra fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                    if matches!(request, JsonExecutionPayload::V3(_)) {
+                    if matches!(request, JsonExecutionPayload::Deneb(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV3` after Electra fork!",
+                                "{} called with `ExecutionPayloadDeneb` after Electra fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                }
-                ForkName::Eip7805 => {
-                    if method == ENGINE_NEW_PAYLOAD_V1
-                        || method == ENGINE_NEW_PAYLOAD_V2
-                        || method == ENGINE_NEW_PAYLOAD_V3
-                    {
-                        return Err((
-                            format!("{} called after Electra fork!", method),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                    if matches!(request, JsonExecutionPayload::V1(_)) {
-                        return Err((
-                            format!(
-                                "{} called with `ExecutionPayloadV1` after Electra fork!",
-                                method
-                            ),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                    if matches!(request, JsonExecutionPayload::V2(_)) {
-                        return Err((
-                            format!(
-                                "{} called with `ExecutionPayloadV2` after Eip7805 fork!",
-                                method
-                            ),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                    if matches!(request, JsonExecutionPayload::V3(_)) {
-                        return Err((
-                            format!(
-                                "{} called with `ExecutionPayloadV3` after Eip7805 fork!",
-                                method
-                            ),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                }
-                ForkName::Fulu => {
-                    if method == ENGINE_NEW_PAYLOAD_V1
-                        || method == ENGINE_NEW_PAYLOAD_V2
-                        || method == ENGINE_NEW_PAYLOAD_V3
-                    // TODO(fulu): Uncomment this once v5 method is ready for Fulu
-                    // || method == ENGINE_NEW_PAYLOAD_V4
-                    {
-                        return Err((
-                            format!("{} called after Fulu fork!", method),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                    if matches!(request, JsonExecutionPayload::V1(_)) {
-                        return Err((
-                            format!(
-                                "{} called with `ExecutionPayloadV1` after Fulu fork!",
-                                method
-                            ),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                    if matches!(request, JsonExecutionPayload::V2(_)) {
-                        return Err((
-                            format!(
-                                "{} called with `ExecutionPayloadV2` after Fulu fork!",
-                                method
-                            ),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                    if matches!(request, JsonExecutionPayload::V3(_)) {
-                        return Err((
-                            format!(
-                                "{} called with `ExecutionPayloadV3` after Fulu fork!",
-                                method
-                            ),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                    // TODO(fulu): remove once we switch to v5
-                    // if matches!(request, JsonExecutionPayload::V4(_)) {
-                    //     return Err((
-                    //         format!(
-                    //             "{} called with `ExecutionPayloadV4` after Fulu fork!",
-                    //             method
-                    //         ),
-                    //         GENERIC_ERROR_CODE,
-                    //     ));
-                    // }
                 }
                 _ => unreachable!(),
             };
@@ -344,7 +257,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 Some(
                     ctx.execution_block_generator
                         .write()
-                        .new_payload(request.into()),
+                        .new_payload(request.try_into().unwrap()),
                 )
             } else {
                 None
@@ -417,23 +330,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 ));
             }
 
-            // validate method called correctly according to prague fork time
-            if ctx
-                .execution_block_generator
-                .read()
-                .get_fork_at_timestamp(response.timestamp())
-                == ForkName::Eip7805
-                && (method == ENGINE_GET_PAYLOAD_V1
-                    || method == ENGINE_GET_PAYLOAD_V2
-                    || method == ENGINE_GET_PAYLOAD_V3)
-            {
-                return Err((
-                    format!("{} called after EIP7805 fork!", method),
-                    FORK_REQUEST_MISMATCH_ERROR_CODE,
-                ));
-            }
-
-            // validate method called correctly according to fulu fork time
+            // validate method called correctly according to osaka fork time
             if ctx
                 .execution_block_generator
                 .read()
@@ -449,98 +346,141 @@ pub async fn handle_rpc<E: EthSpec>(
                 ));
             }
 
+            // validate method called correctly according to amsterdam fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Gloas
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3
+                    || method == ENGINE_GET_PAYLOAD_V4)
+            {
+                return Err((
+                    format!("{} called after Gloas fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
+
             match method {
-                ENGINE_GET_PAYLOAD_V1 => {
-                    Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
+                ENGINE_GET_PAYLOAD_V1 => Ok(serde_json::to_value(
+                    JsonExecutionPayload::try_from(response).unwrap(),
+                )
+                .unwrap()),
+                ENGINE_GET_PAYLOAD_V2 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Bellatrix(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseBellatrix {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                            })
+                            .unwrap()
+                        }
+                        JsonExecutionPayload::Capella(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseCapella {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
                 }
-                ENGINE_GET_PAYLOAD_V2 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::V1(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV1 {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                        })
-                        .unwrap()
-                    }
-                    JsonExecutionPayload::V2(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV2 {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                        })
-                        .unwrap()
-                    }
-                    _ => unreachable!(),
-                }),
                 // From v3 onwards, we use the getPayload version only for the corresponding
                 // ExecutionPayload version. So we return an error if the ExecutionPayload version
                 // we get does not correspond to the getPayload version.
-                ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::V3(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV3 {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V3 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                        })
-                        .unwrap()
-                    }
-                    _ => unreachable!(),
-                }),
-                ENGINE_GET_PAYLOAD_V4 => Ok(match JsonExecutionPayload::from(response) {
-                    JsonExecutionPayload::V4(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV4 {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V4 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                            // TODO(electra): add EL requests in mock el
-                            execution_requests: Default::default(),
-                        })
-                        .unwrap()
-                    }
-                    JsonExecutionPayload::V5(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV5 {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V5 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                            // TODO(electra): add EL requests in mock el
-                            execution_requests: Default::default(),
-                        })
-                        .unwrap()
-                    }
-                    JsonExecutionPayload::V6(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV6 {
-                            execution_payload,
-                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V5 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                            should_override_builder: false,
-                            // TODO(electra): add EL requests in mock el
-                            execution_requests: Default::default(),
-                        })
-                        .unwrap()
-                    }
-                    _ => unreachable!(),
-                }),
+                ENGINE_GET_PAYLOAD_V3 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Deneb(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseDeneb {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V3 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
+                }
+                ENGINE_GET_PAYLOAD_V4 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Electra(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseElectra {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V4 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                // TODO(electra): add EL requests in mock el
+                                execution_requests: Default::default(),
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
+                }
+                /* TODO(EIP7805) new payload handling
+                ENGINE_GET_PAYLOAD_V5 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
+                        JsonExecutionPayload::Fulu(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseFulu {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V5 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                execution_requests: Default::default(),
+                            })
+                            .unwrap()
+                        }
+                        JsonExecutionPayload::Eip7805(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseEip7805 {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V5 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                execution_requests: Default::default(),
+                            })
+                            .unwrap()
+                        }
+                        JsonExecutionPayload::Gloas(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseGloas {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V5 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                execution_requests: Default::default(),
+                            })
+                            .unwrap()
+                        }
+                        _ => unreachable!(),
+                    })
+                }*/
                 _ => unreachable!(),
             }
         }
@@ -575,7 +515,8 @@ pub async fn handle_rpc<E: EthSpec>(
                                     ForkName::Capella
                                     | ForkName::Deneb
                                     | ForkName::Electra
-                                    | ForkName::Fulu => {
+                                    | ForkName::Fulu
+                                    | ForkName::Gloas => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
@@ -639,7 +580,11 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Deneb | ForkName::Electra | ForkName::Eip7805 | ForkName::Fulu => {
+                    ForkName::Deneb
+                    | ForkName::Electra
+                    | ForkName::Fulu
+                    | ForkName::Eip7805
+                    | ForkName::Gloas => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),
@@ -731,7 +676,8 @@ pub async fn handle_rpc<E: EthSpec>(
                             transactions: payload.transactions().clone(),
                             withdrawals: payload.withdrawals().ok().cloned(),
                         };
-                        let json_payload_body = JsonExecutionPayloadBodyV1::from(payload_body);
+                        let json_payload_body: JsonExecutionPayloadBodyV1<E> =
+                            payload_body.try_into().unwrap();
                         response.push(Some(json_payload_body));
                     }
                     None => response.push(None),
@@ -742,8 +688,7 @@ pub async fn handle_rpc<E: EthSpec>(
         }
         ENGINE_GET_INCLUSION_LIST_V1 => {
             // This is a real transaction hex encoded, but we don't care about the contents of the transaction.
-            let transaction: EthersTransaction = serde_json::from_str(
-                r#"{
+            let transaction: Transaction<<E as EthSpec>::MaxBytesPerTransaction> = serde_json::from_str(r#"{
                     "blockHash":"0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
                     "blockNumber":"0x5daf3b",
                     "from":"0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
@@ -761,7 +706,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 }"#,
             )
             .unwrap();
-            let tx_list: Transactions<E> = vec![transaction.rlp().to_vec().into()].into();
+            let tx_list: Transactions<E> = vec![transaction].try_into().unwrap();
 
             Ok(serde_json::to_value(tx_list).unwrap())
         }

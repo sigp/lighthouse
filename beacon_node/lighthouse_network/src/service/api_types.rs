@@ -1,8 +1,9 @@
 use crate::rpc::methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage};
+use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
@@ -59,8 +60,19 @@ pub struct BlobsByRangeRequestId {
 pub struct DataColumnsByRangeRequestId {
     /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
     pub id: Id,
-    /// The Id of the overall By Range request for block components.
-    pub parent_request_id: ComponentsByRangeRequestId,
+    /// The Id of the overall By Range request for either a components by range request or a custody backfill request.
+    pub parent_request_id: DataColumnsByRangeRequester,
+    /// The peer id associated with the request.
+    ///
+    /// This is useful to penalize the peer at a later point if it returned data columns that
+    /// did not match with the verified block.
+    pub peer: PeerId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum DataColumnsByRangeRequester {
+    ComponentsByRange(ComponentsByRangeRequestId),
+    CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
@@ -74,6 +86,24 @@ pub struct ComponentsByRangeRequestId {
     pub requester: RangeRequestId,
 }
 
+/// A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
+/// handle retries and tie all the range requests for the given epoch together.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackFillBatchRequestId {
+    /// For each `epoch` we may request the same data in a later retry. This Id identifies the
+    /// current attempt.
+    pub id: Id,
+    pub batch_id: CustodyBackfillBatchId,
+}
+
+/// Custody backfill may be restarted and sync each epoch multiple times in different runs. Identify
+/// each batch by epoch and run_id for uniqueness.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackfillBatchId {
+    pub epoch: Epoch,
+    pub run_id: u64,
+}
+
 /// Range sync chain or backfill batch
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RangeRequestId {
@@ -81,9 +111,10 @@ pub enum RangeRequestId {
     BackfillSync { batch_id: Epoch },
 }
 
+// TODO(das) refactor in a separate PR. We might be able to remove this and replace
+// [`DataColumnsByRootRequestId`] with a [`SingleLookupReqId`].
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
-    Sampling(SamplingId),
     Custody(CustodyId),
 }
 
@@ -92,21 +123,6 @@ pub enum RangeRequester {
     RangeSync { chain_id: u64, batch_id: Epoch },
     BackfillSync { batch_id: Epoch },
 }
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct SamplingId {
-    pub id: SamplingRequester,
-    pub sampling_request_id: SamplingRequestId,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum SamplingRequester {
-    ImportedBlock(Hash256),
-}
-
-/// Identifier of sampling requests.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct SamplingRequestId(pub usize);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyId {
@@ -225,13 +241,13 @@ impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
 impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
-impl_display!(SamplingId, "{}/{}", sampling_request_id, id);
+impl_display!(CustodyBackFillBatchRequestId, "{}/{}", id, batch_id);
+impl_display!(CustodyBackfillBatchId, "{}/{}", epoch, run_id);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Custody(id) => write!(f, "Custody/{id}"),
-            Self::Sampling(id) => write!(f, "Sampling/{id}"),
         }
     }
 }
@@ -251,16 +267,11 @@ impl Display for RangeRequestId {
     }
 }
 
-impl Display for SamplingRequestId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Display for SamplingRequester {
+impl Display for DataColumnsByRangeRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ImportedBlock(block) => write!(f, "ImportedBlock/{block}"),
+            Self::ComponentsByRange(id) => write!(f, "ByRange/{id}"),
+            Self::CustodyBackfillSync(id) => write!(f, "CustodyBackfill/{id}"),
         }
     }
 }
@@ -284,29 +295,20 @@ mod tests {
     }
 
     #[test]
-    fn display_id_data_columns_by_root_sampling() {
-        let id = DataColumnsByRootRequestId {
-            id: 123,
-            requester: DataColumnsByRootRequester::Sampling(SamplingId {
-                id: SamplingRequester::ImportedBlock(Hash256::ZERO),
-                sampling_request_id: SamplingRequestId(101),
-            }),
-        };
-        assert_eq!(format!("{id}"), "123/Sampling/101/ImportedBlock/0x0000000000000000000000000000000000000000000000000000000000000000");
-    }
-
-    #[test]
     fn display_id_data_columns_by_range() {
         let id = DataColumnsByRangeRequestId {
             id: 123,
-            parent_request_id: ComponentsByRangeRequestId {
-                id: 122,
-                requester: RangeRequestId::RangeSync {
-                    chain_id: 54,
-                    batch_id: Epoch::new(0),
+            parent_request_id: DataColumnsByRangeRequester::ComponentsByRange(
+                ComponentsByRangeRequestId {
+                    id: 122,
+                    requester: RangeRequestId::RangeSync {
+                        chain_id: 54,
+                        batch_id: Epoch::new(0),
+                    },
                 },
-            },
+            ),
+            peer: PeerId::random(),
         };
-        assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");
+        assert_eq!(format!("{id}"), "123/ByRange/122/RangeSync/0/54");
     }
 }

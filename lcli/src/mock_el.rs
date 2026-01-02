@@ -4,7 +4,7 @@ use environment::Environment;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
-        Config, MockExecutionConfig, MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK,
+        Config, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, MockExecutionConfig, MockServer,
     },
 };
 use std::net::Ipv4Addr;
@@ -22,6 +22,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let prague_time = parse_optional(matches, "prague-time")?;
     let eip7805_time = parse_optional(matches, "eip7805-time")?;
     let osaka_time = parse_optional(matches, "osaka-time")?;
+    let amsterdam_time = parse_optional(matches, "amsterdam-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
     let spec = Arc::new(E::default_spec());
@@ -42,9 +43,10 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         cancun_time,
         prague_time,
         osaka_time,
+        amsterdam_time,
     };
     let kzg = None;
-    let server: MockServer<E> = MockServer::new_with_config(&handle, config, spec, kzg);
+    let server: MockServer<E> = MockServer::new_with_config(&handle, config, kzg);
 
     if all_payloads_valid {
         eprintln!(

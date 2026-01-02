@@ -1,13 +1,13 @@
 use std::sync::{Arc, LazyLock};
 
 use beacon_chain::{
+    BeaconChainTypes, ChainConfig,
     inclusion_list_verification::GossipInclusionListError,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChainTypes, ChainConfig,
 };
-use bls::{generics::GenericSignature, PublicKeyBytes, SecretKey};
+use bls::{PublicKeyBytes, SecretKey, Keypair, generics::GenericSignature};
 use types::{
-    ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, InclusionList, Keypair, MainnetEthSpec,
+    ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, InclusionList, MainnetEthSpec,
     SignedInclusionList, SignedRoot, Slot,
 };
 
@@ -260,7 +260,9 @@ async fn inclusion_list_verification() {
         .inspect_inclusion_list_err(
             "inclusion list with too many transactions",
             |_, il| {
-                il.message.transactions = vec![vec![0u8; 5].into(); 8193].into();
+                il.message.transactions = vec![vec![0u8; 5].try_into().unwrap(); 8193]
+                    .try_into()
+                    .unwrap();
             },
             |_, error| {
                 assert!(matches!(
