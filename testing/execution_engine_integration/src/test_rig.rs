@@ -120,12 +120,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         );
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = TaskExecutor::new(
-            Arc::downgrade(&runtime),
-            exit,
-            shutdown_tx,
-            "test".to_string(),
-        );
+        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
         spec.terminal_total_difficulty = Uint256::ZERO;
 
