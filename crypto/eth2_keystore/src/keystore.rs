@@ -1,5 +1,35 @@
 //! Provides a JSON keystore for a BLS keypair, as specified by
 //! [EIP-2335](https://eips.ethereum.org/EIPS/eip-2335).
+//!
+//! ## AES-128-CTR Endianness
+//!
+//! EIP-2335/ERC-2335 specifies the use of AES-128-CTR mode for encrypting the secret key material.
+//! The specification references [RFC 3686](https://www.rfc-editor.org/rfc/rfc3686) which defines
+//! the use of AES in Counter Mode.
+//!
+//! ### Counter Increment Endianness
+//!
+//! According to both NIST SP 800-38A and RFC 3686, the counter in CTR mode must be incremented
+//! as a **big-endian** integer. This is critical for interoperability between different
+//! implementations of EIP-2335 keystores.
+//!
+//! The Rust `aes` crate (version 0.7) with the `ctr` feature uses the RustCrypto `ctr` crate,
+//! which correctly increments the counter in big-endian byte order by default. This matches
+//! the requirements of:
+//!
+//! - **NIST SP 800-38A**: Defines CTR mode with big-endian counter increment
+//! - **RFC 3686**: Specifies AES-CTR for IPsec with big-endian counter
+//! - **EIP-2335/ERC-2335**: References RFC 3686 for AES-128-CTR implementation
+//!
+//! ### Implementation Notes
+//!
+//! The implementation in this crate uses `aes::Aes128Ctr` which provides the correct big-endian
+//! counter behavior. The IV (initialization vector) provided in the keystore JSON is used as the
+//! initial counter block value. For each 16-byte block encrypted, the counter is incremented by
+//! one in big-endian format.
+//!
+//! This ensures that keystores created by Lighthouse are compatible with other Ethereum consensus
+//! client implementations and can be correctly decrypted by any compliant EIP-2335 implementation.
 
 use crate::Uuid;
 use crate::derived_key::DerivedKey;
@@ -58,36 +88,6 @@ pub const DKLEN: u32 = 32;
 pub const IV_SIZE: usize = 16;
 /// The byte size of a SHA256 hash.
 pub const HASH_SIZE: usize = 32;
-///
-/// ## AES-128-CTR Endianness
-///
-/// EIP-2335/ERC-2335 specifies the use of AES-128-CTR mode for encrypting the secret key material.
-/// The specification references [RFC 3686](https://www.rfc-editor.org/rfc/rfc3686) which defines
-/// the use of AES in Counter Mode.
-///
-/// ### Counter Increment Endianness
-///
-/// According to both NIST SP 800-38A and RFC 3686, the counter in CTR mode must be incremented
-/// as a **big-endian** integer. This is critical for interoperability between different
-/// implementations of EIP-2335 keystores.
-///
-/// The Rust `aes` crate (version 0.7) with the `ctr` feature uses the RustCrypto `ctr` crate,
-/// which correctly increments the counter in big-endian byte order by default. This matches
-/// the requirements of:
-///
-/// - **NIST SP 800-38A**: Defines CTR mode with big-endian counter increment
-/// - **RFC 3686**: Specifies AES-CTR for IPsec with big-endian counter
-/// - **EIP-2335/ERC-2335**: References RFC 3686 for AES-128-CTR implementation
-///
-/// ### Implementation Notes
-///
-/// The implementation in this crate uses `aes::Aes128Ctr` which provides the correct big-endian
-/// counter behavior. The IV (initialization vector) provided in the keystore JSON is used as the
-/// initial counter block value. For each 16-byte block encrypted, the counter is incremented by
-/// one in big-endian format.
-///
-/// This ensures that keystores created by Lighthouse are compatible with other Ethereum consensus
-/// client implementations and can be correctly decrypted by any compliant EIP-2335 implementation.
 /// The default iteraction count, `c`, for PBKDF2.
 pub const DEFAULT_PBKDF2_C: u32 = 262_144;
 
