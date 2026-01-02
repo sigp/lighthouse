@@ -45,6 +45,8 @@ use crate::validator::post_validator_liveness_epoch;
 use crate::validator::*;
 use crate::version::beacon_response;
 use beacon::states;
+
+use warp_utils::reject::convert_rejection;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;

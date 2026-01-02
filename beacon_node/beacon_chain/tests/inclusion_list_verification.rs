@@ -94,15 +94,13 @@ pub async fn get_valid_signed_inclusion_list<T: BeaconChainTypes>(
 
     let fork = harness.chain.spec.fork_at_epoch(current_epoch);
 
-    let signed_inclusion_list = sign(
+    sign(
         &inclusion_list,
         &keypair.sk,
         &fork,
         harness.chain.genesis_validators_root,
         &harness.chain.spec,
-    );
-
-    signed_inclusion_list
+    )
 }
 
 /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.

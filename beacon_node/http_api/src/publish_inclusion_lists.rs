@@ -2,7 +2,6 @@ use std::{sync::Arc, time::Duration};
 
 use beacon_chain::inclusion_list_verification::GossipInclusionListError;
 use beacon_chain::{BeaconChain, BeaconChainTypes, validator_monitor::timestamp_now};
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -35,7 +34,6 @@ pub async fn publish_inclusion_lists<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     inclusion_lists: Vec<SignedInclusionList<T::EthSpec>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-    _reprocess_send: Option<Sender<ReprocessQueueMessage>>,
 ) -> Result<(), warp::Rejection> {
     // Gossip validate and publish inclusion lists that can be immediately processed.
     let seen_timestamp = timestamp_now();
