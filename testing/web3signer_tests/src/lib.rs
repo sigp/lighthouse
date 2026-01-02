@@ -345,12 +345,7 @@ mod tests {
             );
             let (runtime_shutdown, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-            let executor = TaskExecutor::new(
-                Arc::downgrade(&runtime),
-                exit,
-                shutdown_tx,
-                "test".to_string(),
-            );
+            let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
 
             let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
             let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();

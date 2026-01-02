@@ -168,7 +168,7 @@ where
         let store = store.ok_or("beacon_chain_start_method requires a store")?;
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
-        let context = runtime_context.service_context("beacon".into());
+        let context = runtime_context.clone();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(
@@ -179,7 +179,7 @@ where
         };
 
         let execution_layer = if let Some(config) = config.execution_layer.clone() {
-            let context = runtime_context.service_context("exec".into());
+            let context = runtime_context.clone();
             let execution_layer = ExecutionLayer::from_config(config, context.executor.clone())
                 .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)
@@ -517,7 +517,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("node timer requires a runtime_context")?
-            .service_context("node_timer".into());
+            .clone();
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -557,7 +557,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("slasher requires a runtime_context")?
-            .service_context("slasher_service_ctxt".into());
+            .clone();
         SlasherService::new(beacon_chain, network_senders.network_send()).run(&context.executor)
     }
 
@@ -568,7 +568,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("monitoring_client requires a runtime_context")?
-            .service_context("monitoring_client".into());
+            .clone();
         let monitoring_client = MonitoringHttpClient::new(config)?;
         monitoring_client.auto_update(
             context.executor,
@@ -583,7 +583,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("slot_notifier requires a runtime_context")?
-            .service_context("slot_notifier".into());
+            .clone();
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -692,7 +692,7 @@ where
 
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
             if let Some(network_globals) = &self.network_globals {
-                let beacon_processor_context = runtime_context.service_context("bproc".into());
+                let beacon_processor_context = runtime_context.clone();
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
@@ -715,7 +715,7 @@ where
                 )?;
             }
 
-            let state_advance_context = runtime_context.service_context("state_advance".into());
+            let state_advance_context = runtime_context.clone();
             spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone());
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
@@ -767,8 +767,7 @@ where
             // Spawn service to publish light_client updates at some interval into the slot.
             if let Some(light_client_server_rv) = self.light_client_server_rv {
                 let inner_chain = beacon_chain.clone();
-                let light_client_update_context =
-                    runtime_context.service_context("lc_update".to_string());
+                let light_client_update_context = runtime_context.clone();
                 light_client_update_context.executor.spawn(
                     async move {
                         compute_light_client_updates(
