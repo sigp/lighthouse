@@ -3189,12 +3189,10 @@ impl ApiTester {
 
     pub async fn test_post_validator_duties_inclusion_list(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
-        let state = self.harness.get_current_state();
         let slot = self.chain.slot().unwrap();
         self.harness.extend_to_slot(slot).await;
         for validator_indices in self.interesting_validator_indices() {
-            let res = self
-                .client
+            self.client
                 .post_validator_duties_inclusion_list(current_epoch, &validator_indices)
                 .await
                 .unwrap();
@@ -8194,6 +8192,7 @@ async fn test_post_validator_duties_inclusion_list() {
         .await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_blocks_v3_http_api_path() {
     ApiTester::new()
         .await

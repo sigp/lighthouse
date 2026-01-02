@@ -1,8 +1,8 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use bls::PublicKeyBytes;
 use eth2::types::{self as api_types};
 use slot_clock::SlotClock;
-use types::{Epoch, EthSpec, Hash256, InclusionListDuty, PublicKeyBytes};
-
+use types::{Epoch, EthSpec, Hash256, InclusionListDuty};
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<InclusionListDuty>>;
 

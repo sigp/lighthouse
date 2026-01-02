@@ -5,10 +5,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, validator_monitor::timestamp_n
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use tokio::sync::{
-    mpsc::{Sender, UnboundedSender},
-    oneshot,
-};
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use tracing::{debug, error, info};
 use types::SignedInclusionList;
 

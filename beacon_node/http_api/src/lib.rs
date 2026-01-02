@@ -45,8 +45,6 @@ use crate::validator::post_validator_liveness_epoch;
 use crate::validator::*;
 use crate::version::beacon_response;
 use beacon::states;
-
-use warp_utils::reject::convert_rejection;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
@@ -91,10 +89,10 @@ use tokio_stream::{
     StreamExt,
     wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, Slot,
+    SignedBlindedBeaconBlock, SignedInclusionList, Slot,
 };
 use version::{
     ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
@@ -105,6 +103,7 @@ use warp::Reply;
 use warp::hyper::Body;
 use warp::sse::Event;
 use warp::{Filter, Rejection, http::Response};
+use warp_utils::reject::convert_rejection;
 use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
@@ -1477,19 +1476,16 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        .and(reprocess_send_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              inclusion_lists: Vec<SignedInclusionList<T::EthSpec>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             reprocess_tx: Option<Sender<ReprocessQueueMessage>>| async move {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| async move {
                 let result = crate::publish_inclusion_lists::publish_inclusion_lists(
                     task_spawner,
                     chain,
                     inclusion_lists,
                     network_tx,
-                    reprocess_tx,
                 )
                 .await
                 .map(|()| warp::reply::json(&()));
@@ -2513,8 +2509,10 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // TODO(eip7805) update endpoint def
     // POST validator/duties/inclusion_list/{epoch}
     let post_validator_duties_inclusion_list = eth_v1
+        .clone()
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("inclusion_list"))
@@ -2549,8 +2547,10 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // TODO(EIP7805) update endpoint definition format
     // GET validator/inclusion_list?slot
     let get_validator_inclusion_list = eth_v1
+        .clone()
         .and(warp::path("validator"))
         .and(warp::path("inclusion_list"))
         .and(warp::path::end())

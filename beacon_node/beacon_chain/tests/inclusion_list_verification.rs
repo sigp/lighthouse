@@ -5,7 +5,7 @@ use beacon_chain::{
     inclusion_list_verification::GossipInclusionListError,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
 };
-use bls::{PublicKeyBytes, SecretKey, Keypair, generics::GenericSignature};
+use bls::{Keypair, PublicKeyBytes, SecretKey, generics::GenericSignature};
 use types::{
     ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, InclusionList, MainnetEthSpec,
     SignedInclusionList, SignedRoot, Slot,
