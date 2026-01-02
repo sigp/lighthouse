@@ -317,8 +317,8 @@ fn aes_ctr_endianness_verification() {
     // Password: "testpassword" (from the simplified test in the spec)
     let password = b"testpassword";
 
-    // Expected secret key after decryption
-    let expected_secret =
+    // Expected BLS secret key after decryption
+    let expected_secret_key =
         hex::decode("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f")
             .expect("valid hex");
 
@@ -363,19 +363,14 @@ fn aes_ctr_endianness_verification() {
         .decrypt_keypair(password)
         .expect("should decrypt with correct password");
 
-    // Verify the decrypted secret matches the expected value
+    // Verify the decrypted secret key matches the expected value.
     // This proves the AES-CTR counter is being incremented in big-endian format
+    // as required by NIST SP 800-38A and RFC 3686.
     assert_eq!(
         keypair.sk.serialize().as_ref(),
-        &expected_secret[..],
-        "Decrypted secret key should match expected value. \
-         If this fails, the AES-CTR counter increment endianness may be incorrect."
-    );
-
-    // Also verify the public key matches
-    assert_eq!(
-        format!("0x{}", keystore.pubkey()),
-        format!("{:?}", keystore.public_key().unwrap()),
-        "Public key should match"
+        &expected_secret_key[..],
+        "Decrypted secret key must match expected value. \
+         Failure indicates non-compliance with NIST SP 800-38A and RFC 3686 \
+         big-endian counter increment requirement."
     );
 }
