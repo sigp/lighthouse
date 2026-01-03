@@ -5,6 +5,7 @@ edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
+bls = { workspace = true }
 eth2_keystore = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 lockfile = { workspace = true }

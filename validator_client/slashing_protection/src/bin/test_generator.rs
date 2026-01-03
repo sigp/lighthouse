@@ -1,11 +1,12 @@
 use eip_3076::{Interchange, InterchangeData, InterchangeMetadata, SignedAttestation, SignedBlock};
+use fixed_bytes::FixedBytesExtended;
 use slashing_protection::SUPPORTED_INTERCHANGE_FORMAT_VERSION;
 use slashing_protection::interchange_test::{MultiTestCase, TestCase};
 use slashing_protection::test_utils::{DEFAULT_GENESIS_VALIDATORS_ROOT, pubkey};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use types::{Epoch, FixedBytesExtended, Hash256, Slot};
+use types::{Epoch, Hash256, Slot};
 
 fn metadata(genesis_validators_root: Hash256) -> InterchangeMetadata {
     InterchangeMetadata {

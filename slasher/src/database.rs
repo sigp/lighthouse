@@ -7,6 +7,7 @@ use crate::{
     AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Database, Error,
     ProposerSlashingStatus, metrics,
 };
+use bls::AggregateSignature;
 use byteorder::{BigEndian, ByteOrder};
 use interface::{Environment, OpenDatabases, RwTransaction};
 use lru::LruCache;
@@ -14,15 +15,16 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use std::borrow::{Borrow, Cow};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::info;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
+    AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
     IndexedAttestationBase, IndexedAttestationElectra, ProposerSlashing, SignedBeaconBlockHeader,
-    Slot, VariableList,
+    Slot,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
@@ -860,7 +862,8 @@ impl<E: EthSpec> SlasherDB<E> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{Checkpoint, ForkName, MainnetEthSpec, Unsigned};
+    use typenum::Unsigned;
+    use types::{Checkpoint, ForkName, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
