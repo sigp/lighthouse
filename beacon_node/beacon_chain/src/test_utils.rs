@@ -1029,7 +1029,8 @@ where
                 BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
+            .map_err(|e| format!("Failed to produce block at slot {}: {:?}", slot, e))
+            .expect("should produce block successfully")
         else {
             panic!("Should always be a full payload response");
         };
@@ -1092,7 +1093,8 @@ where
                 BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
+            .map_err(|e| format!("Failed to produce block at slot {}: {:?}", slot, e))
+            .expect("should produce block successfully")
         else {
             panic!("Should always be a full payload response");
         };

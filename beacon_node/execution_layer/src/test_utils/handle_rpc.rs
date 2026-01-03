@@ -270,6 +270,7 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
         | ENGINE_GET_PAYLOAD_V3
+        | ENGINE_GET_PAYLOAD_V5
         | ENGINE_GET_PAYLOAD_V4 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
@@ -430,7 +431,6 @@ pub async fn handle_rpc<E: EthSpec>(
                         _ => unreachable!(),
                     })
                 }
-                /* TODO(EIP7805) new payload handling
                 ENGINE_GET_PAYLOAD_V5 => {
                     Ok(match JsonExecutionPayload::try_from(response).unwrap() {
                         JsonExecutionPayload::Fulu(execution_payload) => {
@@ -480,7 +480,7 @@ pub async fn handle_rpc<E: EthSpec>(
                         }
                         _ => unreachable!(),
                     })
-                }*/
+                }
                 _ => unreachable!(),
             }
         }
