@@ -165,9 +165,7 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
 
                 match validator_data {
                     Ok(Some(response)) => validator_status.push(response.data.status),
-                    Ok(None) => {
-                        error!("Validator not found in beacon chain")
-                    }
+                    Ok(None) => {}
                     Err(e) => {
                         error!(%e, "Error checking if validator exists in beacon chain");
                     }
@@ -175,9 +173,10 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
             }
 
             // Log a different log if all validators have exited
-            if validator_status
-                .iter()
-                .all(|status| *status == ExitedUnslashed || *status == ExitedSlashed)
+            if !validator_status.is_empty()
+                && validator_status
+                    .iter()
+                    .all(|status| *status == ExitedUnslashed || *status == ExitedSlashed)
             {
                 info!(
                     validators = total_validators,
