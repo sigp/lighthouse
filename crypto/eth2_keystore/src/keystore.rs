@@ -11,7 +11,7 @@ use aes::Aes128;
 use bls::{Keypair, PublicKey, SecretKey, ZeroizeHash};
 use cipher::generic_array::GenericArray;
 use cipher::{KeyIvInit, StreamCipher};
-use ctr::Ctr128BE;
+use ctr::Ctr64BE;
 use eth2_key_derivation::PlainText;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
@@ -351,7 +351,7 @@ pub fn encrypt(
             // AES Encrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
+            let mut cipher = Ctr64BE::<Aes128>::new(key, nonce);
             cipher.apply_keystream(&mut cipher_text);
         }
     };
