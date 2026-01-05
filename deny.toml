@@ -2,16 +2,16 @@
 # See https://embarkstudios.github.io/cargo-deny/
 
 [bans]
-# Warn when multiple versions of the same crate are detected
-multiple-versions = "warn"
+# Allow multiple versions by default. Change this to "warn" to see all multiple versions.
+multiple-versions = "allow"
 deny = [
-    # Legacy Ethereum crates that have been replaced with alloy
-    { crate = "ethers", reason = "use alloy instead" },
-    { crate = "ethereum-types", reason = "use alloy-primitives instead" },
-    # Replaced by quick-protobuf
+    { crate = "ethers", reason = "legacy Ethereum crate, use alloy instead" },
+    { crate = "ethereum-types", reason = "legacy Ethereum crate, use alloy-primitives instead" },
     { crate = "protobuf", reason = "use quick-protobuf instead" },
-    # Prevent duplicate versions of reqwest - heavy crate with build scripts
-    { crate = "reqwest", deny-multiple-versions = true, reason = "prevent duplicate versions" },
+    { crate = "derivative", reason = "use educe or derive_more instead" },
+    { crate = "ark-ff", reason = "present in Cargo.lock but not needed by Lighthouse" },
+    { crate = "strum", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "reqwest", deny-multiple-versions = true, reason = "takes a long time to compile" }
 ]
 
 [sources]
