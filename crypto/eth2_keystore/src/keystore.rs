@@ -397,7 +397,7 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
             // AES Decrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
+            let mut cipher = Ctr64BE::<Aes128>::new(key, nonce);
             cipher.apply_keystream(plain_text.as_mut_bytes());
         }
     };
