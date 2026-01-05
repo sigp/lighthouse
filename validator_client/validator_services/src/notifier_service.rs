@@ -1,4 +1,7 @@
 use crate::duties_service::DutiesService;
+use bls::PublicKeyBytes;
+use eth2::types::ValidatorStatus::{ExitedSlashed, ExitedUnslashed};
+use eth2::types::{StateId, ValidatorId};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -6,7 +9,7 @@ use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info};
 use types::{ChainSpec, EthSpec};
 use validator_metrics::set_gauge;
-use validator_store::ValidatorStore;
+use validator_store::{DoppelgangerStatus, ValidatorStore};
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
@@ -142,12 +145,53 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
                 "Some validators active"
             );
         } else {
-            info!(
-                validators = total_validators,
-                %epoch,
-                %slot,
-                "Awaiting activation"
-            );
+            let pubkeys: Vec<PublicKeyBytes> = duties_service
+                .validator_store
+                .voting_pubkeys(DoppelgangerStatus::ignored);
+
+            let mut validator_status = Vec::new();
+            for pubkey in pubkeys {
+                let validator_data = duties_service
+                    .beacon_nodes
+                    .first_success(|beacon_node| async move {
+                        beacon_node
+                            .get_beacon_states_validator_id(
+                                StateId::Head,
+                                &ValidatorId::PublicKey(pubkey),
+                            )
+                            .await
+                    })
+                    .await;
+
+                match validator_data {
+                    Ok(Some(response)) => validator_status.push(response.data.status),
+                    Ok(None) => {
+                        error!("Validator not found in beacon chain")
+                    }
+                    Err(e) => {
+                        error!(%e, "Error checking if validator exists in beacon chain");
+                    }
+                }
+            }
+
+            // Log a different log if all validators have exited
+            if validator_status
+                .iter()
+                .all(|status| *status == ExitedUnslashed || *status == ExitedSlashed)
+            {
+                info!(
+                    validators = total_validators,
+                    %epoch,
+                    %slot,
+                    "All validators have exited")
+            } else {
+                info!(
+                    validators = total_validators,
+                    %epoch,
+                    %slot,
+                    "Awaiting activation"
+                );
+            }
         }
     } else {
         error!("Unable to read slot clock");
