@@ -13,8 +13,7 @@ use crate::{
     execution::{
         ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderGloas, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
-        ExecutionRequests,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ExecutionRequests,
     },
     fork::{ForkName, ForkVersionDecode},
     kzg_ext::KzgCommitments,
@@ -22,7 +21,7 @@ use crate::{
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             PartialEq,
@@ -55,11 +54,9 @@ pub struct BuilderBid<E: EthSpec> {
     pub header: ExecutionPayloadHeaderElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
     pub header: ExecutionPayloadHeaderFulu<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "header_gloas"))]
-    pub header: ExecutionPayloadHeaderGloas<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu))]
     pub execution_requests: ExecutionRequests<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
@@ -92,7 +89,7 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let builder_bid = match fork_name {
-            ForkName::Altair | ForkName::Base => {
+            ForkName::Altair | ForkName::Base | ForkName::Gloas => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "unsupported fork for ExecutionPayloadHeader: {fork_name}",
                 )));
@@ -104,7 +101,6 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb::from_ssz_bytes(bytes)?),
             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
-            ForkName::Gloas => BuilderBid::Gloas(BuilderBidGloas::from_ssz_bytes(bytes)?),
         };
         Ok(builder_bid)
     }
@@ -160,10 +156,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BuilderBid<E> {
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => {
-                Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-            }
-            ForkName::Base | ForkName::Altair => {
+            ForkName::Base | ForkName::Altair | ForkName::Gloas => {
                 return Err(serde::de::Error::custom(format!(
                     "BuilderBid failed to deserialize: unsupported fork '{}'",
                     context

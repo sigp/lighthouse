@@ -124,6 +124,10 @@ pub mod execution_requests {
     };
 }
 
+pub mod execution_payload_envelope {
+    pub use crate::execution::{ExecutionPayloadEnvelope, SignedExecutionPayloadEnvelope};
+}
+
 pub mod data_column_custody_group {
     pub use crate::data::{
         CustodyIndex, compute_columns_for_custody_group, compute_ordered_custody_column_indices,
@@ -155,6 +159,12 @@ pub mod slot_data {
 
 pub mod signed_aggregate_and_proof {
     pub use crate::attestation::SignedAggregateAndProofRefMut;
+}
+
+pub mod payload_attestation {
+    pub use crate::attestation::{
+        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage,
+    };
 }
 
 pub mod application_domain {
