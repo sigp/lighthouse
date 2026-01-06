@@ -4,7 +4,7 @@ use crate::block_verification::{
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
-use derivative::Derivative;
+use educe::Educe;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
@@ -296,8 +296,8 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
 }
 
 /// Wrapper over a `DataColumnSidecar` for which we have completed kzg verification.
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
@@ -353,8 +353,8 @@ pub type CustodyDataColumnList<E> =
     VariableList<CustodyDataColumn<E>, <E as EthSpec>::NumberOfColumns>;
 
 /// Data column that we must custody
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[ssz(struct_behaviour = "transparent")]
 pub struct CustodyDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
@@ -383,8 +383,8 @@ impl<E: EthSpec> CustodyDataColumn<E> {
 }
 
 /// Data column that we must custody and has completed kzg verification
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
@@ -850,22 +850,6 @@ mod test {
             .build();
         harness.advance_slot();
 
-        // Check block generator timestamp conversion sanity.
-        {
-            let exec_block_generator = harness.execution_block_generator();
-            assert_eq!(
-                exec_block_generator
-                    .timestamp_to_slot_post_capella(exec_block_generator.osaka_time.unwrap()),
-                0
-            );
-            assert_eq!(
-                exec_block_generator.timestamp_to_slot_post_capella(
-                    exec_block_generator.osaka_time.unwrap() + harness.spec.seconds_per_slot
-                ),
-                1
-            );
-        }
-
         let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
             GossipVerifiedDataColumn::<_>::new_for_block_publishing(
                 column_sidecar.into(),
@@ -884,16 +868,16 @@ mod test {
         let state = harness.get_current_state();
         let ((block, _blobs_opt), _state) = harness
             .make_block_with_modifier(state, slot, |block| {
-                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].into();
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].try_into().unwrap();
             })
             .await;
 
         let index = 0;
         let column_sidecar = DataColumnSidecar::<E> {
             index,
-            column: vec![].into(),
-            kzg_commitments: vec![].into(),
-            kzg_proofs: vec![].into(),
+            column: vec![].try_into().unwrap(),
+            kzg_commitments: vec![].try_into().unwrap(),
+            kzg_proofs: vec![].try_into().unwrap(),
             signed_block_header: block.signed_block_header(),
             kzg_commitments_inclusion_proof: block
                 .message()
@@ -930,7 +914,9 @@ mod test {
         let ((block, _blobs_opt), _state) = harness
             .make_block_with_modifier(state, slot, |block| {
                 *block.body_mut().blob_kzg_commitments_mut().unwrap() =
-                    vec![preloaded_commitments_single[0]; blob_count].into();
+                    vec![preloaded_commitments_single[0]; blob_count]
+                        .try_into()
+                        .unwrap();
             })
             .await;
 

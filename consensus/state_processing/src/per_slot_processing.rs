@@ -3,6 +3,7 @@ use crate::upgrade::{
     upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas,
 };
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
+use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
 use tracing::instrument;
 use types::*;

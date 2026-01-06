@@ -1,5 +1,6 @@
 use super::methods::*;
 use crate::rpc::codec::SSZSnappyInboundCodec;
+use bls::Signature;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
@@ -20,7 +21,7 @@ use types::{
     EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
     LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
     LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock,
+    MainnetEthSpec, MinimalEthSpec, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -70,13 +71,15 @@ pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
 
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
-    VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
+    VariableList::<u8, MaxErrorLen>::try_from(Vec::<u8>::new())
+        .expect("MaxErrorLen should not exceed MAX_ERROR_LEN")
         .as_ssz_bytes()
         .len()
 });
 
 pub static ERROR_TYPE_MAX: LazyLock<usize> = LazyLock::new(|| {
-    VariableList::<u8, MaxErrorLen>::from(vec![0u8; MAX_ERROR_LEN as usize])
+    VariableList::<u8, MaxErrorLen>::try_from(vec![0u8; MAX_ERROR_LEN as usize])
+        .expect("MaxErrorLen should not exceed MAX_ERROR_LEN")
         .as_ssz_bytes()
         .len()
 });

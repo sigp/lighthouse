@@ -6,6 +6,7 @@ use beacon_chain::chain_config::{
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
+use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_required};
@@ -29,7 +30,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use types::graffiti::GraffitiString;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
+use types::{Checkpoint, Epoch, EthSpec, Hash256};
 
 const PURGE_DB_CONFIRMATION: &str = "confirm";
 
@@ -114,7 +115,6 @@ pub fn get_config<E: EthSpec>(
     let is_semi_supernode = parse_flag(cli_args, "semi-supernode");
 
     client_config.chain.node_custody_type = if is_supernode {
-        client_config.network.subscribe_all_data_column_subnets = true;
         NodeCustodyType::Supernode
     } else if is_semi_supernode {
         NodeCustodyType::SemiSupernode

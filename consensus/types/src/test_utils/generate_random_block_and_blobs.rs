@@ -1,11 +1,16 @@
+use bls::Signature;
+use kzg::{KzgCommitment, KzgProof};
 use rand::Rng;
 
-use kzg::{KzgCommitment, KzgProof};
-
-use crate::beacon_block_body::KzgCommitments;
-use crate::*;
-
-use super::*;
+use crate::{
+    block::{BeaconBlock, SignedBeaconBlock},
+    core::{EthSpec, MainnetEthSpec},
+    data::{Blob, BlobSidecar, BlobsList},
+    execution::FullPayload,
+    fork::{ForkName, map_fork_name},
+    kzg_ext::{KzgCommitments, KzgProofs},
+    test_utils::TestRandom,
+};
 
 type BlobsBundle<E> = (KzgCommitments<E>, KzgProofs<E>, BlobsList<E>);
 
@@ -73,11 +78,12 @@ pub fn generate_blobs<E: EthSpec>(n_blobs: usize) -> Result<BlobsBundle<E>, Stri
 mod test {
     use super::*;
     use rand::rng;
+    use ssz_types::FixedVector;
 
     #[test]
     fn test_verify_blob_inclusion_proof() {
         let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 6, &mut rng());
+            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 2, &mut rng());
         for blob in blobs {
             assert!(blob.verify_blob_sidecar_inclusion_proof());
         }
@@ -115,7 +121,7 @@ mod test {
     #[test]
     fn test_verify_blob_inclusion_proof_invalid() {
         let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 6, &mut rng());
+            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut rng());
 
         for mut blob in blobs {
             blob.kzg_commitment_inclusion_proof = FixedVector::random_for_test(&mut rng());

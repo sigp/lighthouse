@@ -4,6 +4,7 @@
 
 use crate::beacon_proposer_cache::{BeaconProposerCache, TYPICAL_SLOTS_PER_EPOCH};
 use crate::metrics;
+use bls::PublicKeyBytes;
 use itertools::Itertools;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
@@ -28,9 +29,10 @@ use types::consts::altair::{
 use types::{
     Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
-    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    IndexedAttestationRef, ProposerSlashing, SignedAggregateAndProof, SignedContributionAndProof,
+    Slot, SyncCommitteeMessage, VoluntaryExit,
 };
+
 /// Used for Prometheus labels.
 ///
 /// We've used `total` for this value to align with Nimbus, as per:
@@ -1214,7 +1216,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            slot_clock.unagg_attestation_production_delay(),
+            Duration::from_secs(0),
             slot_clock,
         );
 

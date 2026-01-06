@@ -481,7 +481,12 @@ fn run_execution_jwt_secret_key_is_persisted() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoint.as_ref().unwrap().full.to_string(),
+                config
+                    .execution_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
                 "http://localhost:8551/"
             );
             let mut file_jwt_secret_key = String::new();
@@ -532,7 +537,12 @@ fn bellatrix_jwt_secrets_flag() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoint.as_ref().unwrap().full.to_string(),
+                config
+                    .execution_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
                 "http://localhost:8551/"
             );
             assert_eq!(
