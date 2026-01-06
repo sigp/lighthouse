@@ -104,10 +104,11 @@ pub fn size_of_dir(path: &Path) -> u64 {
                 if depth < MAX_DEPTH {
                     stack.push_back((entry.path(), depth + 1));
                 }
-            } else if file_type.is_file() {
-                if let Ok(metadata) = entry.metadata() {
-                    total_size = total_size.saturating_add(metadata.len());
-                }
+            } else if file_type.is_file()
+                && let Ok(metadata) = entry.metadata()
+            {
+                total_size = total_size.saturating_add(metadata.len());
+            }
             }
         }
     }
