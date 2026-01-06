@@ -446,7 +446,8 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 params.c,
                 dk.as_mut_bytes(),
             )
-            .expect("DKLEN is a valid length for PBKDF2 output");
+            // `pbkdf2` accepts keys of any size so this error should never occur in practice.
+            .map_err(|_| Error::InvalidPassword)?;
         }
         Kdf::Scrypt(params) => {
             scrypt(
