@@ -342,21 +342,22 @@ impl<E: EthSpec> DasColumn<E> for VerifiablePartialDataColumn<E> {
 
     fn iter(&self) -> impl Iterator<Item = Option<CellWithMetadata<'_, E>>> {
         let sidecar = &self.column.sidecar;
-        let mut present_iterator = sidecar
-            .column
+        let mut present_iterator = sidecar.column.iter().zip(sidecar.kzg_proofs.iter());
+        sidecar
+            .cells_present_bitmap
             .iter()
-            .zip(sidecar.kzg_proofs.iter());
-        sidecar.cells_present_bitmap.iter().zip(self.kzg_commitments.iter()).map(move |(present, commitment)| {
-            if present {
-                let (cell, proof) = present_iterator.next()?;
-                Some(CellWithMetadata {
-                    cell,
-                    proof,
-                    commitment,
-                })
-            } else {
-                None
-            }
-        })
+            .zip(self.kzg_commitments.iter())
+            .map(move |(present, commitment)| {
+                if present {
+                    let (cell, proof) = present_iterator.next()?;
+                    Some(CellWithMetadata {
+                        cell,
+                        proof,
+                        commitment,
+                    })
+                } else {
+                    None
+                }
+            })
     }
 }

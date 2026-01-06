@@ -570,11 +570,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
             let column = (*data_col).clone().into_partial().column;
             [
-                PubsubMessage::PartialDataColumnSidecar(Box::new((
-                    subnet,
-                    column,
-                    None,
-                ))),
+                PubsubMessage::PartialDataColumnSidecar(Box::new((subnet, column, None))),
                 PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
             ]
         })
