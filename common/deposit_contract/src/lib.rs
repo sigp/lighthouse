@@ -1,9 +1,10 @@
 use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::JsonAbi;
 use alloy_primitives::FixedBytes;
+use bls::{PublicKeyBytes, SignatureBytes};
 use ssz::{Decode, DecodeError as SszDecodeError, Encode};
 use tree_hash::TreeHash;
-use types::{DepositData, Hash256, PublicKeyBytes, SignatureBytes};
+use types::{DepositData, Hash256};
 
 #[derive(Debug)]
 pub enum Error {
@@ -44,15 +45,25 @@ impl From<SszDecodeError> for Error {
 
 pub const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
 pub const DEPOSIT_GAS: usize = 400_000;
-pub const ABI: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.json");
-pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.bytecode");
+pub const ABI: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/v0.12.1_validator_registration.json"
+));
+pub const BYTECODE: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/v0.12.1_validator_registration.bytecode"
+));
 pub const DEPOSIT_DATA_LEN: usize = 420; // lol
 
 pub mod testnet {
-    pub const ABI: &[u8] =
-        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.json");
-    pub const BYTECODE: &[u8] =
-        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.bytecode");
+    pub const ABI: &[u8] = include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/v0.12.1_testnet_validator_registration.json"
+    ));
+    pub const BYTECODE: &[u8] = include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/v0.12.1_testnet_validator_registration.bytecode"
+    ));
 }
 
 pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {
@@ -116,10 +127,8 @@ pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Ha
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{
-        ChainSpec, EthSpec, Keypair, MinimalEthSpec, Signature,
-        test_utils::generate_deterministic_keypair,
-    };
+    use bls::{Keypair, Signature};
+    use types::{ChainSpec, EthSpec, MinimalEthSpec, test_utils::generate_deterministic_keypair};
 
     type E = MinimalEthSpec;
 

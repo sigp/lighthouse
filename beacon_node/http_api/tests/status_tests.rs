@@ -12,8 +12,10 @@ type E = MinimalEthSpec;
 
 /// Create a new test environment that is post-merge with `chain_depth` blocks.
 async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
-    // Test using latest fork so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(EIP-7732): extend tests for Gloas by reverting back to using `ForkName::latest()`
+    // Issue is that these tests do block production via `extend_chain_with_sync` which expects to be able to use `state.latest_execution_payload_header` during block production, but Gloas uses `latest_execution_bid` instead
+    // This will be resolved in a subsequent block processing PR
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = Uint256::from(1);
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count as usize).await;

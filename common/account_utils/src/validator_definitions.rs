@@ -4,6 +4,7 @@
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
 use crate::{default_keystore_password_path, read_password_string, write_file_via_temporary};
+use bls::PublicKey;
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,7 @@ use std::fs::{self, File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
-use types::{Address, PublicKey, graffiti::GraffitiString};
+use types::{Address, graffiti::GraffitiString};
 use validator_dir::VOTING_KEYSTORE_FILE;
 use zeroize::Zeroizing;
 
@@ -541,7 +542,7 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use types::Keypair;
+    use bls::Keypair;
 
     #[test]
     fn voting_keystore_filename_lighthouse() {

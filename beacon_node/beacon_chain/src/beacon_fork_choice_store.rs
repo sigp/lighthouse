@@ -6,6 +6,7 @@
 
 use crate::{BeaconSnapshot, metrics};
 use educe::Educe;
+use fixed_bytes::FixedBytesExtended;
 use fork_choice::ForkChoiceStore;
 use proto_array::JustifiedBalances;
 use safe_arith::ArithError;
@@ -17,7 +18,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Slot,
+    Hash256, Slot,
 };
 
 #[derive(Debug)]
