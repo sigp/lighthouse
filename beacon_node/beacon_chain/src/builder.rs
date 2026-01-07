@@ -1029,7 +1029,6 @@ where
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
-            attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),
             light_client_server_tx: self.light_client_server_tx,
@@ -1060,16 +1059,6 @@ where
         };
 
         let head = beacon_chain.head_snapshot();
-
-        // Prime the attester cache with the head state.
-        beacon_chain
-            .attester_cache
-            .maybe_cache_state(
-                &head.beacon_state,
-                head.beacon_block_root,
-                &beacon_chain.spec,
-            )
-            .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint

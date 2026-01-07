@@ -2,6 +2,7 @@ use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_column_verification::CustodyDataColumn;
+use crate::graffiti_calculator::GraffitiSettings;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -23,7 +24,7 @@ use bls::get_withdrawal_credentials;
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
 };
-use eth2::types::SignedBlockContentsTuple;
+use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
@@ -943,6 +944,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -956,7 +959,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 builder_boost_factor,
                 BlockProductionVersion::V3,
@@ -1000,6 +1003,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1010,7 +1015,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -1059,6 +1064,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1071,7 +1078,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -2923,7 +2930,6 @@ where
         let chain_dump = self.chain.chain_dump().unwrap();
         chain_dump
             .iter()
-            .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
             .filter(|block_hash| *block_hash != Hash256::zero())
             .map(|hash| hash.into())
@@ -3294,9 +3300,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
-        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
-            ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadGloas<E>, num_blobs, rng, fork_name),
+        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
         _ => return (block, blob_sidecars),
     };
 

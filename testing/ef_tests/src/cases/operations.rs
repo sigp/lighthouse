@@ -307,6 +307,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Fulu => BeaconBlockBody::Fulu(<_>::from_ssz_bytes(bytes)?),
+                // TODO(EIP-7732): See if we need to handle Gloas here
                 _ => panic!(),
             })
         })
@@ -366,6 +367,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Fulu(inner.clone_as_blinded())
                 }
+                // TODO(EIP-7732): See if we need to handle Gloas here
                 _ => panic!(),
             })
         })
@@ -417,6 +419,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        // TODO(EIP-7732): implement separate gloas and non-gloas variants of process_withdrawals
         process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
     }
 }

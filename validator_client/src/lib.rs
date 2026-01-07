@@ -54,8 +54,6 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
-const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
-
 /// Compute attestation selection proofs this many slots before they are required.
 ///
 /// At start-up selection proofs will be computed with less lookahead out of necessity.
@@ -486,7 +484,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
             .graffiti(config.graffiti)
-            .graffiti_file(config.graffiti_file.clone());
+            .graffiti_file(config.graffiti_file.clone())
+            .graffiti_policy(config.graffiti_policy);
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
@@ -607,8 +606,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
                 doppelganger_service,
-                self.context
-                    .service_context(DOPPELGANGER_SERVICE_NAME.into()),
+                self.context.clone(),
                 self.validator_store.clone(),
                 self.duties_service.beacon_nodes.clone(),
                 self.duties_service.slot_clock.clone(),
@@ -618,7 +616,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             info!("Doppelganger protection disabled.")
         }
 
-        let context = self.context.service_context("notifier".into());
+        let context = self.context.clone();
         spawn_notifier(
             self.duties_service.clone(),
             context.executor,
