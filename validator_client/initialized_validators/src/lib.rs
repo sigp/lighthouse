@@ -15,6 +15,7 @@ use account_utils::{
         Web3SignerDefinition,
     },
 };
+use bls::{Keypair, PublicKey, PublicKeyBytes};
 use eth2_keystore::Keystore;
 use lockfile::{Lockfile, LockfileError};
 use metrics::set_gauge;
@@ -30,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 use types::graffiti::GraffitiString;
-use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use types::{Address, Graffiti};
 use url::{ParseError, Url};
 use validator_dir::Builder as ValidatorDirBuilder;
 use zeroize::Zeroizing;

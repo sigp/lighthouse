@@ -1,9 +1,11 @@
+use bls::PublicKeyBytes;
+use context_deserialize::ContextDeserialize;
 pub use eth2::Error;
 use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    ContentType, ContextDeserialize, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode,
-    ForkVersionedResponse, PublicKeyBytes, SignedValidatorRegistrationData, Slot,
+    ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
+    SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
@@ -270,7 +272,7 @@ impl BuilderHttpClient {
         &self,
         validator: &[SignedValidatorRegistrationData],
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -289,7 +291,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<FullPayloadContents<E>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         let body = blinded_block.as_ssz_bytes();
 
@@ -337,7 +339,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         let body = blinded_block.as_ssz_bytes();
 
@@ -387,7 +389,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -430,7 +432,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -480,7 +482,7 @@ impl BuilderHttpClient {
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
     ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -521,7 +523,7 @@ impl BuilderHttpClient {
 
     /// `GET /eth/v1/builder/status`
     pub async fn get_builder_status<E: EthSpec>(&self) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -538,9 +540,10 @@ impl BuilderHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bls::Signature;
+    use eth2::types::MainnetEthSpec;
     use eth2::types::builder_bid::{BuilderBid, BuilderBidFulu};
     use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use eth2::types::{MainnetEthSpec, Signature};
     use mockito::{Matcher, Server, ServerGuard};
 
     type E = MainnetEthSpec;

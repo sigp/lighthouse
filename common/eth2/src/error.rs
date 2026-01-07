@@ -14,6 +14,7 @@ use std::{fmt, path::PathBuf};
 pub enum Error {
     /// The `reqwest` client raised an error.
     HttpClient(PrettyReqwestError),
+    #[cfg(feature = "events")]
     /// The `reqwest_eventsource` client raised an error.
     SseClient(Box<reqwest_eventsource::Error>),
     /// The server returned an error message where the body was able to be parsed.
@@ -91,6 +92,7 @@ impl Error {
     pub fn status(&self) -> Option<StatusCode> {
         match self {
             Error::HttpClient(error) => error.inner().status(),
+            #[cfg(feature = "events")]
             Error::SseClient(error) => {
                 if let reqwest_eventsource::Error::InvalidStatusCode(status, _) = error.as_ref() {
                     Some(*status)

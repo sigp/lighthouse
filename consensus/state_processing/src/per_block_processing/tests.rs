@@ -11,7 +11,10 @@ use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
+use fixed_bytes::FixedBytesExtended;
 use ssz_types::Bitfield;
+use ssz_types::VariableList;
 use std::sync::{Arc, LazyLock};
 use test_utils::generate_deterministic_keypairs;
 use types::*;

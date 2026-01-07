@@ -1,20 +1,26 @@
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::test_utils::{BeaconChainHarness, generate_data_column_sidecars_from_block};
+use beacon_chain::test_utils::{
+    BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
+};
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkName, MinimalEthSpec, Slot};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, MinimalEthSpec, Slot};
 
 type E = MinimalEthSpec;
 
 /// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_gossip_blob() {
-    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -48,7 +54,11 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
 async fn data_column_sidecar_event_on_process_gossip_data_column() {
-    let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -93,7 +103,11 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
 /// Verifies that a blob event is emitted when blobs are received via RPC.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_rpc_blobs() {
-    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -112,7 +126,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     let slot = head_state.slot() + 1;
     let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
     let (kzg_proofs, blobs) = opt_blobs.unwrap();
-    assert!(blobs.len() > 2);
+    assert_eq!(blobs.len(), 2);
 
     let blob_1 =
         Arc::new(BlobSidecar::new(0, blobs[0].clone(), &signed_block, kzg_proofs[0]).unwrap());
@@ -144,7 +158,11 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
 
 #[tokio::test]
 async fn data_column_sidecar_event_on_process_rpc_columns() {
-    let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.clone())
         .deterministic_keypairs(8)
