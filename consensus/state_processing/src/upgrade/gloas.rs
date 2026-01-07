@@ -70,7 +70,10 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        latest_execution_payload_bid: ExecutionPayloadBid::default(),
+        latest_execution_payload_bid: ExecutionPayloadBid {
+            block_hash: pre.latest_execution_payload_header.block_hash,
+            ..Default::default()
+        },
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
