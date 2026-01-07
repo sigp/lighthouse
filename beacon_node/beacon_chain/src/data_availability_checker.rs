@@ -692,6 +692,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 }
 
 #[derive(Debug, Clone)]
+// TODO(#8633) move this to `block_verification_types.rs`
 pub enum AvailableBlockData<E: EthSpec> {
     /// Block is pre-Deneb or has zero blobs
     NoData,
@@ -767,6 +768,15 @@ pub struct AvailableBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
+    /// Constructs an `RpcBlock` from a block and optional data.
+    /// - If `block_data` is `Some`, constructs `FullyAvailable` variant after validation
+    /// - If `block_data` is `None`, constructs `BlockOnly` variant (used for lookups)
+    ///
+    /// Returns `AvailabilityCheckError` if:
+    /// - `block_data` contains data not required by the block
+    /// - Required `block_data` is missing
+    /// - Blob count doesn't match expected
+    /// - Custody columns are incomplete
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,

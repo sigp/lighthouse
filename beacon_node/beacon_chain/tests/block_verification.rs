@@ -41,6 +41,7 @@ const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGT
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
+// TODO(#8633): Delete this unnecessary enum and refactor this file to use `AvailableBlockData` instead.
 enum DataSidecars<E: EthSpec> {
     Blobs(BlobSidecarList<E>),
     DataColumns(Vec<CustodyDataColumn<E>>),
@@ -1972,9 +1973,8 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
     }
 }
 
-// Test that `signature_verify_chain_segment` correctly handles a mix of `FullyAvailable`
-// and `BlockOnly` RpcBlocks. This situation should not happen in production
-// but this test may help catch potential future regressions.
+// Test that `signature_verify_chain_segment` errors with a chain segment of mixed `FullyAvailable`
+// and `BlockOnly` RpcBlocks. This situation should never happen in production.
 #[tokio::test]
 async fn signature_verify_mixed_rpc_block_variants() {
     let (snapshots, data_sidecars) = get_chain_segment().await;
@@ -2007,20 +2007,9 @@ async fn signature_verify_mixed_rpc_block_variants() {
         chain_segment.push((block_root, rpc_block));
     }
 
-    // This should NOT silently drop the BlockOnly variants
-    let verified = signature_verify_chain_segment(chain_segment.clone(), &harness.chain).unwrap();
-
-    // Assert we got all blocks back, not just the FullyAvailable ones
-    assert_eq!(
-        verified.len(),
-        chain_segment.len(),
-        "All blocks should be verified, not dropped"
-    );
-
-    // Verify block roots match
-    for (i, (expected_root, _)) in chain_segment.iter().enumerate() {
-        assert_eq!(verified[i].block_root(), *expected_root);
-    }
+    // This should error because `signature_verify_chain_segment` expects a list
+    // of `RpcBlock::FullyAvailable`.
+    assert!(signature_verify_chain_segment(chain_segment.clone(), &harness.chain).is_err());
 }
 
 // Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
