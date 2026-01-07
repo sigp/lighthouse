@@ -687,8 +687,7 @@ mod test {
             .import_new_pubkeys(&state2)
             .expect("should import pubkeys");
 
-        let (_, ops) = cache
-            .get_db_ops();
+        let (_, ops) = cache.get_db_ops();
 
         store.do_atomically_with_block_and_blobs_cache(ops).unwrap();
 
