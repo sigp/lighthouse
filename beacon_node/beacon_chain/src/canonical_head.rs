@@ -960,14 +960,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .write()
             .prune(new_local_finalized_slot);
 
-        self.observed_slashable
-            .write()
-            .prune(new_local_finalized_slot);
-
-        // TODO: Should this use the local finality of the network?
-        self.attester_cache
-            .prune_below(new_local_finalized_checkpoint.epoch);
-
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_finalized_subscribers()
             && let Some(on_chain_finalized_block) = self

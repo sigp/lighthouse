@@ -18,6 +18,7 @@ pub struct ExecutionPayloadBid {
     pub parent_block_hash: ExecutionBlockHash,
     pub parent_block_root: Hash256,
     pub block_hash: ExecutionBlockHash,
+    pub prev_randao: Hash256,
     #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -27,6 +28,8 @@ pub struct ExecutionPayloadBid {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]
     pub value: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub execution_payment: u64,
     pub blob_kzg_commitments_root: Hash256,
 }
 
