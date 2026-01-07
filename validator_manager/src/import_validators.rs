@@ -255,23 +255,43 @@ async fn run(config: ImportConfig) -> Result<(), String> {
             })?;
 
         // Log the overridden note when one or more flags is supplied
-        if let Some(override_fee_recipient) = fee_recipient {
-            eprintln!("Please note! --suggested-fee-recipient is provided. This will override existing fee recipient defined in validators.json with: {:?}", override_fee_recipient);
-        }
-        if let Some(override_gas_limit) = gas_limit {
-            eprintln!("Please note! --gas-limit is provided. This will override existing gas limit defined in validators.json with: {}", override_gas_limit);
-        }
-        if let Some(override_builder_proposals) = builder_proposals {
-            eprintln!("Please note! --builder-proposals is provided. This will override existing builder proposal setting defined in validators.json with: {}", override_builder_proposals);
-        }
-        if let Some(override_builder_boost_factor) = builder_boost_factor {
-            eprintln!("Please note! --builder-boost-factor is provided. This will override existing builder boost factor defined in validators.json with: {}", override_builder_boost_factor);
-        }
-        if let Some(override_prefer_builder_proposals) = prefer_builder_proposals {
-            eprintln!("Please note! --prefer-builder-proposals is provided. This will override existing prefer builder proposal setting defined in validators.json with: {}", override_prefer_builder_proposals);
-        }
-        if let Some(override_enabled) = enabled {
-            eprintln!("Please note! --enabled flag is provided. This will override existing setting defined in validators.json with: {}", override_enabled);
+        if validators.len() > 0 {
+            if let Some(override_fee_recipient) = fee_recipient {
+                eprintln!(
+                    "Please note! --suggested-fee-recipient is provided. This will override existing fee recipient defined in validators.json with: {:?}",
+                    override_fee_recipient
+                );
+            }
+            if let Some(override_gas_limit) = gas_limit {
+                eprintln!(
+                    "Please note! --gas-limit is provided. This will override existing gas limit defined in validators.json with: {}",
+                    override_gas_limit
+                );
+            }
+            if let Some(override_builder_proposals) = builder_proposals {
+                eprintln!(
+                    "Please note! --builder-proposals is provided. This will override existing builder proposal setting defined in validators.json with: {}",
+                    override_builder_proposals
+                );
+            }
+            if let Some(override_builder_boost_factor) = builder_boost_factor {
+                eprintln!(
+                    "Please note! --builder-boost-factor is provided. This will override existing builder boost factor defined in validators.json with: {}",
+                    override_builder_boost_factor
+                );
+            }
+            if let Some(override_prefer_builder_proposals) = prefer_builder_proposals {
+                eprintln!(
+                    "Please note! --prefer-builder-proposals is provided. This will override existing prefer builder proposal setting defined in validators.json with: {}",
+                    override_prefer_builder_proposals
+                );
+            }
+            if let Some(override_enabled) = enabled {
+                eprintln!(
+                    "Please note! --enabled flag is provided. This will override existing setting defined in validators.json with: {}",
+                    override_enabled
+                );
+            }
         }
 
         // Override the fields in validators.json file if the flag is supplied
