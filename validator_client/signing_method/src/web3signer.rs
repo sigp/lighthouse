@@ -1,6 +1,7 @@
 //! Contains the types required to make JSON requests to Web3Signer servers.
 
 use super::Error;
+use bls::{PublicKeyBytes, Signature};
 use serde::{Deserialize, Serialize};
 use types::*;
 

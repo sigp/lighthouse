@@ -1,3 +1,4 @@
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use environment::Environment;
 use slashing_protection::{
@@ -7,7 +8,7 @@ use slashing_protection::{
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Slot};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";

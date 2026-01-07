@@ -2,15 +2,16 @@ use crate::builder::{
     ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE, keystore_password_path,
 };
+use bls::Keypair;
 use deposit_contract::decode_eth1_tx_data;
-use derivative::Derivative;
+use educe::Educe;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use lockfile::{Lockfile, LockfileError};
 use std::fs::{File, read, write};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
-use types::{DepositData, Hash256, Keypair};
+use types::{DepositData, Hash256};
 
 /// The file used to save the Eth1 transaction hash from a deposit.
 pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
@@ -32,7 +33,7 @@ pub enum Error {
     UnableToReadDepositAmount(io::Error),
     UnableToParseDepositAmount(std::num::ParseIntError),
     DepositAmountIsNotUtf8(std::string::FromUtf8Error),
-    UnableToParseDepositData(deposit_contract::DecodeError),
+    UnableToParseDepositData(deposit_contract::Error),
     Eth1TxHashExists(PathBuf),
     UnableToWriteEth1TxHash(io::Error),
     /// The deposit root in the deposit data file does not match the one generated locally. This is
@@ -56,11 +57,11 @@ pub struct Eth1DepositData {
 ///
 /// Holds a lockfile in `self.dir` to attempt to prevent concurrent access from multiple
 /// processes.
-#[derive(Debug, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Debug, Educe)]
+#[educe(PartialEq)]
 pub struct ValidatorDir {
     dir: PathBuf,
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     _lockfile: Lockfile,
 }
 

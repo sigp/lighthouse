@@ -1101,10 +1101,10 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
 
 #[cfg(test)]
 mod tests {
+    use bls::{PublicKeyBytes, SignatureBytes};
     use ssz::Encode;
     use types::{
-        ConsolidationRequest, DepositRequest, MainnetEthSpec, PublicKeyBytes, RequestType,
-        SignatureBytes, WithdrawalRequest,
+        ConsolidationRequest, DepositRequest, MainnetEthSpec, RequestType, WithdrawalRequest,
     };
 
     use super::*;

@@ -482,20 +482,6 @@ pub static ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS: LazyLock<Result<Histogram
             "Time taken to read the head state",
         )
     });
-pub static ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "attestation_production_cache_interaction_seconds",
-            "Time spent interacting with the attester cache",
-        )
-    });
-pub static ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "attestation_production_cache_prime_seconds",
-            "Time spent loading a new state from the disk due to a cache miss",
-        )
-    });
 
 /*
  * Fork Choice
@@ -1185,7 +1171,7 @@ pub static VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS: LazyLock<
 > = LazyLock::new(|| {
     try_create_histogram_vec(
         "validator_monitor_unaggregated_attestation_delay_seconds",
-        "The delay between when the validator should send the attestation and when it was received.",
+        "The delay between when the validator sent the attestation and the start of the slot.",
         &["src", "validator"],
     )
 });

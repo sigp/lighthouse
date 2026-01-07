@@ -2,12 +2,11 @@ use crate::common::altair::BaseRewardPerIncrement;
 use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use crate::metrics;
+use fixed_bytes::FixedBytesExtended;
 use safe_arith::SafeArith;
 use tracing::instrument;
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{
-    ActivationQueue, BeaconState, ChainSpec, EthSpec, FixedBytesExtended, ForkName, Hash256,
-};
+use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {

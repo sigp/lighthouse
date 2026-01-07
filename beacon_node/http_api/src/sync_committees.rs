@@ -1,6 +1,6 @@
 //! Handlers for sync committee endpoints.
 
-use crate::publish_pubsub_message;
+use crate::utils::publish_pubsub_message;
 use beacon_chain::sync_committee_verification::{
     Error as SyncVerificationError, VerifiedSyncCommitteeMessage,
 };
