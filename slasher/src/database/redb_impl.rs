@@ -1,13 +1,13 @@
 #![cfg(feature = "redb")]
 use crate::{
+    Config, Error,
     config::REDB_DATA_FILENAME,
     database::{
         interface::{Key, OpenDatabases, Value},
         *,
     },
-    Config, Error,
 };
-use derivative::Derivative;
+use educe::Educe;
 use redb::{ReadableTable, TableDefinition};
 use std::{borrow::Cow, path::PathBuf};
 
@@ -23,18 +23,18 @@ pub struct Database<'env> {
     _phantom: PhantomData<&'env ()>,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct RwTransaction<'env> {
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     txn: redb::WriteTransaction,
     _phantom: PhantomData<&'env ()>,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct Cursor<'env> {
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     txn: &'env redb::WriteTransaction,
     db: &'env Database<'env>,
     current_key: Option<Cow<'env, [u8]>>,
@@ -51,7 +51,7 @@ impl Environment {
         })
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&self) -> Result<OpenDatabases<'_>, Error> {
         let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB)?;
         let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB)?;
         let attesters_db = self.create_table(ATTESTERS_DB)?;
@@ -94,7 +94,7 @@ impl Environment {
         vec![config.database_path.join(REDB_DATA_FILENAME)]
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
         let mut txn = self.db.begin_write()?;
         txn.set_durability(redb::Durability::Eventual);
         Ok(RwTransaction {
@@ -160,7 +160,7 @@ impl<'env> RwTransaction<'env> {
 }
 
 impl<'env> Cursor<'env> {
-    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
+    pub fn first_key(&mut self) -> Result<Option<Key<'_>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;

@@ -6,15 +6,14 @@ participants:
   # nodes without validators, used for testing sync.
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    supernode: true # no supernode in Electra, this is for future proof
     validator_count: 0
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    supernode: false
     validator_count: 0
 network_params:
   seconds_per_slot: 6
   electra_fork_epoch: 0
+  fulu_fork_epoch: 100000 # a really big number so this test stays in electra
   preset: "minimal"
 additional_services:
   - tx_fuzz

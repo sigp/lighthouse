@@ -1,12 +1,15 @@
 mod metrics;
+mod rayon_pool_provider;
 pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 use tokio::runtime::{Handle, Runtime};
-use tracing::{debug, instrument};
+use tracing::debug;
 
+use crate::rayon_pool_provider::RayonPoolProvider;
+pub use crate::rayon_pool_provider::RayonPoolType;
 pub use tokio::task::JoinHandle;
 
 /// Provides a reason when Lighthouse is shut down.
@@ -80,8 +83,7 @@ pub struct TaskExecutor {
     /// The task must provide a reason for shutting down.
     signal_tx: Sender<ShutdownReason>,
 
-    /// The name of the service for inclusion in the logger output.
-    service_name: String,
+    rayon_pool_provider: Arc<RayonPoolProvider>,
 }
 
 impl TaskExecutor {
@@ -92,29 +94,16 @@ impl TaskExecutor {
     /// This function should only be used during testing. In production, prefer to obtain an
     /// instance of `Self` via a `environment::RuntimeContext` (see the `lighthouse/environment`
     /// crate).
-    #[instrument(parent = None,fields(service = service_name), name = "task_executor", skip_all)]
     pub fn new<T: Into<HandleProvider>>(
         handle: T,
         exit: async_channel::Receiver<()>,
         signal_tx: Sender<ShutdownReason>,
-        service_name: String,
     ) -> Self {
         Self {
             handle_provider: handle.into(),
             exit,
             signal_tx,
-            service_name,
-        }
-    }
-
-    /// Clones the task executor adding a service name.
-    #[instrument(parent = None,level = "info", fields(service = service_name), name = "task_executor", skip_all)]
-    pub fn clone_with_name(&self, service_name: String) -> Self {
-        TaskExecutor {
-            handle_provider: self.handle_provider.clone(),
-            exit: self.exit.clone(),
-            signal_tx: self.signal_tx.clone(),
-            service_name,
+            rayon_pool_provider: Arc::new(RayonPoolProvider::default()),
         }
     }
 
@@ -124,7 +113,6 @@ impl TaskExecutor {
     /// The purpose of this function is to create a compile error if some function which previously
     /// returned `()` starts returning something else. Such a case may otherwise result in
     /// accidental error suppression.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_ignoring_error(
         &self,
         task: impl Future<Output = Result<(), ()>> + Send + 'static,
@@ -136,7 +124,6 @@ impl TaskExecutor {
     /// Spawn a task to monitor the completion of another task.
     ///
     /// If the other task exits by panicking, then the monitor task will shut down the executor.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     fn spawn_monitor<R: Send>(
         &self,
         task_handle: impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static,
@@ -146,11 +133,11 @@ impl TaskExecutor {
         if let Some(handle) = self.handle() {
             let fut = async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
-                if let Err(join_error) = task_handle.await {
-                    if let Ok(_panic) = join_error.try_into_panic() {
-                        let _ = shutdown_sender
-                            .try_send(ShutdownReason::Failure("Panic (fatal error)"));
-                    }
+                if let Err(join_error) = task_handle.await
+                    && let Ok(_panic) = join_error.try_into_panic()
+                {
+                    let _ =
+                        shutdown_sender.try_send(ShutdownReason::Failure("Panic (fatal error)"));
                 }
                 drop(timer);
             };
@@ -175,7 +162,6 @@ impl TaskExecutor {
     /// of a panic, the executor will be shut down via `self.signal_tx`.
     ///
     /// This function generates prometheus metrics on number of tasks and task duration.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, name: &'static str) {
         if let Some(task_handle) = self.spawn_handle(task, name) {
             self.spawn_monitor(task_handle, name)
@@ -191,7 +177,6 @@ impl TaskExecutor {
     /// This is useful in cases where the future to be spawned needs to do additional cleanup work when
     /// the task is completed/canceled (e.g. writing local variables to disk) or the task is created from
     /// some framework which does its own cleanup (e.g. a hyper server).
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_without_exit(
         &self,
         task: impl Future<Output = ()> + Send + 'static,
@@ -230,12 +215,52 @@ impl TaskExecutor {
         }
     }
 
+    /// Spawns a blocking task on a dedicated tokio thread pool and installs a rayon context within it.
+    pub fn spawn_blocking_with_rayon<F>(
+        self,
+        task: F,
+        rayon_pool_type: RayonPoolType,
+        name: &'static str,
+    ) where
+        F: FnOnce() + Send + 'static,
+    {
+        let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
+        self.spawn_blocking(
+            move || {
+                thread_pool.install(|| {
+                    task();
+                });
+            },
+            name,
+        )
+    }
+
+    /// Spawns a blocking computation on a rayon thread pool and awaits the result.
+    pub async fn spawn_blocking_with_rayon_async<F, R>(
+        &self,
+        rayon_pool_type: RayonPoolType,
+        task: F,
+    ) -> Result<R, tokio::sync::oneshot::error::RecvError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        thread_pool.spawn(move || {
+            let result = task();
+            let _ = tx.send(result);
+        });
+
+        rx.await
+    }
+
     /// Spawn a future on the tokio runtime wrapped in an `async-channel::Receiver` returning an optional
     /// join handle to the future.
     /// The task is cancelled when the corresponding async-channel is dropped.
     ///
     /// This function generates prometheus metrics on number of tasks and task duration.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_handle<R: Send + 'static>(
         &self,
         task: impl Future<Output = R> + Send + 'static,
@@ -283,12 +308,11 @@ impl TaskExecutor {
     /// The Future returned behaves like the standard JoinHandle which can return an error if the
     /// task failed.
     /// This function generates prometheus metrics on number of tasks and task duration.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_blocking_handle<F, R>(
         &self,
         task: F,
         name: &'static str,
-    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>>>
+    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static + use<F, R>>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -332,7 +356,6 @@ impl TaskExecutor {
     /// a `tokio` context present in the thread-local storage due to some `rayon` funkiness. Talk to
     /// @paulhauner if you plan to use this function in production. He has put metrics in here to
     /// track any use of it, so don't think you can pull a sneaky one on him.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn block_on_dangerous<F: Future>(
         &self,
         future: F,
@@ -368,14 +391,13 @@ impl TaskExecutor {
     }
 
     /// Returns a `Handle` to the current runtime.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn handle(&self) -> Option<Handle> {
         self.handle_provider.handle()
     }
 
     /// Returns a future that completes when `async-channel::Sender` is dropped or () is sent,
     /// which translates to the exit signal being triggered.
-    pub fn exit(&self) -> impl Future<Output = ()> {
+    pub fn exit(&self) -> impl Future<Output = ()> + 'static {
         let exit = self.exit.clone();
         async move {
             let _ = exit.recv().await;
@@ -383,7 +405,6 @@ impl TaskExecutor {
     }
 
     /// Get a channel to request shutting down.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
     }

@@ -9,7 +9,8 @@ pub mod slashing_protection;
 
 use clap::ArgMatches;
 use cli::Validator;
-use directory::{parse_path_or_default_with_flag_v2, DEFAULT_VALIDATOR_DIR};
+use directory::DEFAULT_VALIDATOR_DIR;
+use directory::parse_path_or_default_with_flag_v2;
 use environment::Environment;
 use std::path::PathBuf;
 use types::EthSpec;

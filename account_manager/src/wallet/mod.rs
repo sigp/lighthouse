@@ -5,7 +5,7 @@ pub mod recover;
 
 use clap::ArgMatches;
 use cli::Wallet;
-use directory::{parse_path_or_default_with_flag_v2, DEFAULT_WALLET_DIR};
+use directory::{DEFAULT_WALLET_DIR, parse_path_or_default_with_flag_v2};
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 

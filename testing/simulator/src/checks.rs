@@ -1,7 +1,8 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
-use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot, Unsigned};
+use typenum::Unsigned;
+use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot};
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -303,7 +304,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         }
 
         // Verify light client optimistic update. `signature_slot_distance` should be 1 in the ideal scenario.
-        let signature_slot = *client
+        let signature_slot = client
             .get_beacon_light_client_optimistic_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
@@ -312,7 +313,9 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
-            return Err(format!("Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"));
+            return Err(format!(
+                "Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"
+            ));
         }
 
         // Verify light client finality update. `signature_slot_distance` should be 1 in the ideal scenario.
@@ -332,7 +335,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             }
             continue;
         }
-        let signature_slot = *client
+        let signature_slot = client
             .get_beacon_light_client_finality_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
@@ -422,7 +425,7 @@ pub async fn verify_full_blob_production_up_to<E: EthSpec>(
         // the `verify_full_block_production_up_to` function.
         if block.is_some() {
             remote_node
-                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None, &E::default_spec())
+                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None)
                 .await
                 .map_err(|e| format!("Failed to get blobs at slot {slot:?}: {e:?}"))?
                 .ok_or_else(|| format!("No blobs available at slot {slot:?}"))?;

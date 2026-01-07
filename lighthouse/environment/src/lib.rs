@@ -9,10 +9,10 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::{future, StreamExt};
-use logging::tracing_logging_layer::LoggingLayer;
+use futures::channel::mpsc::{Receiver, Sender, channel};
+use futures::{StreamExt, future};
 use logging::SSELoggingComponents;
+use logging::tracing_logging_layer::LoggingLayer;
 use logroller::{Compression, LogRollerBuilder, Rotation, RotationSize};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 use {
     futures::Future,
     std::{pin::Pin, task::Context, task::Poll},
-    tokio::signal::unix::{signal, Signal, SignalKind},
+    tokio::signal::unix::{Signal, SignalKind, signal},
 };
 
 #[cfg(not(target_family = "unix"))]
@@ -109,19 +109,6 @@ pub struct RuntimeContext<E: EthSpec> {
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
-    /// Returns a sub-context of this context.
-    ///
-    /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self, service_name: String) -> Self {
-        Self {
-            executor: self.executor.clone_with_name(service_name),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
     /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
@@ -349,23 +336,6 @@ impl<E: EthSpec> Environment<E> {
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.signal_tx.clone(),
-                "core".to_string(),
-            ),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
-    /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
-        RuntimeContext {
-            executor: TaskExecutor::new(
-                Arc::downgrade(self.runtime()),
-                self.exit.clone(),
-                self.signal_tx.clone(),
-                service_name,
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),

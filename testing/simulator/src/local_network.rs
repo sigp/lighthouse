@@ -1,10 +1,11 @@
 use crate::checks::epoch_delay;
 use kzg::trusted_setup::get_trusted_setup;
 use node_test_rig::{
+    ClientConfig, ClientGenesis, LocalBeaconNode, LocalExecutionNode, LocalValidatorClient,
+    MockExecutionConfig, MockServerConfig, ValidatorConfig, ValidatorFiles,
     environment::RuntimeContext,
-    eth2::{types::StateId, BeaconNodeHttpClient},
-    testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode, LocalExecutionNode,
-    LocalValidatorClient, MockExecutionConfig, MockServerConfig, ValidatorConfig, ValidatorFiles,
+    eth2::{BeaconNodeHttpClient, types::StateId},
+    testing_client_config,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -45,8 +46,7 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
     beacon_config.network.discv5_config.enable_packet_filter = false;
     beacon_config.chain.enable_light_client_server = true;
     beacon_config.chain.optimistic_finalized_sync = false;
-    beacon_config.trusted_setup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .expect("Trusted setup bytes should be valid");
+    beacon_config.trusted_setup = get_trusted_setup();
 
     let el_config = execution_layer::Config {
         execution_endpoint: Some(
@@ -206,10 +206,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
 
-        let execution_node = LocalExecutionNode::new(
-            self.context.service_context("boot_node_el".into()),
-            mock_execution_config,
-        );
+        let execution_node = LocalExecutionNode::new(self.context.clone(), mock_execution_config);
 
         beacon_config.execution_layer = Some(execution_layer::Config {
             execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
@@ -218,11 +215,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             ..Default::default()
         });
 
-        let beacon_node = LocalBeaconNode::production(
-            self.context.service_context("boot_node".into()),
-            beacon_config,
-        )
-        .await?;
+        let beacon_node = LocalBeaconNode::production(self.context.clone(), beacon_config).await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -252,10 +245,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         mock_execution_config.server_config.listen_port = EXECUTION_PORT + count;
 
         // Construct execution node.
-        let execution_node = LocalExecutionNode::new(
-            self.context.service_context(format!("node_{}_el", count)),
-            mock_execution_config,
-        );
+        let execution_node = LocalExecutionNode::new(self.context.clone(), mock_execution_config);
 
         // Pair the beacon node and execution node.
         beacon_config.execution_layer = Some(execution_layer::Config {
@@ -266,11 +256,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         });
 
         // Construct beacon node using the config,
-        let beacon_node = LocalBeaconNode::production(
-            self.context.service_context(format!("node_{}", count)),
-            beacon_config,
-        )
-        .await?;
+        let beacon_node = LocalBeaconNode::production(self.context.clone(), beacon_config).await?;
 
         Ok((beacon_node, execution_node))
     }
@@ -343,9 +329,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_node: usize,
         validator_files: ValidatorFiles,
     ) -> Result<(), String> {
-        let context = self
-            .context
-            .service_context(format!("validator_{}", beacon_node));
+        let context = self.context.clone();
         let self_1 = self.clone();
         let socket_addr = {
             let read_lock = self.beacon_nodes.read();
@@ -401,13 +385,10 @@ impl<E: EthSpec> LocalNetwork<E> {
     pub async fn add_validator_client_with_fallbacks(
         &self,
         mut validator_config: ValidatorConfig,
-        validator_index: usize,
         beacon_nodes: Vec<usize>,
         validator_files: ValidatorFiles,
     ) -> Result<(), String> {
-        let context = self
-            .context
-            .service_context(format!("validator_{}", validator_index));
+        let context = self.context.clone();
         let self_1 = self.clone();
         let mut beacon_node_urls = vec![];
         for beacon_node in beacon_nodes {

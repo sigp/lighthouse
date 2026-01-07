@@ -13,13 +13,13 @@
 
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
-use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
+use eth2_config::{HardcodedNet, instantiate_hardcoded_nets};
 use kzg::trusted_setup::get_trusted_setup;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -464,9 +464,10 @@ fn parse_state_download_url(url: &str) -> Result<Url, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fixed_bytes::FixedBytesExtended;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, FixedBytesExtended, GnosisEthSpec, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 

@@ -2,7 +2,7 @@ use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use strum::{Display, EnumString, EnumVariantNames};
+use strum::{Display, EnumString, VariantNames};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{Epoch, EthSpec, IndexedAttestation};
 
@@ -59,7 +59,7 @@ pub struct DiskConfig {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
+    Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Display, EnumString, VariantNames,
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum DatabaseBackend {
@@ -104,7 +104,7 @@ impl Config {
             Err(Error::ConfigInvalidZeroParameter {
                 config: self.clone(),
             })
-        } else if self.history_length % self.chunk_size != 0 {
+        } else if !self.history_length.is_multiple_of(self.chunk_size) {
             Err(Error::ConfigInvalidChunkSize {
                 chunk_size: self.chunk_size,
                 history_length: self.history_length,

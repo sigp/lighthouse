@@ -1,9 +1,8 @@
+use crate::NetworkMessage;
+use crate::sync::SyncMessage;
 use crate::sync::manager::SyncManager;
 use crate::sync::range_sync::RangeSyncType;
-use crate::sync::SyncMessage;
-use crate::NetworkMessage;
 use beacon_chain::builder::Witness;
-use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::NetworkGlobals;
@@ -22,7 +21,7 @@ use types::{ChainSpec, ForkName, MinimalEthSpec as E};
 mod lookups;
 mod range;
 
-type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+type T = Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
 
 /// This test utility enables integration testing of Lighthouse sync components.
 ///
@@ -66,6 +65,7 @@ struct TestRig {
     /// Beacon chain harness
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     /// `rng` for generating test blocks and blobs.
+    rng_08: rand_chacha_03::ChaCha20Rng,
     rng: ChaCha20Rng,
     fork_name: ForkName,
     spec: Arc<ChainSpec>,

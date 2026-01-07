@@ -1,12 +1,13 @@
+use bls::PublicKeyBytes;
 use environment::Environment;
 use slashing_protection::{
-    interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
-    SLASHING_PROTECTION_FILENAME,
+    InterchangeError, InterchangeImportOutcome, SLASHING_PROTECTION_FILENAME, SlashingDatabase,
+    interchange::Interchange,
 };
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Slot};
 
 use super::cli::SlashingProtection;
 

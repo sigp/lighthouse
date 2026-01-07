@@ -2,8 +2,8 @@
 use crate::database::leveldb_impl;
 #[cfg(feature = "redb")]
 use crate::database::redb_impl;
-use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
-use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
+use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, metrics};
+use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
 use std::path::Path;
 use types::EthSpec;
@@ -114,7 +114,11 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn iter_column_keys_from<K: Key>(&self, _column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+    fn iter_column_keys_from<K: Key>(
+        &self,
+        _column: DBColumn,
+        from: &[u8],
+    ) -> ColumnKeyIter<'_, K> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => {
@@ -127,7 +131,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column_keys(txn, column),
@@ -136,7 +140,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => {

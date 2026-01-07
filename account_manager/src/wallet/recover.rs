@@ -1,5 +1,5 @@
 use crate::wallet::cli::NewWallet;
-use account_utils::{read_mnemonic_from_cli, STDIN_INPUTS_FLAG};
+use account_utils::{STDIN_INPUTS_FLAG, read_mnemonic_from_cli};
 use clap::ArgMatches;
 use std::path::PathBuf;
 
@@ -17,7 +17,9 @@ pub fn cli_run(
     let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
 
     eprintln!();
-    eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
+    eprintln!(
+        "WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING."
+    );
     eprintln!();
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;

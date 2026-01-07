@@ -2,7 +2,7 @@ use crate::duties_service::DutiesService;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info};
 use types::{ChainSpec, EthSpec};
 use validator_metrics::set_gauge;
@@ -35,7 +35,9 @@ pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
 }
 
 /// Performs a single notification routine.
-async fn notify<S: ValidatorStore, T: SlotClock + 'static>(duties_service: &DutiesService<S, T>) {
+pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
+    duties_service: &DutiesService<S, T>,
+) {
     let (candidate_info, num_available, num_synced) =
         duties_service.beacon_nodes.get_notifier_info().await;
     let num_total = candidate_info.len();

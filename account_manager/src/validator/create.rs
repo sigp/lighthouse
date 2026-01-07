@@ -1,14 +1,13 @@
 use crate::common::read_wallet_name_from_cli;
-use crate::WALLETS_DIR_FLAG;
 use account_utils::{
-    random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
-    STDIN_INPUTS_FLAG,
+    PlainText, STDIN_INPUTS_FLAG, random_password, read_password_from_user, strip_off_newlines,
+    validator_definitions,
 };
 use clap::ArgMatches;
 use directory::{DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
 use environment::Environment;
 use eth2_wallet_manager::WalletManager;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::create_dir_all;
@@ -22,6 +21,7 @@ pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
 pub const WALLET_PASSWORD_FLAG: &str = "wallet-password";
+pub const WALLETS_DIR_FLAG: &str = "wallets-dir";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
@@ -67,7 +67,9 @@ pub fn cli_run<E: EthSpec>(
         return Err(format!(
             "No wallet directory at {:?}. Use the `lighthouse --network {} {} {} {}` command to create a wallet",
             wallet_base_dir,
-            matches.get_one::<String>("network").unwrap_or(&String::from("<NETWORK>")),
+            matches
+                .get_one::<String>("network")
+                .unwrap_or(&String::from("<NETWORK>")),
             crate::CMD,
             crate::wallet::CMD,
             crate::wallet::create::CMD

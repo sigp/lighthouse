@@ -1,7 +1,7 @@
+use crate::WALLETS_DIR_FLAG;
 use crate::common::read_wallet_name_from_cli;
 use crate::wallet::create::read_new_wallet_password_from_cli;
-use crate::WALLETS_DIR_FLAG;
-use account_utils::{random_password, PlainText, STDIN_INPUTS_FLAG};
+use account_utils::{PlainText, STDIN_INPUTS_FLAG, random_password};
 use clap::ArgMatches;
 pub use clap::Parser;
 use eth2_wallet::bip39::Mnemonic;

@@ -1,4 +1,4 @@
-use warp::{filters::BoxedFilter, Filter, Rejection};
+use warp::{Filter, Rejection, filters::BoxedFilter};
 
 /// Mixin trait for `Filter` providing the unifying-or method.
 pub trait UnifyingOrFilter: Filter<Error = Rejection> + Sized + Send + Sync + 'static

@@ -1,20 +1,21 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
+    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
     attestation_verification::Error as AttnError,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
+use bls::Keypair;
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, Keypair,
-    MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, MinimalEthSpec,
+    RelativeEpoch, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -1035,11 +1036,13 @@ async fn pseudo_finalize_test_generic(
     // This is a regression test for https://github.com/sigp/lighthouse/pull/7105
     if !expect_true_finalization_migration {
         assert_eq!(expected_split_slot, pseudo_finalized_slot);
-        assert!(!harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&split.block_root));
+        assert!(
+            !harness
+                .chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&split.block_root)
+        );
     }
 }
 

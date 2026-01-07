@@ -3,8 +3,8 @@ use account_utils::{
 };
 use clap::ArgMatches;
 use eth2_wallet::{
-    bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
+    bip39::{Language, Mnemonic, MnemonicType},
 };
 use filesystem::create_with_600_perms;
 use std::fs;
