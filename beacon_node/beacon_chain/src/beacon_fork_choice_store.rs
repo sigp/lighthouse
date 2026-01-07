@@ -481,6 +481,23 @@ impl From<(PersistedForkChoiceStoreV28, JustifiedBalances)> for PersistedForkCho
     }
 }
 
+impl From<PersistedForkChoiceStoreV28> for PersistedForkChoiceStoreV29 {
+    fn from(fcs: PersistedForkChoiceStoreV28) -> Self {
+        Self {
+            time: fcs.time,
+            finalized_checkpoint: fcs.finalized_checkpoint,
+            justified_checkpoint: fcs.justified_checkpoint,
+            local_irreversible_checkpoint: fcs.finalized_checkpoint,
+            justified_state_root: fcs.justified_state_root,
+            unrealized_justified_checkpoint: fcs.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: fcs.unrealized_finalized_checkpoint,
+            unrealized_justified_state_root: fcs.unrealized_justified_state_root,
+            proposer_boost_root: fcs.proposer_boost_root,
+            equivocating_indices: fcs.equivocating_indices,
+        }
+    }
+}
+
 impl From<PersistedForkChoiceStoreV29> for PersistedForkChoiceStoreV28 {
     fn from(fcs: PersistedForkChoiceStoreV29) -> Self {
         Self {

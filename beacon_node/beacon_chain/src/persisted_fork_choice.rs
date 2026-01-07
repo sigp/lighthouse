@@ -51,6 +51,43 @@ macro_rules! impl_store_item {
 
 impl_store_item!(PersistedForkChoiceV17);
 
+impl PersistedForkChoiceV28 {
+    // For the v28 to v29 schema migration
+    pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
+        let decompressed_bytes = store_config
+            .decompress_bytes(bytes)
+            .map_err(Error::Compression)?;
+        Self::from_ssz_bytes(&decompressed_bytes).map_err(Into::into)
+    }
+
+    // For the v29 to v28 schema migration
+    pub fn as_bytes(&self, store_config: &StoreConfig) -> Result<Vec<u8>, Error> {
+        store_config
+            .compress_bytes(&self.as_ssz_bytes())
+            .map_err(Error::Compression)
+    }
+}
+
+// For the v28 to v29 schema migration
+impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
+    fn from(persisted_fork_choice_v28: PersistedForkChoiceV28) -> Self {
+        Self {
+            fork_choice: persisted_fork_choice_v28.fork_choice,
+            fork_choice_store: persisted_fork_choice_v28.fork_choice_store_v28.into(),
+        }
+    }
+}
+
+// For the v29 to v28 schema migration
+impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
+    fn from(persisted_fork_choice_v29: PersistedForkChoiceV29) -> Self {
+        Self {
+            fork_choice: persisted_fork_choice_v29.fork_choice,
+            fork_choice_store_v28: persisted_fork_choice_v29.fork_choice_store.into(),
+        }
+    }
+}
+
 impl PersistedForkChoiceV29 {
     pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
         let decompressed_bytes = store_config
