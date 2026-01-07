@@ -255,7 +255,7 @@ async fn run(config: ImportConfig) -> Result<(), String> {
             })?;
 
         // Log the overridden note when one or more flags is supplied
-        if validators.len() > 0 {
+        if !validators.is_empty() {
             if let Some(override_fee_recipient) = fee_recipient {
                 eprintln!(
                     "Please note! --suggested-fee-recipient is provided. This will override existing fee recipient defined in validators.json with: {:?}",
