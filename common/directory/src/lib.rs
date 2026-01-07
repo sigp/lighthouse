@@ -109,7 +109,6 @@ pub fn size_of_dir(path: &Path) -> u64 {
             {
                 total_size = total_size.saturating_add(metadata.len());
             }
-            }
         }
     }
 
