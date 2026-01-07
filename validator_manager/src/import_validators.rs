@@ -245,7 +245,7 @@ async fn run(config: ImportConfig) -> Result<(), String> {
             .open(validators_format_path)
             .map_err(|e| format!("Unable to open {:?}: {:?}", validators_format_path, e))?;
 
-        // Define validators as mutable as that if CLI flag is supplied, the fields can be overridden
+        // Define validators as mutable so that if a relevant flag is supplied, the fields can be overridden.
         let mut validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
             .map_err(|e| {
                 format!(
