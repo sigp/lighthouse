@@ -19,6 +19,17 @@ use tokio::sync::mpsc;
 use tracing::info;
 use types::EthSpec;
 
+/// Capacity for messages flowing from `NetworkService` -> `ValidatorService`.
+///
+/// This is intentionally bounded to avoid unbounded memory growth under gossip storms.
+const NETWORK_TO_VALIDATOR_CHANNEL_CAPACITY: usize = 1024;
+
+/// Capacity for messages flowing from `ValidatorService` -> `NetworkService`.
+///
+/// These are control-plane messages (publish, requests, status updates) and should be relatively
+/// low volume. Keeping this bounded helps prevent memory growth in pathological cases.
+const VALIDATOR_TO_NETWORK_CHANNEL_CAPACITY: usize = 256;
+
 pub struct ProductionLeanClient<E: EthSpec> {
     context: RuntimeContext<E>,
     slot_clock: SystemTimeSlotClock,
@@ -50,8 +61,10 @@ impl<E: EthSpec> ProductionLeanClient<E> {
     }
 
     pub async fn start_service(&mut self) -> Result<(), String> {
-        let (network_recv_tx, network_recv_rx) = mpsc::unbounded_channel();
-        let (network_send_tx, network_send_rx) = mpsc::unbounded_channel();
+        let (network_recv_tx, network_recv_rx) =
+            mpsc::channel(NETWORK_TO_VALIDATOR_CHANNEL_CAPACITY);
+        let (network_send_tx, network_send_rx) =
+            mpsc::channel(VALIDATOR_TO_NETWORK_CHANNEL_CAPACITY);
 
         info!("Starting network service");
         let network_service = NetworkService::<E>::new(

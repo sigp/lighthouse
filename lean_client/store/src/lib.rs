@@ -3,10 +3,40 @@ use lean_consensus::lean_block::LeanBlock;
 use lean_consensus::lean_state::LeanState;
 use ssz::{Decode, Encode};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{DBColumn, KeyValueStore};
 use types::{EthSpec, Hash256};
+
+/// Rolling block metadata record stored in `StorageKey::BlockMetaIndex`.
+///
+/// SSZ is not used here; we store fixed-size binary records for compactness:
+/// - slot (u64 LE)
+/// - block_root (32 bytes)
+/// - parent_root (32 bytes)
+#[derive(Clone, Copy, Debug)]
+struct BlockMetaEntry {
+    slot: u64,
+    root: Hash256,
+    parent_root: Hash256,
+}
+
+/// Rolling state metadata record stored in `StorageKey::StateMetaIndex`.
+///
+/// Fixed-size binary records:
+/// - slot (u64 LE)
+/// - block_root (32 bytes)
+#[derive(Clone, Copy, Debug)]
+struct StateMetaEntry {
+    slot: u64,
+    block_root: Hash256,
+}
+
+// Keep meta indices bounded to avoid unbounded allocations and steadily increasing RSS.
+// These are "best effort" buffers used for pruning/loading; pruning still enforces the real windows.
+const BLOCK_META_INDEX_MAX_ENTRIES: usize = 4096;
+const STATE_META_INDEX_MAX_ENTRIES: usize = 4096;
 
 /// Storage key definitions for the lean client
 #[derive(Debug, Clone, Copy)]
@@ -17,10 +47,17 @@ enum StorageKey {
     SafeTarget,
     /// Prefix-based keys with u64 suffix
     Block,
+    /// Prefix-based keys with Hash256 suffix (per-root state)
+    StateByRoot,
     Attestation,
     NewAttestation,
     /// Index keys
+    /// Legacy: list of all block roots ever seen. Kept for backward compat/migration only.
     BlockRootsIndex,
+    /// Rolling block metadata for pruning/loading: (slot, block_root, parent_root) records.
+    BlockMetaIndex,
+    /// Rolling state metadata for pruning: (slot, state_root_keyed_by_block_root) records.
+    StateMetaIndex,
     ValidatorIndices,
     NewValidatorIndices,
 }
@@ -33,9 +70,12 @@ impl StorageKey {
             StorageKey::HeadRoot => b"head_root".to_vec(),
             StorageKey::SafeTarget => b"safe_target".to_vec(),
             StorageKey::Block => b"block_".to_vec(),
+            StorageKey::StateByRoot => b"lean_state_".to_vec(),
             StorageKey::Attestation => b"attestation_".to_vec(),
             StorageKey::NewAttestation => b"new_attestation_".to_vec(),
             StorageKey::BlockRootsIndex => b"block_roots_index".to_vec(),
+            StorageKey::BlockMetaIndex => b"block_meta_index".to_vec(),
+            StorageKey::StateMetaIndex => b"state_meta_index".to_vec(),
             StorageKey::ValidatorIndices => b"validator_indices".to_vec(),
             StorageKey::NewValidatorIndices => b"new_validator_indices".to_vec(),
         }
@@ -83,18 +123,48 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanStore<E, D> {
         self.save_single_item(StorageKey::State, DBColumn::BeaconMeta, state)
     }
 
+    /// Fetches a state by the block root it was computed for.
+    pub fn fetch_state_by_root(&self, block_root: Hash256) -> Result<Option<LeanState<E>>, String> {
+        let key = StorageKey::StateByRoot.key_with_hash(&block_root);
+        self.fetch_with_key(DBColumn::BeaconState, &key)
+    }
+
+    /// Saves a state keyed by the block root it was computed for.
+    pub fn save_state_by_root(
+        &self,
+        block_root: Hash256,
+        state: &LeanState<E>,
+    ) -> Result<(), String> {
+        let key = StorageKey::StateByRoot.key_with_hash(&block_root);
+        let bytes = state.as_ssz_bytes();
+        self.db
+            .put_bytes(DBColumn::BeaconState, &key, &bytes)
+            .map_err(|e| format!("Failed to save state by root: {:?}", e))?;
+
+        self.append_state_meta(block_root, state.slot.0)?;
+        Ok(())
+    }
+
     // ============ Block Management ============
 
-    /// Saves a block to the database by its root and updates the block roots index
+    /// Saves a block to the database by its root and updates the rolling block meta index.
     pub fn save_block(&self, block_root: Hash256, block: &LeanBlock<E>) -> Result<(), String> {
         let key = StorageKey::Block.key_with_hash(&block_root);
+        // Avoid duplicate index entries and expensive index rewrites.
+        if self
+            .db
+            .key_exists(DBColumn::BeaconBlock, &key)
+            .map_err(|e| format!("Failed to check block existence: {:?}", e))?
+        {
+            return Ok(());
+        }
         let bytes = block.as_ssz_bytes();
         self.db
             .put_bytes(DBColumn::BeaconBlock, &key, &bytes)
             .map_err(|e| format!("Failed to save block: {:?}", e))?;
 
-        // Update block roots index
-        self.add_to_index(StorageKey::BlockRootsIndex, &block_root.0)?;
+        // Update rolling block meta index (used for pruning/loading).
+        self.append_block_meta(block_root, block.slot.0, block.parent_root)?;
         Ok(())
     }
 
@@ -112,9 +182,22 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanStore<E, D> {
             .map_err(|e| format!("Failed to check block existence: {:?}", e))
     }
 
-    /// Loads all blocks from the database using the block roots index
+    /// Loads blocks from the database using the rolling block meta index.
+    ///
+    /// If the meta index doesn't exist yet (older DB), falls back to the legacy block roots index.
     pub fn load_all_blocks(&self) -> Result<HashMap<Hash256, LeanBlock<E>>, String> {
-        let block_roots = self.load_hash256_index(StorageKey::BlockRootsIndex)?;
+        let mut block_roots: Vec<Hash256> = self
+            .load_block_meta_index()?
+            .into_iter()
+            .map(|m| m.root)
+            .collect();
+
+        if block_roots.is_empty() {
+            // Backward compat: old DBs only have the legacy index.
+            block_roots = self.load_hash256_index(StorageKey::BlockRootsIndex)?;
+            // Best-effort migrate: populate meta index from legacy roots by reading blocks.
+            self.migrate_block_meta_index_from_roots(&block_roots)?;
+        }
         let mut blocks = HashMap::new();
 
         for block_root in block_roots {
@@ -124,6 +207,260 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanStore<E, D> {
         }
 
         Ok(blocks)
+    }
+
+    /// Prune old blocks from the DB, keeping a rolling window by slot.
+    ///
+    /// - Keeps all blocks with `slot >= min_slot_to_keep`
+    /// - Also keeps any roots in `always_keep_roots` and their ancestors (while those ancestors exist in DB)
+    /// - Deletes pruned blocks from `DBColumn::BeaconBlock`
+    /// - Rewrites the `BlockRootsIndex` to only include kept roots
+    ///
+    /// Returns the number of deleted blocks.
+    pub fn prune_blocks_older_than(
+        &self,
+        min_slot_to_keep: u64,
+        always_keep_roots: &HashSet<Hash256>,
+    ) -> Result<usize, String> {
+        let meta_entries = self.load_block_meta_index()?;
+        if meta_entries.is_empty() {
+            return Ok(0);
+        }
+
+        let mut meta: HashMap<Hash256, (u64, Hash256)> = HashMap::new();
+        for m in &meta_entries {
+            meta.insert(m.root, (m.slot, m.parent_root));
+        }
+
+        // Initial keep-set: blocks in the rolling window.
+        let mut keep: HashSet<Hash256> = HashSet::new();
+        for (root, (slot, _parent)) in &meta {
+            if *slot >= min_slot_to_keep {
+                keep.insert(*root);
+            }
+        }
+
+        // Always keep explicit roots + their ancestors.
+        let mut stack: Vec<Hash256> = always_keep_roots.iter().copied().collect();
+        while let Some(root) = stack.pop() {
+            if keep.insert(root) {
+                if let Some((_slot, parent)) = meta.get(&root).copied() {
+                    if parent != Hash256::ZERO {
+                        stack.push(parent);
+                    }
+                }
+            }
+        }
+
+        // Also keep ancestors of all kept blocks so we don't strand parents on restart.
+        let mut ancestor_stack: Vec<Hash256> = keep.iter().copied().collect();
+        while let Some(root) = ancestor_stack.pop() {
+            if let Some((_slot, parent)) = meta.get(&root).copied() {
+                if parent != Hash256::ZERO && keep.insert(parent) {
+                    ancestor_stack.push(parent);
+                }
+            }
+        }
+
+        // Delete blocks not in keep-set and rebuild meta index.
+        let mut deleted = 0usize;
+        let mut kept_meta: Vec<BlockMetaEntry> = Vec::new();
+        for entry in meta_entries {
+            if keep.contains(&entry.root) {
+                kept_meta.push(entry);
+                continue;
+            }
+
+            let key = StorageKey::Block.key_with_hash(&entry.root);
+            self.db
+                .key_delete(DBColumn::BeaconBlock, &key)
+                .map_err(|e| format!("Failed to delete block: {:?}", e))?;
+            deleted += 1;
+        }
+
+        self.save_block_meta_index(&kept_meta)?;
+
+        // Compact the beacon block column to reclaim space.
+        self.db
+            .compact_column(DBColumn::BeaconBlock)
+            .map_err(|e| format!("Failed to compact BeaconBlock column: {:?}", e))?;
+
+        Ok(deleted)
+    }
+
+    /// Prune old per-root states from the DB, keeping a rolling window by slot.
+    ///
+    /// Returns number of deleted states.
+    pub fn prune_states_older_than(
+        &self,
+        min_slot_to_keep: u64,
+        always_keep_roots: &HashSet<Hash256>,
+    ) -> Result<usize, String> {
+        let entries = self.load_state_meta_index()?;
+        if entries.is_empty() {
+            return Ok(0);
+        }
+
+        let mut keep: HashSet<Hash256> = HashSet::new();
+        for e in &entries {
+            if e.slot >= min_slot_to_keep {
+                keep.insert(e.block_root);
+            }
+        }
+        for r in always_keep_roots {
+            keep.insert(*r);
+        }
+
+        let mut deleted = 0usize;
+        let mut kept: Vec<StateMetaEntry> = Vec::new();
+        for e in entries {
+            if keep.contains(&e.block_root) {
+                kept.push(e);
+                continue;
+            }
+            let key = StorageKey::StateByRoot.key_with_hash(&e.block_root);
+            self.db
+                .key_delete(DBColumn::BeaconState, &key)
+                .map_err(|er| format!("Failed to delete state: {:?}", er))?;
+            deleted += 1;
+        }
+
+        self.save_state_meta_index(&kept)?;
+        self.db
+            .compact_column(DBColumn::BeaconState)
+            .map_err(|e| format!("Failed to compact BeaconState column: {:?}", e))?;
+        Ok(deleted)
+    }
+
+    // ======== Block meta index helpers ========
+
+    fn load_block_meta_index(&self) -> Result<Vec<BlockMetaEntry>, String> {
+        let bytes = self
+            .db
+            .get_bytes(DBColumn::BeaconMeta, &StorageKey::BlockMetaIndex.key())
+            .map_err(|e| format!("Failed to load block meta index: {:?}", e))?;
+        let Some(data) = bytes else { return Ok(Vec::new()) };
+        if data.len() % 72 != 0 {
+            return Err("Invalid block meta index length".to_string());
+        }
+        let mut out: Vec<BlockMetaEntry> = Vec::with_capacity(data.len() / 72);
+        for chunk in data.chunks_exact(72) {
+            let slot = u64::from_le_bytes(chunk[0..8].try_into().map_err(|_| "Invalid slot bytes".to_string())?);
+            let root = Hash256::from_slice(&chunk[8..40]);
+            let parent_root = Hash256::from_slice(&chunk[40..72]);
+            out.push(BlockMetaEntry { slot, root, parent_root });
+        }
+        Ok(out)
+    }
+
+    fn save_block_meta_index(&self, entries: &[BlockMetaEntry]) -> Result<(), String> {
+        let mut bytes = Vec::with_capacity(entries.len() * 72);
+        for e in entries {
+            bytes.extend_from_slice(&e.slot.to_le_bytes());
+            bytes.extend_from_slice(&e.root.0);
+            bytes.extend_from_slice(&e.parent_root.0);
+        }
+        self.db
+            .put_bytes(DBColumn::BeaconMeta, &StorageKey::BlockMetaIndex.key(), &bytes)
+            .map_err(|e| format!("Failed to save block meta index: {:?}", e))
+    }
+
+    fn append_block_meta(
+        &self,
+        block_root: Hash256,
+        slot: u64,
+        parent_root: Hash256,
+    ) -> Result<(), String> {
+        let key = StorageKey::BlockMetaIndex.key();
+        let mut data = self
+            .db
+            .get_bytes(DBColumn::BeaconMeta, &key)
+            .map_err(|e| format!("Failed to load block meta index: {:?}", e))?
+            .unwrap_or_default();
+
+        data.extend_from_slice(&slot.to_le_bytes());
+        data.extend_from_slice(&block_root.0);
+        data.extend_from_slice(&parent_root.0);
+
+        let max_len = BLOCK_META_INDEX_MAX_ENTRIES * 72;
+        if data.len() > max_len {
+            let start = data.len() - max_len;
+            data.drain(0..start);
+        }
+
+        self.db
+            .put_bytes(DBColumn::BeaconMeta, &key, &data)
+            .map_err(|e| format!("Failed to append block meta index: {:?}", e))
+    }
+
+    fn migrate_block_meta_index_from_roots(&self, roots: &[Hash256]) -> Result<(), String> {
+        if !self.load_block_meta_index()?.is_empty() {
+            return Ok(());
+        }
+        let mut entries: Vec<BlockMetaEntry> = Vec::new();
+        for r in roots {
+            if let Some(b) = self.fetch_block(*r)? {
+                entries.push(BlockMetaEntry {
+                    slot: b.slot.0,
+                    root: *r,
+                    parent_root: b.parent_root,
+                });
+            }
+        }
+        self.save_block_meta_index(&entries)
+    }
+
+    // ======== State meta index helpers ========
+
+    fn load_state_meta_index(&self) -> Result<Vec<StateMetaEntry>, String> {
+        let bytes = self
+            .db
+            .get_bytes(DBColumn::BeaconMeta, &StorageKey::StateMetaIndex.key())
+            .map_err(|e| format!("Failed to load state meta index: {:?}", e))?;
+        let Some(data) = bytes else { return Ok(Vec::new()) };
+        if data.len() % 40 != 0 {
+            return Err("Invalid state meta index length".to_string());
+        }
+        let mut out: Vec<StateMetaEntry> = Vec::with_capacity(data.len() / 40);
+        for chunk in data.chunks_exact(40) {
+            let slot = u64::from_le_bytes(chunk[0..8].try_into().map_err(|_| "Invalid slot bytes".to_string())?);
+            let block_root = Hash256::from_slice(&chunk[8..40]);
+            out.push(StateMetaEntry { slot, block_root });
+        }
+        Ok(out)
+    }
+
+    fn save_state_meta_index(&self, entries: &[StateMetaEntry]) -> Result<(), String> {
+        let mut bytes = Vec::with_capacity(entries.len() * 40);
+        for e in entries {
+            bytes.extend_from_slice(&e.slot.to_le_bytes());
+            bytes.extend_from_slice(&e.block_root.0);
+        }
+        self.db
+            .put_bytes(DBColumn::BeaconMeta, &StorageKey::StateMetaIndex.key(), &bytes)
+            .map_err(|e| format!("Failed to save state meta index: {:?}", e))
+    }
+
+    fn append_state_meta(&self, block_root: Hash256, slot: u64) -> Result<(), String> {
+        let key = StorageKey::StateMetaIndex.key();
+        let mut data = self
+            .db
+            .get_bytes(DBColumn::BeaconMeta, &key)
+            .map_err(|e| format!("Failed to load state meta index: {:?}", e))?
+            .unwrap_or_default();
+
+        data.extend_from_slice(&slot.to_le_bytes());
+        data.extend_from_slice(&block_root.0);
+
+        let max_len = STATE_META_INDEX_MAX_ENTRIES * 40;
+        if data.len() > max_len {
+            let start = data.len() - max_len;
+            data.drain(0..start);
+        }
+
+        self.db
+            .put_bytes(DBColumn::BeaconMeta, &key, &data)
+            .map_err(|e| format!("Failed to append state meta index: {:?}", e))
     }
 
     // ============ Fork Choice State ============

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use lean_consensus::attestation::{SignedAttestation, Slot as LeanSlot};
@@ -30,6 +31,12 @@ pub struct LeanChain<E: EthSpec, D: KeyValueStore<E>> {
     /// In-memory cache of blocks keyed by block root
     blocks: HashMap<Hash256, LeanBlock<E>>,
 }
+
+/// Rolling retention policy for the lean client.
+const BLOCK_DB_RETENTION_SLOTS: u64 = 1024;
+const STATE_CACHE_RETENTION_SLOTS: u64 = 128;
+/// How often to run DB compaction (every N slots).
+const DB_COMPACTION_INTERVAL_SLOTS: u64 = 32;
 
 impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
     /// Clones a state using SSZ serialization/deserialization.
@@ -150,7 +157,14 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
     /// Retrieves a state by block root from cache.
     /// Returns None if not in cache. Does not hit the database.
     pub fn fetch_state(&self, block_root: &Hash256) -> Option<Arc<LeanState<E>>> {
-        self.get_state(block_root)
+        if let Some(state) = self.get_state(block_root) {
+            return Some(state);
+        }
+        // DB fallback for restarts: try per-root state.
+        match self.store.fetch_state_by_root(*block_root) {
+            Ok(Some(state)) => Some(Arc::new(state)),
+            _ => None,
+        }
     }
 
     /// Gets the current head state from cache.
@@ -166,8 +180,82 @@ impl<E: EthSpec, D: KeyValueStore<E>> LeanChain<E, D> {
         // Update cache first
         self.states
             .insert(block_root, Arc::new(Self::clone_state(state)?));
-        // Persist to disk (using the old single-state model for now)
+
+        // Persist both:
+        // - per-root (for correct restart/import of parent states)
+        // - latest snapshot (legacy / debugging)
+        self.store.save_state_by_root(block_root, state)?;
         self.store.save_state(state)
+    }
+
+    /// Prune in-memory caches and compact the on-disk block DB.
+    ///
+    /// - Keeps last `STATE_CACHE_RETENTION_SLOTS` of states in memory
+    /// - Keeps last `BLOCK_DB_RETENTION_SLOTS` of blocks on disk (plus required ancestors)
+    /// - Always keeps head + safe_target roots
+    ///
+    /// `last_compaction_slot` is updated by the caller to rate-limit DB compaction.
+    pub fn prune_and_compact(
+        &mut self,
+        current_slot: u64,
+        last_compaction_slot: &mut u64,
+    ) -> Result<(), String> {
+        // Always prune the state cache (cheap).
+        self.prune_state_cache(current_slot);
+
+        // Rate-limit DB compaction.
+        if current_slot < *last_compaction_slot + DB_COMPACTION_INTERVAL_SLOTS {
+            return Ok(());
+        }
+        *last_compaction_slot = current_slot;
+
+        let cutoff = current_slot.saturating_sub(BLOCK_DB_RETENTION_SLOTS);
+        let state_cutoff = current_slot.saturating_sub(STATE_CACHE_RETENTION_SLOTS);
+
+        let mut keep_roots: HashSet<Hash256> = HashSet::new();
+        if let Ok(Some(head)) = self.fetch_head_root() {
+            keep_roots.insert(head);
+        }
+        if let Ok(Some(safe)) = self.fetch_safe_target() {
+            keep_roots.insert(safe);
+        }
+
+        // Prune block cache in-memory first to reduce memory.
+        self.blocks
+            .retain(|root, block| keep_roots.contains(root) || block.slot.0 >= cutoff);
+
+        // Prune blocks on disk.
+        let deleted = self
+            .store
+            .prune_blocks_older_than(cutoff, &keep_roots)?;
+        if deleted > 0 {
+            tracing::info!(
+                current_slot,
+                cutoff_slot = cutoff,
+                deleted_blocks = deleted,
+                "Pruned old blocks from DB"
+            );
+        }
+
+        // Prune per-root states on disk, matching the state retention window.
+        let deleted_states = self
+            .store
+            .prune_states_older_than(state_cutoff, &keep_roots)?;
+        if deleted_states > 0 {
+            tracing::info!(
+                current_slot,
+                cutoff_slot = state_cutoff,
+                deleted_states,
+                "Pruned old states from DB"
+            );
+        }
+
+        Ok(())
+    }
+
+    fn prune_state_cache(&mut self, current_slot: u64) {
+        let cutoff = current_slot.saturating_sub(STATE_CACHE_RETENTION_SLOTS);
+        self.states.retain(|_root, state| state.slot.0 >= cutoff);
     }
 
     /// Returns the current safe target if stored.

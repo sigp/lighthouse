@@ -141,6 +141,8 @@ pub fn initialize<E: EthSpec>(paths: LeanClientPaths) -> Result<LeanClientResour
     let validators = VariableList::new(validators_list)
         .map_err(|e| format!("Failed to create validators list: {:?}", e))?;
 
+    // Generate genesis state with ZERO_HASH checkpoints.
+    // Checkpoints will be updated to genesis_root during block processing.
     let genesis_state = LeanState::<E>::generate_genesis(genesis_time, validators);
 
     // Calculate the Genesis State Root

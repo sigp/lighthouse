@@ -100,8 +100,10 @@ impl<E: EthSpec> SignedLeanBlockWithAttestation<E> {
                 .get(validator_id)
                 .ok_or_else(|| format!("Failed to get validator at index {}", validator_id))?;
 
-            // Calculate the hash of the attestation message (this is what's signed)
-            let message_hash = attestation.attestation_data.tree_hash_root();
+            // Calculate the hash of the full attestation (this is what's signed)
+            // Note: Zeam signs the full Attestation struct (validator_id + attestation_data),
+            // not just the AttestationData.
+            let message_hash = attestation.tree_hash_root();
 
             // Verify the signature
             let is_valid = lean_crypto::verify_signature(

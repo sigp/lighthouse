@@ -25,9 +25,11 @@ pub struct Slot(pub u64);
 
 impl Slot {
     pub fn is_justifiable_after(self, finalized_slot: Slot) -> Result<(), String> {
-        if self <= finalized_slot {
+        // Match Zeam's logic: candidate must not be BEFORE finalized (but can be equal)
+        // When finalized=0 and candidate=0, delta=0 which is <= 5, so it's justifiable.
+        if self < finalized_slot {
             return Err(format!(
-                "candidate slot must not be equal to or before finalized slot candidate={} finalized={}",
+                "candidate slot must not be before finalized slot candidate={} finalized={}",
                 self.0, finalized_slot.0
             ));
         }

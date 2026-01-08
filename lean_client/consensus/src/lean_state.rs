@@ -12,7 +12,6 @@ use crate::lean_block::{
 use crate::validator::Validator;
 use crate::validator::ValidatorIndex;
 
-use ssz_types::typenum::U1073741824;
 use ssz_types::{BitList, VariableList};
 use types::{EthSpec, Hash256};
 
@@ -27,7 +26,7 @@ pub struct LeanState<E: EthSpec> {
     pub justified_slots: BitList<E::HistoricalRootsLimit>,
     pub validators: VariableList<Validator, E::ValidatorRegistryLimit>,
     pub justifications_roots: VariableList<Hash256, E::HistoricalRootsLimit>,
-    pub justifications_validators: BitList<U1073741824>,
+    pub justifications_validators: BitList<E::JustificationValidators>,
 }
 
 impl<E: EthSpec> LeanState<E> {
@@ -89,9 +88,9 @@ impl<E: EthSpec> LeanState<E> {
         let justified_slots =
             BitList::with_capacity(0).expect("Failed to create justified_slots BitList");
 
-        // Initialize checkpoints to ZERO_HASH matching the spec.
-        // This avoids circular dependencies in genesis state calculation.
-        // Field order must match struct definition for correct SSZ encoding.
+        // Genesis checkpoints use ZERO_HASH as root, matching the spec (mini3sf).
+        // The actual genesis block root is set later during block processing when
+        // the first block after genesis is processed.
         let genesis_checkpoint = Checkpoint {
             root: Hash256::ZERO,
             slot: Slot(0),
@@ -182,6 +181,34 @@ impl<E: EthSpec> LeanState<E> {
             .push(root)
             .map_err(|e| format!("Failed to append root to justifications_roots: {:?}", e))?;
 
+        // Extend justifications_validators by creating a new BitList with larger capacity
+        let current_len = self.justifications_validators.len();
+        let new_len = current_len + validator_count;
+        let mut new_justifications_validators =
+            BitList::<E::JustificationValidators>::with_capacity(new_len).map_err(|e| {
+                format!(
+                    "Failed to create extended justifications_validators with capacity {}: {:?}",
+                    new_len, e
+                )
+            })?;
+
+        // Copy existing bits
+        for i in 0..current_len {
+            let bit = self.justifications_validators.get(i).map_err(|e| {
+                format!(
+                    "Failed to get justifications_validators bit at {}: {:?}",
+                    i, e
+                )
+            })?;
+            new_justifications_validators.set(i, bit).map_err(|e| {
+                format!(
+                    "Failed to copy justifications_validators bit at {}: {:?}",
+                    i, e
+                )
+            })?;
+        }
+
+        // Append new bits from validator_justifications
         for i in 0..validator_count {
             let bit_value = validator_justifications.get(i).map_err(|e| {
                 format!(
@@ -190,19 +217,76 @@ impl<E: EthSpec> LeanState<E> {
                 )
             })?;
 
-            let current_len = self.justifications_validators.len();
-            self.justifications_validators
-                .set(current_len, bit_value)
+            new_justifications_validators
+                .set(current_len + i, bit_value)
                 .map_err(|e| {
                     format!(
-                        "Failed to append bit to justifications_validators at index {}: {:?}",
-                        current_len, e
+                        "Failed to set bit at index {} in justifications_validators: {:?}",
+                        current_len + i,
+                        e
                     )
                 })?;
         }
 
+        self.justifications_validators = new_justifications_validators;
+
         Ok(())
     }
+
+    /// Replaces all justifications with a new map.
+    ///
+    /// This is used after processing attestations to persist the updated justification state.
+    /// The map is flattened into `justifications_roots` and `justifications_validators` with
+    /// roots sorted lexicographically for deterministic ordering.
+    pub fn update_justifications(
+        &mut self,
+        justifications: HashMap<Hash256, BitList<E::HistoricalRootsLimit>>,
+    ) -> Result<(), String> {
+        let num_validators = self.validators.len();
+
+        // Sort roots for deterministic ordering
+        let mut roots: Vec<_> = justifications.keys().cloned().collect();
+        roots.sort();
+
+        // Calculate total size needed for justifications_validators
+        let total_bits = roots.len() * num_validators;
+
+        // Create new structures
+        let mut new_roots = VariableList::<Hash256, E::HistoricalRootsLimit>::empty();
+        // Create BitList with exact capacity - with_capacity creates a list of that length
+        let mut new_validators = BitList::<E::JustificationValidators>::with_capacity(total_bits)
+            .map_err(|e| format!("Failed to create justifications_validators BitList: {:?}", e))?;
+
+        // Track the current index for writing bits
+        let mut bit_index = 0;
+
+        for root in roots {
+            new_roots
+                .push(root)
+                .map_err(|e| format!("Failed to push root to justifications_roots: {:?}", e))?;
+
+            let votes = justifications.get(&root).ok_or_else(|| {
+                format!("Root {:?} not found in justifications map", root)
+            })?;
+
+            for i in 0..num_validators {
+                let bit = votes.get(i).unwrap_or(false);
+                new_validators.set(bit_index, bit).map_err(|e| {
+                    format!(
+                        "Failed to set bit at index {} (total_bits={}): {:?}",
+                        bit_index, total_bits, e
+                    )
+                })?;
+                bit_index += 1;
+            }
+        }
+
+        self.justifications_roots = new_roots;
+        self.justifications_validators = new_validators;
+
+        Ok(())
+    }
+
     pub fn process_slot(&mut self) -> Result<(), String> {
         // If state_root is unpopulated (e.g., genesis state), populate it now.
         // This ensures the header incorrectly reflects the state root for the transition to Slot 1,
@@ -403,90 +487,266 @@ impl<E: EthSpec> LeanState<E> {
 
         Ok(())
     }
+    /// Process attestations with 2/3 supermajority check for justification.
+    ///
+    /// The justification algorithm:
+    /// 1. Track which validators have attested to each target checkpoint
+    /// 2. Only justify a target when 2/3+ of validators have attested (3 * count >= 2 * total)
+    /// 3. Finalize the source when target is justified and no justifiable slots exist between them
     pub fn process_attestations(
         &mut self,
         attestations: &VariableList<Attestation, E::ValidatorRegistryLimit>,
     ) -> Result<(), String> {
+        use crate::helpers::is_justifiable_slot;
+
+        let num_validators = self.validators.len();
+        if num_validators == 0 {
+            return Ok(());
+        }
+
+        // Load existing justifications into working map
+        let mut justifications = self.get_justifications()?;
+
         for attestation in attestations.iter() {
             let attestation_data = &attestation.attestation_data;
             let source = &attestation_data.source;
             let target = &attestation_data.target;
+            let validator_id = attestation.validator_id as usize;
 
+            // Validate attestation
             if source.slot >= target.slot {
+                debug!(
+                    source_slot = source.slot.0,
+                    target_slot = target.slot.0,
+                    "Skipping attestation: source slot >= target slot"
+                );
                 continue;
             }
 
-            let source_slot_int = source.slot.0 as usize;
-            let target_slot_int = target.slot.0 as usize;
+            let source_slot = source.slot.0 as usize;
+            let target_slot = target.slot.0 as usize;
 
-            let source_is_justified = if source_slot_int < self.justified_slots.len() {
-                self.justified_slots.get(source_slot_int).map_err(|e| {
-                    format!(
-                        "Failed to get justified slot at index {}: {:?}",
-                        source_slot_int, e
-                    )
+            // Check source is justified
+            let source_is_justified = if source_slot < self.justified_slots.len() {
+                self.justified_slots.get(source_slot).map_err(|e| {
+                    format!("Failed to get justified slot at index {}: {:?}", source_slot, e)
                 })?
             } else {
+                debug!(
+                    source_slot = source_slot,
+                    justified_slots_len = self.justified_slots.len(),
+                    "Skipping attestation: source slot out of range"
+                );
                 continue;
             };
 
-            let target_is_justified = if target_slot_int < self.justified_slots.len() {
-                self.justified_slots.get(target_slot_int).map_err(|e| {
-                    format!(
-                        "Failed to get justified slot at index {}: {:?}",
-                        target_slot_int, e
-                    )
-                })?
+            if !source_is_justified {
+                debug!(
+                    source_slot = source_slot,
+                    "Skipping attestation: source not justified"
+                );
+                continue;
+            }
+
+            // Check target not already justified
+            let target_is_justified = if target_slot < self.justified_slots.len() {
+                self.justified_slots.get(target_slot).unwrap_or(false)
             } else {
                 false
             };
 
-            if source_is_justified && target_is_justified {
-                if source.slot.0 + 1 == target.slot.0 && self.latest_justified.slot < target.slot {
-                    self.latest_finalized = (*source).clone();
-                    self.latest_justified = (*target).clone();
+            if target_is_justified {
+                debug!(
+                    target_slot = target_slot,
+                    "Skipping attestation: target already justified"
+                );
+                continue;
+            }
+
+            // Check roots match historical block hashes
+            if source_slot >= self.historical_block_hashes.len() {
+                continue;
+            }
+            if target_slot >= self.historical_block_hashes.len() {
+                continue;
+            }
+            if self.historical_block_hashes[source_slot] != source.root {
+                debug!(
+                    source_slot = source_slot,
+                    expected_root = ?self.historical_block_hashes[source_slot],
+                    actual_root = ?source.root,
+                    "Skipping attestation: source root mismatch"
+                );
+                continue;
+            }
+            if self.historical_block_hashes[target_slot] != target.root {
+                debug!(
+                    target_slot = target_slot,
+                    expected_root = ?self.historical_block_hashes[target_slot],
+                    actual_root = ?target.root,
+                    "Skipping attestation: target root mismatch"
+                );
+                continue;
+            }
+
+            // Check target is justifiable based on the slot pattern
+            match is_justifiable_slot(self.latest_finalized.slot.0, target.slot.0) {
+                Ok(true) => {}
+                Ok(false) => {
                     debug!(
-                        finalized_slot = source.slot.0,
-                        finalized_root = ?source.root,
-                        justified_slot = target.slot.0,
-                        justified_root = ?target.root,
-                        "Chain finalized: consecutive justified checkpoints found"
+                        target_slot = target.slot.0,
+                        finalized_slot = self.latest_finalized.slot.0,
+                        "Skipping attestation: target slot not justifiable"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    debug!(
+                        target_slot = target.slot.0,
+                        finalized_slot = self.latest_finalized.slot.0,
+                        error = ?e,
+                        "Skipping attestation: is_justifiable_slot error"
+                    );
+                    continue;
+                }
+            }
+
+            // Validate validator_id
+            if validator_id >= num_validators {
+                debug!(
+                    validator_id = validator_id,
+                    num_validators = num_validators,
+                    "Skipping attestation: invalid validator_id"
+                );
+                continue;
+            }
+
+            // Track this validator's vote for target
+            let target_votes = justifications.entry(target.root).or_insert_with(|| {
+                BitList::<E::HistoricalRootsLimit>::with_capacity(num_validators)
+                    .expect("Failed to create BitList for target votes")
+            });
+
+            target_votes
+                .set(validator_id, true)
+                .map_err(|e| format!("Failed to set vote for validator {}: {:?}", validator_id, e))?;
+
+            // Count votes for this target
+            let vote_count = (0..num_validators)
+                .filter(|i| target_votes.get(*i).unwrap_or(false))
+                .count();
+
+            let threshold_2_3 = (2 * num_validators + 2) / 3; // Ceiling of 2/3
+
+            debug!(
+                target_slot = target.slot.0,
+                vote_count = vote_count,
+                threshold_2_3 = threshold_2_3,
+                num_validators = num_validators,
+                validator_id = validator_id,
+                "Attestation processed"
+            );
+
+            // Check 2/3 supermajority: 3 * count >= 2 * total (equivalent to count >= 2/3 * total)
+            if 3 * vote_count >= 2 * num_validators {
+                // Extend justified_slots if needed by creating a larger BitList
+                if self.justified_slots.len() <= target_slot {
+                    let new_len = target_slot + 1;
+                    let mut new_justified_slots =
+                        BitList::<E::HistoricalRootsLimit>::with_capacity(new_len).map_err(
+                            |e| {
+                                format!(
+                                    "Failed to create extended justified_slots with capacity {}: {:?}",
+                                    new_len, e
+                                )
+                            },
+                        )?;
+
+                    // Copy existing bits
+                    for i in 0..self.justified_slots.len() {
+                        let bit = self.justified_slots.get(i).map_err(|e| {
+                            format!("Failed to get justified_slots bit at {}: {:?}", i, e)
+                        })?;
+                        new_justified_slots.set(i, bit).map_err(|e| {
+                            format!("Failed to copy justified_slots bit at {}: {:?}", i, e)
+                        })?;
+                    }
+
+                    // Fill remaining slots with false
+                    for i in self.justified_slots.len()..new_len {
+                        new_justified_slots.set(i, false).map_err(|e| {
+                            format!("Failed to initialize justified_slots bit at {}: {:?}", i, e)
+                        })?;
+                    }
+
+                    self.justified_slots = new_justified_slots;
+
+                    debug!(
+                        old_len = target_slot,
+                        new_len = new_len,
+                        "Extended justified_slots BitList"
                     );
                 }
-            } else if source_is_justified {
-                while self.justified_slots.len() <= target_slot_int {
-                    self.justified_slots
-                        .set(self.justified_slots.len(), false)
-                        .map_err(|e| format!("Failed to extend justified_slots: {:?}", e))?;
-                }
 
+                // Justify target
                 self.justified_slots
-                    .set(target_slot_int, true)
-                    .map_err(|e| {
-                        format!(
-                            "Failed to set justified slot at index {}: {:?}",
-                            target_slot_int, e
-                        )
-                    })?;
+                    .set(target_slot, true)
+                    .map_err(|e| format!("Failed to set justified slot: {:?}", e))?;
+
+                debug!(
+                    target_slot = target.slot.0,
+                    vote_count = vote_count,
+                    threshold_2_3 = threshold_2_3,
+                    "JUSTIFIED: 2/3 supermajority reached"
+                );
 
                 if target.slot > self.latest_justified.slot {
-                    // When we justify a new checkpoint, finalize the previous justified checkpoint
-                    // if it's at least 2 slots behind the new one (matches Ethereum finalization)
-                    if target.slot.0 >= self.latest_justified.slot.0 + 2 {
-                        self.latest_finalized = self.latest_justified.clone();
+                    // Check if we can finalize source
+                    // Source can be finalized if there are no justifiable slots between source and target
+                    let can_finalize = self.can_finalize_source(source, target)?;
+
+                    if can_finalize {
+                        self.latest_finalized = source.clone();
                         debug!(
-                            finalized_slot = self.latest_justified.slot.0,
-                            finalized_root = ?self.latest_justified.root,
-                            "Chain finalized: previous justified checkpoint finalized after new justification"
+                            finalized_slot = source.slot.0,
+                            finalized_root = ?source.root,
+                            "FINALIZED: source checkpoint finalized via 2/3 supermajority"
                         );
                     }
 
-                    self.latest_justified = (*target).clone();
+                    self.latest_justified = target.clone();
+                    debug!(
+                        justified_slot = target.slot.0,
+                        justified_root = ?target.root,
+                        "Latest justified updated"
+                    );
                 }
+
+                // Remove from tracking (already justified)
+                justifications.remove(&target.root);
             }
         }
 
+        // Persist updated justifications back to state
+        self.update_justifications(justifications)?;
+
         Ok(())
+    }
+
+    /// Check if source can be finalized based on target justification.
+    ///
+    /// Source can be finalized if there are no justifiable slots between source and target.
+    fn can_finalize_source(&self, source: &Checkpoint, target: &Checkpoint) -> Result<bool, String> {
+        use crate::helpers::is_justifiable_slot;
+
+        for check_slot in (source.slot.0 + 1)..target.slot.0 {
+            match is_justifiable_slot(self.latest_finalized.slot.0, check_slot) {
+                Ok(true) => return Ok(false), // Found a justifiable slot in between
+                Ok(false) => continue,
+                Err(e) => return Err(format!("is_justifiable_slot error: {}", e)),
+            }
+        }
+        Ok(true)
     }
     pub fn state_transition(
         &mut self,

@@ -21,3 +21,12 @@ pub static LEAN_P2P_MESSAGES_PUBLISHED_TOTAL: LazyLock<Result<IntCounterVec>> = 
         &["topic"],
     )
 });
+
+pub static LEAN_P2P_TO_VALIDATOR_DROPPED_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "lean_p2p_to_validator_dropped_total",
+            "Total number of network->validator messages dropped (e.g., channel full)",
+            &["reason", "kind"],
+        )
+    });

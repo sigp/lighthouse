@@ -6,22 +6,51 @@ use lean_consensus::lean_block::{
 };
 use lean_consensus::lean_state::{
     INTERVALS_PER_SLOT, JUSTIFICATION_LOOKBACK_SLOTS, LeanState, SECONDS_PER_INTERVAL,
+    SECONDS_PER_SLOT,
 };
 use lean_crypto::Signature;
 use lean_forkchoice::helpers::get_fork_choice_head;
 use lean_keystore::{KeyStore, ValidatorKeyPair};
-pub use lean_network::{BlocksByRootRequest, NetworkMessage, PeerId, RPCRequest};
+pub use lean_network::{BlocksByRootRequest, NetworkMessage, PeerId, RPCRequest, StatusMessage};
 use leansig::serialization::Serializable;
 use leansig::signature::SignatureScheme;
 use slot_clock::SlotClock;
 use ssz_types::VariableList;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 use store::KeyValueStore;
 use tokio::sync::mpsc;
 use tokio::time::{Duration as TokioDuration, sleep};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::{EthSpec, Hash256, Slot};
+
+/// Maximum age (in seconds) before an orphan block is purged
+const ORPHAN_BLOCK_MAX_AGE_SECS: u64 = 60;
+
+/// Maximum number of orphan blocks to keep in the queue
+const ORPHAN_BLOCK_MAX_COUNT: usize = 256;
+
+/// An orphan block waiting for its parent to arrive
+struct OrphanBlock<E: EthSpec> {
+    /// The signed block waiting for its parent
+    block: Arc<SignedLeanBlockWithAttestation<E>>,
+    /// The peer that sent this block (for requesting parent)
+    peer_id: Option<PeerId>,
+    /// When this block was added to the orphan queue
+    received_at: Instant,
+}
+
+/// Queue for blocks whose parent state is not yet available
+struct OrphanBlockQueue<E: EthSpec> {
+    /// Blocks waiting for their parent, keyed by the parent root they need
+    /// Multiple blocks can be waiting for the same parent
+    waiting_for_parent: HashMap<Hash256, Vec<OrphanBlock<E>>>,
+    /// Total count of orphan blocks (for enforcing max count)
+    total_count: usize,
+}
 
 mod chain;
 
@@ -31,15 +60,190 @@ use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lif
 
 mod metrics;
 
+impl<E: EthSpec> OrphanBlockQueue<E> {
+    /// Creates a new empty orphan block queue
+    fn new() -> Self {
+        Self {
+            waiting_for_parent: HashMap::new(),
+            total_count: 0,
+        }
+    }
+
+    /// Adds a block to the orphan queue, waiting for its parent
+    ///
+    /// Returns true if the block was added, false if it was rejected (e.g., queue full)
+    fn insert(&mut self, parent_root: Hash256, block: Arc<SignedLeanBlockWithAttestation<E>>, peer_id: Option<PeerId>) -> bool {
+        // Check if we're at capacity - if so, purge old blocks first
+        if self.total_count >= ORPHAN_BLOCK_MAX_COUNT {
+            self.purge_oldest();
+            // If still at capacity after purge, reject
+            if self.total_count >= ORPHAN_BLOCK_MAX_COUNT {
+                warn!(
+                    total_count = self.total_count,
+                    max_count = ORPHAN_BLOCK_MAX_COUNT,
+                    "Orphan block queue full, rejecting block"
+                );
+                return false;
+            }
+        }
+
+        let orphan = OrphanBlock {
+            block,
+            peer_id,
+            received_at: Instant::now(),
+        };
+
+        self.waiting_for_parent
+            .entry(parent_root)
+            .or_insert_with(Vec::new)
+            .push(orphan);
+        self.total_count += 1;
+
+        debug!(
+            ?parent_root,
+            total_orphans = self.total_count,
+            "Block added to orphan queue"
+        );
+
+        true
+    }
+
+    /// Removes and returns all blocks waiting for the given parent root
+    fn take_children(&mut self, parent_root: &Hash256) -> Vec<OrphanBlock<E>> {
+        if let Some(children) = self.waiting_for_parent.remove(parent_root) {
+            self.total_count = self.total_count.saturating_sub(children.len());
+            debug!(
+                ?parent_root,
+                children_count = children.len(),
+                remaining_orphans = self.total_count,
+                "Retrieved orphan blocks for processed parent"
+            );
+            children
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Purges blocks older than ORPHAN_BLOCK_MAX_AGE_SECS
+    ///
+    /// Returns the number of blocks purged
+    fn purge_stale(&mut self) -> usize {
+        let now = Instant::now();
+        let max_age = std::time::Duration::from_secs(ORPHAN_BLOCK_MAX_AGE_SECS);
+        let mut purged = 0;
+
+        self.waiting_for_parent.retain(|parent_root, blocks| {
+            let original_len = blocks.len();
+            blocks.retain(|orphan| {
+                let age = now.duration_since(orphan.received_at);
+                if age > max_age {
+                    debug!(
+                        slot = orphan.block.message.block.slot.0,
+                        ?parent_root,
+                        age_secs = age.as_secs(),
+                        "Purging stale orphan block"
+                    );
+                    false
+                } else {
+                    true
+                }
+            });
+            purged += original_len - blocks.len();
+            !blocks.is_empty()
+        });
+
+        self.total_count = self.total_count.saturating_sub(purged);
+
+        if purged > 0 {
+            info!(
+                purged_count = purged,
+                remaining_orphans = self.total_count,
+                "Purged stale orphan blocks"
+            );
+        }
+
+        purged
+    }
+
+    /// Purges the oldest blocks to make room for new ones
+    ///
+    /// Removes approximately 25% of the oldest blocks
+    fn purge_oldest(&mut self) {
+        let target_purge = ORPHAN_BLOCK_MAX_COUNT / 4;
+        let mut all_orphans: Vec<(Hash256, usize, Instant)> = Vec::new();
+
+        // Collect all orphans with their parent root, index, and timestamp
+        for (parent_root, blocks) in &self.waiting_for_parent {
+            for (idx, orphan) in blocks.iter().enumerate() {
+                all_orphans.push((*parent_root, idx, orphan.received_at));
+            }
+        }
+
+        // Sort by received_at (oldest first)
+        all_orphans.sort_by_key(|(_, _, received_at)| *received_at);
+
+        // Mark oldest blocks for removal
+        let to_remove: Vec<(Hash256, usize)> = all_orphans
+            .into_iter()
+            .take(target_purge)
+            .map(|(parent_root, idx, _)| (parent_root, idx))
+            .collect();
+
+        // Group removals by parent_root for efficient removal
+        let mut removals_by_parent: HashMap<Hash256, Vec<usize>> = HashMap::new();
+        for (parent_root, idx) in to_remove {
+            removals_by_parent.entry(parent_root).or_default().push(idx);
+        }
+
+        let mut purged = 0;
+        for (parent_root, mut indices) in removals_by_parent {
+            if let Some(blocks) = self.waiting_for_parent.get_mut(&parent_root) {
+                // Sort indices in descending order to remove from end first
+                indices.sort_by(|a, b| b.cmp(a));
+                for idx in indices {
+                    if idx < blocks.len() {
+                        let removed = blocks.remove(idx);
+                        debug!(
+                            slot = removed.block.message.block.slot.0,
+                            ?parent_root,
+                            "Purging oldest orphan block to make room"
+                        );
+                        purged += 1;
+                    }
+                }
+                // Remove entry if no blocks left
+                if blocks.is_empty() {
+                    self.waiting_for_parent.remove(&parent_root);
+                }
+            }
+        }
+
+        self.total_count = self.total_count.saturating_sub(purged);
+
+        if purged > 0 {
+            info!(
+                purged_count = purged,
+                remaining_orphans = self.total_count,
+                "Purged oldest orphan blocks to make room"
+            );
+        }
+    }
+
+    /// Returns the total number of orphan blocks in the queue
+    fn len(&self) -> usize {
+        self.total_count
+    }
+}
+
 /// Validator service that processes validator duties including attestations
 ///
 /// Manages interval ticks and network message processing using tokio::select! for simple
 /// async handling without complex pinning or stream implementation.
 pub struct ValidatorService<T: SlotClock, E: EthSpec, D: KeyValueStore<E>> {
     /// Receiver for network messages from the network service
-    network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    network_recv: mpsc::Receiver<NetworkMessage<E>>,
     /// Sender for publishing messages to the network service
-    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+    network_send: mpsc::Sender<NetworkMessage<E>>,
     /// Slot clock for timing
     slot_clock: T,
     /// Chain coordinator handling fork choice and storage interactions
@@ -52,14 +256,20 @@ pub struct ValidatorService<T: SlotClock, E: EthSpec, D: KeyValueStore<E>> {
     _keystore: KeyStore,
     /// Counter for periodic status logging
     status_interval_counter: u64,
+    /// Queue of blocks waiting for their parent to be processed
+    orphan_queue: OrphanBlockQueue<E>,
+    /// Last slot at which we compacted the DB (rate-limit expensive work)
+    last_db_compaction_slot: u64,
+    /// Connected peers (for CHAIN STATUS display)
+    connected_peers: HashSet<PeerId>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T, E, D> {
     /// Creates a new validator service with the provided channels
     pub fn new(
         slot_clock: T,
-        network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+        network_recv: mpsc::Receiver<NetworkMessage<E>>,
+        network_send: mpsc::Sender<NetworkMessage<E>>,
         db: Arc<D>,
         validator_index: u64,
         validator_key_pair: ValidatorKeyPair,
@@ -84,6 +294,9 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             hashsig_secret_key,
             _keystore: keystore,
             status_interval_counter: 0,
+            orphan_queue: OrphanBlockQueue::new(),
+            last_db_compaction_slot: 0,
+            connected_peers: HashSet::new(),
         })
     }
 
@@ -205,6 +418,20 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
                     if let Err(e) = self.handle_network_message(network_msg).await {
                         error!("Error handling network message: {}", e);
                     }
+
+                    // Drain a small burst to prevent falling behind under high message rates.
+                    // This reduces queueing and helps keep memory stable when combined with
+                    // bounded channels.
+                    for _ in 0..128 {
+                        match self.network_recv.try_recv() {
+                            Ok(next_msg) => {
+                                if let Err(e) = self.handle_network_message(next_msg).await {
+                                    error!("Error handling network message: {}", e);
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
                 }
 
                 // If both channels are closed, exit
@@ -254,6 +481,27 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             );
 
             self.tick_interval().await?;
+            
+            // Periodically purge stale orphan blocks (once per slot, at interval 0)
+            if current_interval == 0 {
+                self.orphan_queue.purge_stale();
+                // Rolling retention:
+                // - compact blocks DB to ~1024-slot window
+                // - prune in-memory states to ~128-slot window
+                self.chain.prune_and_compact(
+                    current_slot.as_u64(),
+                    &mut self.last_db_compaction_slot,
+                )?;
+
+                // Update network service with our latest status so it can reply to inbound status requests.
+                if let Err(e) = self
+                    .network_send
+                    .send(NetworkMessage::UpdateLocalStatus(self.current_status()?))
+                    .await
+                {
+                    warn!("Failed to send local status update to network service: {}", e);
+                }
+            }
         }
 
         Ok(())
@@ -325,22 +573,58 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         }
 
 
-        let sep = "=".repeat(63);
-        info!(
-            separator = %sep,
-            current_slot = current_slot.as_u64(),
-            head_slot = head_block.slot.0,
-            head_block_root = %head_root,
-            parent_block_root = %head_block.parent_root,
-            state_root = %state.latest_block_header.state_root,
+        // Compute a signed "current slot" like Lighthouse BN output.
+        // If we're before genesis, show negative slots until genesis.
+        let signed_current_slot: i64 = if let Some(now) = self.slot_clock.now_duration()
+            && let Some(genesis) = self.slot_clock.start_of(Slot::new(0))
+        {
+            if now < genesis {
+                let diff = genesis - now;
+                let secs = diff.as_secs_f64();
+                let slots_until = (secs / SECONDS_PER_SLOT as f64).ceil() as i64;
+                -slots_until
+            } else {
+                current_slot.as_u64() as i64
+            }
+        } else {
+            current_slot.as_u64() as i64
+        };
+
+        let head_slot = head_block.slot.0 as i64;
+        let behind = (signed_current_slot - head_slot).max(0);
+        let timely = if behind <= 1 { "YES" } else { "NO" };
+
+        let peers = self.connected_peers.len();
+
+        let status = format!(
+            "\n+===============================================================+\n\
+  CHAIN STATUS: Current Slot: {current_slot} | Head Slot: {head_slot_u64} | Behind: {behind}\n\
++---------------------------------------------------------------+\n\
+  Connected Peers:    {peers}\n\
++---------------------------------------------------------------+\n\
+  Head Block Root:    {head_root}\n\
+  Parent Block Root:  {parent_root}\n\
+  State Root:         {state_root}\n\
+  Timely:             {timely}\n\
++---------------------------------------------------------------+\n\
+  Latest Justified:   Slot{justified_slot:>7} | Root: {justified_root}\n\
+  Latest Finalized:   Slot{finalized_slot:>7} | Root: {finalized_root}\n\
++===============================================================+\n",
+            current_slot = signed_current_slot,
+            head_slot_u64 = head_block.slot.0,
+            behind = behind,
+            peers = peers,
+            head_root = format!("{:?}", head_root),
+            parent_root = format!("{:?}", head_block.parent_root),
+            state_root = format!("{:?}", state.latest_block_header.state_root),
+            timely = timely,
             justified_slot = justified.slot.0,
-            justified_root = %justified.root,
+            justified_root = format!("{:?}", justified.root),
             finalized_slot = finalized.slot.0,
-            finalized_root = %finalized.root,
-            "CHAIN STATUS: Current Slot: {} | Head Slot: {} | Behind: 0",
-            current_slot.as_u64(),
-            head_block.slot.0
+            finalized_root = format!("{:?}", finalized.root),
         );
+
+        info!("{status}");
 
         Ok(())
     }
@@ -531,15 +815,90 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         network_msg: NetworkMessage<E>,
     ) -> Result<(), String> {
         match network_msg {
-            NetworkMessage::Attestation(signed_attestation) => {
+            NetworkMessage::Attestation(peer_id, signed_attestation) => {
                 // Network gossip attestations are processed as "new" (pending)
                 // Verify the signature before processing
-                self.verify_and_handle_attestation(signed_attestation, false)
+                self.verify_and_handle_attestation(peer_id, signed_attestation, false)
                     .await
             }
             NetworkMessage::Block(peer_id, block) => self.handle_block(peer_id, block).await,
+            NetworkMessage::PeerConnected(peer_id) => {
+                self.connected_peers.insert(peer_id);
+                self.handle_peer_connected(peer_id).await
+            }
+            NetworkMessage::PeerDisconnected(peer_id) => {
+                self.connected_peers.remove(&peer_id);
+                Ok(())
+            }
+            NetworkMessage::Status(peer_id, status) => {
+                self.handle_status(peer_id, status).await
+            }
             _ => Ok(()), // Ignore other messages (like SendRequest if it loops back)
         }
+    }
+
+    /// Called when a peer connects. Triggers a status request so we can backfill after downtime.
+    async fn handle_peer_connected(&mut self, peer_id: PeerId) -> Result<(), String> {
+        let status = self.current_status()?;
+        self.network_send
+            .send(NetworkMessage::SendStatusRequest { peer_id, status })
+            .await
+            .map_err(|e| format!("Failed to send status request: {}", e))?;
+        Ok(())
+    }
+
+    /// Handle a status response from a peer.
+    ///
+    /// If the peer is ahead of us, request its head block by root. Our existing orphan queue
+    /// + parent-root requests will walk backwards as needed.
+    async fn handle_status(&mut self, peer_id: PeerId, status: StatusMessage) -> Result<(), String> {
+        let local = self.current_status()?;
+        if status.head_root != Hash256::ZERO && status.head_slot > local.head_slot {
+            debug!(
+                peer = ?peer_id,
+                peer_head_slot = status.head_slot,
+                local_head_slot = local.head_slot,
+                peer_head_root = ?status.head_root,
+                "Peer ahead, requesting head block by root for backfill"
+            );
+
+            self.network_send
+                .send(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                        block_roots: vec![status.head_root],
+                    }),
+                })
+                .await
+                .map_err(|e| format!("Failed to request peer head block: {}", e))?;
+        }
+        Ok(())
+    }
+
+    fn current_status(&self) -> Result<StatusMessage, String> {
+        let head_root = self
+            .chain
+            .fetch_head_root()?
+            .unwrap_or(Hash256::ZERO);
+
+        let head_slot = self
+            .chain
+            .fetch_block(head_root)?
+            .map(|b| b.slot.0)
+            .unwrap_or(0);
+
+        let (finalized_slot, finalized_root) = self
+            .chain
+            .fetch_state(&head_root)
+            .and_then(|s| Some((s.latest_finalized.slot.0, s.latest_finalized.root)))
+            .unwrap_or((0, Hash256::ZERO));
+
+        Ok(StatusMessage {
+            finalized_root,
+            finalized_slot,
+            head_root,
+            head_slot,
+        })
     }
 
     /// Verifies the attestation signature and then handles it
@@ -549,6 +908,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
     /// * `is_from_block` - True if attestation came from block body, False if from network gossip
     async fn verify_and_handle_attestation(
         &mut self,
+        peer_id: Option<PeerId>,
         signed_attestation: Arc<SignedAttestation>,
         is_from_block: bool,
     ) -> Result<(), String> {
@@ -574,7 +934,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         debug!(validator_id, epoch, "Attestation received and accepted");
 
         // Process the attestation
-        self.handle_attestation(signed_attestation.clone(), is_from_block)
+        self.handle_attestation(peer_id, signed_attestation.clone(), is_from_block)
             .await
     }
 
@@ -589,6 +949,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
     /// * `is_from_block` - True if attestation came from block body, False if from network gossip
     async fn handle_attestation(
         &mut self,
+        peer_id: Option<PeerId>,
         signed_attestation: Arc<SignedAttestation>,
         is_from_block: bool,
     ) -> Result<(), String> {
@@ -648,6 +1009,16 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
                     error = %e,
                     "Failed to update fork choice weight for known attestation"
                 );
+
+                // If we don't have the head block yet (common after downtime), request it.
+                if let Some(peer) = peer_id {
+                    let _ = self.network_send.send(NetworkMessage::SendRequest {
+                        peer_id: peer,
+                        request: RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                            block_roots: vec![head_root],
+                        }),
+                    }).await;
+                }
             }
 
             // Remove from new attestations if this supersedes it
@@ -742,35 +1113,36 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         // Fetch parent state from cache
         //
         // The parent state must exist before processing this block.
-        // If missing, the node must sync the parent chain first.
-        // If missing, the node must sync the parent chain first.
+        // If missing, queue the block and request the parent from peer.
         let Some(parent_state) = self.chain.fetch_state(&block.parent_root) else {
-            // If we have a peer ID, request the missing parent
-            if let Some(peer) = peer_id {
-                info!(
-                    slot = block.slot.0,
-                    parent_root = ?block.parent_root,
-                    peer = ?peer,
-                    "Parent state missing, requesting block from peer"
-                );
+            let parent_root = block.parent_root;
+            
+            info!(
+                slot = block.slot.0,
+                ?parent_root,
+                peer = ?peer_id,
+                orphan_queue_size = self.orphan_queue.len(),
+                "Parent state missing, queuing block and requesting parent"
+            );
 
+            // Queue this block for later processing
+            self.orphan_queue.insert(parent_root, signed_block.clone(), peer_id);
+
+            // Request the missing parent block from peer if available
+            if let Some(peer) = peer_id {
                 let request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                    block_roots: vec![block.parent_root],
+                    block_roots: vec![parent_root],
                 });
 
                 if let Err(e) = self.network_send.send(NetworkMessage::SendRequest {
                     peer_id: peer,
                     request,
-                }) {
-                    error!("Failed to send block request: {}", e);
+                }).await {
+                    error!("Failed to send parent block request: {}", e);
                 }
-                return Ok(());
             }
 
-            return Err(format!(
-                "Parent state not found in cache (root={:?}) and no peer available to request from.",
-                block.parent_root
-            ));
+            return Ok(());
         };
 
         debug!(
@@ -866,7 +1238,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             });
 
             if let Err(e) = self
-                .verify_and_handle_attestation(signed_attestation, true)
+                .verify_and_handle_attestation(peer_id, signed_attestation, true)
                 .await
             {
                 warn!(
@@ -906,7 +1278,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         });
 
         if let Err(e) = self
-            .verify_and_handle_attestation(signed_proposer_attestation, false)
+            .verify_and_handle_attestation(peer_id, signed_proposer_attestation, false)
             .await
         {
             warn!(
@@ -933,7 +1305,52 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             post_state.latest_finalized.slot.0
         );
 
+        // Process any orphan blocks that were waiting for this block
+        self.process_orphan_children(block_root).await;
+
         Ok(())
+    }
+
+    /// Processes orphan blocks that were waiting for the given parent block
+    ///
+    /// This is called after a block is successfully imported to check if any
+    /// orphaned blocks were waiting for it. Those blocks are then processed
+    /// recursively.
+    async fn process_orphan_children(&mut self, parent_root: Hash256) {
+        let orphans = self.orphan_queue.take_children(&parent_root);
+        
+        if orphans.is_empty() {
+            return;
+        }
+
+        info!(
+            ?parent_root,
+            orphan_count = orphans.len(),
+            "Processing orphan blocks that were waiting for this parent"
+        );
+
+        for orphan in orphans {
+            let block_slot = orphan.block.message.block.slot.0;
+            let block_root = orphan.block.message.block.tree_hash_root();
+            
+            debug!(
+                slot = block_slot,
+                ?block_root,
+                ?parent_root,
+                age_ms = orphan.received_at.elapsed().as_millis(),
+                "Processing orphan block"
+            );
+
+            // Use Box::pin to handle the recursive async call
+            if let Err(e) = Box::pin(self.handle_block(orphan.peer_id, orphan.block)).await {
+                warn!(
+                    slot = block_slot,
+                    ?block_root,
+                    error = %e,
+                    "Failed to process orphan block"
+                );
+            }
+        }
     }
 
     /// Performs proposal duties if this validator is the proposer for the slot
@@ -1186,6 +1603,7 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         if let Err(e) = self
             .network_send
             .send(NetworkMessage::Block(None, signed_block))
+            .await
         {
             error!(
                 slot = slot_u64,
@@ -1312,9 +1730,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         );
 
         // Sign attestation with XMSS key
-        let epoch = slot / 32;
+        // NOTE: Zeam uses attestation.data.slot as the "epoch" parameter for XMSS signing,
+        // not the actual epoch (slot / 32). We must match this for signature compatibility.
+        let xmss_epoch = slot;
         let signature = {
-            self.sign_attestation(validator_id, &attestation, epoch)
+            self.sign_attestation(validator_id, &attestation, xmss_epoch)
                 .map_err(|e| format!("Failed to sign attestation: {}", e))?
         };
 
@@ -1324,10 +1744,23 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
             signature,
         });
 
+        // Save locally produced attestation as "known" so it gets included in our blocks
+        // This is critical for justification - without this, our own attestations
+        // would never be included in blocks we produce!
+        self.chain
+            .save_known_attestation(validator_id, &signed_attestation)?;
+
+        debug!(
+            validator_id,
+            slot,
+            "Saved locally produced attestation as known"
+        );
+
         // Publish signed attestation to network
         if let Err(e) = self
             .network_send
-            .send(NetworkMessage::Attestation(signed_attestation))
+            .send(NetworkMessage::Attestation(None, signed_attestation))
+            .await
         {
             error!(
                 slot,
@@ -1366,11 +1799,11 @@ impl<T: SlotClock + 'static, E: EthSpec, D: KeyValueStore<E>> ValidatorService<T
         let justification_lookback_slots = JUSTIFICATION_LOOKBACK_SLOTS;
 
         // Walk back toward safe target (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
-        // if safe target exists and is newer than current target
+        // if safe target exists and current target is NEWER than safe target
         if let Some(safe_target) = safe_target_root {
-            // Check if safe target is newer than current head
+            // Check if current target is newer than safe target (meaning we should walk back toward safe)
             if let Ok(Some(safe_target_block)) = self.chain.fetch_block(safe_target)
-                && safe_target_block.slot > target_block.slot
+                && target_block.slot > safe_target_block.slot
             {
                 // Walk back toward safe target (up to JUSTIFICATION_LOOKBACK_SLOTS steps)
                 let mut steps = 0;

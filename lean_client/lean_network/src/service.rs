@@ -1,6 +1,8 @@
 use crate::config::NetworkConfig;
 use crate::rpc::{LeanBlocksByRootProtocol, RPCRequest, RPCResponse, SSZSnappyCodec};
+use crate::status::{LeanStatusProtocol, StatusMessage, StatusSnappyCodec};
 use crate::topics::{self, Topic};
+use crate::peer_manager::{PeerCommand, PeerEvent, PeerManager};
 use futures::StreamExt;
 use lean_consensus::attestation::SignedAttestation;
 use lean_consensus::lean_block::SignedLeanBlockWithAttestation;
@@ -14,10 +16,10 @@ use libp2p::{
 use sha2::{Digest, Sha256};
 use snap::raw::{Decoder as RawDecoder, Encoder as RawEncoder};
 use ssz::{Decode, Encode};
-use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, info, trace, warn};
 use types::EthSpec;
 use crate::metrics;
@@ -31,51 +33,61 @@ const MESSAGE_DOMAIN_VALID_SNAPPY: &[u8] = &[0x01, 0x00, 0x00, 0x00];
 pub struct LeanBehaviour<E: EthSpec> {
     gossipsub: gossipsub::Behaviour,
     req_resp: request_response::Behaviour<SSZSnappyCodec<E>>,
+    status_req_resp: request_response::Behaviour<StatusSnappyCodec>,
 }
 
 /// Messages received from the network that need to be processed
 pub enum NetworkMessage<E: EthSpec> {
-    /// Signed attestation received from network
-    Attestation(Arc<SignedAttestation>),
+    /// Signed attestation received from network (peer_id is Some for network gossip)
+    Attestation(Option<PeerId>, Arc<SignedAttestation>),
     /// Block received from network or to be published (peer_id is None for local)
     Block(Option<PeerId>, Arc<SignedLeanBlockWithAttestation<E>>),
+    /// A peer connected (used to trigger sync/status handshake)
+    PeerConnected(PeerId),
+    /// A peer disconnected (used for status display / heuristics)
+    PeerDisconnected(PeerId),
+    /// Status response received from a peer.
+    Status(PeerId, StatusMessage),
+    /// Update the cached local status used for responding to inbound status requests.
+    UpdateLocalStatus(StatusMessage),
     /// Request to send an RPC request to a peer
     SendRequest {
         peer_id: PeerId,
         request: RPCRequest,
     },
-}
-
-/// Bootstrap node status tracking
-#[derive(Debug, Clone)]
-struct BootstrapNode {
-    /// The multiaddr of the bootstrap node
-    multiaddr: Multiaddr,
-    /// Last time we attempted to connect
-    last_attempt: Option<Instant>,
-    /// Number of connection attempts
-    attempt_count: u32,
-    /// Whether we're currently connected
-    connected: bool,
+    /// Request to send a status request to a peer
+    SendStatusRequest {
+        peer_id: PeerId,
+        status: StatusMessage,
+    },
 }
 
 pub struct NetworkService<E: EthSpec> {
     swarm: Swarm<LeanBehaviour<E>>,
-    network_recv: mpsc::UnboundedSender<NetworkMessage<E>>,
-    network_send: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    /// Cache of bootstrap nodes with retry state
-    bootstrap_nodes: VecDeque<BootstrapNode>,
-    /// Interval between bootstrap node retry attempts (in seconds)
-    bootstrap_retry_interval: Duration,
+    /// Messages from network -> validator.
+    ///
+    /// This is bounded (created by the lean client) so we must avoid unbounded buffering here.
+    /// The swarm event loop must not await on backpressure, so we `try_send` and drop on overflow.
+    network_recv: mpsc::Sender<NetworkMessage<E>>,
+    /// Messages from validator -> network.
+    network_send: mpsc::Receiver<NetworkMessage<E>>,
+    /// Peer manager event sender (network -> peer manager).
+    peer_manager_evt_tx: mpsc::Sender<PeerEvent>,
+    /// Peer manager command receiver (peer manager -> network).
+    peer_manager_cmd_rx: mpsc::Receiver<PeerCommand>,
+    /// Peer manager instance (spawned when `start()` is called).
+    peer_manager: Option<PeerManager>,
     /// Network name used for topic encoding
     network_name: String,
+    /// Cached local status (updated by validator service) used to reply to inbound status requests.
+    local_status: StatusMessage,
 }
 
 impl<E: EthSpec> NetworkService<E> {
     pub fn new(
         config: NetworkConfig,
-        network_recv: mpsc::UnboundedSender<NetworkMessage<E>>,
-        network_send: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+        network_recv: mpsc::Sender<NetworkMessage<E>>,
+        network_send: mpsc::Receiver<NetworkMessage<E>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let NetworkConfig {
             listen_port,
@@ -113,7 +125,10 @@ impl<E: EthSpec> NetworkService<E> {
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
-            .validation_mode(gossipsub::ValidationMode::None)
+            // Zeam (and the other lean clients) use anonymous gossipsub messages.
+            // If we publish signed gossipsub messages, peers configured for anonymous validation
+            // may drop our messages.
+            .validation_mode(gossipsub::ValidationMode::Anonymous)
             .message_id_fn(|message: &gossipsub::Message| {
                 // Use SHA256 hash of topic + data with domain prefix for message ID
                 // This matches the Eth2 networking spec for message deduplication
@@ -131,7 +146,8 @@ impl<E: EthSpec> NetworkService<E> {
             .map_err(|e| format!("Failed to build gossipsub config: {}", e))?;
 
         let gossipsub = gossipsub::Behaviour::new(
-            gossipsub::MessageAuthenticity::Signed(local_key.clone()),
+            // Match Zeam: publish anonymous gossipsub messages for interoperability.
+            gossipsub::MessageAuthenticity::Anonymous,
             gossipsub_config,
         )
         .map_err(|e| format!("Failed to create gossipsub behaviour: {}", e))?;
@@ -141,9 +157,17 @@ impl<E: EthSpec> NetworkService<E> {
             request_response::Config::default(),
         );
 
+        // Status is used to learn a peer's head after downtime and trigger backfill.
+        // We also support inbound requests so peers like Zeam don't disconnect on status handshake.
+        let status_req_resp = request_response::Behaviour::new(
+            vec![(LeanStatusProtocol, ProtocolSupport::Full)],
+            request_response::Config::default(),
+        );
+
         let behaviour = LeanBehaviour {
             gossipsub,
             req_resp,
+            status_req_resp,
         };
 
         let mut swarm = Swarm::new(
@@ -171,8 +195,8 @@ impl<E: EthSpec> NetworkService<E> {
                 .map_err(|e| format!("Failed to subscribe to topic {}: {}", topic_str, e))?;
         }
 
-        // Initialize bootstrap nodes cache
-        let mut bootstrap_nodes = VecDeque::new();
+        // Collect bootstrap peers for the peer manager.
+        let mut bootstrap_peers: Vec<(PeerId, Multiaddr)> = Vec::new();
         for bootstrap_addr_raw in bootstrap_node_strings.iter() {
             let bootstrap_addr_str = bootstrap_addr_raw.trim();
 
@@ -200,29 +224,57 @@ impl<E: EthSpec> NetworkService<E> {
             if let Some(peer_in_addr) = peer_id_from_multiaddr(multiaddr.clone())
                 && peer_in_addr != local_peer_id
             {
-                bootstrap_nodes.push_back(BootstrapNode {
-                    multiaddr: multiaddr.clone(),
-                    // Always try bootstrap nodes immediately initially
-                    last_attempt: None,
-                    attempt_count: 0,
-                    connected: false,
-                });
+                bootstrap_peers.push((peer_in_addr, multiaddr.clone()));
             }
         }
 
-        info!(
-            "Initialized {} bootstrap nodes for retry",
-            bootstrap_nodes.len()
+        info!("Initialized {} bootstrap peers for peer manager", bootstrap_peers.len());
+
+        let (peer_manager_evt_tx, peer_manager_evt_rx) = mpsc::channel(64);
+        let (peer_manager_cmd_tx, peer_manager_cmd_rx) = mpsc::channel(64);
+        let peer_manager = PeerManager::new(
+            bootstrap_peers,
+            Duration::from_secs(1),
+            Duration::from_secs(60),
+            peer_manager_evt_rx,
+            peer_manager_cmd_tx,
         );
 
         Ok(Self {
             swarm,
             network_recv,
             network_send,
-            bootstrap_nodes,
-            bootstrap_retry_interval: Duration::from_secs(5), // Retry every 5 seconds
+            peer_manager_evt_tx,
+            peer_manager_cmd_rx,
+            peer_manager: Some(peer_manager),
             network_name,
+            local_status: StatusMessage {
+                finalized_root: types::Hash256::ZERO,
+                finalized_slot: 0,
+                head_root: types::Hash256::ZERO,
+                head_slot: 0,
+            },
         })
+    }
+
+    fn try_forward_to_validator(&self, msg: NetworkMessage<E>, kind: &'static str) {
+        match self.network_recv.try_send(msg) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_msg)) => {
+                // Drop on overflow to avoid unbounded memory growth.
+                metrics::inc_counter_vec(
+                    &*metrics::LEAN_P2P_TO_VALIDATOR_DROPPED_TOTAL,
+                    &["channel_full", kind],
+                );
+            }
+            Err(TrySendError::Closed(_msg)) => {
+                warn!("Validator channel closed; dropping network message");
+                metrics::inc_counter_vec(
+                    &*metrics::LEAN_P2P_TO_VALIDATOR_DROPPED_TOTAL,
+                    &["channel_closed", kind],
+                );
+            }
+        }
     }
 
     /// Decode message based on topic and create appropriate NetworkMessage
@@ -264,7 +316,10 @@ impl<E: EthSpec> NetworkService<E> {
             Topic::Attestation => match SignedAttestation::from_ssz_bytes(&decompressed) {
                 Ok(signed_attestation) => {
                     debug!("Successfully decoded signed lean attestation from network");
-                    Some(NetworkMessage::Attestation(Arc::new(signed_attestation)))
+                    Some(NetworkMessage::Attestation(
+                        Some(peer_id),
+                        Arc::new(signed_attestation),
+                    ))
                 }
                 Err(e) => {
                     warn!("Failed to decode signed lean attestation: {:?}", e);
@@ -294,15 +349,24 @@ impl<E: EthSpec> NetworkService<E> {
 
     pub async fn start(mut self) {
         info!("Network service started");
-
-        // Attempt initial connections to bootstrap nodes
-        self.attempt_bootstrap_connections();
+        // Start the async peer manager (handles exponential backoff and dialing).
+        if let Some(pm) = self.peer_manager.take() {
+            tokio::spawn(pm.run());
+        }
 
         loop {
             tokio::select! {
-                // Retry bootstrap node connections periodically
-                _ = tokio::time::sleep(self.bootstrap_retry_interval) => {
-                    self.attempt_bootstrap_connections();
+                // Peer manager dial commands.
+                Some(cmd) = self.peer_manager_cmd_rx.recv() => {
+                    match cmd {
+                        PeerCommand::Dial(addr) => {
+                            if let Err(e) = self.swarm.dial(addr.clone()) {
+                                warn!("Failed to dial {}: {:?}", addr, e);
+                            } else {
+                                debug!("Dialing peer via peer manager: {}", addr);
+                            }
+                        }
+                    }
                 }
 
                 // Handle messages to publish or requests to send
@@ -333,20 +397,35 @@ impl<E: EthSpec> NetworkService<E> {
                                 self.decode_network_message(message.topic.as_str(), &message.data, propagation_source)
                             {
                                 match &network_msg {
-                                    NetworkMessage::Attestation(_) => {
+                                    NetworkMessage::Attestation(_, _) => {
                                         info!("Forwarding attestation to attestation service");
                                     }
                                     NetworkMessage::Block(_, _) => {
                                         info!("Forwarding block to attestation service");
                                     }
+                                    NetworkMessage::PeerConnected(_) => {}
+                                    NetworkMessage::PeerDisconnected(_) => {}
+                                    NetworkMessage::Status(_, _) => {}
+                                    NetworkMessage::UpdateLocalStatus(_) => {}
                                     NetworkMessage::SendRequest { .. } => {
                                         warn!("Received SendRequest from network decode (unexpected)");
                                     }
+                                    NetworkMessage::SendStatusRequest { .. } => {
+                                        warn!("Received SendStatusRequest from network decode (unexpected)");
+                                    }
                                 }
 
-                                if let Err(e) = self.network_recv.send(network_msg) {
-                                    warn!("Failed to send network message to attestation service: {}", e);
-                                }
+                                let kind = match &network_msg {
+                                    NetworkMessage::Attestation(_, _) => "attestation",
+                                    NetworkMessage::Block(_, _) => "block",
+                                    NetworkMessage::PeerConnected(_) => "peer_connected",
+                                    NetworkMessage::PeerDisconnected(_) => "peer_disconnected",
+                                    NetworkMessage::Status(_, _) => "status",
+                                    NetworkMessage::UpdateLocalStatus(_) => "update_local_status",
+                                    NetworkMessage::SendRequest { .. } => "send_request",
+                                    NetworkMessage::SendStatusRequest { .. } => "send_status_request",
+                                };
+                                self.try_forward_to_validator(network_msg, kind);
                             }
                         }
                         LeanBehaviourEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic }) => {
@@ -370,14 +449,60 @@ impl<E: EthSpec> NetworkService<E> {
                                         peer = ?peer,
                                         "Received BlocksByRoot response"
                                     );
-                                    if let Err(e) = self.network_recv.send(NetworkMessage::Block(Some(peer), Arc::new(block))) {
-                                        warn!("Failed to send received block to attestation service: {}", e);
+                                    self.try_forward_to_validator(
+                                        NetworkMessage::Block(Some(peer), Arc::new(block)),
+                                        "block_rpc",
+                                    );
+                                }
+                            }
+                        }
+                        LeanBehaviourEvent::StatusReqResp(request_response::Event::Message {
+                            peer,
+                            message,
+                            ..
+                        }) => {
+                            match message {
+                                request_response::Message::Response { response, .. } => {
+                                    debug!(
+                                        peer = ?peer,
+                                        head_slot = response.head_slot,
+                                        finalized_slot = response.finalized_slot,
+                                        "Received Status response"
+                                    );
+                                    let _ = self
+                                        .peer_manager_evt_tx
+                                        .try_send(PeerEvent::StatusReceived(peer, response.clone()));
+                                    self.try_forward_to_validator(
+                                        NetworkMessage::Status(peer, response),
+                                        "status",
+                                    );
+                                }
+                                request_response::Message::Request {
+                                    request, channel, ..
+                                } => {
+                                    debug!(
+                                        peer = ?peer,
+                                        req_head_slot = request.head_slot,
+                                        req_finalized_slot = request.finalized_slot,
+                                        "Received Status request"
+                                    );
+                                    let resp = self.local_status.clone();
+                                    if let Err(e) = self
+                                        .swarm
+                                        .behaviour_mut()
+                                        .status_req_resp
+                                        .send_response(channel, resp)
+                                    {
+                                        warn!("Failed to send status response: {:?}", e);
                                     }
                                 }
                             }
                         }
                         LeanBehaviourEvent::ReqResp(other_event) => {
                             trace!("ReqResp behaviour event: {:?}", other_event);
+                        }
+                        LeanBehaviourEvent::StatusReqResp(other_event) => {
+                            trace!("StatusReqResp behaviour event: {:?}", other_event);
                         }
                     }
                 }
@@ -390,14 +515,20 @@ impl<E: EthSpec> NetworkService<E> {
                         "Connection established with peer: {:?} at {:?}",
                         peer_id, endpoint
                     );
-                    self.mark_bootstrap_node_connected_by_endpoint(&endpoint);
                     metrics::inc_gauge(&*metrics::LEAN_P2P_PEERS);
+                    let _ = self.peer_manager_evt_tx.try_send(PeerEvent::Connected(peer_id));
+
+                    // Notify validator service so it can trigger sync/status handshake.
+                    self.try_forward_to_validator(NetworkMessage::PeerConnected(peer_id), "peer_connected");
                 }
                 SwarmEvent::ConnectionClosed {
                     peer_id, cause, ..
                 } => {
                     debug!("Connection closed with peer: {:?}, cause: {:?}", peer_id, cause);
                     metrics::dec_gauge(&*metrics::LEAN_P2P_PEERS);
+                    // Notify validator service (for display / peer tracking).
+                    self.try_forward_to_validator(NetworkMessage::PeerDisconnected(peer_id), "peer_disconnected");
+                    let _ = self.peer_manager_evt_tx.try_send(PeerEvent::Disconnected(peer_id));
                 }
 
 
@@ -409,6 +540,9 @@ impl<E: EthSpec> NetworkService<E> {
                 }
                 SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                     warn!("Outgoing connection error to {:?}: {:?}", peer_id, error);
+                    if let Some(peer_id) = peer_id {
+                        let _ = self.peer_manager_evt_tx.try_send(PeerEvent::Disconnected(peer_id));
+                    }
                 }
                 SwarmEvent::Dialing { .. } => {
                     debug!("Dialing peer");
@@ -431,7 +565,18 @@ impl<E: EthSpec> NetworkService<E> {
                     .send_request(&peer_id, request);
                 debug!(?peer_id, ?request_id, "Sent RPC request");
             }
-            NetworkMessage::Attestation(signed_attestation) => {
+            NetworkMessage::SendStatusRequest { peer_id, status } => {
+                let request_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .status_req_resp
+                    .send_request(&peer_id, status);
+                debug!(?peer_id, ?request_id, "Sent status request");
+            }
+            NetworkMessage::UpdateLocalStatus(status) => {
+                self.local_status = status;
+            }
+            NetworkMessage::Attestation(_, signed_attestation) => {
                 info!(
                     slot = signed_attestation.message.attestation_data.slot.0,
                     validator_id = signed_attestation.message.validator_id,
@@ -446,6 +591,10 @@ impl<E: EthSpec> NetworkService<E> {
                 );
                 self.publish_gossip_data(Topic::Block, block.as_ssz_bytes());
             }
+            NetworkMessage::PeerConnected(_) | NetworkMessage::Status(_, _) => {
+                // Not commands for the network service.
+            }
+            NetworkMessage::PeerDisconnected(_) => {}
         }
     }
 
@@ -483,103 +632,7 @@ impl<E: EthSpec> NetworkService<E> {
 
     }
 
-    /// Attempts to connect to bootstrap nodes that are not yet connected
-    fn attempt_bootstrap_connections(&mut self) {
-        let now = Instant::now();
-        let mut connected_count = 0;
-        let mut attempted_count = 0;
-
-        for bootstrap_node in self.bootstrap_nodes.iter_mut() {
-            if bootstrap_node.connected {
-                connected_count += 1;
-                continue;
-            }
-
-            // Check if enough time has passed since the last attempt
-            if let Some(last_attempt) = bootstrap_node.last_attempt
-                && now.duration_since(last_attempt) < self.bootstrap_retry_interval
-            {
-                continue;
-            }
-
-            // Attempt to dial the bootstrap node
-            match self.swarm.dial(bootstrap_node.multiaddr.clone()) {
-                Ok(_) => {
-                    bootstrap_node.last_attempt = Some(now);
-                    bootstrap_node.attempt_count += 1;
-                    attempted_count += 1;
-                    debug!(
-                        "Attempting to connect to bootstrap node: {} (attempt #{})",
-                        bootstrap_node.multiaddr, bootstrap_node.attempt_count
-                    );
-                }
-                Err(e) => {
-                    bootstrap_node.last_attempt = Some(now);
-                    bootstrap_node.attempt_count += 1;
-                    attempted_count += 1;
-                    warn!(
-                        "Failed to dial bootstrap node {}: {:?} (attempt #{})",
-                        bootstrap_node.multiaddr, e, bootstrap_node.attempt_count
-                    );
-                }
-            }
-        }
-
-        // Log summary
-        if attempted_count > 0 {
-            debug!(
-                "Bootstrap node status: {}/{} connected, attempted {} new connections",
-                connected_count,
-                self.bootstrap_nodes.len(),
-                attempted_count
-            );
-        }
-    }
-
-    /// Marks a bootstrap node as successfully connected based on the connection endpoint
-    fn mark_bootstrap_node_connected_by_endpoint(
-        &mut self,
-        endpoint: &libp2p::core::ConnectedPoint,
-    ) {
-        // Extract the remote address from the connection endpoint
-        let remote_addr = endpoint.get_remote_address();
-
-        for bootstrap_node in self.bootstrap_nodes.iter_mut() {
-            // Check if this bootstrap node's multiaddr matches the connection endpoint
-            // We compare the IP and port parts
-            if Self::addresses_match(&bootstrap_node.multiaddr, remote_addr) {
-                if !bootstrap_node.connected {
-                    bootstrap_node.connected = true;
-                    info!(
-                        "Bootstrap node {} marked as connected after {} attempts",
-                        bootstrap_node.multiaddr, bootstrap_node.attempt_count
-                    );
-                }
-                return;
-            }
-        }
-    }
-
-    /// Checks if a multiaddr matches a remote address
-    fn addresses_match(multiaddr: &Multiaddr, remote_addr: &Multiaddr) -> bool {
-        // Simple comparison - both multiadrs should contain the same IP and port
-        let multiaddr_str = multiaddr.to_string();
-        let remote_str = remote_addr.to_string();
-
-        // Extract IP and port from both addresses for comparison
-        // Format is typically /ip4/{ip}/tcp/{port} or /ip6/{ip}/tcp/{port}
-        multiaddr_str.contains(
-            remote_str
-                .split('/')
-                .find(|s| s.starts_with("ip"))
-                .unwrap_or(""),
-        ) && multiaddr_str.contains(
-            remote_str
-                .split('/')
-                .find(|s| s.parse::<u16>().is_ok())
-                .unwrap_or(""),
-        )
-    }
+    // Bootstrap dialing/retry is handled by `PeerManager`.
 }
 fn peer_id_from_multiaddr(mut addr: Multiaddr) -> Option<PeerId> {
     if let Some(libp2p::multiaddr::Protocol::P2p(mh)) = addr.pop() {
