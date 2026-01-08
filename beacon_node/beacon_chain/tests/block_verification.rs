@@ -2195,47 +2195,47 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             .unwrap();
         let block = harness.chain.get_block(&root).await.unwrap().unwrap();
 
-        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
-            if !commitments.is_empty() {
-                // Advance the slot clock far into the future, past the DA boundary
-                let min_epochs_for_data = harness
-                    .spec
-                    .min_epochs_for_data_column_sidecars_requests
-                    .unwrap_or(0);
-                let future_slot =
-                    Slot::new(slot + (min_epochs_for_data + 10) * E::slots_per_epoch());
-                harness.chain.slot_clock.set_slot(future_slot.as_u64());
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+            && !commitments.is_empty()
+        {
+            let block_epoch = block.epoch();
 
-                // Verify the block is now past the DA boundary
-                let block_epoch = block.epoch();
-                let da_boundary = harness
-                    .chain
-                    .data_availability_checker
-                    .data_availability_boundary()
-                    .expect("DA boundary should be set");
-                assert!(
-                    block_epoch < da_boundary,
-                    "Block should be past the DA boundary. Block epoch: {}, DA boundary: {}",
-                    block_epoch,
-                    da_boundary
-                );
+            // Advance the slot clock far into the future, past the DA boundary
+            // For a block to be past the DA boundary:
+            // current_epoch - min_epochs_for_data_column_sidecars_requests > block_epoch
+            let min_epochs_for_data = harness.spec.min_epochs_for_data_column_sidecars_requests;
+            let future_epoch = block_epoch + min_epochs_for_data + 10;
+            let future_slot = future_epoch.start_slot(E::slots_per_epoch());
+            harness.chain.slot_clock.set_slot(future_slot.as_u64());
 
-                // Try to create RpcBlock with NoData for a block past DA boundary
-                // This should succeed since columns are not expected for blocks past DA boundary
-                let result = RpcBlock::new(
-                    Arc::new(block),
-                    Some(AvailableBlockData::NoData),
-                    harness.chain.data_availability_checker.clone(),
-                    harness.chain.spec.clone(),
-                );
+            // Now verify the block is past the DA boundary
+            let da_boundary = harness
+                .chain
+                .data_availability_checker
+                .data_availability_boundary()
+                .expect("DA boundary should be set");
+            assert!(
+                block_epoch < da_boundary,
+                "Block should be past the DA boundary. Block epoch: {}, DA boundary: {}",
+                block_epoch,
+                da_boundary
+            );
 
-                assert!(
-                    result.is_ok(),
-                    "RpcBlock construction should succeed for blocks past DA boundary, got: {:?}",
-                    result
-                );
-                return;
-            }
+            // Try to create RpcBlock with NoData for a block past DA boundary
+            // This should succeed since columns are not expected for blocks past DA boundary
+            let result = RpcBlock::new(
+                Arc::new(block),
+                Some(AvailableBlockData::NoData),
+                harness.chain.data_availability_checker.clone(),
+                harness.chain.spec.clone(),
+            );
+
+            assert!(
+                result.is_ok(),
+                "RpcBlock construction should succeed for blocks past DA boundary, got: {:?}",
+                result
+            );
+            return;
         }
     }
 
