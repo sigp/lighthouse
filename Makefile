@@ -375,31 +375,6 @@ deb-cargo-aarch64:
 .PHONY: deb-cargo-all
 deb-cargo-all: deb-cargo-x86_64 deb-cargo-aarch64
 
-.PHONY: install-deb-local
-install-deb-local: ## Install .deb package locally for testing
-	@PACKAGE=$$(find target/$(RUST_TARGET)/debian -name "*.deb" | head -1); \
-	if [ -n "$$PACKAGE" ]; then \
-		echo "Installing lighthouse package: $$PACKAGE"; \
-		sudo dpkg -i "$$PACKAGE"; \
-		echo "Fixing dependencies if needed..."; \
-		sudo apt-get install -f; \
-		echo "Package installed successfully!"; \
-		echo ""; \
-		echo "The lighthouse service is now available but not started."; \
-		echo "Your systemd service file handles user creation declaratively."; \
-		echo ""; \
-		echo "To check service status: systemctl status lighthouse"; \
-	else \
-		echo "No .deb package found. Run 'make deb-cargo' first."; \
-	fi
-
-
-.PHONY: remove-deb-local
-remove-deb-local: ## Remove installed lighthouse package
-	@echo "Removing lighthouse package..."
-	sudo dpkg -r lighthouse || true
-	sudo systemctl daemon-reload || true
-
 .PHONY: clean-deb
 clean-deb: ## Clean up debian packaging artifacts
 	@echo "Cleaning up debian packaging artifacts..."
@@ -414,9 +389,6 @@ help-deb: ## Show help for debian packaging
 	@echo "  deb-cargo-x86_64       - Build x86_64 .deb package"
 	@echo "  deb-cargo-aarch64      - Build aarch64 .deb package"
 	@echo "  deb-cargo-all          - Build all architectures"
-	@echo "  test-deb-reproducible  - Test reproducibility"
-	@echo "  install-deb-local      - Install .deb package locally"
-	@echo "  remove-deb-local       - Remove installed package"
 	@echo "  clean-deb              - Clean up packaging artifacts"
 	@echo ""
 	@echo "Prerequisites:"
@@ -425,4 +397,3 @@ help-deb: ## Show help for debian packaging
 	@echo ""
 	@echo "Quick start:"
 	@echo "  make deb-cargo         - Build .deb for current RUST_TARGET"
-	@echo "  make install-deb-local - Test the package"
