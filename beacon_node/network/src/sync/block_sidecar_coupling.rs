@@ -357,7 +357,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 // we request the data from.
                 // If there are duplicated indices, its likely a peer sending us the same index multiple times.
                 // However we can still proceed even if there are extra columns, just log an error.
-                tracing::debug!(?block_root, ?index, "Repeated column for block_root");
+                debug!(?block_root, ?index, "Repeated column for block_root");
                 continue;
             }
         }
@@ -408,7 +408,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 if !data_columns_by_index.is_empty() {
                     let remaining_indices = data_columns_by_index.keys().collect::<Vec<_>>();
                     // log the error but don't return an error, we can still progress with extra columns.
-                    tracing::debug!(
+                    debug!(
                         ?block_root,
                         ?remaining_indices,
                         "Not all columns consumed for block"
@@ -428,7 +428,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
             // log the error but don't return an error, we can still progress with responses.
             // this is most likely an internal error with overrequesting or a client bug.
-            tracing::debug!(?remaining_roots, "Not all columns consumed for block");
+            debug!(?remaining_roots, "Not all columns consumed for block");
         }
 
         Ok(rpc_blocks)

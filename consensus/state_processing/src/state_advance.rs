@@ -6,6 +6,7 @@
 
 use crate::*;
 use fixed_bytes::FixedBytesExtended;
+use tracing::instrument;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
@@ -59,6 +60,7 @@ pub fn complete_state_advance<E: EthSpec>(
 ///
 /// - If `state.slot > target_slot`, an error will be returned.
 /// - If `state_root_opt.is_none()` but the latest block header requires a state root.
+#[instrument(skip_all, level = "debug")]
 pub fn partial_state_advance<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
