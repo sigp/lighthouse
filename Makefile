@@ -333,7 +333,7 @@ install-deny:
 	cargo install --force cargo-deny --version 0.18.2
 
 deny-CI:
-	cargo deny check bans sources --hide-inclusion-graph
+	cargo deny check bans sources
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

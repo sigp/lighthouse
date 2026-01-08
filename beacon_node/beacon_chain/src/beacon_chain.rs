@@ -3,7 +3,6 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation, batch_verify_aggregated_attestations,
     batch_verify_unaggregated_attestations,
 };
-use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::{
     BeaconProposerCache, EpochBlockProposers, ensure_state_can_determine_proposers_for_epoch,
@@ -92,6 +91,7 @@ use futures::channel::mpsc::Sender;
 use itertools::Itertools;
 use itertools::process_results;
 use kzg::Kzg;
+use lighthouse_tracing::SPAN_PRODUCE_UNAGGREGATED_ATTESTATION;
 use logging::crit;
 use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
@@ -455,8 +455,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: RwLock<ValidatorPubkeyCache<T>>,
-    /// A cache used when producing attestations.
-    pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
     /// A cache used to keep track of various block timings.
@@ -1846,6 +1844,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return an error if the `request_slot` is too far behind the head state.
+    #[instrument(name = SPAN_PRODUCE_UNAGGREGATED_ATTESTATION, skip_all, fields(%request_slot, %request_index), level = "debug")]
     pub fn produce_unaggregated_attestation(
         &self,
         request_slot: Slot,
@@ -1889,19 +1888,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
          * the head-lock is not desirable.
          */
 
-        let head_state_slot;
         let beacon_block_root;
         let beacon_state_root;
         let target;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
-        let attester_cache_key;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
+        let head_span = debug_span!("attestation_production_head_scrape").entered();
         // The following braces are to prevent the `cached_head` Arc from being held for longer than
         // required. It also helps reduce the diff for a very large PR (#3244).
         {
             let head = self.head_snapshot();
             let head_state = &head.beacon_state;
-            head_state_slot = head_state.slot();
 
             // There is no value in producing an attestation to a block that is pre-finalization and
             // it is likely to cause expensive and pointless reads to the freezer database. Exit
@@ -1969,12 +1966,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // to determine the justified checkpoint and committee length.
                 None
             };
-
-            // Determine the key for `self.attester_cache`, in case it is required later in this
-            // routine.
-            attester_cache_key =
-                AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         }
+        drop(head_span);
         drop(head_timer);
 
         // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
@@ -1997,47 +1990,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
          *  Phase 2/2:
          *
          *  If the justified checkpoint and committee length from the head are suitable for this
-         *  attestation, use them. If not, try the attester cache. If the cache misses, load a state
-         *  from disk and prime the cache with it.
+         *  attestation, use them. If not, use the database, which will hit the state cache.
          */
-
-        let cache_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS);
         let (justified_checkpoint, committee_len) =
             if let Some((justified_checkpoint, committee_len)) = current_epoch_attesting_info {
                 // The head state is in the same epoch as the attestation, so there is no more
                 // required information.
                 (justified_checkpoint, committee_len)
-            } else if let Some(cached_values) = self.attester_cache.get::<T::EthSpec>(
-                &attester_cache_key,
-                request_slot,
-                request_index,
-                &self.spec,
-            )? {
-                // The suitable values were already cached. Return them.
-                cached_values
             } else {
-                debug!(
-                    ?beacon_block_root,
-                    %head_state_slot,
-                    %request_slot,
-                    "Attester cache miss"
-                );
+                let (advanced_state_root, mut state) = self
+                    .store
+                    .get_advanced_hot_state(beacon_block_root, request_slot, beacon_state_root)?
+                    .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+                if state.current_epoch() < request_epoch {
+                    partial_state_advance(
+                        &mut state,
+                        Some(advanced_state_root),
+                        request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                        &self.spec,
+                    )
+                    .map_err(Error::StateAdvanceError)?;
 
-                // Neither the head state, nor the attester cache was able to produce the required
-                // information to attest in this epoch. So, load a `BeaconState` from disk and use
-                // it to fulfil the request (and prime the cache to avoid this next time).
-                let _cache_build_timer =
-                    metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS);
-                self.attester_cache.load_and_cache_state(
-                    beacon_state_root,
-                    attester_cache_key,
-                    request_slot,
-                    request_index,
-                    self,
-                )?
+                    state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+                }
+
+                (
+                    state.current_justified_checkpoint(),
+                    state
+                        .get_beacon_committee(request_slot, request_index)?
+                        .committee
+                        .len(),
+                )
             };
-        drop(cache_timer);
 
         Ok(Attestation::<T::EthSpec>::empty_for_signing(
             request_index,
@@ -3844,18 +3828,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        // Apply the state to the attester cache, only if it is from the previous epoch or later.
-        //
-        // In a perfect scenario there should be no need to add previous-epoch states to the cache.
-        // However, latency between the VC and the BN might cause the VC to produce attestations at
-        // a previous slot.
-        if state.current_epoch().saturating_add(1_u64) >= current_epoch {
-            let _attester_span = debug_span!("attester_cache_update").entered();
-            self.attester_cache
-                .maybe_cache_state(&state, block_root, &self.spec)
-                .map_err(BeaconChainError::from)?;
-        }
-
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -3916,7 +3888,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             &signed_block,
                             proto_block,
                             &state,
-                            &self.spec,
                         ) {
                             warn!(
                                 error = ?e,
