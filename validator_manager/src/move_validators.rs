@@ -1,6 +1,7 @@
 use super::common::*;
 use crate::DumpConfig;
 use account_utils::read_password_from_user;
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{
     SensitiveUrl,
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{Address, PublicKeyBytes};
+use types::Address;
 use zeroize::Zeroizing;
 
 pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";

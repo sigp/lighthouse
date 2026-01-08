@@ -1,5 +1,6 @@
 use crate::error::InvalidBestNodeInfo;
 use crate::{Block, ExecutionStatus, JustifiedBalances, error::Error};
+use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz::four_byte_option_impl;
@@ -7,8 +8,8 @@ use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
-    FixedBytesExtended, Hash256, Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    Slot,
 };
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union

@@ -1,5 +1,6 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
+use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
@@ -12,7 +13,7 @@ use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::{debug, instrument};
-use types::{FixedBytesExtended, Hash256, Slot};
+use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///

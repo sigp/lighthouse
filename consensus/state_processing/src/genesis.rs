@@ -7,6 +7,7 @@ use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
     upgrade_to_gloas,
 };
+use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -167,9 +168,8 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         state.fork_mut().previous_version = spec.gloas_fork_version;
 
         // Override latest execution payload header.
-        if let Some(ExecutionPayloadHeader::Gloas(header)) = execution_payload_header {
-            *state.latest_execution_payload_header_gloas_mut()? = header.clone();
-        }
+        // Here's where we *would* clone the header but there is no header here so..
+        // TODO(EIP7732): check this
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
