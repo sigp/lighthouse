@@ -2,6 +2,7 @@
 use account_utils::validator_definitions::{
     SigningDefinition, ValidatorDefinition, Web3SignerDefinition,
 };
+use bls::PublicKeyBytes;
 use eth2::lighthouse_vc::std_types::{
     DeleteRemotekeyStatus, DeleteRemotekeysRequest, DeleteRemotekeysResponse,
     ImportRemotekeyStatus, ImportRemotekeysRequest, ImportRemotekeysResponse,
@@ -14,7 +15,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
 use tracing::{info, warn};
-use types::{EthSpec, PublicKeyBytes};
+use types::EthSpec;
 use url::Url;
 use warp::Rejection;
 use warp_utils::reject::custom_server_error;

@@ -5,9 +5,10 @@ use crate::{
     *,
 };
 use alloy_primitives::B256 as H256;
+use fixed_bytes::FixedBytesExtended;
 use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::{FixedBytesExtended, MainnetEthSpec};
+use types::MainnetEthSpec;
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,

@@ -1,6 +1,7 @@
 use alloy_consensus::TxEnvelope;
 use alloy_rlp::Decodable;
-use types::{EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
+use typenum::Unsigned;
+use types::{EthSpec, ExecutionPayloadRef, Hash256, VersionedHash};
 
 #[derive(Debug)]
 pub enum Error {
