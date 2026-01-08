@@ -6,8 +6,10 @@ use crate::{
 };
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_availability_checker::MergedData;
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::data_column_verification::{
+    GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedPartialDataColumn,
+};
+use beacon_chain::partial_data_column_assembler::PartialMergeResult;
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
@@ -55,7 +57,6 @@ use beacon_processor::{
         ReprocessQueueMessage,
     },
 };
-use types::das_column::DasColumn;
 use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
@@ -930,7 +931,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                self.process_gossip_verified_data_column(
+                self.process_gossip_verified_partial_data_column(
                     peer_id,
                     gossip_verified_data_column,
                     seen_duration,
@@ -1279,10 +1280,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    async fn process_gossip_verified_data_column<C: DasColumn<T::EthSpec>>(
+    /// Process a gossip-verified full data column (not partial).
+    /// Partials are handled by process_gossip_verified_partial_data_column.
+    async fn process_gossip_verified_data_column(
         self: &Arc<Self>,
         peer_id: PeerId,
-        verified_data_column: GossipVerifiedDataColumn<T, C>,
+        verified_data_column: GossipVerifiedDataColumn<T>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
@@ -1291,47 +1294,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.index();
 
-        let cloned_self = self.clone();
-        let data_publish_fn = move |merged_data: MergedData<T::EthSpec>| {
-            debug!(
-                partial = merged_data.updated_partials.len(),
-                full = merged_data.completed_columns.len(),
-                "Sending merged data"
-            );
-            let messages: Vec<_> = merged_data
-                .updated_partials
-                .into_iter()
-                .map(|partial| {
-                    PubsubMessage::PartialDataColumnSidecar(Box::new((
-                        DataColumnSubnetId::from_column_index(
-                            partial.index(),
-                            &cloned_self.chain.spec,
-                        ),
-                        partial.column.clone(),
-                        None,
-                    )))
-                })
-                .chain(merged_data.completed_columns.into_iter().flat_map(|full| {
-                    let subnet =
-                        DataColumnSubnetId::from_column_index(full.index, &self.chain.spec);
-                    [
-                        PubsubMessage::PartialDataColumnSidecar(Box::new((
-                            subnet,
-                            (*full).clone().into_partial().column.clone(),
-                            None,
-                        ))),
-                        PubsubMessage::DataColumnSidecar(Box::new((subnet, full))),
-                    ]
-                }))
-                .collect();
-            if !messages.is_empty() {
-                cloned_self.send_network_message(NetworkMessage::Publish { messages })
-            }
-        };
-
         let result = self
             .chain
-            .process_gossip_data_columns(vec![verified_data_column], || Ok(()), data_publish_fn)
+            .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
@@ -1426,6 +1391,104 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.send_sync_message(SyncMessage::GossipBlockProcessResult {
                 block_root,
                 imported: true,
+            });
+        }
+    }
+
+    /// Process a gossip-verified partial data column by merging it in the assembler
+    async fn process_gossip_verified_partial_data_column(
+        self: &Arc<Self>,
+        _peer_id: PeerId,
+        verified_partial: GossipVerifiedPartialDataColumn<T>,
+        _seen_duration: Duration,
+    ) {
+        let processing_start_time = Instant::now();
+        let block_root = verified_partial.block_root();
+        let _data_column_slot = verified_partial.slot();
+        let data_column_index = verified_partial.index();
+
+        let result = self
+            .chain
+            .process_gossip_partial_data_column(verified_partial)
+            .await;
+
+        match &result {
+            Ok(merge_result) => {
+                match merge_result {
+                    PartialMergeResult::Completed {
+                        full_column,
+                        updated_partial,
+                    } => {
+                        debug!(
+                            %block_root,
+                            index = data_column_index,
+                            "Partial data column completed to full column"
+                        );
+
+                        // Publish both the updated partial and the full column
+                        let subnet = DataColumnSubnetId::from_column_index(
+                            full_column.index,
+                            &self.chain.spec,
+                        );
+                        self.send_network_message(NetworkMessage::Publish {
+                            messages: vec![
+                                PubsubMessage::PartialDataColumnSidecar(Box::new((
+                                    subnet,
+                                    updated_partial.column.clone(),
+                                    None,
+                                ))),
+                                PubsubMessage::DataColumnSidecar(Box::new((
+                                    subnet,
+                                    full_column.clone(),
+                                ))),
+                            ],
+                        });
+
+                        // Check if block is now fully available
+                        // This is handled in process_gossip_partial_data_column
+                    }
+                    PartialMergeResult::Incomplete { updated_partial } => {
+                        trace!(
+                            %block_root,
+                            index = data_column_index,
+                            "Partial data column merged but column still incomplete"
+                        );
+
+                        // Publish the updated partial
+                        let subnet = DataColumnSubnetId::from_column_index(
+                            updated_partial.column.index,
+                            &self.chain.spec,
+                        );
+                        self.send_network_message(NetworkMessage::Publish {
+                            messages: vec![PubsubMessage::PartialDataColumnSidecar(Box::new((
+                                subnet,
+                                updated_partial.column.clone(),
+                                None,
+                            )))],
+                        });
+                    }
+                }
+
+                metrics::set_gauge(
+                    &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
+                    processing_start_time.elapsed().as_millis() as i64,
+                );
+            }
+            Err(e) => {
+                warn!(
+                    error = ?e,
+                    %block_root,
+                    index = data_column_index,
+                    "Error processing partial data column"
+                );
+            }
+        }
+
+        // Notify sync if block was imported
+        if result.is_ok() {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: false, // Will be true if completed in the chain method
             });
         }
     }
@@ -1810,7 +1873,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Gossip,
                 || Ok(()),
-                |_| (),
             )
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");

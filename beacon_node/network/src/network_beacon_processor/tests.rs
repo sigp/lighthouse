@@ -1128,12 +1128,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
     let block_root = rig.next_block.canonical_root();
     rig.chain
         .data_availability_checker
-        .put_gossip_verified_data_columns(
-            block_root,
-            rig.next_block.slot(),
-            verified_data_columns,
-            |_| (),
-        )
+        .put_gossip_verified_data_columns(block_root, rig.next_block.slot(), verified_data_columns)
         .expect("should put data columns into availability cache");
 
     // WHEN an already processed but unobserved data column is received via gossip

@@ -530,12 +530,11 @@ impl<E: EthSpec> Tester<E> {
                 })
                 .collect();
 
-            let result =
-                self.block_on_dangerous(self.harness.chain.process_gossip_data_columns(
-                    gossip_verified_data_columns,
-                    || Ok(()),
-                    |_| (),
-                ))?;
+            let result = self.block_on_dangerous(
+                self.harness
+                    .chain
+                    .process_gossip_data_columns(gossip_verified_data_columns, || Ok(())),
+            )?;
             if valid {
                 assert!(result.is_ok());
             }
@@ -549,7 +548,6 @@ impl<E: EthSpec> Tester<E> {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
-                |_| (),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
@@ -640,7 +638,6 @@ impl<E: EthSpec> Tester<E> {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
-                |_| (),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());

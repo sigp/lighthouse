@@ -42,6 +42,7 @@ pub mod observed_block_producers;
 pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
+pub mod partial_data_column_assembler;
 pub mod persisted_beacon_chain;
 pub mod persisted_custody;
 mod persisted_fork_choice;

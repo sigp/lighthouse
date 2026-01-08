@@ -431,7 +431,6 @@ impl TestRig {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
-                |_| (),
             )
             .await
             .unwrap()

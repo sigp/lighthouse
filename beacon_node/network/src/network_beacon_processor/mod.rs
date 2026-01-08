@@ -790,7 +790,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
-        let block_cloned = block.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
                 match blobs_or_data_column {
@@ -800,30 +799,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             block_root,
                         );
                     }
-                    EngineGetBlobsOutput::CustodyColumns(columns) => {
-                        // Gradually publish any full columns
-                        self_cloned.publish_data_columns_gradually(
-                            columns
-                                .iter()
-                                .flat_map(|c| {
-                                    c.clone_arc()
-                                        .as_full(Some(&block_cloned))
-                                        .map(|block| Arc::new(block.into_owned()))
-                                })
-                                .collect(),
-                            block_root,
-                        );
-                        // "Publish" all columns as partial without eager send
+                    EngineGetBlobsOutput::CompleteColumns(columns) => {
+                        // Gradually publish full columns
+                        self_cloned.publish_data_columns_gradually(columns, block_root);
+                    }
+                    EngineGetBlobsOutput::PartialColumns(partials) => {
+                        // Publish partial columns without eager send
                         self_cloned.send_network_message(NetworkMessage::Publish {
-                            messages: columns
+                            messages: partials
                                 .into_iter()
-                                .map(|c| {
+                                .map(|partial| {
                                     PubsubMessage::PartialDataColumnSidecar(Box::new((
                                         DataColumnSubnetId::from_column_index(
-                                            c.index(),
+                                            partial.column.index,
                                             &self_cloned.chain.spec,
                                         ),
-                                        c.into_partial().into_inner().column.clone(),
+                                        partial.column.clone(),
                                         None,
                                     )))
                                 })
@@ -1092,7 +1083,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-use types::das_column::DasColumn;
 #[cfg(test)]
 use {
     beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,

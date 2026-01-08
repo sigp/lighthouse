@@ -695,7 +695,6 @@ async fn invalidates_all_descendants() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
-            |_| (),
         )
         .await
         .unwrap()
@@ -798,7 +797,6 @@ async fn switches_heads() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
-            |_| (),
         )
         .await
         .unwrap()
@@ -1065,7 +1063,6 @@ async fn invalid_parent() {
     assert!(matches!(
         rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
-            |_| (),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
@@ -1396,7 +1393,6 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
-            |_| (),
         )
         .await
         .unwrap();

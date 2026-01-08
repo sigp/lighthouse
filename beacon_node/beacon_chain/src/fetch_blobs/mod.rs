@@ -14,7 +14,9 @@ mod tests;
 
 use crate::blob_verification::{GossipBlobError, KzgVerifiedBlob};
 use crate::block_verification_types::AsBlock;
-use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
+use crate::data_column_verification::{
+    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+};
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_partial_data_columns;
@@ -34,7 +36,6 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
 use types::blob_sidecar::BlobSidecarError;
-use types::das_column::DasColumn;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
 use types::{
@@ -48,10 +49,10 @@ use types::{
 #[derive(Debug)]
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     Blobs(Vec<KzgVerifiedBlob<T::EthSpec>>),
-    /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
-    CustodyColumns(
-        Vec<KzgVerifiedCustodyDataColumn<T::EthSpec, VerifiablePartialDataColumn<T::EthSpec>>>,
-    ),
+    /// Complete columns ready to be imported into the `DataAvailabilityChecker`.
+    CompleteColumns(Vec<Arc<types::DataColumnSidecar<T::EthSpec>>>),
+    /// Incomplete partial columns that need assembly via gossip
+    PartialColumns(Vec<Arc<VerifiablePartialDataColumn<T::EthSpec>>>),
 }
 
 #[derive(Debug)]
@@ -317,20 +318,46 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         return Ok(None);
     }
 
-    // Up until this point we have not observed the data columns in the gossip cache, which allows
-    // them to arrive independently while this function is running. In publish_fn we will observe
-    // them and then publish any columns that had not already been observed.
-    publish_fn(EngineGetBlobsOutput::CustodyColumns(
-        custody_columns_to_import.clone(),
-    ));
+    // Initialize the partial assembler with the columns from the engine
+    let kzg_commitments = block
+        .message()
+        .body()
+        .blob_kzg_commitments()
+        .map_err(FetchEngineBlobError::BeaconStateError)?
+        .clone();
 
-    let availability_processing_status = chain_adapter
-        .process_engine_blobs(
-            block.slot(),
-            block_root,
-            EngineGetBlobsOutput::CustodyColumns(custody_columns_to_import),
-        )
-        .await?;
+    let init_result = chain_adapter.partial_assembler().init_with_engine_blobs(
+        block_root,
+        block.slot(),
+        kzg_commitments,
+        custody_columns_to_import,
+    );
+
+    // Publish complete columns and incomplete partials
+    if !init_result.complete_columns.is_empty() {
+        publish_fn(EngineGetBlobsOutput::CompleteColumns(
+            init_result.complete_columns.clone(),
+        ));
+    }
+    if !init_result.incomplete_partials.is_empty() {
+        publish_fn(EngineGetBlobsOutput::PartialColumns(
+            init_result.incomplete_partials.clone(),
+        ));
+    }
+
+    // Process complete columns through DA checker
+    let availability_processing_status = if !init_result.complete_columns.is_empty() {
+        chain_adapter
+            .process_engine_blobs(
+                block.slot(),
+                block_root,
+                EngineGetBlobsOutput::CompleteColumns(init_result.complete_columns),
+            )
+            .await?
+    } else {
+        // No complete columns yet, still missing components
+        AvailabilityProcessingStatus::MissingComponents(block.slot(), block_root)
+    };
 
     Ok(Some(availability_processing_status))
 }
@@ -342,10 +369,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs_and_proofs: Vec<BlobAndProofV3<T::EthSpec>>,
     custody_columns_indices: &[ColumnIndex],
-) -> Result<
-    Vec<KzgVerifiedCustodyDataColumn<T::EthSpec, VerifiablePartialDataColumn<T::EthSpec>>>,
-    FetchEngineBlobError,
-> {
+) -> Result<Vec<KzgVerifiedCustodyPartialDataColumn<T::EthSpec>>, FetchEngineBlobError> {
     let kzg = chain_adapter.kzg().clone();
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
@@ -383,8 +407,8 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                             .into_iter()
                             .filter(|col| custody_columns_indices.contains(&col.index()))
                             .map(|col| {
-                                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                                    KzgVerifiedDataColumn::from_execution_verified(col),
+                                KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
+                                    KzgVerifiedPartialDataColumn::from_execution_verified(col),
                                 )
                             })
                             .collect::<Vec<_>>()

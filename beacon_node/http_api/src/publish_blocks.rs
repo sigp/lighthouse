@@ -3,10 +3,7 @@ use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_availability_checker::MergedData;
-use beacon_chain::data_column_verification::{
-    GossipVerifiedDataColumn, GossipVerifiedFullDataColumn,
-};
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -33,12 +30,10 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, debug_span, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::das_column::DasColumn;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName,
-    FullPayload, FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock,
-    SignedBlindedBeaconBlock,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
+    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::{Rejection, Reply, reply::Response};
 
@@ -204,43 +199,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Ok(())
     };
 
-    let sender_clone = network_tx.clone();
-    let spec = chain.spec.clone();
-    let data_publish_fn = move |merged_data: MergedData<T::EthSpec>| {
-        debug!(
-            partial = merged_data.updated_partials.len(),
-            full = merged_data.completed_columns.len(),
-            "Sending merged data after block publish (should not happen?)"
-        );
-        let messages: Vec<_> = merged_data
-            .updated_partials
-            .into_iter()
-            .map(|partial| {
-                PubsubMessage::PartialDataColumnSidecar(Box::new((
-                    DataColumnSubnetId::from_column_index(partial.index(), &spec),
-                    partial.column.clone(),
-                    None,
-                )))
-            })
-            .chain(merged_data.completed_columns.into_iter().flat_map(|full| {
-                let subnet = DataColumnSubnetId::from_column_index(full.index, &spec);
-                [
-                    PubsubMessage::PartialDataColumnSidecar(Box::new((
-                        subnet,
-                        (*full).clone().into_partial().column.clone(),
-                        None,
-                    ))),
-                    PubsubMessage::DataColumnSidecar(Box::new((subnet, full))),
-                ]
-            }))
-            .collect();
-        if !messages.is_empty()
-            && let Err(err) = crate::utils::publish_pubsub_messages(&sender_clone, messages)
-        {
-            warn!(?err, "Publishing data after block publish")
-        }
-    };
-
     // Wait for blobs/columns to get gossip verified before proceeding further as we need them for import.
     let (gossip_verified_blobs, gossip_verified_columns) = build_sidecar_task_handle.await?;
 
@@ -276,30 +234,34 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 tokio::time::sleep(delay).await;
             }
         }
+        // Publish columns to network first (eager push for builder/producer case)
         publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
+
+        // Add full columns directly to DA checker (not via gossip verification)
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns_indices = chain.sampling_columns_for_epoch(epoch);
-        let sampling_columns = gossip_verified_columns
+        let sampling_columns: Vec<_> = gossip_verified_columns
             .into_iter()
             .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
-            .collect::<Vec<_>>();
+            .map(|gv| gv.into_inner().to_data_column())
+            .collect();
 
         if !sampling_columns.is_empty() {
-            // Importing the columns could trigger block import and network publication in the case
-            // where the block was already seen on gossip.
-            if let Err(e) =
-                Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn, |_| ()))
-                    .await
+            // Add columns directly to DA checker (block producer case)
+            let block_root = block.tree_hash_root();
+            if let Err(e) = chain
+                .data_availability_checker
+                .put_full_data_columns(block_root, sampling_columns)
             {
-                let msg = format!("Invalid data column: {e}");
+                let msg = format!("Failed to add data columns to DA checker: {e:?}");
                 return if let BroadcastValidation::Gossip = validation_level {
                     Err(warp_utils::reject::broadcast_without_import(msg))
                 } else {
                     error!(
                         reason = &msg,
-                        "Invalid data column during block publication"
+                        "Data column addition failed during block publication"
                     );
                     Err(warp_utils::reject::custom_bad_request(msg))
                 };
@@ -315,7 +277,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
-                data_publish_fn,
             ))
             .await;
             post_block_import_logging_and_response(
@@ -365,7 +326,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
-                data_publish_fn,
             ))
             .await;
             post_block_import_logging_and_response(
@@ -392,7 +352,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 type BuildDataSidecarTaskResult<T> = Result<
     (
         Vec<Option<GossipVerifiedBlob<T>>>,
-        Vec<GossipVerifiedDataColumn<T, DataColumnSidecar<<T as BeaconChainTypes>::EthSpec>>>,
+        Vec<GossipVerifiedDataColumn<T>>,
     ),
     Rejection,
 >;
@@ -450,7 +410,7 @@ fn build_data_columns<T: BeaconChainTypes>(
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
     kzg_cell_proofs: KzgProofs<T::EthSpec>,
-) -> Result<Vec<GossipVerifiedFullDataColumn<T>>, Rejection> {
+) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
     let slot = block.slot();
     let data_column_sidecars =
         build_blob_data_column_sidecars(chain, block, blobs, kzg_cell_proofs).map_err(|e| {
@@ -544,7 +504,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
 
 fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    data_column_sidecars: &[GossipVerifiedDataColumn<T, DataColumnSidecar<T::EthSpec>>],
+    data_column_sidecars: &[GossipVerifiedDataColumn<T>],
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
     let malicious_withhold_count = chain.config.malicious_withhold_count;
@@ -568,9 +528,17 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         .into_iter()
         .flat_map(|data_col| {
             let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
-            let column = (*data_col).clone().into_partial().column;
+            // For block producers, eagerly send all column data via partial messages
+            // Gossipsub will handle per-peer diffing
+            let partial = (*data_col).clone().into_partial();
+            // Pass bitmap of cells to eagerly send - for block producer, send all cells
+            let eager_data = Some(partial.column.sidecar.cells_present_bitmap.clone());
             [
-                PubsubMessage::PartialDataColumnSidecar(Box::new((subnet, column, None))),
+                PubsubMessage::PartialDataColumnSidecar(Box::new((
+                    subnet,
+                    partial.column,
+                    eager_data,
+                ))),
                 PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
             ]
         })

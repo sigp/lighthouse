@@ -224,7 +224,7 @@ mod get_blobs_v2 {
         assert!(
             matches!(
                 published_columns,
-                EngineGetBlobsOutput::CustodyColumns(columns) if columns.len() == custody_columns.len()
+                EngineGetBlobsOutput::CompleteColumns(columns) if columns.len() == custody_columns.len()
             ),
             "should publish custody columns"
         );

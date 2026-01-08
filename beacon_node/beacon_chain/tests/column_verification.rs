@@ -91,7 +91,6 @@ async fn rpc_columns_with_invalid_header_signature() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::RangeSync,
             || Ok(()),
-            |_| (),
         )
         .await
         .unwrap();

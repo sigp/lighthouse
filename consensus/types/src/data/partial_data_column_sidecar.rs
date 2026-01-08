@@ -1,9 +1,8 @@
 use crate::beacon_block_body::KzgCommitments;
-use crate::data::das_column::{CellWithMetadata, DasColumn};
 use crate::data_column_sidecar::{Cell, DataColumn};
 use crate::test_utils::TestRandom;
 use crate::{AbstractExecPayload, ColumnIndex, DataColumnSidecar};
-use crate::{EthSpec, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockHeader, Slot};
+use crate::{EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use kzg::KzgProof;
@@ -14,7 +13,6 @@ use ssz_types::VariableList;
 use std::borrow::Cow;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
@@ -259,55 +257,22 @@ impl<E: EthSpec> VerifiablePartialDataColumn<E> {
             slot: self.slot,
         })
     }
-}
 
-impl<E: EthSpec> DasColumn<E> for VerifiablePartialDataColumn<E> {
-    fn slot(&self) -> Slot {
+    pub fn slot(&self) -> Slot {
         self.slot
     }
 
-    fn index(&self) -> ColumnIndex {
+    pub fn index(&self) -> ColumnIndex {
         self.column.index
     }
 
-    fn cell_count_total(&self) -> usize {
-        self.column.sidecar.cells_present_bitmap.len()
+    pub fn block_root(&self) -> Hash256 {
+        self.column.block_root
     }
 
-    fn cells_present(&self) -> impl Iterator<Item = usize> {
-        self.column
-            .sidecar
-            .cells_present_bitmap
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, bit)| bit.then_some(idx))
-    }
-
-    fn column(&self) -> &DataColumn<E> {
-        &self.column.sidecar.column
-    }
-
-    fn kzg_proofs(&self) -> &VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock> {
-        &self.column.sidecar.kzg_proofs
-    }
-
-    fn kzg_commitments(&self) -> &KzgCommitments<E> {
-        &self.kzg_commitments
-    }
-
-    fn block_root(&self) -> Hash256 {
-        self.column.block_root.tree_hash_root()
-    }
-
-    fn signed_block_header(&self) -> Option<&SignedBeaconBlockHeader> {
-        None
-    }
-
-    fn into_partial(self) -> VerifiablePartialDataColumn<E> {
-        self
-    }
-
-    fn as_full(
+    /// Convert this partial column into a full `DataColumnSidecar` if all cells are present.
+    /// Requires the signed beacon block to populate the header and inclusion proof.
+    pub fn as_full(
         &self,
         block: Option<&SignedBeaconBlock<E>>,
     ) -> Option<Cow<'_, DataColumnSidecar<E>>> {
@@ -338,26 +303,5 @@ impl<E: EthSpec> DasColumn<E> for VerifiablePartialDataColumn<E> {
             kzg_proofs: self.column.sidecar.kzg_proofs.clone(),
             signed_block_header,
         }))
-    }
-
-    fn iter(&self) -> impl Iterator<Item = Option<CellWithMetadata<'_, E>>> {
-        let sidecar = &self.column.sidecar;
-        let mut present_iterator = sidecar.column.iter().zip(sidecar.kzg_proofs.iter());
-        sidecar
-            .cells_present_bitmap
-            .iter()
-            .zip(self.kzg_commitments.iter())
-            .map(move |(present, commitment)| {
-                if present {
-                    let (cell, proof) = present_iterator.next()?;
-                    Some(CellWithMetadata {
-                        cell,
-                        proof,
-                        commitment,
-                    })
-                } else {
-                    None
-                }
-            })
     }
 }

@@ -1,5 +1,4 @@
 mod blob_sidecar;
-pub mod das_column;
 mod data_column_custody_group;
 mod data_column_sidecar;
 mod data_column_subnet_id;

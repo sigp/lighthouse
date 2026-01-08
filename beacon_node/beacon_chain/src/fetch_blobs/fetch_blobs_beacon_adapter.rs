@@ -35,6 +35,12 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         &self.chain.task_executor
     }
 
+    pub(crate) fn partial_assembler(
+        &self,
+    ) -> &Arc<crate::partial_data_column_assembler::PartialDataColumnAssembler<T::EthSpec>> {
+        self.chain.data_availability_checker.partial_assembler()
+    }
+
     pub(crate) async fn get_blobs_v1(
         &self,
         versioned_hashes: Vec<Hash256>,

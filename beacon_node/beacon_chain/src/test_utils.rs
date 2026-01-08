@@ -2390,7 +2390,6 @@ where
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
-                |_| (),
             )
             .await?
             .try_into()
@@ -2415,7 +2414,6 @@ where
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
-                |_| (),
             )
             .await?
             .try_into()
@@ -3223,7 +3221,7 @@ where
 
             if !verified_columns.is_empty() {
                 self.chain
-                    .process_gossip_data_columns(verified_columns, || Ok(()), |_| ())
+                    .process_gossip_data_columns(verified_columns, || Ok(()))
                     .await
                     .unwrap();
             }
