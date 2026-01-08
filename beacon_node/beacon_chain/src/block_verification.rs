@@ -649,11 +649,15 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     // Filter `chain_segment` for `RpcBlock::FullyAvailable` and verify KZG.
     let available_blocks = chain_segment
         .iter()
-        .filter_map(|(_, block)| match block {
-            RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
-            RpcBlock::BlockOnly { .. } => None,
+        .map(|(_, block)| match block {
+            RpcBlock::FullyAvailable(available_block) => Ok(available_block.clone()),
+            // RangeSync and BackfillSync already ensure that the chain segment is fully available
+            // so this shouldn't be possible in practice.
+            RpcBlock::BlockOnly { .. } => Err(BlockError::InternalError(
+                "Chain segment is not fully available".to_string(),
+            )),
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     chain
         .data_availability_checker

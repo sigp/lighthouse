@@ -41,6 +41,7 @@ const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGT
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
+// TODO(#8633): Delete this unnecessary enum and refactor this file to use `AvailableBlockData` instead.
 enum DataSidecars<E: EthSpec> {
     Blobs(BlobSidecarList<E>),
     DataColumns(Vec<CustodyDataColumn<E>>),
@@ -1972,9 +1973,8 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
     }
 }
 
-// Test that `signature_verify_chain_segment` correctly handles a mix of `FullyAvailable`
-// and `BlockOnly` RpcBlocks. This situation should not happen in production
-// but this test may help catch potential future regressions.
+// Test that `signature_verify_chain_segment` errors with a chain segment of mixed `FullyAvailable`
+// and `BlockOnly` RpcBlocks. This situation should never happen in production.
 #[tokio::test]
 async fn signature_verify_mixed_rpc_block_variants() {
     let (snapshots, data_sidecars) = get_chain_segment().await;
@@ -2007,20 +2007,9 @@ async fn signature_verify_mixed_rpc_block_variants() {
         chain_segment.push((block_root, rpc_block));
     }
 
-    // This should NOT silently drop the BlockOnly variants
-    let verified = signature_verify_chain_segment(chain_segment.clone(), &harness.chain).unwrap();
-
-    // Assert we got all blocks back, not just the FullyAvailable ones
-    assert_eq!(
-        verified.len(),
-        chain_segment.len(),
-        "All blocks should be verified, not dropped"
-    );
-
-    // Verify block roots match
-    for (i, (expected_root, _)) in chain_segment.iter().enumerate() {
-        assert_eq!(verified[i].block_root(), *expected_root);
-    }
+    // This should error because `signature_verify_chain_segment` expects a list
+    // of `RpcBlock::FullyAvailable`.
+    assert!(signature_verify_chain_segment(chain_segment.clone(), &harness.chain).is_err());
 }
 
 // Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
@@ -2061,35 +2050,35 @@ async fn rpc_block_construction_fails_with_wrong_blob_count() {
             .unwrap();
         let block = harness.chain.get_block(&root).await.unwrap().unwrap();
 
-        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
-            if !commitments.is_empty() {
-                let blobs = harness.chain.get_blobs(&root).unwrap().blobs().unwrap();
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+            && !commitments.is_empty()
+        {
+            let blobs = harness.chain.get_blobs(&root).unwrap().blobs().unwrap();
 
-                // Create AvailableBlockData with wrong number of blobs (remove one)
-                let mut wrong_blobs_vec: Vec<_> = blobs.iter().cloned().collect();
-                wrong_blobs_vec.pop();
+            // Create AvailableBlockData with wrong number of blobs (remove one)
+            let mut wrong_blobs_vec: Vec<_> = blobs.iter().cloned().collect();
+            wrong_blobs_vec.pop();
 
-                let max_blobs = harness.spec.max_blobs_per_block(block.epoch()) as usize;
-                let wrong_blobs = ssz_types::RuntimeVariableList::new(wrong_blobs_vec, max_blobs)
-                    .expect("should create BlobSidecarList");
-                let block_data = AvailableBlockData::new_with_blobs(wrong_blobs);
+            let max_blobs = harness.spec.max_blobs_per_block(block.epoch()) as usize;
+            let wrong_blobs = ssz_types::RuntimeVariableList::new(wrong_blobs_vec, max_blobs)
+                .expect("should create BlobSidecarList");
+            let block_data = AvailableBlockData::new_with_blobs(wrong_blobs);
 
-                // Try to create RpcBlock with wrong blob count
-                let result = RpcBlock::new(
-                    Arc::new(block),
-                    Some(block_data),
-                    harness.chain.data_availability_checker.clone(),
-                    harness.chain.spec.clone(),
-                );
+            // Try to create RpcBlock with wrong blob count
+            let result = RpcBlock::new(
+                Arc::new(block),
+                Some(block_data),
+                harness.chain.data_availability_checker.clone(),
+                harness.chain.spec.clone(),
+            );
 
-                // Should fail with MissingBlobs
-                assert!(
-                    matches!(result, Err(AvailabilityCheckError::MissingBlobs)),
-                    "RpcBlock construction should fail with wrong blob count, got: {:?}",
-                    result
-                );
-                return;
-            }
+            // Should fail with MissingBlobs
+            assert!(
+                matches!(result, Err(AvailabilityCheckError::MissingBlobs)),
+                "RpcBlock construction should fail with wrong blob count, got: {:?}",
+                result
+            );
+            return;
         }
     }
 
@@ -2133,34 +2122,33 @@ async fn rpc_block_rejects_missing_custody_columns() {
             .unwrap();
         let block = harness.chain.get_block(&root).await.unwrap().unwrap();
 
-        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
-            if !commitments.is_empty() {
-                let columns = harness.chain.get_data_columns(&root).unwrap().unwrap();
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+            && !commitments.is_empty()
+        {
+            let columns = harness.chain.get_data_columns(&root).unwrap().unwrap();
 
-                if columns.len() > 1 {
-                    // Create AvailableBlockData with incomplete columns (remove one)
-                    let mut incomplete_columns: Vec<_> =
-                        columns.iter().map(|c| c.clone()).collect();
-                    incomplete_columns.pop();
+            if columns.len() > 1 {
+                // Create AvailableBlockData with incomplete columns (remove one)
+                let mut incomplete_columns: Vec<_> = columns.to_vec();
+                incomplete_columns.pop();
 
-                    let block_data = AvailableBlockData::new_with_data_columns(incomplete_columns);
+                let block_data = AvailableBlockData::new_with_data_columns(incomplete_columns);
 
-                    // Try to create RpcBlock with incomplete custody columns
-                    let result = RpcBlock::new(
-                        Arc::new(block),
-                        Some(block_data),
-                        harness.chain.data_availability_checker.clone(),
-                        harness.chain.spec.clone(),
-                    );
+                // Try to create RpcBlock with incomplete custody columns
+                let result = RpcBlock::new(
+                    Arc::new(block),
+                    Some(block_data),
+                    harness.chain.data_availability_checker.clone(),
+                    harness.chain.spec.clone(),
+                );
 
-                    // Should fail with MissingCustodyColumns
-                    assert!(
-                        matches!(result, Err(AvailabilityCheckError::MissingCustodyColumns)),
-                        "RpcBlock construction should fail with missing custody columns, got: {:?}",
-                        result
-                    );
-                    return;
-                }
+                // Should fail with MissingCustodyColumns
+                assert!(
+                    matches!(result, Err(AvailabilityCheckError::MissingCustodyColumns)),
+                    "RpcBlock construction should fail with missing custody columns, got: {:?}",
+                    result
+                );
+                return;
             }
         }
     }
