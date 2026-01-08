@@ -1331,7 +1331,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .get(&(self.processing_target + batch_index as u64 * EPOCHS_PER_BATCH))
             {
                 visualization_string.push(batch.visualize());
-                if batch_index != BATCH_BUFFER_SIZE {
+                if batch_index < BATCH_BUFFER_SIZE - 1 {
                     // Add a comma in between elements
                     visualization_string.push(',');
                 }

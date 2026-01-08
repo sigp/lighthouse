@@ -1,9 +1,11 @@
+use bls::PublicKeyBytes;
+use context_deserialize::ContextDeserialize;
 pub use eth2::Error;
 use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    ContentType, ContextDeserialize, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode,
-    ForkVersionedResponse, PublicKeyBytes, SignedValidatorRegistrationData, Slot,
+    ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
+    SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
@@ -538,9 +540,10 @@ impl BuilderHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bls::Signature;
+    use eth2::types::MainnetEthSpec;
     use eth2::types::builder_bid::{BuilderBid, BuilderBidFulu};
     use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use eth2::types::{MainnetEthSpec, Signature};
     use mockito::{Matcher, Server, ServerGuard};
 
     type E = MainnetEthSpec;

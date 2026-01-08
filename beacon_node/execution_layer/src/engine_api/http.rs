@@ -103,9 +103,10 @@ pub static LIGHTHOUSE_JSON_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
+    use bls::{PublicKeyBytes, SignatureBytes};
     use ssz::Decode;
     use state_processing::per_block_processing::signature_sets::deposit_pubkey_signature_message;
-    use types::{ChainSpec, DepositData, Hash256, PublicKeyBytes, SignatureBytes};
+    use types::{ChainSpec, DepositData, Hash256};
 
     pub use eth2::lighthouse::DepositLog;
 
@@ -1466,10 +1467,13 @@ mod test {
     use super::auth::JwtKey;
     use super::*;
     use crate::test_utils::{DEFAULT_JWT_SECRET, MockServer};
+    use fixed_bytes::FixedBytesExtended;
+    use ssz_types::VariableList;
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{FixedBytesExtended, MainnetEthSpec, Unsigned};
+    use typenum::Unsigned;
+    use types::MainnetEthSpec;
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
