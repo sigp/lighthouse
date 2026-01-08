@@ -133,6 +133,14 @@ impl Eth2NetworkConfig {
         self.genesis_state_source != GenesisStateSource::Unknown
     }
 
+    /// The `genesis_time` of the genesis time.
+    pub fn genesis_time<E: EthSpec>(&self) -> Result<Option<u64>, String> {
+        Ok(
+            self.get_genesis_state_from_bytes::<E>()
+                .map(|state| Some(state.genesis_time()))?
+        )
+    }
+
     /// The `genesis_validators_root` of the genesis state.
     pub fn genesis_validators_root<E: EthSpec>(&self) -> Result<Option<Hash256>, String> {
         if let GenesisStateSource::Url {
