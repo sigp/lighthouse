@@ -250,7 +250,8 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
 
     // Track request count and duration for standardized metrics
     inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V2_REQUESTS_TOTAL);
-    let _timer = metrics::start_timer(&metrics::BEACON_ENGINE_GET_BLOBS_V2_REQUEST_DURATION_SECONDS);
+    let _timer =
+        metrics::start_timer(&metrics::BEACON_ENGINE_GET_BLOBS_V2_REQUEST_DURATION_SECONDS);
 
     let response = chain_adapter
         .get_blobs_v2(versioned_hashes)
