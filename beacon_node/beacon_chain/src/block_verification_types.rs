@@ -72,6 +72,28 @@ impl<E: EthSpec> RpcBlock<E> {
 }
 
 impl<E: EthSpec> RpcBlock<E> {
+    /// Constructs an `RpcBlock` from a block and optional availability data.
+    ///
+    /// This function creates an RpcBlock which can be in one of two states:
+    /// - `FullyAvailable`: When `block_data` is provided, the block contains all required
+    ///   data for verification.
+    /// - `BlockOnly`: When `block_data` is `None`, the block may still need additional
+    ///   data to be considered fully available (used during block lookups or when blobs
+    ///   will arrive separately).
+    ///
+    /// # Validation
+    ///
+    /// When `block_data` is provided, this function validates that:
+    /// - Block data is not provided when not required.
+    /// - Required blobs are present and match the expected count.
+    /// - Required custody columns are included based on the nodes custody requirements.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AvailabilityCheckError` if:
+    /// - `InvalidAvailableBlockData`: Block data is provided but not required.
+    /// - `MissingBlobs`: Block requires blobs but they are missing or incomplete.
+    /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete.
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: Option<AvailableBlockData<E>>,

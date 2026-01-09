@@ -431,13 +431,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .flatten()
             .collect::<Vec<_>>();
 
-        // verify kzg for all data columns at once
-        if !all_data_columns.is_empty() {
-            // Attributes fault to the specific peer that sent an invalid column
-            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
-        }
-
         for available_block in available_blocks {
             let block_data_required = self.blobs_required_for_block(&available_block.block)
                 || self.data_columns_required_for_block(&available_block.block);
@@ -450,6 +443,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     return Err(AvailabilityCheckError::MissingBlobs);
                 }
             }
+        }
+
+        // verify kzg for all data columns at once
+        if !all_data_columns.is_empty() {
+            // Attributes fault to the specific peer that sent an invalid column
+            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
         Ok(())
