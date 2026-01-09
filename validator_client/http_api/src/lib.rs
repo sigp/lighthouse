@@ -1411,13 +1411,10 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .build()
         .await?;
 
-    let server_info = server.info();
-
     let (address, server) = server.serve_with_shutdown(shutdown).await?;
 
     info!(
         listen_address = %address,
-        protocol = %server_info.protocol,
         ?api_token_path,
         "HTTP API started"
     );
