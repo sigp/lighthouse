@@ -73,8 +73,6 @@ struct TestRig {
     network_globals: Arc<NetworkGlobals<E>>,
     /// Beacon chain harness
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    /// External beacon chain harness to produce blocks that are not imported
-    external_harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     /// `rng` for generating test blocks and blobs.
     rng_08: rand_chacha_03::ChaCha20Rng,
     rng: ChaCha20Rng,

@@ -129,8 +129,6 @@ pub struct ChainConfig {
 pub struct TestConfig {
     /// FOR TESTING ONLY: Disable crypto verification to speed up tests
     pub disable_crypto: bool,
-    /// FOR TESTING ONLY: Disable fetch_blobs optimization
-    pub disable_fetch_blobs: bool,
 }
 
 impl Default for ChainConfig {
@@ -174,7 +172,6 @@ impl Default for ChainConfig {
             node_custody_type: NodeCustodyType::Fullnode,
             test_config: TestConfig {
                 disable_crypto: false,
-                disable_fetch_blobs: false,
             },
         }
     }

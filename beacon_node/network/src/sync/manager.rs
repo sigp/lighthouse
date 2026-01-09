@@ -521,7 +521,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // Inject a Disconnected error on all requests associated with the disconnected peer
         // to retry all batches/lookups. Only after removing the peer from the data structures to
-        // sending retry requests to the disconnecting peer.
+        // avoid sending retry requests to the disconnecting peer.
         for sync_request_id in self.network.peer_disconnected(peer_id) {
             self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
         }

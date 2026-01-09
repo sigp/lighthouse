@@ -127,11 +127,12 @@ use lighthouse_network::service::api_types::Id;
 
 #[cfg(test)]
 #[derive(Debug)]
-/// Tuple of `SingleLookupId`, requested block root, awaiting parent block root (if any),
-/// and list of peers that claim to have imported this set of block components.
 pub(crate) struct BlockLookupSummary {
+    /// Lookup ID
     pub id: Id,
+    /// Requested block root
     pub block_root: Hash256,
+    /// List of peers that claim to have imported this set of block components.
     pub peers: Vec<PeerId>,
 }
 

@@ -169,33 +169,10 @@ impl TestRig {
             .chain_config(ChainConfig {
                 test_config: TestConfig {
                     disable_crypto: true,
-                    disable_fetch_blobs: true,
                 },
                 ..Default::default()
             })
             .build();
-
-        // Initialise a new beacon chain
-        let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
-            .spec(spec)
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .testing_slot_clock(clock)
-            .chain_config(ChainConfig {
-                test_config: TestConfig {
-                    disable_crypto: true,
-                    disable_fetch_blobs: true,
-                },
-                ..Default::default()
-            }) // Make the external harness a supernode so all columns are available
-            .node_custody_type(NodeCustodyType::Supernode)
-            .build();
-        // Ensure all blocks have data. Otherwise, the triggers for unknown blob parent and unknown
-        // data column parent fail.
-        external_harness
-            .execution_block_generator()
-            .set_min_blob_count(1);
 
         let chain = harness.chain.clone();
         let fork_context = Arc::new(ForkContext::new::<E>(
@@ -245,14 +222,6 @@ impl TestRig {
 
         init_tracing();
 
-        let mut network_blocks_by_root = HashMap::new();
-        let mut network_blocks_by_slot = HashMap::new();
-
-        // Add genesis block for completeness
-        let genesis_block = external_harness.get_head_block();
-        network_blocks_by_root.insert(genesis_block.canonical_root(), genesis_block.clone());
-        network_blocks_by_slot.insert(genesis_block.slot(), genesis_block);
-
         TestRig {
             beacon_processor_rx,
             beacon_processor_rx_queue: vec![],
@@ -272,10 +241,9 @@ impl TestRig {
                 fork_context,
             ),
             harness,
-            external_harness,
             fork_name,
-            network_blocks_by_root,
-            network_blocks_by_slot,
+            network_blocks_by_root: <_>::default(),
+            network_blocks_by_slot: <_>::default(),
             penalties: <_>::default(),
             seen_lookups: <_>::default(),
             requests: <_>::default(),
@@ -792,17 +760,44 @@ impl TestRig {
     async fn build_chain(&mut self, block_count: usize) -> Hash256 {
         let mut blocks = vec![];
 
+        // Initialise a new beacon chain
+        let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+            .spec(self.harness.spec.clone())
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .testing_slot_clock(self.harness.chain.slot_clock.clone())
+            .chain_config(ChainConfig {
+                test_config: TestConfig {
+                    disable_crypto: true,
+                },
+                ..Default::default()
+            }) // Make the external harness a supernode so all columns are available
+            .node_custody_type(NodeCustodyType::Supernode)
+            .build();
+        // Ensure all blocks have data. Otherwise, the triggers for unknown blob parent and unknown
+        // data column parent fail.
+        external_harness
+            .execution_block_generator()
+            .set_min_blob_count(1);
+
+        // Add genesis block for completeness
+        let genesis_block = external_harness.get_head_block();
+        self.network_blocks_by_root
+            .insert(genesis_block.canonical_root(), genesis_block.clone());
+        self.network_blocks_by_slot
+            .insert(genesis_block.slot(), genesis_block);
+
         for i in 0..block_count {
-            self.external_harness.advance_slot();
-            let block_root = self
-                .external_harness
+            external_harness.advance_slot();
+            let block_root = external_harness
                 .extend_chain(
                     1,
                     BlockStrategy::OnCanonicalHead,
                     AttestationStrategy::AllValidators,
                 )
                 .await;
-            let block = self.external_harness.get_full_block(&block_root);
+            let block = external_harness.get_full_block(&block_root);
             let block_root = block.canonical_root();
             let block_slot = block.slot();
             self.network_blocks_by_root
@@ -822,7 +817,7 @@ impl TestRig {
 
         // Auto-update the clock on the main harness to accept the blocks
         self.harness
-            .set_current_slot(self.external_harness.get_current_slot());
+            .set_current_slot(external_harness.get_current_slot());
 
         blocks.last().expect("empty blocks").1
     }
@@ -1957,7 +1952,7 @@ async fn test_parent_lookup_too_deep_grow_ancestor_zero() {
 
 // Regression test for https://github.com/sigp/lighthouse/pull/7118
 // 8042 UPDATE: block was previously added to the failed_chains cache, now it's inserted into the
-// ignored chains cache. The regression test still applies as the chaild lookup is not created
+// ignored chains cache. The regression test still applies as the child lookup is not created
 #[tokio::test]
 async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     let mut r = TestRig::default();

@@ -787,9 +787,7 @@ where
             .chain
             .get_blinded_block(block_root)
             .unwrap()
-            .unwrap_or_else(|| {
-                panic!("block root does not exist in external harness {block_root:?}")
-            });
+            .unwrap_or_else(|| panic!("block root does not exist in harness {block_root:?}"));
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
         self.build_rpc_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
     }
@@ -1032,12 +1030,16 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = Arc::new(block_response.block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &block_response.state.fork(),
-            block_response.state.genesis_validators_root(),
-            &self.spec,
-        ));
+        let signed_block = Arc::new(if self.chain.config.test_config.disable_crypto {
+            SignedBeaconBlock::from_block(block_response.block, Signature::empty())
+        } else {
+            block_response.block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &block_response.state.fork(),
+                block_response.state.genesis_validators_root(),
+                &self.spec,
+            )
+        });
 
         let block_contents: SignedBlockContentsTuple<E> =
             if signed_block.fork_name_unchecked().deneb_enabled() {
@@ -1416,9 +1418,12 @@ where
 
                             let mut agg_sig = AggregateSignature::infinity();
 
-                            agg_sig.add_assign(
-                                &self.validator_keypairs[*validator_index].sk.sign(message),
-                            );
+                            // If disable_crypto is true keep the attestation signature as infinity
+                            if self.chain.config.test_config.disable_crypto {
+                                agg_sig.add_assign(
+                                    &self.validator_keypairs[*validator_index].sk.sign(message),
+                                );
+                            }
 
                             agg_sig
                         };
@@ -1516,9 +1521,12 @@ where
 
                             let mut agg_sig = AggregateSignature::infinity();
 
-                            agg_sig.add_assign(
-                                &self.validator_keypairs[*validator_index].sk.sign(message),
-                            );
+                            // If disable_crypto is true keep the attestation signature as infinity
+                            if self.chain.config.test_config.disable_crypto {
+                                agg_sig.add_assign(
+                                    &self.validator_keypairs[*validator_index].sk.sign(message),
+                                );
+                            }
 
                             agg_sig
                         };
