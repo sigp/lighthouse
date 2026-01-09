@@ -135,9 +135,8 @@ impl Eth2NetworkConfig {
 
     /// The `genesis_time` of the genesis time.
     pub fn genesis_time<E: EthSpec>(&self) -> Result<Option<u64>, String> {
-        Ok(self
-            .get_genesis_state_from_bytes::<E>()
-            .map(|state| Some(state.genesis_time()))?)
+        self.get_genesis_state_from_bytes::<E>()
+            .map(|state| Some(state.genesis_time()))
     }
 
     /// The `genesis_validators_root` of the genesis state.
