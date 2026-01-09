@@ -2155,3 +2155,89 @@ async fn rpc_block_rejects_missing_custody_columns() {
 
     panic!("No block with data columns found");
 }
+
+// Test that RpcBlock::new() allows construction past the data availability boundary.
+// When a block is past the DA boundary, we should be able to construct an RpcBlock
+// with NoData even if the block has blob commitments, since columns are not expected.
+#[tokio::test]
+async fn rpc_block_allows_construction_past_da_boundary() {
+    let spec = test_spec::<E>();
+
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    // Extend chain to create some blocks with blob commitments
+    harness
+        .extend_chain(
+            5,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Find a block with blob commitments
+    for slot in 1..=5 {
+        let root = harness
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let block = harness.chain.get_block(&root).await.unwrap().unwrap();
+
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+            && !commitments.is_empty()
+        {
+            let block_epoch = block.epoch();
+
+            // Advance the slot clock far into the future, past the DA boundary
+            // For a block to be past the DA boundary:
+            // current_epoch - min_epochs_for_data_column_sidecars_requests > block_epoch
+            let min_epochs_for_data = harness.spec.min_epochs_for_data_column_sidecars_requests;
+            let future_epoch = block_epoch + min_epochs_for_data + 10;
+            let future_slot = future_epoch.start_slot(E::slots_per_epoch());
+            harness.chain.slot_clock.set_slot(future_slot.as_u64());
+
+            // Now verify the block is past the DA boundary
+            let da_boundary = harness
+                .chain
+                .data_availability_checker
+                .data_availability_boundary()
+                .expect("DA boundary should be set");
+            assert!(
+                block_epoch < da_boundary,
+                "Block should be past the DA boundary. Block epoch: {}, DA boundary: {}",
+                block_epoch,
+                da_boundary
+            );
+
+            // Try to create RpcBlock with NoData for a block past DA boundary
+            // This should succeed since columns are not expected for blocks past DA boundary
+            let result = RpcBlock::new(
+                Arc::new(block),
+                Some(AvailableBlockData::NoData),
+                harness.chain.data_availability_checker.clone(),
+                harness.chain.spec.clone(),
+            );
+
+            assert!(
+                result.is_ok(),
+                "RpcBlock construction should succeed for blocks past DA boundary, got: {:?}",
+                result
+            );
+            return;
+        }
+    }
+
+    panic!("No block with blob commitments found");
+}
