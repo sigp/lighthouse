@@ -44,17 +44,14 @@ impl Server {
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
-        let tokio_listener = tokio::net::TcpListener::bind(self.address)
-            .await
+        let listener =
+            std::net::TcpListener::bind(self.address).map_err(ServerError::ServerFailed)?;
+
+        listener
+            .set_nonblocking(true)
             .map_err(ServerError::ServerFailed)?;
 
-        let actual_addr = tokio_listener
-            .local_addr()
-            .map_err(ServerError::ServerFailed)?;
-
-        let std_listener = tokio_listener
-            .into_std()
-            .map_err(ServerError::ServerFailed)?;
+        let actual_addr = listener.local_addr().map_err(ServerError::ServerFailed)?;
 
         let handle = axum_server::Handle::new();
 
@@ -69,14 +66,14 @@ impl Server {
 
             match self.rustls_config {
                 Some(config) => {
-                    axum_server::from_tcp_rustls(std_listener, config)
+                    axum_server::from_tcp_rustls(listener, config)
                         .handle(handle)
                         .serve(self.router.into_make_service())
                         .await
                         .map_err(ServerError::ServerFailed)?;
                 }
                 None => {
-                    axum_server::from_tcp(std_listener)
+                    axum_server::from_tcp(listener)
                         .handle(handle)
                         .serve(self.router.into_make_service())
                         .await
