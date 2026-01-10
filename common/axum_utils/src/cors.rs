@@ -19,9 +19,9 @@ pub enum CorsError {
 /// A validated CORS origin
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
-    /// Allow any origin (*)
+    /// Allow any origin (*).
     Any,
-    /// A specific origin URL
+    /// A specific origin URL.
     Exact(http::HeaderValue),
 }
 
@@ -58,13 +58,9 @@ fn validate_origin(s: &str) -> Result<(), CorsError> {
         return Err(make_error("missing scheme (http:// or https://)"));
     }
 
-    let mut parts = s.splitn(2, "://");
-    let scheme = parts
-        .next()
+    let (scheme, rest) = s
+        .split_once("://")
         .ok_or_else(|| make_error("failed to parse scheme"))?;
-    let rest = parts
-        .next()
-        .ok_or_else(|| make_error("missing content after scheme"))?;
 
     if !matches!(scheme, "http" | "https") {
         return Err(make_error(&format!(
@@ -106,21 +102,16 @@ impl CorsConfig {
 
     /// Parse and validate the origins string, returning a list of validated origins.
     pub fn parse_origins(&self) -> Result<Vec<Origin>, CorsError> {
-        if self.allowed_origins.trim().is_empty() {
+        let trimmed = self.allowed_origins.trim();
+
+        if trimmed.is_empty() {
             return Err(CorsError::EmptyOriginsString);
         }
 
-        let mut origins = Vec::new();
-
-        for origin_str in self.allowed_origins.split(',') {
-            let origin = origin_str.trim().parse::<Origin>()?;
-
-            if origin == Origin::Any {
-                return Ok(vec![Origin::Any]);
-            }
-
-            origins.push(origin);
-        }
+        let origins: Vec<Origin> = trimmed
+            .split(',')
+            .map(|s| s.trim().parse::<Origin>())
+            .collect::<Result<Vec<_>, _>>()?;
 
         if origins.is_empty() {
             return Err(CorsError::NoValidOrigins);
@@ -133,26 +124,20 @@ impl CorsConfig {
     pub fn into_layer(self) -> Result<CorsLayer, CorsError> {
         let origins = self.parse_origins()?;
 
-        let cors = match origins.as_slice() {
-            [Origin::Any] => CorsLayer::new().allow_origin(tower_http::cors::Any),
-            _ => {
-                let header_values: Vec<http::HeaderValue> = origins
-                    .into_iter()
-                    .filter_map(|o| match o {
-                        Origin::Exact(hv) => Some(hv),
-                        Origin::Any => None,
-                    })
-                    .collect();
+        // If any origin is wildcard, allow all origins.
+        if origins.iter().any(|o| matches!(o, Origin::Any)) {
+            return Ok(CorsLayer::new().allow_origin(tower_http::cors::Any));
+        }
 
-                if header_values.is_empty() {
-                    return Err(CorsError::NoValidOrigins);
-                }
+        let header_values: Vec<http::HeaderValue> = origins
+            .into_iter()
+            .filter_map(|o| match o {
+                Origin::Exact(hv) => Some(hv),
+                Origin::Any => None,
+            })
+            .collect();
 
-                CorsLayer::new().allow_origin(AllowOrigin::list(header_values))
-            }
-        };
-
-        Ok(cors)
+        Ok(CorsLayer::new().allow_origin(AllowOrigin::list(header_values)))
     }
 }
 
@@ -392,6 +377,52 @@ mod tests {
                 .get("access-control-allow-origin")
                 .unwrap(),
             "http://localhost:3000"
+        );
+    }
+
+    #[tokio::test]
+    async fn wildcard_overrides_exact() {
+        use axum::{Router, routing::get};
+        use http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        // Mix specific origin with wildcard
+        let config = HttpConfig {
+            allow_origin: Some("http://localhost:3000,*".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let cors_layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        )
+        .unwrap();
+
+        async fn handler() -> &'static str {
+            "test"
+        }
+
+        let app = Router::new().route("/", get(handler)).layer(cors_layer);
+
+        let request = Request::builder()
+            .method("OPTIONS")
+            .uri("/")
+            .header("Origin", "https://completely-different-origin.com")
+            .header("Access-Control-Request-Method", "GET")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "*"
         );
     }
 }
