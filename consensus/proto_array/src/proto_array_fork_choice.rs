@@ -7,6 +7,7 @@ use crate::{
     },
     ssz_container::SszContainer,
 };
+use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -15,8 +16,8 @@ use std::{
     fmt,
 };
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
-    FixedBytesExtended, Hash256, Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -1095,7 +1096,8 @@ fn compute_deltas(
 #[cfg(test)]
 mod test_compute_deltas {
     use super::*;
-    use types::{FixedBytesExtended, MainnetEthSpec};
+    use fixed_bytes::FixedBytesExtended;
+    use types::MainnetEthSpec;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {

@@ -11,9 +11,11 @@ portable = ["types/portable"]
 
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"] }
+bls = { workspace = true }
 eip_3076 = { workspace = true, features = ["json"] }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
+fixed_bytes = { workspace = true }
 r2d2 = { workspace = true }
 r2d2_sqlite = "0.21.0"
 rusqlite = { workspace = true }
