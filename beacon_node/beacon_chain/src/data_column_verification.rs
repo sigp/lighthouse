@@ -4,7 +4,7 @@ use crate::block_verification::{
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
-use derivative::Derivative;
+use educe::Educe;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
@@ -296,8 +296,8 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
 }
 
 /// Wrapper over a `DataColumnSidecar` for which we have completed kzg verification.
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
@@ -353,8 +353,8 @@ pub type CustodyDataColumnList<E> =
     VariableList<CustodyDataColumn<E>, <E as EthSpec>::NumberOfColumns>;
 
 /// Data column that we must custody
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[ssz(struct_behaviour = "transparent")]
 pub struct CustodyDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
@@ -383,8 +383,8 @@ impl<E: EthSpec> CustodyDataColumn<E> {
 }
 
 /// Data column that we must custody and has completed kzg verification
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
@@ -626,20 +626,21 @@ fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<ProtoBlock, GossipDataColumnError> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-    let block_parent_root = data_column.block_parent_root();
-
-    // Do not process a column that does not descend from the finalized root.
-    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
-        return Err(GossipDataColumnError::NotFinalizedDescendant { block_parent_root });
-    }
 
     // We have already verified that the column is past finalization, so we can
     // just check fork choice for the block's parent.
+    let block_parent_root = data_column.block_parent_root();
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
         return Err(GossipDataColumnError::ParentUnknown {
             parent_root: block_parent_root,
         });
     };
+
+    // Do not process a column that does not descend from the finalized root.
+    // We just loaded the parent_block, so we can be sure that it exists in fork choice.
+    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
+        return Err(GossipDataColumnError::NotFinalizedDescendant { block_parent_root });
+    }
 
     Ok(parent_block)
 }
@@ -867,16 +868,16 @@ mod test {
         let state = harness.get_current_state();
         let ((block, _blobs_opt), _state) = harness
             .make_block_with_modifier(state, slot, |block| {
-                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].into();
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].try_into().unwrap();
             })
             .await;
 
         let index = 0;
         let column_sidecar = DataColumnSidecar::<E> {
             index,
-            column: vec![].into(),
-            kzg_commitments: vec![].into(),
-            kzg_proofs: vec![].into(),
+            column: vec![].try_into().unwrap(),
+            kzg_commitments: vec![].try_into().unwrap(),
+            kzg_proofs: vec![].try_into().unwrap(),
             signed_block_header: block.signed_block_header(),
             kzg_commitments_inclusion_proof: block
                 .message()
@@ -913,7 +914,9 @@ mod test {
         let ((block, _blobs_opt), _state) = harness
             .make_block_with_modifier(state, slot, |block| {
                 *block.body_mut().blob_kzg_commitments_mut().unwrap() =
-                    vec![preloaded_commitments_single[0]; blob_count].into();
+                    vec![preloaded_commitments_single[0]; blob_count]
+                        .try_into()
+                        .unwrap();
             })
             .await;
 

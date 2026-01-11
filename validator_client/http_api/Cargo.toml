@@ -16,10 +16,11 @@ deposit_contract = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }
 doppelganger_service = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 eth2_keystore = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
+fixed_bytes = { workspace = true }
 graffiti_file = { workspace = true }
 health_metrics = { workspace = true }
 initialized_validators = { workspace = true }
@@ -41,6 +42,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
 validator_dir = { workspace = true }
@@ -54,3 +56,4 @@ zeroize = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
+ssz_types = { workspace = true }

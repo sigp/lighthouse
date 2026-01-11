@@ -3,6 +3,7 @@
 //! - Via a local `Keypair`.
 //! - Via a remote signer (Web3Signer)
 
+use bls::{Keypair, PublicKey, Signature};
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
@@ -10,6 +11,7 @@ use reqwest::{Client, header::ACCEPT};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tracing::instrument;
 use types::*;
 use url::Url;
 use web3signer::{ForkInfo, MessageType, SigningRequest, SigningResponse};
@@ -131,6 +133,7 @@ impl SigningMethod {
     }
 
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
+    #[instrument(skip_all, level = "debug")]
     pub async fn get_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
         &self,
         signable_message: SignableMessage<'_, E, Payload>,

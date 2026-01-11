@@ -1,24 +1,25 @@
 #![cfg(test)]
 
-mod common;
-
+use crate::common;
 use crate::common::spec_with_all_forks_enabled;
-use common::{Protocol, build_tracing_subscriber};
+use crate::common::{Protocol, build_tracing_subscriber};
+use bls::Signature;
+use fixed_bytes::FixedBytesExtended;
 use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{NetworkEvent, ReportSource, Response};
 use ssz::Encode;
-use ssz_types::VariableList;
+use ssz_types::{RuntimeVariableList, VariableList};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use tracing::{Instrument, debug, error, info_span, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
-    EthSpec, FixedBytesExtended, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec,
-    RuntimeVariableList, Signature, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    EthSpec, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -26,8 +27,8 @@ type E = MinimalEthSpec;
 /// Bellatrix block with length < max_rpc_size.
 fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
     let mut block = BeaconBlockBellatrix::<E>::empty(spec);
-    let tx = VariableList::from(vec![0; 1024]);
-    let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
+    let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+    let txs = VariableList::try_from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>()).unwrap();
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -41,8 +42,8 @@ fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
 /// Hence, we generate a bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
 fn bellatrix_block_large(spec: &ChainSpec) -> BeaconBlock<E> {
     let mut block = BeaconBlockBellatrix::<E>::empty(spec);
-    let tx = VariableList::from(vec![0; 1024]);
-    let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
+    let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+    let txs = VariableList::try_from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>()).unwrap();
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -1018,14 +1019,17 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                 },
                 signature: Signature::empty(),
             },
-            column: vec![vec![0; E::bytes_per_blob()].into()].into(),
-            kzg_commitments: vec![KzgCommitment::empty_for_testing()].into(),
-            kzg_proofs: vec![KzgProof::empty()].into(),
+            column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                .try_into()
+                .unwrap(),
+            kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
+            kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
             kzg_commitments_inclusion_proof: vec![
                 Hash256::zero();
                 E::kzg_commitments_inclusion_proof_depth()
             ]
-            .into(),
+            .try_into()
+            .unwrap(),
         });
 
         let rpc_response = Response::DataColumnsByRoot(Some(data_column.clone()));
@@ -1037,7 +1041,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        tracing::info!("Sending RPC");
+                        info!("Sending RPC");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
@@ -1051,7 +1055,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                         Response::DataColumnsByRoot(Some(sidecar)) => {
                             assert_eq!(sidecar, data_column.clone());
                             messages_received += 1;
-                            tracing::info!("Chunk received");
+                            info!("Chunk received");
                         }
                         Response::DataColumnsByRoot(None) => {
                             // should be exactly messages_to_send
@@ -1078,7 +1082,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                     } => {
                         if request_type == rpc_request {
                             // send the response
-                            tracing::info!("Receiver got request");
+                            info!("Receiver got request");
 
                             for _ in 0..messages_to_send {
                                 receiver.send_response(
@@ -1086,7 +1090,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                                     inbound_request_id,
                                     rpc_response.clone(),
                                 );
-                                tracing::info!("Sending message");
+                                info!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -1094,11 +1098,11 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                                 inbound_request_id,
                                 Response::DataColumnsByRoot(None),
                             );
-                            tracing::info!("Send stream term");
+                            info!("Send stream term");
                         }
                     }
                     e => {
-                        tracing::info!(?e, "Got event");
+                        info!(?e, "Got event");
                     } // Ignore other events
                 }
             }
@@ -1160,14 +1164,17 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                 },
                 signature: Signature::empty(),
             },
-            column: vec![vec![0; E::bytes_per_blob()].into()].into(),
-            kzg_commitments: vec![KzgCommitment::empty_for_testing()].into(),
-            kzg_proofs: vec![KzgProof::empty()].into(),
+            column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                .try_into()
+                .unwrap(),
+            kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
+            kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
             kzg_commitments_inclusion_proof: vec![
                 Hash256::zero();
                 E::kzg_commitments_inclusion_proof_depth()
             ]
-            .into(),
+            .try_into()
+            .unwrap(),
         });
 
         let rpc_response = Response::DataColumnsByRange(Some(data_column.clone()));
@@ -1179,7 +1186,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        tracing::info!("Sending RPC");
+                        info!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -1192,7 +1199,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                         Response::DataColumnsByRange(Some(sidecar)) => {
                             assert_eq!(sidecar, data_column.clone());
                             messages_received += 1;
-                            tracing::info!("Chunk received");
+                            info!("Chunk received");
                         }
                         Response::DataColumnsByRange(None) => {
                             // should be exactly messages_to_send
@@ -1219,7 +1226,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                     } => {
                         if request_type == rpc_request {
                             // send the response
-                            tracing::info!("Receiver got request");
+                            info!("Receiver got request");
 
                             for _ in 0..messages_to_send {
                                 receiver.send_response(
@@ -1227,7 +1234,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                                     inbound_request_id,
                                     rpc_response.clone(),
                                 );
-                                tracing::info!("Sending message");
+                                info!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -1235,7 +1242,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                                 inbound_request_id,
                                 Response::DataColumnsByRange(None),
                             );
-                            tracing::info!("Send stream term");
+                            info!("Send stream term");
                         }
                     }
                     _ => {} // Ignore other events
