@@ -141,6 +141,12 @@ Options:
           Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
           for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
           for other subcommands.
+      --telemetry-trace-sample-rate <PERCENT>
+          OpenTelemetry trace sampling rate as a percentage (0-100). A value of
+          1 means 1% of traces are sampled. Lower values reduce resource
+          consumption. For more info see
+          https://opentelemetry.io/docs/concepts/sampling/#why-sampling
+          [default: 1]
       --validator-registration-batch-size <INTEGER>
           Defines the number of validators per validator/register_validator
           request sent to the BN. This value can be reduced to avoid timeouts

@@ -2839,3 +2839,42 @@ fn invalid_block_roots_default_mainnet() {
             assert!(config.chain.invalid_block_roots.is_empty());
         })
 }
+
+#[test]
+fn telemetry_sample_rate_default() {
+    let float_tolerance: f64 = 1e-3;
+    let expected_ratio = 0.01;
+
+    CommandLineTest::new()
+        .flag("telemetry-collector-url", Some("http://localhost:4317"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let actual_ratio = config.telemetry_sample_ratio;
+            assert!(
+                (actual_ratio - expected_ratio).abs() < float_tolerance,
+                "Expected {}, got {}",
+                expected_ratio,
+                actual_ratio
+            );
+        });
+}
+
+#[test]
+fn telemetry_sample_rate_custom() {
+    let float_tolerance: f64 = 1e-3;
+    let expected_ratio = 0.05;
+
+    CommandLineTest::new()
+        .flag("telemetry-trace-sample-rate", Some("5"))
+        .flag("telemetry-collector-url", Some("http://localhost:4317"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let actual_ratio = config.telemetry_sample_ratio;
+            assert!(
+                (actual_ratio - expected_ratio).abs() < float_tolerance,
+                "Expected {}, got {}",
+                expected_ratio,
+                actual_ratio
+            );
+        });
+}

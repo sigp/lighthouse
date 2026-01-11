@@ -295,6 +295,23 @@ fn main() {
                 .display_order(0)
         )
         .arg(
+            Arg::new("telemetry-trace-sample-rate")
+                .long("telemetry-trace-sample-rate")
+                .value_name("PERCENT")
+                .help(
+                    "OpenTelemetry trace sampling rate as a percentage (0-100). \
+                    A value of 1 means 1% of traces are sampled. \
+                    Lower values reduce resource consumption. \
+                    For more info see https://opentelemetry.io/docs/concepts/sampling/#why-sampling"
+                )
+                .requires("telemetry-collector-url")
+                .value_parser(clap::value_parser!(u8).range(0..=100))
+                .default_value("1")
+                .action(ArgAction::Set)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("datadir")
                 .long("datadir")
                 .short('d')
@@ -657,6 +674,7 @@ fn run<E: EthSpec>(
         .eth2_network_config(eth2_network_config)?
         .build()?;
 
+    let mut telemetry_sample_ratio = 0.01; // default to 1%
     if let Some(telemetry_collector_url) = matches.get_one::<String>("telemetry-collector-url") {
         let telemetry_layer = environment.runtime().block_on(async {
             let exporter = opentelemetry_otlp::SpanExporter::builder()
@@ -675,8 +693,19 @@ fn run<E: EthSpec>(
                     _ => "lighthouse".to_string(),
                 });
 
+            // Calculate sample percent as a ratio (percentage / 100)
+            telemetry_sample_ratio = (matches
+                .get_one::<u8>("telemetry-trace-sample-rate")
+                .copied()
+                .unwrap_or(1) as f64)
+                / 100.0;
+            let sampler = opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(
+                opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(telemetry_sample_ratio),
+            ));
+
             let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
                 .with_batch_exporter(exporter)
+                .with_sampler(sampler)
                 .with_resource(
                     opentelemetry_sdk::Resource::builder()
                         .with_service_name(service_name)
@@ -824,6 +853,7 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
             config.logger_config = logger_config;
+            config.telemetry_sample_ratio = telemetry_sample_ratio;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
 

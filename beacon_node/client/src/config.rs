@@ -79,6 +79,7 @@ pub struct Config {
     pub genesis_state_url: Option<String>,
     pub genesis_state_url_timeout: Duration,
     pub allow_insecure_genesis_sync: bool,
+    pub telemetry_sample_ratio: f64, // for testing only
 }
 
 impl Default for Config {
@@ -107,6 +108,7 @@ impl Default for Config {
             // This default value should always be overwritten by the CLI default value.
             genesis_state_url_timeout: Duration::from_secs(60),
             allow_insecure_genesis_sync: false,
+            telemetry_sample_ratio: 0.01,
         }
     }
 }

@@ -80,6 +80,12 @@ Options:
           Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
           for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
           for other subcommands.
+      --telemetry-trace-sample-rate <PERCENT>
+          OpenTelemetry trace sampling rate as a percentage (0-100). A value of
+          1 means 1% of traces are sampled. Lower values reduce resource
+          consumption. For more info see
+          https://opentelemetry.io/docs/concepts/sampling/#why-sampling
+          [default: 1]
       --validators-file <PATH_TO_JSON_FILE>
           The path to a JSON file containing a list of validators to be imported
           to the validator client. This file is usually named "validators.json".

@@ -399,6 +399,12 @@ Options:
           Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
           for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
           for other subcommands.
+      --telemetry-trace-sample-rate <PERCENT>
+          OpenTelemetry trace sampling rate as a percentage (0-100). A value of
+          1 means 1% of traces are sampled. Lower values reduce resource
+          consumption. For more info see
+          https://opentelemetry.io/docs/concepts/sampling/#why-sampling
+          [default: 1]
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
