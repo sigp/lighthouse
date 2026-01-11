@@ -573,13 +573,14 @@ mod tests {
     /// Test that `peer_disconnected` returns the IDs of pending requests.
     #[tokio::test]
     async fn test_peer_disconnected_returns_failed_requests() {
+        const REPLENISH_DURATION: u64 = 50;
         let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
             Slot::new(0),
             Hash256::ZERO,
             &MainnetEthSpec::default_spec(),
         ));
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
-            ping_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 2),
+            ping_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), REPLENISH_DURATION),
             ..Default::default()
         });
         let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
@@ -607,7 +608,7 @@ mod tests {
         }
 
         // Wait until the tokens have been regenerated, then run `next_peer_request_ready`.
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        tokio::time::sleep(Duration::from_millis(REPLENISH_DURATION + 10)).await;
         limiter.next_peer_request_ready(peer_id, Protocol::Ping);
 
         // Check that one of the pending requests has moved to ready_requests.
