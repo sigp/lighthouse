@@ -246,7 +246,11 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                     true
                 }
             } else {
-                unreachable!("Coding error: unexpected RPCSend variant {rpc_send:?}.")
+                debug_assert!(
+                    false,
+                    "Coding error: unexpected RPCSend variant {rpc_send:?}."
+                );
+                false
             }
         });
 
