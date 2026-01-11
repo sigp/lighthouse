@@ -5582,6 +5582,7 @@ checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 name = "logging"
 version = "0.2.0"
 dependencies = [
+ "cargo_metadata",
  "chrono",
  "logroller",
  "metrics",
@@ -5593,7 +5594,6 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-subscriber",
- "workspace_members",
 ]
 
 [[package]]
@@ -10462,14 +10462,6 @@ name = "wit-bindgen"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
-
-[[package]]
-name = "workspace_members"
-version = "0.1.0"
-dependencies = [
- "cargo_metadata",
- "quote",
-]
 
 [[package]]
 name = "writeable"

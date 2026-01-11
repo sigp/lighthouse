@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 use tracing_subscriber::filter::FilterFn;
-use workspace_members::workspace_crates;
 
-const WORKSPACE_CRATES: &[&str] = workspace_crates!();
+const WORKSPACE_CRATES: &[&str] = include!(concat!(env!("OUT_DIR"), "/workspace_crates.rs"));
 
 /// Constructs a filter which only permits logging from crates which are members of the workspace.
 pub fn build_workspace_filter()
