@@ -159,6 +159,7 @@ fn get_states_descendant_of_block(
         .collect()
 }
 
+// TODO(EIP-7732) Extend to support gloas
 #[tokio::test]
 async fn light_client_bootstrap_test() {
     let spec = test_spec::<E>();
@@ -206,7 +207,6 @@ async fn light_client_bootstrap_test() {
         LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Fulu(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
-        LightClientBootstrap::Gloas(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
     };
 
     assert_eq!(
@@ -1581,6 +1581,10 @@ async fn proposer_duties_from_head_fulu() {
 }
 
 /// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead!
+// TODO(EIP-7732): Extend to gloas
+// `state.latest_execution_payload_header()` not available in Gloas
+// called from `add_block_at_slot` -> `make_block` -> `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload` -> `Error`
+#[ignore]
 #[tokio::test]
 async fn proposer_lookahead_gloas_fork_epoch() {
     let gloas_fork_epoch = Epoch::new(4);

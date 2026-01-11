@@ -36,6 +36,8 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    BeaconBuilder,
+    PTCAttester,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -89,6 +91,7 @@ pub struct ChainSpec {
     pub bls_withdrawal_prefix_byte: u8,
     pub eth1_address_withdrawal_prefix_byte: u8,
     pub compounding_withdrawal_prefix_byte: u8,
+    pub builder_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
@@ -127,6 +130,8 @@ pub struct ChainSpec {
     pub(crate) domain_voluntary_exit: u32,
     pub(crate) domain_selection_proof: u32,
     pub(crate) domain_aggregate_and_proof: u32,
+    pub(crate) domain_beacon_builder: u32,
+    pub(crate) domain_ptc_attester: u32,
 
     /*
      * Fork choice
@@ -228,6 +233,8 @@ pub struct ChainSpec {
     pub gloas_fork_version: [u8; 4],
     /// The Gloas fork epoch is optional, with `None` representing "Gloas never happens".
     pub gloas_fork_epoch: Option<Epoch>,
+    pub builder_payment_threshold_numerator: u64,
+    pub builder_payment_threshold_denominator: u64,
 
     /*
      * Networking
@@ -535,6 +542,8 @@ impl ChainSpec {
             Domain::VoluntaryExit => self.domain_voluntary_exit,
             Domain::SelectionProof => self.domain_selection_proof,
             Domain::AggregateAndProof => self.domain_aggregate_and_proof,
+            Domain::BeaconBuilder => self.domain_beacon_builder,
+            Domain::PTCAttester => self.domain_ptc_attester,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -972,6 +981,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
+            builder_withdrawal_prefix_byte: 0x03,
 
             /*
              * Time parameters
@@ -1011,6 +1021,8 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_beacon_builder: 0x1B,
+            domain_ptc_attester: 0x0C,
 
             /*
              * Fork choice
@@ -1131,6 +1143,8 @@ impl ChainSpec {
              */
             gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
             gloas_fork_epoch: None,
+            builder_payment_threshold_numerator: 6,
+            builder_payment_threshold_denominator: 10,
 
             /*
              * Network specific
@@ -1333,6 +1347,7 @@ impl ChainSpec {
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
             compounding_withdrawal_prefix_byte: 0x02,
+            builder_withdrawal_prefix_byte: 0x03,
 
             /*
              * Time parameters
@@ -1372,6 +1387,8 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_beacon_builder: 0x1B,
+            domain_ptc_attester: 0x0C,
 
             /*
              * Fork choice
@@ -1491,6 +1508,8 @@ impl ChainSpec {
              */
             gloas_fork_version: [0x07, 0x00, 0x00, 0x64],
             gloas_fork_epoch: None,
+            builder_payment_threshold_numerator: 6,
+            builder_payment_threshold_denominator: 10,
 
             /*
              * Network specific
@@ -2517,6 +2536,8 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+        test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
+        test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];

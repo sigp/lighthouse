@@ -1,5 +1,6 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::PublicKeyBytes;
+use eth2::types::GraffitiPolicy;
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
@@ -50,6 +51,7 @@ pub struct BlockServiceBuilder<S, T> {
     chain_spec: Option<Arc<ChainSpec>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
+    graffiti_policy: Option<GraffitiPolicy>,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
@@ -63,6 +65,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
             chain_spec: None,
             graffiti: None,
             graffiti_file: None,
+            graffiti_policy: None,
         }
     }
 
@@ -106,6 +109,11 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
         self
     }
 
+    pub fn graffiti_policy(mut self, graffiti_policy: Option<GraffitiPolicy>) -> Self {
+        self.graffiti_policy = graffiti_policy;
+        self
+    }
+
     pub fn build(self) -> Result<BlockService<S, T>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -127,6 +135,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
                 proposer_nodes: self.proposer_nodes,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
+                graffiti_policy: self.graffiti_policy,
             }),
         })
     }
@@ -192,6 +201,7 @@ pub struct Inner<S, T> {
     chain_spec: Arc<ChainSpec>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
+    graffiti_policy: Option<GraffitiPolicy>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -466,6 +476,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         randao_reveal_ref,
                         graffiti.as_ref(),
                         builder_boost_factor,
+                        self_ref.graffiti_policy,
                     )
                     .await
             })
@@ -492,6 +503,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                 randao_reveal_ref,
                                 graffiti.as_ref(),
                                 builder_boost_factor,
+                                self_ref.graffiti_policy,
                             )
                             .await
                             .map_err(|e| {
