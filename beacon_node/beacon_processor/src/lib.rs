@@ -921,13 +921,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // and BlocksByRoot)
                         } else if let Some(item) = work_queues.status_queue.pop() {
                             Some(item)
-                        } else if let Some(item) = work_queues.bbrange_queue.pop() {
+                        } else if let Some(item) = work_queues.block_brange_queue.pop() {
                             Some(item)
-                        } else if let Some(item) = work_queues.bbroots_queue.pop() {
+                        } else if let Some(item) = work_queues.block_broots_queue.pop() {
                             Some(item)
-                        } else if let Some(item) = work_queues.blbrange_queue.pop() {
+                        } else if let Some(item) = work_queues.blob_brange_queue.pop() {
                             Some(item)
-                        } else if let Some(item) = work_queues.blbroots_queue.pop() {
+                        } else if let Some(item) = work_queues.blob_broots_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.dcbroots_queue.pop() {
                             Some(item)
@@ -1114,13 +1114,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::Status { .. } => work_queues.status_queue.push(work, work_id),
                             Work::BlocksByRangeRequest { .. } => {
-                                work_queues.bbrange_queue.push(work, work_id)
+                                work_queues.block_brange_queue.push(work, work_id)
                             }
                             Work::BlocksByRootsRequest { .. } => {
-                                work_queues.bbroots_queue.push(work, work_id)
+                                work_queues.block_broots_queue.push(work, work_id)
                             }
                             Work::BlobsByRangeRequest { .. } => {
-                                work_queues.blbrange_queue.push(work, work_id)
+                                work_queues.blob_brange_queue.push(work, work_id)
                             }
                             Work::LightClientBootstrapRequest { .. } => {
                                 work_queues.lc_bootstrap_queue.push(work, work_id)
@@ -1144,7 +1144,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 .gossip_bls_to_execution_change_queue
                                 .push(work, work_id),
                             Work::BlobsByRootsRequest { .. } => {
-                                work_queues.blbroots_queue.push(work, work_id)
+                                work_queues.blob_broots_queue.push(work, work_id)
                             }
                             Work::DataColumnsByRootsRequest { .. } => {
                                 work_queues.dcbroots_queue.push(work, work_id)
@@ -1220,10 +1220,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::ChainSegment => work_queues.chain_segment_queue.len(),
                         WorkType::ChainSegmentBackfill => work_queues.backfill_chain_segment.len(),
                         WorkType::Status => work_queues.status_queue.len(),
-                        WorkType::BlocksByRangeRequest => work_queues.blbrange_queue.len(),
-                        WorkType::BlocksByRootsRequest => work_queues.blbroots_queue.len(),
-                        WorkType::BlobsByRangeRequest => work_queues.bbrange_queue.len(),
-                        WorkType::BlobsByRootsRequest => work_queues.bbroots_queue.len(),
+                        WorkType::BlocksByRangeRequest => work_queues.block_brange_queue.len(),
+                        WorkType::BlocksByRootsRequest => work_queues.block_broots_queue.len(),
+                        WorkType::BlobsByRangeRequest => work_queues.blob_brange_queue.len(),
+                        WorkType::BlobsByRootsRequest => work_queues.blob_broots_queue.len(),
                         WorkType::DataColumnsByRootsRequest => work_queues.dcbroots_queue.len(),
                         WorkType::DataColumnsByRangeRequest => work_queues.dcbrange_queue.len(),
                         WorkType::GossipBlsToExecutionChange => {
