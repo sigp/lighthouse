@@ -803,8 +803,26 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
                 }
 
-                if block.num_expected_blobs() != blobs.len() {
+                let Ok(block_kzg_commitments) = block.message().body().blob_kzg_commitments()
+                else {
+                    return Err(AvailabilityCheckError::Unexpected(
+                        "Expected blobs but could not fetch KZG commitments from the block"
+                            .to_owned(),
+                    ));
+                };
+
+                if blobs.len() != block_kzg_commitments.len() {
                     return Err(AvailabilityCheckError::MissingBlobs);
+                }
+
+                for (blob, &block_kzg_commitment) in blobs.iter().zip(block_kzg_commitments.iter())
+                {
+                    if blob.kzg_commitment != block_kzg_commitment {
+                        return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                            blob_commitment: blob.kzg_commitment,
+                            block_commitment: block_kzg_commitment,
+                        });
+                    }
                 }
             }
             AvailableBlockData::DataColumns(data_columns) => {
