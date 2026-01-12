@@ -83,11 +83,6 @@ pub struct TaskExecutor {
     /// The task must provide a reason for shutting down.
     signal_tx: Sender<ShutdownReason>,
 
-    /// The name of the service for inclusion in the logger output.
-    // FIXME(sproul): delete?
-    #[allow(dead_code)]
-    service_name: String,
-
     rayon_pool_provider: Arc<RayonPoolProvider>,
 }
 
@@ -103,25 +98,12 @@ impl TaskExecutor {
         handle: T,
         exit: async_channel::Receiver<()>,
         signal_tx: Sender<ShutdownReason>,
-        service_name: String,
     ) -> Self {
         Self {
             handle_provider: handle.into(),
             exit,
             signal_tx,
-            service_name,
             rayon_pool_provider: Arc::new(RayonPoolProvider::default()),
-        }
-    }
-
-    /// Clones the task executor adding a service name.
-    pub fn clone_with_name(&self, service_name: String) -> Self {
-        TaskExecutor {
-            handle_provider: self.handle_provider.clone(),
-            exit: self.exit.clone(),
-            signal_tx: self.signal_tx.clone(),
-            service_name,
-            rayon_pool_provider: self.rayon_pool_provider.clone(),
         }
     }
 
