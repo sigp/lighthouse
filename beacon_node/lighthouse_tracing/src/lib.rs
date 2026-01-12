@@ -1,7 +1,11 @@
 //! This module contains root span identifiers for key code paths in the beacon node.
 //!
-//! TODO: These span identifiers will be used to implement selective tracing export (to be implemented),
-//! where only the listed root spans and their descendants will be exported to the tracing backend.
+//! The `AllowedRootSpanSampler` filters exported spans to reduce noise from uninstrumented code
+//! paths. Only spans that are descendants of allowed root spans will be sampled and exported.
+
+use opentelemetry::Context;
+use opentelemetry::trace::{Link, SamplingDecision, SamplingResult, SpanKind, TraceState};
+use opentelemetry_sdk::trace::ShouldSample;
 
 /// Root span names for block production and publishing
 pub const SPAN_PRODUCE_BLOCK_V2: &str = "produce_block_v2";
@@ -49,9 +53,9 @@ pub const SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str =
     "handle_light_client_optimistic_update";
 pub const SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE: &str = "handle_light_client_finality_update";
 
-/// List of all root span names that are allowed to be exported to the tracing backend.
-/// Only these spans and their descendants will be processed to reduce noise from
-/// uninstrumented code paths. New root spans must be added to this list to be traced.
+// Only allowed root spans and its descendants are exported to the tracing backend, so that we don't
+// get a lot of noise from code paths that are not instrumented.
+// When a new root span is added, it should be added to this list.
 pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
     SPAN_PRODUCE_BLOCK_V2,
     SPAN_PRODUCE_BLOCK_V3,
@@ -81,3 +85,48 @@ pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
     SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST,
     SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS,
 ];
+
+/// A sampler that only samples spans whose names are in the allowed list.
+///
+/// This sampler is designed to be used with `Sampler::ParentBased`, which will:
+/// - Use this sampler's decision for root spans (no parent)
+/// - Automatically inherit the parent's sampling decision for child spans
+///
+/// This ensures that only traces starting from known instrumented code paths are exported,
+/// reducing noise from uninstrumented library code.
+#[derive(Debug, Clone)]
+pub struct AllowedRootSpanSampler {
+    allowed_names: &'static [&'static str],
+}
+
+impl AllowedRootSpanSampler {
+    pub fn new(allowed_names: &'static [&'static str]) -> Self {
+        Self { allowed_names }
+    }
+}
+
+impl ShouldSample for AllowedRootSpanSampler {
+    fn should_sample(
+        &self,
+        _parent_context: Option<&Context>,
+        _trace_id: opentelemetry::trace::TraceId,
+        name: &str,
+        _span_kind: &SpanKind,
+        _attributes: &[opentelemetry::KeyValue],
+        _links: &[Link],
+    ) -> SamplingResult {
+        if self.allowed_names.contains(&name) {
+            SamplingResult {
+                decision: SamplingDecision::RecordAndSample,
+                attributes: Vec::new(),
+                trace_state: TraceState::default(),
+            }
+        } else {
+            SamplingResult {
+                decision: SamplingDecision::Drop,
+                attributes: Vec::new(),
+                trace_state: TraceState::default(),
+            }
+        }
+    }
+}

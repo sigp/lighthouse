@@ -5469,6 +5469,10 @@ dependencies = [
 [[package]]
 name = "lighthouse_tracing"
 version = "0.1.0"
+dependencies = [
+ "opentelemetry",
+ "opentelemetry_sdk",
+]
 
 [[package]]
 name = "lighthouse_validator_store"

@@ -16,6 +16,7 @@ use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
+use lighthouse_tracing::{AllowedRootSpanSampler, LH_BN_ROOT_SPAN_NAMES};
 use lighthouse_version::VERSION;
 use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
@@ -675,7 +676,15 @@ fn run<E: EthSpec>(
                     _ => "lighthouse".to_string(),
                 });
 
+            // Use ParentBased sampler with AllowedRootSpanSampler to only export traces
+            // that start from known instrumented code paths. Child spans automatically
+            // inherit their parent's sampling decision.
+            let sampler = opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(
+                AllowedRootSpanSampler::new(LH_BN_ROOT_SPAN_NAMES),
+            ));
+
             let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_sampler(sampler)
                 .with_batch_exporter(exporter)
                 .with_resource(
                     opentelemetry_sdk::Resource::builder()
