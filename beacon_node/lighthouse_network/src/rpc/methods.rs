@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{VariableList, typenum::U256};
+use ssz_types::{RuntimeVariableList, VariableList, typenum::U256};
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -17,7 +17,7 @@ use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
     ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot,
     blob_sidecar::BlobSidecar,
 };
 
@@ -29,15 +29,21 @@ pub const MAX_ERROR_LEN: u64 = 256;
 #[derive(Debug, Clone)]
 pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
 
-impl From<String> for ErrorType {
-    fn from(s: String) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<&str> for ErrorType {
+    // This will truncate the error if `string.as_bytes()` exceeds `MaxErrorLen`.
+    fn from(s: &str) -> Self {
+        let mut bytes = s.as_bytes().to_vec();
+        bytes.truncate(MAX_ERROR_LEN as usize);
+        Self(
+            VariableList::try_from(bytes)
+                .expect("length should not exceed MaxErrorLen after truncation"),
+        )
     }
 }
 
-impl From<&str> for ErrorType {
-    fn from(s: &str) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<String> for ErrorType {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
     }
 }
 

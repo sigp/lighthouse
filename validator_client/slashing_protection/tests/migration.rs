@@ -1,10 +1,11 @@
 //! Tests for upgrading a previous version of the database to the latest schema.
+use fixed_bytes::FixedBytesExtended;
 use slashing_protection::{NotSafe, SlashingDatabase};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
-use types::{FixedBytesExtended, Hash256};
+use types::Hash256;
 
 fn test_data_dir() -> PathBuf {
     Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("migration-tests")

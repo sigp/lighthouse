@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 arbitrary = { workspace = true }
 c-kzg = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }

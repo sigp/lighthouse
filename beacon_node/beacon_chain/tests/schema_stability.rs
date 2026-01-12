@@ -4,6 +4,7 @@ use beacon_chain::{
     persisted_custody::PersistedCustody,
     test_utils::{BeaconChainHarness, DiskHarnessType, test_spec},
 };
+use bls::Keypair;
 use logging::create_test_tracing_subscriber;
 use operation_pool::PersistedOperationPool;
 use ssz::Encode;
@@ -16,7 +17,7 @@ use store::{
 };
 use strum::IntoEnumIterator;
 use tempfile::{TempDir, tempdir};
-use types::{ChainSpec, Hash256, Keypair, MainnetEthSpec, Slot};
+use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;

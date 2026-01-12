@@ -44,7 +44,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         amsterdam_time,
     };
     let kzg = None;
-    let server: MockServer<E> = MockServer::new_with_config(&handle, config, spec, kzg);
+    let server: MockServer<E> = MockServer::new_with_config(&handle, config, kzg);
 
     if all_payloads_valid {
         eprintln!(

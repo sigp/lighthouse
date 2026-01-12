@@ -3,6 +3,7 @@ name = "lighthouse_network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
+autotests = false
 
 [features]
 libp2p-websocket = []
@@ -10,15 +11,17 @@ libp2p-websocket = []
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
+bls = { workspace = true }
 bytes = { workspace = true }
 delay_map = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }
 discv5 = { workspace = true }
 either = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 gossipsub = { workspace = true }
@@ -48,6 +51,7 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
 
@@ -64,7 +68,6 @@ features = [
     "plaintext",
     "secp256k1",
     "macros",
-    "ecdsa",
     "metrics",
     "quic",
     "upnp",
@@ -73,6 +76,9 @@ features = [
 [dev-dependencies]
 async-channel = { workspace = true }
 logging = { workspace = true }
-quickcheck = { workspace = true }
-quickcheck_macros = { workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "lighthouse_network_tests"
+path = "tests/main.rs"

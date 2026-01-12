@@ -1231,7 +1231,8 @@ mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV3};
     use libp2p::identity::secp256k1;
-    use types::{BitVector, MinimalEthSpec, SubnetId};
+    use ssz_types::BitVector;
+    use types::{MinimalEthSpec, SubnetId};
 
     type E = MinimalEthSpec;
 
@@ -1243,11 +1244,12 @@ mod tests {
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let next_fork_digest = [0; 4];
+        let custody_group_count = spec.custody_requirement;
         let enr: Enr = build_enr::<E>(
             &enr_key,
             &config,
             &EnrForkId::default(),
-            None,
+            custody_group_count,
             next_fork_digest,
             &spec,
         )
@@ -1258,7 +1260,7 @@ mod tests {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
-                custody_group_count: spec.custody_requirement,
+                custody_group_count,
             }),
             vec![],
             false,

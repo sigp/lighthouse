@@ -5,5 +5,6 @@ pub mod cors;
 pub mod json;
 pub mod query;
 pub mod reject;
+pub mod status_code;
 pub mod task;
 pub mod uor;

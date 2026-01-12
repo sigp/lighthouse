@@ -124,7 +124,7 @@ async fn get_block_from_source<T: EthSpec>(
             .unwrap()
             .unwrap();
         let blobs_from_source = source
-            .get_blobs::<T>(block_id, None, spec)
+            .get_blob_sidecars::<T>(block_id, None, spec)
             .await
             .unwrap()
             .unwrap()
@@ -132,15 +132,14 @@ async fn get_block_from_source<T: EthSpec>(
 
         let (kzg_proofs, blobs): (Vec<_>, Vec<_>) = blobs_from_source
             .iter()
-            .cloned()
             .map(|sidecar| (sidecar.kzg_proof, sidecar.blob.clone()))
             .unzip();
 
         let block_root = block_from_source.canonical_root();
         let block_contents = SignedBlockContents {
             signed_block: Arc::new(block_from_source),
-            kzg_proofs: kzg_proofs.into(),
-            blobs: blobs.into(),
+            kzg_proofs: kzg_proofs.try_into().unwrap(),
+            blobs: blobs.try_into().unwrap(),
         };
         let publish_block_req = PublishBlockRequest::BlockContents(block_contents);
 

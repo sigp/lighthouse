@@ -9,9 +9,11 @@ use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
+use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
 use futures::channel::mpsc::TrySendError;
+use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
@@ -28,7 +30,6 @@ use state_processing::{
 };
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
-use types::milhouse::Error as MilhouseError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -247,6 +248,7 @@ pub enum BeaconChainError {
         cache_epoch: Epoch,
     },
     SkipProposerPreparation,
+    FailedColumnCustodyInfoUpdate,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -317,6 +319,9 @@ pub enum BlockProductionError {
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),
     MissingExecutionRequests,
+    SszTypesError(ssz_types::Error),
+    // TODO(gloas): Remove this once Gloas is implemented
+    GloasNotImplemented,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

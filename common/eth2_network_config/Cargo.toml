@@ -10,6 +10,7 @@ build = "build.rs"
 bytes = { workspace = true }
 discv5 = { workspace = true }
 eth2_config = { workspace = true }
+fixed_bytes = { workspace = true }
 kzg = { workspace = true }
 pretty_reqwest_error = { workspace = true }
 reqwest = { workspace = true }
