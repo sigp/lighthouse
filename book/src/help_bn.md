@@ -20,9 +20,6 @@ Options:
           0]
       --blobs-dir <DIR>
           Data directory for the blobs database.
-      --block-cache-size <SIZE>
-          Specifies how many blocks the database should cache in memory
-          [default: 0]
       --boot-nodes <ENR/MULTIADDR LIST>
           One or more comma-delimited base64-encoded ENR's to bootstrap the p2p
           network. Multiaddr is also supported.
