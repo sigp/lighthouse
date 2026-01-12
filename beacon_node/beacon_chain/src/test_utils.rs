@@ -2,6 +2,7 @@ use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_column_verification::CustodyDataColumn;
+use crate::graffiti_calculator::GraffitiSettings;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -20,7 +21,10 @@ pub use crate::{
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
 };
 use bls::get_withdrawal_credentials;
-use eth2::types::SignedBlockContentsTuple;
+use bls::{
+    AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
+};
+use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
@@ -30,6 +34,7 @@ use execution_layer::{
         MockExecutionLayer,
     },
 };
+use fixed_bytes::FixedBytesExtended;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
@@ -42,9 +47,11 @@ use parking_lot::{Mutex, RwLockWriteGuard};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::{RuntimeVariableList, VariableList};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -59,11 +66,13 @@ use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
 use tree_hash::TreeHash;
+use typenum::U4294967296;
+use types::data_column_custody_group::CustodyIndex;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
 use types::test_utils::TestRandom;
 pub use types::test_utils::generate_deterministic_keypairs;
-use types::{typenum::U4294967296, *};
+use types::*;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -576,6 +585,7 @@ where
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
+            .ordered_custody_column_indices(generate_data_column_indices_rand_order::<E>())
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));
@@ -604,15 +614,6 @@ where
         };
 
         let chain = builder.build().expect("should build");
-
-        chain
-            .data_availability_checker
-            .custody_context()
-            .init_ordered_data_columns_from_custody_groups(
-                (0..spec.number_of_custody_groups).collect(),
-                &spec,
-            )
-            .expect("should initialise custody context");
 
         BeaconChainHarness {
             spec: chain.spec.clone(),
@@ -943,6 +944,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -956,7 +959,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 builder_boost_factor,
                 BlockProductionVersion::V3,
@@ -1000,6 +1003,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1010,7 +1015,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -1059,6 +1064,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1071,7 +1078,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -2923,7 +2930,6 @@ where
         let chain_dump = self.chain.chain_dump().unwrap();
         chain_dump
             .iter()
-            .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
             .filter(|block_hash| *block_hash != Hash256::zero())
             .map(|hash| hash.into())
@@ -3281,7 +3287,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
-    let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+    let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
@@ -3294,9 +3300,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
-        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
-            ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadGloas<E>, num_blobs, rng, fork_name),
+        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
         _ => return (block, blob_sidecars),
     };
 
@@ -3392,4 +3396,10 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         spec,
     )
     .unwrap()
+}
+
+pub fn generate_data_column_indices_rand_order<E: EthSpec>() -> Vec<CustodyIndex> {
+    let mut indices = (0..E::number_of_columns() as u64).collect::<Vec<_>>();
+    indices.shuffle(&mut StdRng::seed_from_u64(42));
+    indices
 }

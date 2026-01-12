@@ -69,6 +69,8 @@ After this, you are ready to [build Lighthouse](#build-lighthouse).
 
 ### Windows
 
+> Note: Lighthouse no longer officially supports Windows binary. However, users will still be able to build the binary from source according to the instructions below. The instructions may no longer work at some point in the future.
+
 1. Install [Git](https://git-scm.com/download/win).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.
     > Tips:

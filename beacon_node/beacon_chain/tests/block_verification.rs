@@ -13,6 +13,8 @@ use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
     InvalidSignature, NotifyExecutionLayer,
 };
+use bls::{AggregateSignature, Keypair, Signature};
+use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{

@@ -1,7 +1,7 @@
 use super::errors::EpochProcessingError;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-use types::Unsigned;
+use typenum::Unsigned;
 use types::beacon_state::BeaconState;
 use types::eth_spec::EthSpec;
 

@@ -24,11 +24,13 @@ educe = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+fixed_bytes = { workspace = true }
 int_to_bytes = { workspace = true }
 integer-sqrt = "0.1.5"
 itertools = { workspace = true }
 merkle_proof = { workspace = true }
 metrics = { workspace = true }
+milhouse = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 safe_arith = { workspace = true }
@@ -37,6 +39,7 @@ ssz_types = { workspace = true }
 test_random_derive = { path = "../../common/test_random_derive" }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]
