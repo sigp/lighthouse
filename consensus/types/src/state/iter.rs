@@ -56,6 +56,7 @@ impl<E: EthSpec> Iterator for BlockRootsIter<'_, E> {
 #[cfg(test)]
 mod test {
     use crate::*;
+    use fixed_bytes::FixedBytesExtended;
 
     type E = MinimalEthSpec;
 

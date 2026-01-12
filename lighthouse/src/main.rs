@@ -730,7 +730,8 @@ fn run<E: EthSpec>(
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        tracing::warn!(
+        use tracing::warn;
+        warn!(
             advice = "If you get a SIGILL, please try Lighthouse portable build",
             "CPU seems incompatible with optimized Lighthouse build"
         );

@@ -1261,15 +1261,14 @@ mod pending_components_tests {
     use crate::PayloadVerificationOutcome;
     use crate::block_verification_types::BlockImportData;
     use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
+    use fixed_bytes::FixedBytesExtended;
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{
-        BeaconState, FixedBytesExtended, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot,
-    };
+    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
 

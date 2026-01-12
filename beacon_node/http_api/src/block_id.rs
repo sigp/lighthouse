@@ -6,12 +6,13 @@ use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedRes
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
 use eth2::types::{BlobIndicesQuery, BlobWrapper, BlobsVersionedHashesQuery};
+use fixed_bytes::FixedBytesExtended;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -482,8 +483,9 @@ impl BlockId {
                 },
             )
         } else {
-            Err(warp_utils::reject::custom_server_error(format!(
-                "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found."
+            Err(warp_utils::reject::custom_bad_request(format!(
+                "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found. \
+                You may need to run the beacon node with --supernode or --semi-supernode."
             )))
         }
     }

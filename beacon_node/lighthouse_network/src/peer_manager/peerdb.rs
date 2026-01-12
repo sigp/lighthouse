@@ -259,10 +259,10 @@ impl<E: EthSpec> PeerDB<E> {
                 info.is_connected()
                     && match info.sync_status() {
                         SyncStatus::Synced { info } => {
-                            info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
                         }
                         SyncStatus::Advanced { info } => {
-                            info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
                         }
                         SyncStatus::IrrelevantPeer
                         | SyncStatus::Behind { .. }
@@ -332,7 +332,7 @@ impl<E: EthSpec> PeerDB<E> {
             info.is_connected()
                 && match info.sync_status() {
                     SyncStatus::Synced { info } | SyncStatus::Advanced { info } => {
-                        info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                        info.has_slot(epoch.start_slot(E::slots_per_epoch()))
                     }
                     SyncStatus::IrrelevantPeer
                     | SyncStatus::Behind { .. }

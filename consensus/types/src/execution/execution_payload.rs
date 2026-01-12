@@ -55,9 +55,7 @@ pub type Transactions<E> = VariableList<
     partial_getter_error(
         ty = "BeaconStateError",
         expr = "BeaconStateError::IncorrectStateVariant"
-    ),
-    map_into(FullPayload, BlindedPayload),
-    map_ref_into(ExecutionPayloadHeader)
+    )
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -146,6 +144,7 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
 impl<E: EthSpec> ExecutionPayload<E> {
     #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
+    /// TODO(EIP-7732): this seems to only exist for the Bellatrix fork, but Mark's branch has it for all the forks, i.e. max_execution_payload_eip7732_size
     pub fn max_execution_payload_bellatrix_size() -> usize {
         // Fixed part
         ExecutionPayloadBellatrix::<E>::default().as_ssz_bytes().len()

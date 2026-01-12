@@ -1,5 +1,6 @@
 use crate::{DumpConfig, common::vc_http_client};
 
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use eth2::types::{ConfigAndPreset, Epoch, StateId, ValidatorId, ValidatorStatus};
@@ -10,7 +11,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::fs::write;
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{ChainSpec, EthSpec, PublicKeyBytes};
+use types::{ChainSpec, EthSpec};
 
 pub const CMD: &str = "exit";
 pub const BEACON_URL_FLAG: &str = "beacon-node";

@@ -5,15 +5,15 @@ use crate::cases::common::{DecimalU128, DecimalU256, SszStaticType};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{context_yaml_decode_file, log_file_access, snappy_decode_file};
 use context_deserialize::{ContextDeserialize, context_deserialize};
+use milhouse::{List, ProgressiveList, Vector};
 use serde::{Deserialize, Deserializer, de::Error as SerdeError};
+use ssz::ProgressiveBitList;
 use ssz_derive::{Decode, Encode};
+use ssz_types::{BitList, BitVector, FixedVector, VariableList};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use types::typenum::*;
-use types::{
-    BitList, BitVector, FixedVector, ForkName, List, ProgressiveBitList, ProgressiveList,
-    VariableList, Vector,
-};
+use typenum::*;
+use types::ForkName;
 
 type U1280 = op!(U128 * U10);
 type U1281 = op!(U1280 + U1);

@@ -1,12 +1,12 @@
 use crate::common::{altair::BaseRewardPerIncrement, decrease_balance, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
 use crate::{VerifySignatures, signature_sets::sync_aggregate_signature_set};
+use bls::PublicKeyBytes;
 use safe_arith::SafeArith;
 use std::borrow::Cow;
+use typenum::Unsigned;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{
-    BeaconState, BeaconStateError, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned,
-};
+use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, SyncAggregate};
 
 pub fn process_sync_aggregate<E: EthSpec>(
     state: &mut BeaconState<E>,

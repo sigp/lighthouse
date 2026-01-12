@@ -124,6 +124,10 @@ pub mod execution_requests {
     };
 }
 
+pub mod execution_payload_envelope {
+    pub use crate::execution::{ExecutionPayloadEnvelope, SignedExecutionPayloadEnvelope};
+}
+
 pub mod data_column_custody_group {
     pub use crate::data::{
         CustodyIndex, compute_columns_for_custody_group, compute_ordered_custody_column_indices,
@@ -157,6 +161,12 @@ pub mod signed_aggregate_and_proof {
     pub use crate::attestation::SignedAggregateAndProofRefMut;
 }
 
+pub mod payload_attestation {
+    pub use crate::attestation::{
+        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage,
+    };
+}
+
 pub mod application_domain {
     pub use crate::core::ApplicationDomain;
 }
@@ -165,15 +175,3 @@ pub mod application_domain {
 pub use crate::kzg_ext::consts::VERSIONED_HASH_VERSION_KZG;
 pub use crate::light_client::LightClientError as LightClientUpdateError;
 pub use crate::state::BeaconStateError as Error;
-
-pub use bls::{
-    AggregatePublicKey, AggregateSignature, Error as BlsError, Keypair, PUBLIC_KEY_BYTES_LEN,
-    PublicKey, PublicKeyBytes, SIGNATURE_BYTES_LEN, SecretKey, Signature, SignatureBytes,
-    get_withdrawal_credentials,
-};
-pub use context_deserialize::{ContextDeserialize, context_deserialize};
-pub use fixed_bytes::FixedBytesExtended;
-pub use milhouse::{self, List, ProgressiveList, Vector};
-pub use ssz::ProgressiveBitList;
-pub use ssz_types::{BitList, BitVector, FixedVector, VariableList, typenum, typenum::Unsigned};
-pub use superstruct::superstruct;
