@@ -1833,26 +1833,14 @@ fn slots_per_restore_point_flag() {
         .run_with_zero_port();
 }
 
-#[test]
-fn block_cache_size_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
-}
+// DEPRECATED but should still be accepted.
 #[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, 4));
+        .run_with_zero_port();
 }
-#[test]
-fn block_cache_size_zero() {
-    CommandLineTest::new()
-        .flag("block-cache-size", Some("0"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
-}
+
 #[test]
 fn state_cache_size_default() {
     CommandLineTest::new()

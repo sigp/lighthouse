@@ -89,7 +89,6 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
   "config": {
     "slots_per_restore_point": 8192,
     "slots_per_restore_point_set_explicitly": false,
-    "block_cache_size": 5,
     "historic_state_cache_size": 1,
     "compact_on_init": false,
     "compact_on_prune": true,

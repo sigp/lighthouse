@@ -354,10 +354,8 @@ pub fn get_config<E: EthSpec>(
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    if let Some(block_cache_size) = cli_args.get_one::<String>("block-cache-size") {
-        client_config.store.block_cache_size = block_cache_size
-            .parse()
-            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    if cli_args.get_one::<String>("block-cache-size").is_some() {
+        warn!("The block-cache-size flag is deprecated");
     }
 
     if let Some(cache_size) = cli_args.get_one::<String>("state-cache-size") {

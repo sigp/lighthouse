@@ -390,7 +390,6 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
 {
   "schema_version": 22,
   "config": {
-    "block_cache_size": 5,
     "state_cache_size": 128,
     "compression_level": 1,
     "historic_state_cache_size": 1,
