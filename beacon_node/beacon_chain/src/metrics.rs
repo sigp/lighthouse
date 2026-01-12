@@ -1690,7 +1690,6 @@ pub static BLOBS_FROM_EL_RECEIVED: LazyLock<Result<Histogram>> = LazyLock::new(|
     )
 });
 
-
 /*
  * Standardized getBlobs metrics across clients from https://github.com/ethereum/beacon-metrics
  */
