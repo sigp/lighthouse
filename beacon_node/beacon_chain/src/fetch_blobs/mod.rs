@@ -260,6 +260,8 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
             inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
         })?;
 
+    drop(_timer);
+
     // Track successful response
     inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V2_RESPONSES_TOTAL);
 
