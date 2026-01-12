@@ -1953,7 +1953,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -3119,7 +3119,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3284,7 +3284,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.10.0"
-source = "git+https://github.com/sigp/ethereum_ssz?branch=progressive#952eb175cf463ec92d3abaf232e42fb72af7314e"
+source = "git+https://github.com/sigp/ethereum_ssz?branch=progressive#ed6332b0572f18bf285d2acdfc6932e1b9d274ef"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
@@ -3300,7 +3300,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz_derive"
 version = "0.10.0"
-source = "git+https://github.com/sigp/ethereum_ssz?branch=progressive#952eb175cf463ec92d3abaf232e42fb72af7314e"
+source = "git+https://github.com/sigp/ethereum_ssz?branch=progressive#ed6332b0572f18bf285d2acdfc6932e1b9d274ef"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -4758,7 +4758,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6343,7 +6343,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7263,7 +7263,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.1",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7785,7 +7785,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8872,7 +8872,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9445,7 +9445,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.12.0"
-source = "git+https://github.com/sigp/tree_hash?branch=progressive#7400510546840a3985474380d934d33f9ba0d417"
+source = "git+https://github.com/sigp/tree_hash?branch=progressive#2fd80712e4d85e5f61dc574d8f5837a5c9b355b8"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
@@ -9457,7 +9457,7 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.12.0"
-source = "git+https://github.com/sigp/tree_hash?branch=progressive#7400510546840a3985474380d934d33f9ba0d417"
+source = "git+https://github.com/sigp/tree_hash?branch=progressive#2fd80712e4d85e5f61dc574d8f5837a5c9b355b8"
 dependencies = [
  "darling 0.21.3",
  "proc-macro2",
@@ -10206,7 +10206,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -123,6 +123,9 @@ macro_rules! type_dispatch {
             "ProgressiveVarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveVarTestStruct>, $($rest)*),
             "ProgressiveComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveComplexTestStruct>, $($rest)*),
             "ProgressiveTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ProgressiveTestStruct>, $($rest)*),
+            "CompatibleUnionA" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* CompatibleUnionA>, $($rest)*),
+            "CompatibleUnionBC" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* CompatibleUnionBC>, $($rest)*),
+            "CompatibleUnionABCA" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* CompatibleUnionABCA>, $($rest)*),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
@@ -420,6 +423,48 @@ struct ProgressiveComplexTestStruct {
     F: ProgressiveList<ProgressiveList<VarTestStruct>>,
     G: List<ProgressiveSingleFieldContainerTestStruct, U10>,
     H: ProgressiveList<ProgressiveVarTestStruct>,
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[ssz(enum_behaviour = "compatible_union")]
+#[tree_hash(enum_behaviour = "compatible_union")]
+#[context_deserialize(ForkName)]
+enum CompatibleUnionA {
+    #[ssz(selector = "1")]
+    #[tree_hash(selector = "1")]
+    ProgressiveSingleFieldContainerTestStruct(ProgressiveSingleFieldContainerTestStruct),
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[ssz(enum_behaviour = "compatible_union")]
+#[tree_hash(enum_behaviour = "compatible_union")]
+#[context_deserialize(ForkName)]
+enum CompatibleUnionBC {
+    #[ssz(selector = "2")]
+    #[tree_hash(selector = "2")]
+    ProgressiveSingleListContainerTestStruct(ProgressiveSingleListContainerTestStruct),
+    #[ssz(selector = "3")]
+    #[tree_hash(selector = "3")]
+    ProgressiveVarTestStruct(ProgressiveVarTestStruct),
+}
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[ssz(enum_behaviour = "compatible_union")]
+#[tree_hash(enum_behaviour = "compatible_union")]
+#[context_deserialize(ForkName)]
+enum CompatibleUnionABCA {
+    #[ssz(selector = "1")]
+    #[tree_hash(selector = "1")]
+    A1(ProgressiveSingleFieldContainerTestStruct),
+    #[ssz(selector = "2")]
+    #[tree_hash(selector = "2")]
+    B1(ProgressiveSingleListContainerTestStruct),
+    #[ssz(selector = "3")]
+    #[tree_hash(selector = "3")]
+    C1(ProgressiveVarTestStruct),
+    #[ssz(selector = "4")]
+    #[tree_hash(selector = "4")]
+    A2(ProgressiveSingleFieldContainerTestStruct),
 }
 
 fn byte_list_from_hex_str<'de, D, N: Unsigned>(
