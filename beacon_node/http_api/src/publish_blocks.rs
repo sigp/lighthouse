@@ -365,6 +365,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
                 let Some((kzg_proofs, blobs)) = proofs_and_blobs else {
                     return Ok((vec![], vec![]));
                 };
+                let _span = debug_span!("build_data_sidecars").entered();
 
                 let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
                 if !peer_das_enabled {

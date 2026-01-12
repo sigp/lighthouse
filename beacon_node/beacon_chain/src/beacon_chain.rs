@@ -2720,6 +2720,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// or already-known).
     ///
     /// This method is potentially long-running and should not run on the core executor.
+    #[instrument(skip_all, level = "debug")]
     pub fn filter_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<RpcBlock<T::EthSpec>>,
@@ -5154,6 +5155,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, level = "debug")]
     fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -5398,6 +5400,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    #[instrument(skip_all, level = "debug")]
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,

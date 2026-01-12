@@ -510,6 +510,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// such a case it's critical that the `BeaconChain` keeps importing blocks so that the
     /// situation can be rectified. We avoid returning an error here so that calling functions
     /// can't abort block import because an error is returned here.
+    #[instrument(skip(self), level = "info", fields(slot = %current_slot))]
     pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
