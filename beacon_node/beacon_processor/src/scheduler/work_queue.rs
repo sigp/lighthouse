@@ -128,10 +128,10 @@ pub struct BeaconProcessorQueueLengths {
     gossip_data_column_queue: usize,
     delayed_block_queue: usize,
     status_queue: usize,
-    bbrange_queue: usize,
-    bbroots_queue: usize,
-    blbroots_queue: usize,
-    blbrange_queue: usize,
+    block_brange_queue: usize,
+    block_broots_queue: usize,
+    blob_broots_queue: usize,
+    blob_brange_queue: usize,
     dcbroots_queue: usize,
     dcbrange_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
@@ -194,10 +194,10 @@ impl BeaconProcessorQueueLengths {
             gossip_data_column_queue: 1024,
             delayed_block_queue: 1024,
             status_queue: 1024,
-            bbrange_queue: 1024,
-            bbroots_queue: 1024,
-            blbroots_queue: 1024,
-            blbrange_queue: 1024,
+            block_brange_queue: 1024,
+            block_broots_queue: 1024,
+            blob_broots_queue: 1024,
+            blob_brange_queue: 1024,
             dcbroots_queue: 1024,
             dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
@@ -238,10 +238,10 @@ pub struct WorkQueues<E: EthSpec> {
     pub gossip_data_column_queue: FifoQueue<Work<E>>,
     pub delayed_block_queue: FifoQueue<Work<E>>,
     pub status_queue: FifoQueue<Work<E>>,
-    pub bbrange_queue: FifoQueue<Work<E>>,
-    pub bbroots_queue: FifoQueue<Work<E>>,
-    pub blbroots_queue: FifoQueue<Work<E>>,
-    pub blbrange_queue: FifoQueue<Work<E>>,
+    pub block_brange_queue: FifoQueue<Work<E>>,
+    pub block_broots_queue: FifoQueue<Work<E>>,
+    pub blob_broots_queue: FifoQueue<Work<E>>,
+    pub blob_brange_queue: FifoQueue<Work<E>>,
     pub dcbroots_queue: FifoQueue<Work<E>>,
     pub dcbrange_queue: FifoQueue<Work<E>>,
     pub gossip_bls_to_execution_change_queue: FifoQueue<Work<E>>,
@@ -300,10 +300,10 @@ impl<E: EthSpec> WorkQueues<E> {
         let delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
 
         let status_queue = FifoQueue::new(queue_lengths.status_queue);
-        let bbrange_queue = FifoQueue::new(queue_lengths.bbrange_queue);
-        let bbroots_queue = FifoQueue::new(queue_lengths.bbroots_queue);
-        let blbroots_queue = FifoQueue::new(queue_lengths.blbroots_queue);
-        let blbrange_queue = FifoQueue::new(queue_lengths.blbrange_queue);
+        let block_brange_queue = FifoQueue::new(queue_lengths.block_brange_queue);
+        let block_broots_queue = FifoQueue::new(queue_lengths.block_broots_queue);
+        let blob_broots_queue = FifoQueue::new(queue_lengths.blob_broots_queue);
+        let blob_brange_queue = FifoQueue::new(queue_lengths.blob_brange_queue);
         let dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
         let dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
 
@@ -350,10 +350,10 @@ impl<E: EthSpec> WorkQueues<E> {
             gossip_data_column_queue,
             delayed_block_queue,
             status_queue,
-            bbrange_queue,
-            bbroots_queue,
-            blbroots_queue,
-            blbrange_queue,
+            block_brange_queue,
+            block_broots_queue,
+            blob_broots_queue,
+            blob_brange_queue,
             dcbroots_queue,
             dcbrange_queue,
             gossip_bls_to_execution_change_queue,
