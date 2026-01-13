@@ -165,6 +165,69 @@ async fn make_selection_proof<S: ValidatorStore>(
         })
 }
 
+/// Create a Vec<BeaconCommitteeSelection> for every epoch
+/// so that when calling the selection_endpoint later, it calls once per epoch with duties of all slots in the epoch
+async fn make_beacon_committee_selection<S: ValidatorStore + 'static, T: SlotClock + 'static>(
+    duties_service: &Arc<DutiesService<S, T>>,
+    duties: &[AttesterData],
+) -> Result<Vec<BeaconCommitteeSelection>, Error<S::Error>> {
+    // collect the BeaconCommitteeSelection in duties
+    let beacon_committee_selections = duties
+        .iter()
+        .map(|duty| {
+            let validator_store = &duties_service.validator_store;
+            async move {
+                let partial_selection_proof = validator_store
+                    .produce_selection_proof(duty.pubkey, duty.slot)
+                    .await
+                    .map_err(Error::FailedToProduceSelectionProof)?;
+                Ok::<BeaconCommitteeSelection, Error<S::Error>>(BeaconCommitteeSelection {
+                    validator_index: duty.validator_index,
+                    slot: duty.slot,
+                    selection_proof: partial_selection_proof.into(),
+                })
+            }
+        })
+        .collect::<FuturesUnordered<_>>()
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    let epoch = duties
+        .first()
+        .map(|attester_data| attester_data.slot.epoch(S::E::slots_per_epoch()))
+        .unwrap_or_default();
+
+    debug!(
+        %epoch,
+        count = beacon_committee_selections.len(),
+        "Sending selections to middleware"
+    );
+
+    let selections = duties_service
+        .beacon_nodes
+        .first_success(|beacon_node| {
+            let selections = beacon_committee_selections.clone();
+            async move {
+                beacon_node
+                    .post_validator_beacon_committee_selections(&selections)
+                    .await
+            }
+        })
+        .await
+        .map_err(|e| {
+            Error::FailedToProduceSelectionProof(ValidatorStoreError::Middleware(e.to_string()))
+        })?
+        .data;
+
+    debug!(
+        %epoch,
+        count = beacon_committee_selections.len(),
+        "Received selections from middleware"
+    );
+
+    Ok(selections)
+}
+
 impl DutyAndProof {
     /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
     pub fn new_without_selection_proof(duty: AttesterData, current_slot: Slot) -> Self {
@@ -1219,66 +1282,6 @@ fn process_duty_and_proof<S: ValidatorStore>(
     }
 }
 
-async fn make_beacon_committee_selection<S: ValidatorStore + 'static, T: SlotClock + 'static>(
-    duties_service: &Arc<DutiesService<S, T>>,
-    duties: &[AttesterData],
-) -> Result<Vec<BeaconCommitteeSelection>, Error<S::Error>> {
-    // collect the BeaconCommitteeSelection in duties (which covers current and next epoch)
-    let beacon_committee_selections = duties
-        .iter()
-        .map(|duty| {
-            let validator_store = &duties_service.validator_store;
-            async move {
-                let partial_selection_proof = validator_store
-                    .produce_selection_proof(duty.pubkey, duty.slot)
-                    .await
-                    .map_err(Error::FailedToProduceSelectionProof)?;
-                Ok::<BeaconCommitteeSelection, Error<S::Error>>(BeaconCommitteeSelection {
-                    validator_index: duty.validator_index,
-                    slot: duty.slot,
-                    selection_proof: partial_selection_proof.into(),
-                })
-            }
-        })
-        .collect::<FuturesUnordered<_>>()
-        .try_collect::<Vec<_>>()
-        .await?;
-
-    let epoch = duties
-        .first()
-        .map(|attester_data| attester_data.slot.epoch(S::E::slots_per_epoch()))
-        .unwrap_or_default();
-
-    debug!(
-        %epoch,
-        count = beacon_committee_selections.len(),
-        "Sending selections to middleware"
-    );
-
-    let selections = duties_service
-        .beacon_nodes
-        .first_success(|beacon_node| {
-            let selections = beacon_committee_selections.clone();
-            async move {
-                beacon_node
-                    .post_validator_beacon_committee_selections(&selections)
-                    .await
-            }
-        })
-        .await
-        .map_err(|e| {
-            Error::FailedToProduceSelectionProof(ValidatorStoreError::Middleware(e.to_string()))
-        })?
-        .data;
-
-    debug!(
-        %epoch,
-        count = beacon_committee_selections.len(),
-        "Received selections from middleware"
-    );
-
-    Ok(selections)
-}
 /// Compute the attestation selection proofs for the `duties` and add them to the `attesters` map.
 ///
 /// Duties are computed in batches each slot. If a re-org is detected then the process will
