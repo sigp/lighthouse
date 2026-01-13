@@ -19,7 +19,6 @@ use crate::{
     data::{BlobIdentifier, DataColumnSubnetId, DataColumnsByRootIdentifier},
     execution::ExecutionBlockHash,
     fork::{Fork, ForkData, ForkName},
-    state::BeaconState,
 };
 
 /// Each of the BLS signature domains.
@@ -415,51 +414,6 @@ impl ChainSpec {
             self.inactivity_penalty_quotient_altair
         } else {
             self.inactivity_penalty_quotient
-        }
-    }
-
-    /// For a given `BeaconState`, return the proportional slashing multiplier associated with its variant.
-    pub fn proportional_slashing_multiplier_for_state<E: EthSpec>(
-        &self,
-        state: &BeaconState<E>,
-    ) -> u64 {
-        let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Bellatrix {
-            self.proportional_slashing_multiplier_bellatrix
-        } else if fork_name >= ForkName::Altair {
-            self.proportional_slashing_multiplier_altair
-        } else {
-            self.proportional_slashing_multiplier
-        }
-    }
-
-    /// For a given `BeaconState`, return the minimum slashing penalty quotient associated with its variant.
-    pub fn min_slashing_penalty_quotient_for_state<E: EthSpec>(
-        &self,
-        state: &BeaconState<E>,
-    ) -> u64 {
-        let fork_name = state.fork_name_unchecked();
-        if fork_name.electra_enabled() {
-            self.min_slashing_penalty_quotient_electra
-        } else if fork_name >= ForkName::Bellatrix {
-            self.min_slashing_penalty_quotient_bellatrix
-        } else if fork_name >= ForkName::Altair {
-            self.min_slashing_penalty_quotient_altair
-        } else {
-            self.min_slashing_penalty_quotient
-        }
-    }
-
-    /// For a given `BeaconState`, return the whistleblower reward quotient associated with its variant.
-    pub fn whistleblower_reward_quotient_for_state<E: EthSpec>(
-        &self,
-        state: &BeaconState<E>,
-    ) -> u64 {
-        let fork_name = state.fork_name_unchecked();
-        if fork_name.electra_enabled() {
-            self.whistleblower_reward_quotient_electra
-        } else {
-            self.whistleblower_reward_quotient
         }
     }
 
