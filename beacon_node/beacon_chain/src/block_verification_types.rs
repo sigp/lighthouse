@@ -97,7 +97,7 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: Option<AvailableBlockData<E>>,
-        da_checker: Arc<DataAvailabilityChecker<T>>,
+        da_checker: &DataAvailabilityChecker<T>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where

@@ -318,7 +318,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             let Ok(rpc_block) = RpcBlock::new(
                 block.clone(),
                 None,
-                chain.data_availability_checker.clone(),
+                &chain.data_availability_checker,
                 chain.spec.clone(),
             ) else {
                 return Err(warp_utils::reject::custom_bad_request(
