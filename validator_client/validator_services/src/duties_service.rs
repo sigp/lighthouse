@@ -1302,6 +1302,10 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     // of selection proofs and insert them into the duties service `attesters` map.
     let slot_clock = &duties_service.slot_clock;
 
+    // Create a HashMap for BeaconCommitteeSelection to match the duty later for DVT involving middleware
+    let mut selection_hashmap = HashMap::new();
+    let mut call_selection_endpoint = false;
+
     while !duties_by_slot.is_empty() {
         if let Some(duration) = slot_clock.duration_to_next_slot() {
             sleep(
@@ -1342,28 +1346,35 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             // parallel_sign for distributed case; Otherwise, sign serially in non-distributed (normal) case
             if duties_service.selection_proof_config.parallel_sign {
-                // Fetch a vector of BeaconCommitteeSelection
-                let beacon_committee_selections =
-                    make_beacon_committee_selection(&duties_service, &duties).await;
+                let is_first_slot_of_epoch = current_slot % S::E::slots_per_epoch() == 0;
 
-                let selections = match beacon_committee_selections {
-                    Ok(selections) => selections,
-                    Err(e) => {
-                        error!(
-                            error = ?e,
-                            "Failed to fetch selection proofs"
-                        );
-                        return;
+                // Fetch a vector of BeaconCommitteeSelection only at the first slot of an epoch
+                if is_first_slot_of_epoch || call_selection_endpoint {
+                    let beacon_committee_selections =
+                        make_beacon_committee_selection(&duties_service, &duties).await;
+
+                    let selections = match beacon_committee_selections {
+                        Ok(selections) => selections,
+                        Err(e) => {
+                            error!(
+                                error = ?e,
+                                "Failed to fetch selection proofs"
+                            );
+                            // if calling the endpoint fails, change to true so that it will retry the next slot
+                            call_selection_endpoint = true;
+                            continue;
+                        }
+                    };
+
+                    for selection in &selections {
+                        // This is a full_selection_proof returned by middleware
+                        let selection_proof =
+                            SelectionProof::from(selection.selection_proof.clone());
+                        selection_hashmap
+                            .insert((selection.validator_index, selection.slot), selection_proof);
                     }
-                };
-
-                // Create a HashMap for BeaconCommitteeSelection to be used to match the duty later
-                let mut selection_hashmap = HashMap::new();
-                for selection in &selections {
-                    // This is a full_selection_proof returned by middleware
-                    let selection_proof = SelectionProof::from(selection.selection_proof.clone());
-                    selection_hashmap
-                        .insert((selection.validator_index, selection.slot), selection_proof);
+                    // Once we have the selection_proof, we don't want to call the selection_endpoint again
+                    call_selection_endpoint = false;
                 }
 
                 for duty in relevant_duties.into_values().flatten() {
