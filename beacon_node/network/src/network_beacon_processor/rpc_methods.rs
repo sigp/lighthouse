@@ -10,13 +10,6 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
-use lighthouse_tracing::{
-    SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST, SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP, SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
-    SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE, SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
-};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
@@ -163,7 +156,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
+        name = "lh_handle_blocks_by_root_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -263,7 +256,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlobsByRoot` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
+        name = "lh_handle_blobs_by_root_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -392,7 +385,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `DataColumnsByRoot` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
+        name = "lh_handle_data_columns_by_root_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -485,7 +478,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
+        name = "lh_handle_light_client_updates_by_range",
         parent = None,
         level = "debug",
         skip_all,
@@ -586,7 +579,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `LightClientBootstrap` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP,
+        name = "lh_handle_light_client_bootstrap",
         parent = None,
         level = "debug",
         skip_all,
@@ -626,7 +619,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `LightClientOptimisticUpdate` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
+        name = "lh_handle_light_client_optimistic_update",
         parent = None,
         level = "debug",
         skip_all,
@@ -660,7 +653,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `LightClientFinalityUpdate` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
+        name = "lh_handle_light_client_finality_update",
         parent = None,
         level = "debug",
         skip_all,
@@ -694,7 +687,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlocksByRange` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST,
+        name = "lh_handle_blocks_by_range_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -990,7 +983,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlobsByRange` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST,
+        name = "lh_handle_blobs_by_range_request",
         parent = None,
         skip_all,
         level = "debug",
@@ -1155,7 +1148,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `DataColumnsByRange` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST,
+        name = "lh_handle_data_columns_by_range_request",
         parent = None,
         skip_all,
         level = "debug",

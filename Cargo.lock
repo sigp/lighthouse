@@ -1233,7 +1233,6 @@ dependencies = [
  "int_to_bytes",
  "itertools 0.10.5",
  "kzg",
- "lighthouse_tracing",
  "lighthouse_version",
  "logging",
  "lru 0.12.5",
@@ -4169,7 +4168,6 @@ dependencies = [
  "health_metrics",
  "hex",
  "lighthouse_network",
- "lighthouse_tracing",
  "lighthouse_version",
  "logging",
  "lru 0.12.5",
@@ -5383,7 +5381,6 @@ dependencies = [
  "futures",
  "initialized_validators",
  "lighthouse_network",
- "lighthouse_tracing",
  "lighthouse_version",
  "logging",
  "malloc_utils",
@@ -5404,6 +5401,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "tracing_samplers",
  "types",
  "validator_client",
  "validator_dir",
@@ -5464,14 +5462,6 @@ dependencies = [
  "typenum",
  "types",
  "unsigned-varint 0.8.0",
-]
-
-[[package]]
-name = "lighthouse_tracing"
-version = "0.1.0"
-dependencies = [
- "opentelemetry",
- "opentelemetry_sdk",
 ]
 
 [[package]]
@@ -6153,7 +6143,6 @@ dependencies = [
  "kzg",
  "libp2p-gossipsub",
  "lighthouse_network",
- "lighthouse_tracing",
  "logging",
  "lru_cache",
  "matches",
@@ -9325,6 +9314,14 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "tracing_samplers"
+version = "0.1.0"
+dependencies = [
+ "opentelemetry",
+ "opentelemetry_sdk",
 ]
 
 [[package]]
