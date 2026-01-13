@@ -1690,6 +1690,33 @@ pub static BLOBS_FROM_EL_RECEIVED: LazyLock<Result<Histogram>> = LazyLock::new(|
 });
 
 /*
+ * Standardized getBlobs metrics across clients from https://github.com/ethereum/beacon-metrics
+ */
+pub static BEACON_ENGINE_GET_BLOBS_V2_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV2_requests_total",
+            "Total number of engine_getBlobsV2 requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V2_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV2_responses_total",
+            "Total number of successful engine_getBlobsV2 responses from the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V2_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_engine_getBlobsV2_request_duration_seconds",
+            "Duration of engine_getBlobsV2 requests to the execution layer in seconds",
+        )
+    });
+
+/*
  * Light server message verification
  */
 pub static FINALITY_UPDATE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
