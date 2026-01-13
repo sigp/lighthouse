@@ -130,3 +130,37 @@ impl ShouldSample for AllowedRootSpanSampler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opentelemetry::trace::TraceId;
+
+    #[test]
+    fn allowed_root_span_sampler_filters_by_name() {
+        let sampler = AllowedRootSpanSampler::new(&["allowed_span", "another_allowed"]);
+        let trace_id = TraceId::from_hex("0123456789abcdef0123456789abcdef").unwrap();
+
+        // Allowed span names should be sampled
+        let result = sampler.should_sample(
+            None,
+            trace_id,
+            "allowed_span",
+            &SpanKind::Internal,
+            &[],
+            &[],
+        );
+        assert!(matches!(result.decision, SamplingDecision::RecordAndSample));
+
+        // Non-allowed span names should be dropped
+        let result = sampler.should_sample(
+            None,
+            trace_id,
+            "unknown_span",
+            &SpanKind::Internal,
+            &[],
+            &[],
+        );
+        assert!(matches!(result.decision, SamplingDecision::Drop));
+    }
+}
