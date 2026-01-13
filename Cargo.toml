@@ -255,8 +255,8 @@ tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-opentelemetry = "0.31.0"
-tracing_samplers = { path = "common/tracing_samplers" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing_samplers = { path = "common/tracing_samplers" }
 tree_hash = "0.12.0"
 tree_hash_derive = "0.12.0"
 typenum = "1"
