@@ -431,7 +431,6 @@ struct ProgressiveComplexTestStruct {
 #[context_deserialize(ForkName)]
 enum CompatibleUnionA {
     #[ssz(selector = "1")]
-    #[tree_hash(selector = "1")]
     ProgressiveSingleFieldContainerTestStruct(ProgressiveSingleFieldContainerTestStruct),
 }
 
@@ -441,10 +440,8 @@ enum CompatibleUnionA {
 #[context_deserialize(ForkName)]
 enum CompatibleUnionBC {
     #[ssz(selector = "2")]
-    #[tree_hash(selector = "2")]
     ProgressiveSingleListContainerTestStruct(ProgressiveSingleListContainerTestStruct),
     #[ssz(selector = "3")]
-    #[tree_hash(selector = "3")]
     ProgressiveVarTestStruct(ProgressiveVarTestStruct),
 }
 
@@ -454,16 +451,12 @@ enum CompatibleUnionBC {
 #[context_deserialize(ForkName)]
 enum CompatibleUnionABCA {
     #[ssz(selector = "1")]
-    #[tree_hash(selector = "1")]
     A1(ProgressiveSingleFieldContainerTestStruct),
     #[ssz(selector = "2")]
-    #[tree_hash(selector = "2")]
     B1(ProgressiveSingleListContainerTestStruct),
     #[ssz(selector = "3")]
-    #[tree_hash(selector = "3")]
     C1(ProgressiveVarTestStruct),
     #[ssz(selector = "4")]
-    #[tree_hash(selector = "4")]
     A2(ProgressiveSingleFieldContainerTestStruct),
 }
 
