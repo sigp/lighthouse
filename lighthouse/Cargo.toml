@@ -11,6 +11,29 @@ rust-version = "1.88.0"
 [package.metadata.cargo-udeps.ignore]
 normal = ["target_check"]
 
+[package.metadata.deb]
+maintainer = "Sigma Prime <team@sigmaprime.io>"
+extended-description = """\
+Lighthouse is a Rust implementation of the Ethereum beacon chain, \
+built by Sigma Prime. It implements the official Ethereum 2.0 specification."""
+
+depends = "$auto, systemd"
+section = "net"
+priority = "optional"
+maintainer-scripts = "debian/"  # This tells cargo-deb where to find scripts
+
+# System integration
+systemd-units = { enable = false, start = false }
+
+# Assets to include in the package
+assets = [
+    ["target/release/lighthouse", "usr/bin/", "755"],
+    ["debian/lighthouse.service", "lib/systemd/system/", "644"],
+    ["../README.md", "usr/share/doc/lighthouse/", "644"],
+]
+
+default-features = false
+
 [features]
 default = ["slasher-lmdb", "beacon-node-leveldb"]
 # Writes debugging .ssz files to /tmp during block processing.
@@ -96,26 +119,3 @@ zeroize = { workspace = true }
 [[test]]
 name = "lighthouse_tests"
 path = "tests/main.rs"
-
-[package.metadata.deb]
-maintainer = "Sigma Prime <team@sigmaprime.io>"
-extended-description = """\
-Lighthouse is a Rust implementation of the Ethereum beacon chain, \
-built by Sigma Prime. It implements the official Ethereum 2.0 specification."""
-
-depends = "$auto, systemd"
-section = "net"
-priority = "optional"
-maintainer-scripts = "debian/"  # This tells cargo-deb where to find scripts
-
-# System integration
-systemd-units = { enable = false, start = false }
-
-# Assets to include in the package
-assets = [
-    ["target/release/lighthouse", "usr/bin/", "755"],
-    ["debian/lighthouse.service", "lib/systemd/system/", "644"],
-    ["../README.md", "usr/share/doc/lighthouse/", "644"],
-]
-
-default-features = false
