@@ -133,7 +133,7 @@ impl Eth2NetworkConfig {
         self.genesis_state_source != GenesisStateSource::Unknown
     }
 
-    /// The `genesis_time` of the genesis time.
+    /// The `genesis_time` of the genesis state.
     pub fn genesis_time<E: EthSpec>(&self) -> Result<Option<u64>, String> {
         self.get_genesis_state_from_bytes::<E>()
             .map(|state| Some(state.genesis_time()))
