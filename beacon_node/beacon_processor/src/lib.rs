@@ -1085,10 +1085,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
             // prioritize them over syncing requests from other peers (BlocksByRange
             // and BlocksByRoot)
             .or_else(|| work_queues.status_queue.pop_if(can_spawn_predicate))
-            .or_else(|| work_queues.bbrange_queue.pop_if(can_spawn_predicate))
-            .or_else(|| work_queues.bbroots_queue.pop_if(can_spawn_predicate))
-            .or_else(|| work_queues.blbrange_queue.pop_if(can_spawn_predicate))
-            .or_else(|| work_queues.blbroots_queue.pop_if(can_spawn_predicate))
+            .or_else(|| work_queues.block_brange_queue.pop_if(can_spawn_predicate))
+            .or_else(|| work_queues.block_broots_queue.pop_if(can_spawn_predicate))
+            .or_else(|| work_queues.blob_brange_queue.pop_if(can_spawn_predicate))
+            .or_else(|| work_queues.blob_broots_queue.pop_if(can_spawn_predicate))
             .or_else(|| work_queues.dcbroots_queue.pop_if(can_spawn_predicate))
             .or_else(|| work_queues.dcbrange_queue.pop_if(can_spawn_predicate))
             // Check slashings after all other consensus messages so we prioritize
