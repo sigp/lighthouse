@@ -977,7 +977,7 @@ where
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
-            config: self.chain_config.clone(),
+            config: self.chain_config,
             store: store.clone(),
             task_executor: self
                 .task_executor
@@ -1051,7 +1051,6 @@ where
                     self.kzg.clone(),
                     store,
                     Arc::new(custody_context),
-                    &self.chain_config.test_config,
                     self.spec,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
