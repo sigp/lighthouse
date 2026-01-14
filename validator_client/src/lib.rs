@@ -364,11 +364,22 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
         );
 
-        // Perform some potentially long-running initialization tasks.
-        let (genesis_time, genesis_validators_root) = tokio::select! {
-            tuple = init_from_beacon_node::<E>(&beacon_nodes, &proposer_nodes) => tuple?,
-            () = context.executor.exit() => return Err("Shutting down".to_string())
-        };
+        let (genesis_time, genesis_validators_root) =
+            if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {
+                let time = eth2_network_config
+                    .genesis_time::<E>()?
+                    .ok_or("no genesis time")?;
+                let root = eth2_network_config
+                    .genesis_validators_root::<E>()?
+                    .ok_or("no genesis validators root")?;
+                (time, root)
+            } else {
+                // Perform some potentially long-running initialization tasks.
+                tokio::select! {
+                    tuple = init_from_beacon_node::<E>(&beacon_nodes, &proposer_nodes) => tuple?,
+                    () = context.executor.exit() => return Err("Shutting down".to_string()),
+                }
+            };
 
         // Update the metrics server.
         if let Some(ctx) = &validator_metrics_ctx {
