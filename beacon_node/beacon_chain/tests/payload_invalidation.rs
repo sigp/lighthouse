@@ -3,8 +3,8 @@
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
-    StateSkipConfig, WhenSlotSkipped,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
+    WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
@@ -148,16 +148,6 @@ impl InvalidPayloadRig {
             .execution_block_generator()
             .move_to_terminal_block()
             .unwrap();
-    }
-
-    fn latest_execution_block_hash(&self) -> ExecutionBlockHash {
-        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
-        mock_execution_layer
-            .server
-            .execution_block_generator()
-            .latest_execution_block()
-            .unwrap()
-            .block_hash
     }
 
     async fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) -> Vec<Hash256> {
