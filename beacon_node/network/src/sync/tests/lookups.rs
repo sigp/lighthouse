@@ -43,7 +43,11 @@ use types::{
 
 const D: Duration = Duration::new(0, 0);
 
-/// Instruct the testing rig how to complete requests for _by_range requests
+/// Configuration for how the test rig should respond to sync requests.
+///
+/// Controls simulated peer behavior during lookup tests, including RPC errors,
+/// invalid responses, and custom block processing results. Use builder methods
+/// to configure specific failure scenarios.
 #[derive(Default, Educe)]
 #[educe(Debug)]
 pub struct CompleteStrategy {
@@ -118,7 +122,7 @@ impl CompleteStrategy {
         self
     }
 
-    fn process_result<F>(mut self, f: F) -> Self
+    fn with_process_result<F>(mut self, f: F) -> Self
     where
         F: Fn() -> BlockProcessingResult + Send + Sync + 'static,
     {
@@ -126,7 +130,7 @@ impl CompleteStrategy {
         self
     }
 
-    fn block_imported_while_processing(mut self, block_root: Hash256) -> Self {
+    fn with_block_imported_while_processing(mut self, block_root: Hash256) -> Self {
         self.block_imported_while_processing = Some(block_root);
         self
     }
@@ -264,8 +268,11 @@ impl TestRig {
         })
     }
 
-    // Network / external peers simulated behaviour
-
+    /// Runs the sync simulation until all event queues are empty.
+    ///
+    /// Processes events from network, beacon processor, and sync queues in random order
+    /// to test for race conditions. The `complete_strategy` controls how the simulated
+    /// peers respond to requests (e.g., returning errors, wrong data, or valid responses).
     async fn simulate(&mut self, complete_strategy: CompleteStrategy) {
         self.complete_strategy = complete_strategy;
         self.log(&format!(
@@ -289,10 +296,10 @@ impl TestRig {
                 let lookup = self.seen_lookups.entry(id).or_insert(SeenLookup {
                     id,
                     block_root,
-                    max_seen_peers: <_>::default(),
+                    seen_peers: <_>::default(),
                 });
                 for peer in peers {
-                    lookup.max_seen_peers.insert(peer);
+                    lookup.seen_peers.insert(peer);
                 }
             }
 
@@ -1019,30 +1026,30 @@ impl TestRig {
 
     fn assert_peers_at_lookup_of_slot(&self, slot: u64, expected_peers: usize) {
         let lookup = self.lookup_at_slot(slot);
-        if lookup.max_seen_peers.len() != expected_peers {
+        if lookup.seen_peers.len() != expected_peers {
             panic!(
                 "Expected lookup of slot {slot} to have {expected_peers} peers but had {:?}",
-                lookup.max_seen_peers
+                lookup.seen_peers
             )
         }
     }
 
     /// Total count of unique lookups created
     fn created_lookups(&self) -> usize {
-        // Substract initial value to allow resetting metrics mid test
+        // Subtract initial value to allow resetting metrics mid test
         self.sync_manager.block_lookups().metrics().created_lookups
             - self.initial_block_lookups_metrics.created_lookups
     }
 
     /// Total count of lookups completed or dropped
     fn dropped_lookups(&self) -> usize {
-        // Substract initial value to allow resetting metrics mid test
+        // Subtract initial value to allow resetting metrics mid test
         self.sync_manager.block_lookups().metrics().dropped_lookups
             - self.initial_block_lookups_metrics.dropped_lookups
     }
 
     fn completed_lookups(&self) -> usize {
-        // Substract initial value to allow resetting metrics mid test
+        // Subtract initial value to allow resetting metrics mid test
         self.sync_manager
             .block_lookups()
             .metrics()
@@ -1050,7 +1057,7 @@ impl TestRig {
             - self.initial_block_lookups_metrics.completed_lookups
     }
 
-    fn reset_metrics(&mut self) {
+    fn capture_metrics_baseline(&mut self) {
         self.initial_block_lookups_metrics = self.sync_manager.block_lookups().metrics().clone()
     }
 
@@ -1636,7 +1643,7 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     }
 }
 
-/// Assert that sync completes from a GossipUnknownParentBlob / UknownDataColumnParent
+/// Assert that sync completes from a GossipUnknownParentBlob / UnknownDataColumnParent
 async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::new_after_deneb() else {
         return;
@@ -1767,7 +1774,7 @@ async fn too_many_download_failures(depth: usize) {
 
     // Trigger sync again for same block, and complete successfully.
     // Asserts that the lookup is not on a blacklist
-    r.reset_metrics();
+    r.capture_metrics_baseline();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
@@ -1780,7 +1787,7 @@ async fn too_many_processing_failures(depth: usize) {
     // Simulate that a peer always returns empty
     r.simulate(
         CompleteStrategy::new()
-            .process_result(|| BlockProcessingResult::Err(BlockError::BlockSlotLimitReached)),
+            .with_process_result(|| BlockProcessingResult::Err(BlockError::BlockSlotLimitReached)),
     )
     .await;
     // We register multiple penalties, the lookup fails and sync does not progress
@@ -1789,7 +1796,7 @@ async fn too_many_processing_failures(depth: usize) {
 
     // Trigger sync again for same block, and complete successfully.
     // Asserts that the lookup is not on a blacklist
-    r.reset_metrics();
+    r.capture_metrics_baseline();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
     r.assert_successful_lookup_sync();
@@ -1833,7 +1840,7 @@ async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
     // Send an Ignored response, the request should be dropped
-    r.simulate(CompleteStrategy::new().process_result(|| BlockProcessingResult::Ignored))
+    r.simulate(CompleteStrategy::new().with_process_result(|| BlockProcessingResult::Ignored))
         .await;
     // The block was not actually imported
     r.assert_head_slot(0);
@@ -1848,7 +1855,7 @@ async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
     // Send an Ignored response, the request should be dropped
-    r.simulate(CompleteStrategy::new().process_result(|| {
+    r.simulate(CompleteStrategy::new().with_process_result(|| {
         BlockProcessingResult::Err(BlockError::DuplicateFullyImported(Hash256::ZERO))
     }))
     .await;
@@ -1898,7 +1905,7 @@ async fn lookups_form_chain() {
     for slot in 1..=(depth as u64) {
         let lookup = r.lookup_by_root(r.block_root_at_slot(slot));
         assert_eq!(
-            lookup.max_seen_peers.len(),
+            lookup.seen_peers.len(),
             1 + depth - slot as usize,
             "Unexpected peer count for lookup at slot {slot}"
         );
@@ -2033,7 +2040,7 @@ async fn test_same_chain_race_condition() {
     r.trigger_with_last_block();
 
     let block_root_to_skip = r.block_root_at_slot(3);
-    r.simulate(CompleteStrategy::new().block_imported_while_processing(block_root_to_skip))
+    r.simulate(CompleteStrategy::new().with_block_imported_while_processing(block_root_to_skip))
         .await;
 
     // Try to get this block again while the chain is being processed. We should not request it again.

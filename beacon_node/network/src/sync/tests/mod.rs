@@ -152,7 +152,7 @@ struct SeenLookup {
     /// Lookup's Id
     id: Id,
     block_root: Hash256,
-    max_seen_peers: HashSet<PeerId>,
+    seen_peers: HashSet<PeerId>,
 }
 
 #[derive(Debug)]

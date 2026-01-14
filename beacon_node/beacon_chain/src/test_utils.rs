@@ -1419,7 +1419,7 @@ where
                             let mut agg_sig = AggregateSignature::infinity();
 
                             // If disable_crypto is true keep the attestation signature as infinity
-                            if self.chain.config.test_config.disable_crypto {
+                            if !self.chain.config.test_config.disable_crypto {
                                 agg_sig.add_assign(
                                     &self.validator_keypairs[*validator_index].sk.sign(message),
                                 );
@@ -1522,7 +1522,7 @@ where
                             let mut agg_sig = AggregateSignature::infinity();
 
                             // If disable_crypto is true keep the attestation signature as infinity
-                            if self.chain.config.test_config.disable_crypto {
+                            if !self.chain.config.test_config.disable_crypto {
                                 agg_sig.add_assign(
                                     &self.validator_keypairs[*validator_index].sk.sign(message),
                                 );
