@@ -1030,16 +1030,12 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = Arc::new(if self.chain.config.test_config.disable_crypto {
-            SignedBeaconBlock::from_block(block_response.block, Signature::empty())
-        } else {
-            block_response.block.sign(
-                &self.validator_keypairs[proposer_index].sk,
-                &block_response.state.fork(),
-                block_response.state.genesis_validators_root(),
-                &self.spec,
-            )
-        });
+        let signed_block = Arc::new(block_response.block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
+            &self.spec,
+        ));
 
         let block_contents: SignedBlockContentsTuple<E> =
             if signed_block.fork_name_unchecked().deneb_enabled() {
@@ -1418,12 +1414,9 @@ where
 
                             let mut agg_sig = AggregateSignature::infinity();
 
-                            // If disable_crypto is true keep the attestation signature as infinity
-                            if !self.chain.config.test_config.disable_crypto {
-                                agg_sig.add_assign(
-                                    &self.validator_keypairs[*validator_index].sk.sign(message),
-                                );
-                            }
+                            agg_sig.add_assign(
+                                &self.validator_keypairs[*validator_index].sk.sign(message),
+                            );
 
                             agg_sig
                         };
@@ -1520,14 +1513,9 @@ where
                             let message = attestation.data().signing_root(domain);
 
                             let mut agg_sig = AggregateSignature::infinity();
-
-                            // If disable_crypto is true keep the attestation signature as infinity
-                            if !self.chain.config.test_config.disable_crypto {
-                                agg_sig.add_assign(
-                                    &self.validator_keypairs[*validator_index].sk.sign(message),
-                                );
-                            }
-
+                            agg_sig.add_assign(
+                                &self.validator_keypairs[*validator_index].sk.sign(message),
+                            );
                             agg_sig
                         };
 

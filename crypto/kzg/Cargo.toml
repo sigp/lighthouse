@@ -5,6 +5,10 @@ authors = ["Pawan Dhananjay <pawandhananjay@gmail.com>"]
 edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+fake_crypto = []
+
 [dependencies]
 arbitrary = { workspace = true }
 c-kzg = { workspace = true }

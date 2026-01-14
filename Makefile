@@ -234,7 +234,11 @@ test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,fake_crypto,$(TEST_FEATURES)" \
+		-p network
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
 		--features "fork_from_env,$(TEST_FEATURES)" \
+		-E 'test(name ~ "crypto_on")' \
 		-p network
 
 # Run the tests in the `slasher` crate for all supported database backends.

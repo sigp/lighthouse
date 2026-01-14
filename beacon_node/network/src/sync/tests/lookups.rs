@@ -7,10 +7,9 @@ use crate::sync::{
     manager::{BlockProcessType, BlockProcessingResult, SyncManager},
 };
 use beacon_chain::blob_verification::KzgVerifiedBlob;
-use beacon_chain::chain_config::TestConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, ChainConfig, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BlockError, NotifyExecutionLayer,
     block_verification_types::AsBlock,
     data_availability_checker::Availability,
     test_utils::{
@@ -170,12 +169,6 @@ impl TestRig {
             .mock_execution_layer()
             .testing_slot_clock(clock.clone())
             .node_custody_type(test_rig_config.fulu_test_type.we_node_custody_type())
-            .chain_config(ChainConfig {
-                test_config: TestConfig {
-                    disable_crypto: true,
-                },
-                ..Default::default()
-            })
             .build();
 
         let chain = harness.chain.clone();
@@ -774,12 +767,7 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(self.harness.chain.slot_clock.clone())
-            .chain_config(ChainConfig {
-                test_config: TestConfig {
-                    disable_crypto: true,
-                },
-                ..Default::default()
-            }) // Make the external harness a supernode so all columns are available
+            // Make the external harness a supernode so all columns are available
             .node_custody_type(NodeCustodyType::Supernode)
             .build();
         // Ensure all blocks have data. Otherwise, the triggers for unknown blob parent and unknown
