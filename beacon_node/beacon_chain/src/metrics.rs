@@ -1772,6 +1772,49 @@ pub static BEACON_ENGINE_GET_BLOBS_V3_REQUEST_DURATION_SECONDS: LazyLock<Result<
     });
 
 /*
+ * Standardized metrics for partial column efficiency
+ */
+pub static BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_partial_message_useful_cells_total",
+            "Total number of successful engine_getBlobsV3 responses from the execution layer \
+            with at least one blob missing",
+            &["index"],
+        )
+    });
+
+pub static BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_partial_message_cells_received_total",
+            "Total number of successful engine_getBlobsV3 responses from the execution layer \
+            with at least one blob missing",
+            &["index"],
+        )
+    });
+
+pub static BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_useful_full_columns_received_total",
+            "Total number of successful engine_getBlobsV3 responses from the execution layer \
+            with at least one blob missing",
+            &["index"],
+        )
+    });
+
+pub static BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_partial_message_column_completions_total",
+            "Total number of successful engine_getBlobsV3 responses from the execution layer \
+            with at least one blob missing",
+            &["index"],
+        )
+    });
+
+/*
  * Light server message verification
  */
 pub static FINALITY_UPDATE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
