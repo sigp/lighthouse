@@ -249,12 +249,28 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     let get_blobs_v3 = chain_adapter.supports_get_blobs_v3().await?;
     let response = if get_blobs_v3 {
         debug!(num_expected_blobs, "Fetching available blobs from the EL");
-        chain_adapter
+        // Track request count and duration for standardized metrics
+        inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V3_REQUESTS_TOTAL);
+        let _timer =
+            metrics::start_timer(&metrics::BEACON_ENGINE_GET_BLOBS_V3_REQUEST_DURATION_SECONDS);
+
+        let response = chain_adapter
             .get_blobs_v3(versioned_hashes)
             .await
             .inspect_err(|_| {
                 inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
-            })?
+            })?;
+
+        if response
+            .as_ref()
+            .is_some_and(|vec| vec.iter().all(|blob| blob.is_some()))
+        {
+            inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V3_COMPLETE_RESPONSES_TOTAL);
+        } else {
+            inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V3_PARTIAL_RESPONSES_TOTAL);
+        }
+
+        response
     } else {
         debug!(num_expected_blobs, "Fetching all blobs from the EL");
 
