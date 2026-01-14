@@ -11,6 +11,7 @@ use crate::sync::SyncDutiesMap;
 use crate::sync::poll_sync_committee_duties;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
+use eth2::types::ValidatorStatus::{ExitedSlashed, ExitedUnslashed};
 use eth2::types::{
     AttesterData, BeaconCommitteeSelection, BeaconCommitteeSubscription, DutiesResponse,
     ProposerData, StateId, ValidatorId,
@@ -394,6 +395,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             enable_high_validator_count_metrics: self.enable_high_validator_count_metrics,
             selection_proof_config: self.attestation_selection_proof_config,
             disable_attesting: self.disable_attesting,
+            exited_validators: Default::default(),
         })
     }
 }
@@ -424,6 +426,7 @@ pub struct DutiesService<S, T> {
     /// Pass the config for distributed or non-distributed mode.
     pub selection_proof_config: SelectionProofConfig,
     pub disable_attesting: bool,
+    pub exited_validators: RwLock<HashSet<PublicKeyBytes>>,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
@@ -526,6 +529,10 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
     pub fn per_validator_metrics(&self) -> bool {
         self.enable_high_validator_count_metrics
             || self.total_validator_count() <= VALIDATOR_METRICS_MIN_COUNT
+    }
+
+    pub fn exited_count(&self) -> usize {
+        self.exited_validators.read().len()
     }
 }
 
@@ -743,6 +750,11 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                         .unknown_validator_next_poll_slots
                         .write()
                         .remove(&pubkey);
+
+                    let validator_status = response.data.status;
+                    if validator_status == ExitedUnslashed || validator_status == ExitedSlashed {
+                        duties_service.exited_validators.write().insert(pubkey);
+                    }
                 }
                 // This is not necessarily an error, it just means the validator is not yet known to
                 // the beacon chain.

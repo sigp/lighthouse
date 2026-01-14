@@ -1,7 +1,4 @@
 use crate::duties_service::DutiesService;
-use bls::PublicKeyBytes;
-use eth2::types::ValidatorStatus::{ExitedSlashed, ExitedUnslashed};
-use eth2::types::{StateId, ValidatorId};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -9,7 +6,7 @@ use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info};
 use types::{ChainSpec, EthSpec};
 use validator_metrics::set_gauge;
-use validator_store::{DoppelgangerStatus, ValidatorStore};
+use validator_store::ValidatorStore;
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
@@ -121,6 +118,8 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
             )
         }
 
+        let exited_validators = duties_service.exited_count();
+
         if total_validators == 0 {
             info!(
                 msg = "see `lighthouse vm create --help` or the HTTP API documentation",
@@ -138,48 +137,18 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
         } else if attesting_validators > 0 {
             info!(
                 current_epoch_proposers = proposing_validators,
-                active_validators = attesting_validators,
                 total_validators = total_validators,
+                active = attesting_validators,
+                exited = exited_validators,
                 %epoch,
                 %slot,
                 "Some validators active"
             );
         } else {
-            let pubkeys: Vec<PublicKeyBytes> = duties_service
-                .validator_store
-                .voting_pubkeys(DoppelgangerStatus::ignored);
-
-            let mut validator_status = Vec::new();
-            for pubkey in pubkeys {
-                let validator_data = duties_service
-                    .beacon_nodes
-                    .first_success(|beacon_node| async move {
-                        beacon_node
-                            .get_beacon_states_validator_id(
-                                StateId::Head,
-                                &ValidatorId::PublicKey(pubkey),
-                            )
-                            .await
-                    })
-                    .await;
-
-                match validator_data {
-                    Ok(Some(response)) => validator_status.push(response.data.status),
-                    Ok(None) => {}
-                    Err(e) => {
-                        error!(%e, "Error checking if validator exists in beacon chain");
-                    }
-                }
-            }
-
             // Log a different log if all validators have exited
-            if !validator_status.is_empty()
-                && validator_status
-                    .iter()
-                    .all(|status| *status == ExitedUnslashed || *status == ExitedSlashed)
-            {
+            if exited_validators == total_validators {
                 info!(
-                    validators = total_validators,
+                    exited_validators = total_validators,
                     %epoch,
                     %slot,
                     "All validators have exited")
