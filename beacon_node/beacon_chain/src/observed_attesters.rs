@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use typenum::Unsigned;
-use types::slot_data::SlotData;
+use types::SlotData;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The maximum capacity of the `AutoPruningEpochContainer`.

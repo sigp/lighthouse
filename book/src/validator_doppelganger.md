@@ -106,7 +106,6 @@ The steps to solving a doppelganger vary depending on the case, but some places 
 
 1. Is there another validator process running on this host?
     - Unix users can check by running the command `ps aux | grep lighthouse`
-    - Windows users can check the Task Manager.
 1. Has this validator recently been moved from another host? Check to ensure it's not running.
 1. Has this validator been delegated to a staking service?
 

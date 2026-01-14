@@ -135,8 +135,8 @@ use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::das_column::DasColumn;
 use types::data_column_sidecar::ColumnIndex;
+use types::execution::BlockProductionVersion;
 use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
-use types::payload::BlockProductionVersion;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;

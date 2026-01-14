@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
 };
 
-use safe_arith::SafeArith;
+use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use typenum::{
     U0, U1, U2, U4, U8, U16, U17, U32, U64, U128, U256, U512, U625, U1024, U2048, U4096, U8192,
@@ -11,10 +11,7 @@ use typenum::{
     U1099511627776, UInt, Unsigned, bit::B0,
 };
 
-use crate::{
-    core::{ChainSpec, Epoch},
-    state::BeaconStateError,
-};
+use crate::core::{ChainSpec, Epoch};
 
 type U5000 = UInt<UInt<UInt<U625, B0>, B0>, B0>; // 625 * 8 = 5000
 
@@ -196,7 +193,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn get_committee_count_per_slot(
         active_validator_count: usize,
         spec: &ChainSpec,
-    ) -> Result<usize, BeaconStateError> {
+    ) -> Result<usize, ArithError> {
         Self::get_committee_count_per_slot_with(
             active_validator_count,
             spec.max_committees_per_slot,
@@ -208,7 +205,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         active_validator_count: usize,
         max_committees_per_slot: usize,
         target_committee_size: usize,
-    ) -> Result<usize, BeaconStateError> {
+    ) -> Result<usize, ArithError> {
         let slots_per_epoch = Self::SlotsPerEpoch::to_usize();
 
         Ok(std::cmp::max(
