@@ -1822,8 +1822,9 @@ pub struct Config {
 
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    slot_duration_ms: u64,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slot_duration_ms: Option<MaybeQuoted<u64>>,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2289,7 +2290,9 @@ impl Config {
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
-            slot_duration_ms: spec.slot_duration_ms,
+            slot_duration_ms: Some(MaybeQuoted {
+                value: spec.slot_duration_ms,
+            }),
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
@@ -2455,7 +2458,9 @@ impl Config {
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             seconds_per_slot,
-            slot_duration_ms,
+            slot_duration_ms: slot_duration_ms
+                .map(|q| q.value)
+                .unwrap_or_else(|| seconds_per_slot.saturating_mul(1000)),
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
