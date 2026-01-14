@@ -1513,9 +1513,11 @@ where
                             let message = attestation.data().signing_root(domain);
 
                             let mut agg_sig = AggregateSignature::infinity();
+
                             agg_sig.add_assign(
                                 &self.validator_keypairs[*validator_index].sk.sign(message),
                             );
+
                             agg_sig
                         };
 

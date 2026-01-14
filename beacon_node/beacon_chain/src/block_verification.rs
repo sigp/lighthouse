@@ -671,12 +671,15 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
     for svb in &mut signature_verified_blocks {
-        signature_verifier.include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
+        signature_verifier
+            .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
     }
 
     if signature_verifier.verify().is_err() {
         return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
     }
+
+    drop(pubkey_cache);
 
     if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
         signature_verified_block.parent = Some(parent);
@@ -974,17 +977,19 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let expected_proposer = proposer.index;
         let fork = proposer.fork;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
-        let pubkey = pubkey_cache
-            .get(block.message().proposer_index() as usize)
-            .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
-        let signature_is_valid = block.verify_signature(
-            Some(block_root),
-            pubkey,
-            &fork,
-            chain.genesis_validators_root,
-            &chain.spec,
-        );
+        let signature_is_valid = {
+            let pubkey_cache = get_validator_pubkey_cache(chain)?;
+            let pubkey = pubkey_cache
+                .get(block.message().proposer_index() as usize)
+                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
+            block.verify_signature(
+                Some(block_root),
+                pubkey,
+                &fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            )
+        };
 
         if !signature_is_valid {
             return Err(BlockError::InvalidSignature(
@@ -1116,14 +1121,14 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
+        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+
         let mut consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
         signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
-        let signatures_valid = signature_verifier.verify().is_ok();
 
-        if signatures_valid {
+        if signature_verifier.verify().is_ok() {
             Ok(Self {
                 consensus_context,
                 block,

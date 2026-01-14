@@ -1051,6 +1051,7 @@ where
                     self.kzg.clone(),
                     store,
                     Arc::new(custody_context),
+                    &self.chain_config.test_config,
                     self.spec,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
