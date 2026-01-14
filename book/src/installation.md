@@ -1,6 +1,8 @@
 # 📦 Installation
 
-Lighthouse runs on Linux, macOS, and Windows.
+Lighthouse runs on Linux, macOS, and Windows*.
+
+> \* Lighthouse does not officially support Windows platform. However, Lighthouse can still run natively on Windows until it does not at some point in the future. Windows users may also switch to using Docker, Windows Subsystem for Linux or other supported operating systems.
 
 There are three core methods to obtain the Lighthouse application:
 
