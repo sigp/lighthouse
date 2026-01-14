@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use tracing::{Instrument, debug, error, info_span, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
@@ -1041,7 +1041,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        tracing::info!("Sending RPC");
+                        info!("Sending RPC");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
@@ -1055,7 +1055,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                         Response::DataColumnsByRoot(Some(sidecar)) => {
                             assert_eq!(sidecar, data_column.clone());
                             messages_received += 1;
-                            tracing::info!("Chunk received");
+                            info!("Chunk received");
                         }
                         Response::DataColumnsByRoot(None) => {
                             // should be exactly messages_to_send
@@ -1082,7 +1082,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                     } => {
                         if request_type == rpc_request {
                             // send the response
-                            tracing::info!("Receiver got request");
+                            info!("Receiver got request");
 
                             for _ in 0..messages_to_send {
                                 receiver.send_response(
@@ -1090,7 +1090,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                                     inbound_request_id,
                                     rpc_response.clone(),
                                 );
-                                tracing::info!("Sending message");
+                                info!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -1098,11 +1098,11 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                                 inbound_request_id,
                                 Response::DataColumnsByRoot(None),
                             );
-                            tracing::info!("Send stream term");
+                            info!("Send stream term");
                         }
                     }
                     e => {
-                        tracing::info!(?e, "Got event");
+                        info!(?e, "Got event");
                     } // Ignore other events
                 }
             }
@@ -1186,7 +1186,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        tracing::info!("Sending RPC");
+                        info!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -1199,7 +1199,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                         Response::DataColumnsByRange(Some(sidecar)) => {
                             assert_eq!(sidecar, data_column.clone());
                             messages_received += 1;
-                            tracing::info!("Chunk received");
+                            info!("Chunk received");
                         }
                         Response::DataColumnsByRange(None) => {
                             // should be exactly messages_to_send
@@ -1226,7 +1226,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                     } => {
                         if request_type == rpc_request {
                             // send the response
-                            tracing::info!("Receiver got request");
+                            info!("Receiver got request");
 
                             for _ in 0..messages_to_send {
                                 receiver.send_response(
@@ -1234,7 +1234,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                                     inbound_request_id,
                                     rpc_response.clone(),
                                 );
-                                tracing::info!("Sending message");
+                                info!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -1242,7 +1242,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                                 inbound_request_id,
                                 Response::DataColumnsByRange(None),
                             );
-                            tracing::info!("Send stream term");
+                            info!("Send stream term");
                         }
                     }
                     _ => {} // Ignore other events
