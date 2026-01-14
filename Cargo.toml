@@ -95,10 +95,15 @@ version = "8.0.1"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
-alloy-consensus = { version = "=1.0.42", default-features = false }
-alloy-primitives = { version = "=1.4.1", default-features = false, features = ["rlp", "getrandom"] }
-alloy-rlp = { version = "=0.3.12", default-features = false }
-alloy-rpc-types-eth = { version = "=1.0.42", default-features = false, features = ["serde"] }
+alloy-consensus = { version = "1", default-features = false }
+alloy-dyn-abi = { version = "1", default-features = false }
+alloy-json-abi = { version = "1", default-features = false }
+alloy-network = { version = "1", default-features = false }
+alloy-primitives = { version = "1", default-features = false, features = ["rlp", "getrandom"] }
+alloy-provider = { version = "1", default-features = false, features = ["reqwest"] }
+alloy-rlp = { version = "0.3", default-features = false }
+alloy-rpc-types-eth = { version = "1", default-features = false, features = ["serde"] }
+alloy-signer-local = { version = "1", default-features = false }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
@@ -230,10 +235,10 @@ snap = "1"
 ssz_types = { version = "0.14.0", features = ["context_deserialize", "runtime_types"] }
 state_processing = { path = "consensus/state_processing" }
 store = { path = "beacon_node/store" }
-strum = { version = "0.24", features = ["derive"] }
+strum = { version = "0.27", features = ["derive"] }
 superstruct = "0.10"
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
-syn = "1"
+syn = "2"
 sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
@@ -254,6 +259,7 @@ tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tree_hash = "0.12.0"
 tree_hash_derive = "0.12.0"
+typenum = "1"
 types = { path = "consensus/types" }
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }

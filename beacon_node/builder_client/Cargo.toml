@@ -5,6 +5,8 @@ edition = { workspace = true }
 authors = ["Sean Anderson <sean@sigmaprime.io>"]
 
 [dependencies]
+bls = { workspace = true }
+context_deserialize = { workspace = true }
 eth2 = { workspace = true }
 ethereum_ssz = { workspace = true }
 lighthouse_version = { workspace = true }

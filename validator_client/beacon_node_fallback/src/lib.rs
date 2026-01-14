@@ -20,7 +20,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
-use strum::EnumVariantNames;
+use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{debug, error, warn};
@@ -752,7 +752,7 @@ async fn sort_nodes_by_health(nodes: &mut Vec<CandidateBeaconNode>) {
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumVariantNames, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, VariantNames, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
     None,
@@ -773,12 +773,13 @@ impl ApiTopic {
 mod tests {
     use super::*;
     use crate::beacon_node_health::BeaconNodeHealthTier;
+    use bls::Signature;
     use eth2::SensitiveUrl;
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
     use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
-    use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
+    use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
     type E = MainnetEthSpec;

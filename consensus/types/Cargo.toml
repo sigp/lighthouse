@@ -65,6 +65,7 @@ test_random_derive = { path = "../../common/test_random_derive" }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
+typenum = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }

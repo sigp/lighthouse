@@ -17,19 +17,17 @@ use crate::{
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
         BeaconBlockBellatrix, BeaconBlockBodyBellatrix, BeaconBlockBodyCapella,
-        BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockBodyGloas,
-        BeaconBlockCapella, BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu,
-        BeaconBlockGloas, BeaconBlockHeader, BeaconBlockRef, BeaconBlockRefMut,
-        SignedBeaconBlockHeader,
+        BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockCapella,
+        BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu, BeaconBlockGloas, BeaconBlockHeader,
+        BeaconBlockRef, BeaconBlockRefMut, SignedBeaconBlockHeader,
     },
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, SignedRoot, SigningData, Slot},
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadGloas,
-        ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-        ExecutionPayloadGloas, FullPayload, FullPayloadBellatrix, FullPayloadCapella,
-        FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadGloas,
+        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, ExecutionPayload,
+        ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload, FullPayloadBellatrix,
+        FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     kzg_ext::format_kzg_commitments,
@@ -675,59 +673,15 @@ impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
     }
 }
 
-impl<E: EthSpec> SignedBeaconBlockGloas<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadGloas<E>,
-    ) -> SignedBeaconBlockGloas<E, FullPayload<E>> {
-        let SignedBeaconBlockGloas {
-            message:
-                BeaconBlockGloas {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyGloas {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadGloas { .. },
-                            bls_to_execution_changes,
-                            blob_kzg_commitments,
-                            execution_requests,
-                        },
-                },
-            signature,
-        } = self;
+// We can convert gloas blocks without payloads into blocks "with" payloads.
+// TODO(EIP-7732) Look into whether we can remove this in the future since no blinded blocks post-gloas
+impl<E: EthSpec> From<SignedBeaconBlockGloas<E, BlindedPayload<E>>>
+    for SignedBeaconBlockGloas<E, FullPayload<E>>
+{
+    fn from(signed_block: SignedBeaconBlockGloas<E, BlindedPayload<E>>) -> Self {
+        let SignedBeaconBlockGloas { message, signature } = signed_block;
         SignedBeaconBlockGloas {
-            message: BeaconBlockGloas {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyGloas {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadGloas { execution_payload },
-                    bls_to_execution_changes,
-                    blob_kzg_commitments,
-                    execution_requests,
-                },
-            },
+            message: message.into(),
             signature,
         }
     }
@@ -756,9 +710,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Fulu(block), Some(ExecutionPayload::Fulu(payload))) => {
                 SignedBeaconBlock::Fulu(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Gloas(block), Some(ExecutionPayload::Gloas(payload))) => {
-                SignedBeaconBlock::Gloas(block.into_full_block(payload))
-            }
+            (SignedBeaconBlock::Gloas(block), _) => SignedBeaconBlock::Gloas(block.into()),
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Bellatrix(_), _) => return None,
@@ -766,7 +718,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Deneb(_), _) => return None,
             (SignedBeaconBlock::Electra(_), _) => return None,
             (SignedBeaconBlock::Fulu(_), _) => return None,
-            (SignedBeaconBlock::Gloas(_), _) => return None,
+            // TODO(EIP-7732) Determine if need a match arm for gloas here
         };
         Some(full_block)
     }
