@@ -185,6 +185,12 @@ Flags:
           If present, do not attempt to discover new validators in the
           validators-dir. Validators will need to be manually added to the
           validator_definitions.yml file.
+      --disable-beacon-head-monitor
+          Disable the beacon head monitor which tries to attest as soon as any
+          of the configured beacon nodes sends a head event. Leaving the service
+          enabled is recommended, but disabling it can lead to reduced bandwidth
+          and more predictable usage of the primary beacon node (rather than the
+          fastest BN).
       --disable-latency-measurement-service
           Disables the service that periodically attempts to measure latency to
           BNs.
@@ -205,14 +211,6 @@ Flags:
       --distributed
           Enables functionality required for running the validator in a
           distributed validator cluster.
-      --enable-beacon-head-monitor
-          Enable the beacon head monitor so fallback head updates trigger duties
-          when a lagging primary is detected. This keeps the attestation service
-          responsive when using multiple beacon nodes, but it relies on the
-          fallback service streaming head events which may increase network
-          usage. When is not enabled, duties are only triggered on slot
-          boundaries and ignore fallback head changes. The current default
-          behaviour is to have this feature enabled.
       --enable-doppelganger-protection
           If this flag is set, Lighthouse will delay startup for three epochs
           and monitor for messages on the network by any of the validators
