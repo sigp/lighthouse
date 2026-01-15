@@ -38,7 +38,7 @@ use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList,
     ForkContext, ForkName, Graffiti, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     data_column_sidecar::ColumnIndex,
-    test_utils::{SeedableRng, XorShiftRng},
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -820,11 +820,12 @@ impl TestRig {
 
     fn corrupt_last_block(&mut self) {
         let rpc_block = self.get_last_block().clone();
-        let mut block = rpc_block.block_cloned();
+        let mut block = (*rpc_block.block_cloned()).clone();
         let blobs = rpc_block.blobs().cloned();
         let columns = rpc_block.custody_columns().cloned();
-        *block.message_mut().body_mut().graffiti_mut() = Graffiti::random_for_test();
-        self.re_insert_block(block, blobs, columns);
+        *block.message_mut().body_mut().graffiti_mut() =
+            Graffiti::random_for_test(&mut self.rng);
+        self.re_insert_block(Arc::new(block), blobs, columns);
     }
 
     fn get_last_block(&self) -> &RpcBlock<E> {
@@ -2256,6 +2257,7 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
 // - Respond with stream terminator
 //   ^ The stream terminator should be ignored and not close the next retry
 
+#[cfg(not(feature = "fake_crypto"))]
 #[tokio::test]
 async fn crypto_on_fail_with_invalid_block_signature() {
     let mut r = TestRig::default();

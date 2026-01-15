@@ -238,8 +238,7 @@ test-network-%:
 		-p network
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
 		--features "fork_from_env,$(TEST_FEATURES)" \
-		-E 'test(name ~ "crypto_on")' \
-		-p network
+		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
