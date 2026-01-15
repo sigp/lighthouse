@@ -83,7 +83,6 @@ pub struct Config {
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
     /// Enables the beacon head monitor that reacts to fallback head updates.
-    #[serde(default)]
     pub enable_beacon_head_monitor: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,

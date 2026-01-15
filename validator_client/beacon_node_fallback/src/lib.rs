@@ -88,13 +88,8 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                     let sleep_time = beacon_nodes_ref
                         .slot_clock
                         .as_ref()
-                        .and_then(|slot_clock| {
-                            let slot = slot_clock.now()?;
-                            let till_next_slot = slot_clock.duration_to_slot(slot + 1)?;
-
-                            till_next_slot.checked_sub(SLOT_LOOKAHEAD)
-                        })
-                        .unwrap_or_else(|| Duration::from_secs(1));
+                        .and_then(|slot_clock| slot_clock.duration_to_next_slot())
+                        .unwrap_or_else(|| Duration::from_secs(12));
 
                     sleep(sleep_time).await
                 }
@@ -450,8 +445,8 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         self.slot_clock = Some(slot_clock);
     }
 
-    /// This the head monitor channel that streams events from all the beacon node that the
-    /// validator client is connected in the `BeaconNodeFallback`. This is also initialize the
+    /// This the head monitor channel that streams events from all the beacon nodes that the
+    /// validator client is connected in the `BeaconNodeFallback`. This also initializes the
     /// beacon_head_cache under the assumption the beacon_head_cache will always be needed when
     /// head_monitor_send is set.
     pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
