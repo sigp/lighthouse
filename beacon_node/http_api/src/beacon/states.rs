@@ -12,9 +12,7 @@ use eth2::types::{
     ValidatorsRequestBody,
 };
 use std::sync::Arc;
-use types::{
-    AttestationShufflingId, CommitteeCache, Error as BeaconStateError, EthSpec, RelativeEpoch,
-};
+use types::{AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch};
 use warp::filters::BoxedFilter;
 use warp::{Filter, Reply};
 use warp_utils::query::multi_key_query;
