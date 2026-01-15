@@ -163,6 +163,7 @@ pub struct ChainSpec {
     pub inactivity_score_bias: u64,
     pub inactivity_score_recovery_rate: u64,
     pub min_sync_committee_participants: u64,
+    pub update_timeout: u64,
     pub(crate) domain_sync_committee: u32,
     pub(crate) domain_sync_committee_selection_proof: u32,
     pub(crate) domain_contribution_and_proof: u32,
@@ -251,7 +252,9 @@ pub struct ChainSpec {
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
     pub subnets_per_node: u8,
+    pub epochs_per_subnet_subscription: u64,
     pub attestation_subnet_count: u64,
+    pub attestation_subnet_extra_bits: u8,
     pub attestation_subnet_prefix_bits: u8,
 
     /*
@@ -1014,6 +1017,7 @@ impl ChainSpec {
             inactivity_score_bias: 4,
             inactivity_score_recovery_rate: 16,
             min_sync_committee_participants: 1,
+            update_timeout: 8192,
             epochs_per_sync_committee_period: Epoch::new(256),
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
@@ -1106,7 +1110,9 @@ impl ChainSpec {
             boot_nodes: vec![],
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
+            epochs_per_subnet_subscription: 256,
             attestation_subnet_count: 64,
+            attestation_subnet_extra_bits: 0,
             subnets_per_node: 2,
             maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
@@ -1116,7 +1122,10 @@ impl ChainSpec {
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
-            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(
+                default_attestation_subnet_count(),
+                default_attestation_subnet_extra_bits(),
+            ),
             max_request_blocks: default_max_request_blocks(),
 
             /*
@@ -1197,6 +1206,7 @@ impl ChainSpec {
             proportional_slashing_multiplier: 2,
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
+            update_timeout: 64,
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
             // Bellatrix
@@ -1380,6 +1390,7 @@ impl ChainSpec {
             inactivity_score_bias: 4,
             inactivity_score_recovery_rate: 16,
             min_sync_committee_participants: 1,
+            update_timeout: 8192,
             epochs_per_sync_committee_period: Epoch::new(512),
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
@@ -1471,7 +1482,9 @@ impl ChainSpec {
             boot_nodes: vec![],
             network_id: 100, // Gnosis Chain network id
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
+            epochs_per_subnet_subscription: 256,
             attestation_subnet_count: 64,
+            attestation_subnet_extra_bits: 0,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
@@ -1482,7 +1495,10 @@ impl ChainSpec {
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             max_request_blocks: default_max_request_blocks(),
-            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(
+                default_attestation_subnet_count(),
+                default_attestation_subnet_extra_bits(),
+            ),
 
             /*
              * Networking Deneb Specific
@@ -1803,9 +1819,15 @@ pub struct Config {
     #[serde(default = "default_message_domain_valid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_valid_snappy: [u8; 4],
-    #[serde(default = "default_attestation_subnet_prefix_bits")]
+    #[serde(default = "default_epochs_per_subnet_subscription")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    epochs_per_subnet_subscription: u64,
+    #[serde(default = "default_attestation_subnet_count")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_subnet_count: u64,
+    #[serde(default = "default_attestation_subnet_extra_bits")]
     #[serde(with = "serde_utils::quoted_u8")]
-    attestation_subnet_prefix_bits: u8,
+    attestation_subnet_extra_bits: u8,
     #[serde(default = "default_max_request_blocks_deneb")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks_deneb: u64,
@@ -1920,8 +1942,36 @@ fn default_subnets_per_node() -> u8 {
     2u8
 }
 
-fn default_attestation_subnet_prefix_bits() -> u8 {
-    6
+const fn default_epochs_per_subnet_subscription() -> u64 {
+    256
+}
+
+const fn default_attestation_subnet_count() -> u64 {
+    64
+}
+
+const fn default_attestation_subnet_extra_bits() -> u8 {
+    0
+}
+
+/// Compute attestation_subnet_prefix_bits dynamically as:
+/// ceillog2(ATTESTATION_SUBNET_COUNT) + ATTESTATION_SUBNET_EXTRA_BITS
+fn compute_attestation_subnet_prefix_bits(
+    attestation_subnet_count: u64,
+    attestation_subnet_extra_bits: u8,
+) -> u8 {
+    let default_attestation_subnet_prefix_bits = 6u8;
+
+    // ceillog2() = next_power_of_two().ilog2()
+    // casting to u8 is fine given ilog2(u64::MAX) = 63
+    let min_bits_needed = attestation_subnet_count
+        .checked_next_power_of_two()
+        .and_then(|x| x.checked_ilog2())
+        .unwrap_or(default_attestation_subnet_prefix_bits as u32) as u8;
+
+    min_bits_needed
+        .safe_add(attestation_subnet_extra_bits)
+        .unwrap_or(default_attestation_subnet_prefix_bits)
 }
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
@@ -2206,7 +2256,9 @@ impl Config {
             shard_committee_period: spec.shard_committee_period,
             eth1_follow_distance: spec.eth1_follow_distance,
             subnets_per_node: spec.subnets_per_node,
-            attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
+            epochs_per_subnet_subscription: spec.epochs_per_subnet_subscription,
+            attestation_subnet_count: spec.attestation_subnet_count,
+            attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
 
             inactivity_score_bias: spec.inactivity_score_bias,
             inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
@@ -2297,7 +2349,9 @@ impl Config {
             shard_committee_period,
             eth1_follow_distance,
             subnets_per_node,
-            attestation_subnet_prefix_bits,
+            epochs_per_subnet_subscription,
+            attestation_subnet_count,
+            attestation_subnet_extra_bits,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -2370,6 +2424,9 @@ impl Config {
             shard_committee_period,
             eth1_follow_distance,
             subnets_per_node,
+            epochs_per_subnet_subscription,
+            attestation_subnet_count,
+            attestation_subnet_extra_bits,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -2390,7 +2447,11 @@ impl Config {
             resp_timeout,
             message_domain_invalid_snappy,
             message_domain_valid_snappy,
-            attestation_subnet_prefix_bits,
+            // Compute attestation_subnet_prefix_bits dynamically
+            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(
+                attestation_subnet_count,
+                attestation_subnet_extra_bits,
+            ),
             max_request_blocks,
             attestation_propagation_slot_range,
             maximum_gossip_clock_disparity,
@@ -2559,6 +2620,13 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_compute_min_bits_for_n_values_edge_cases() {
+        assert_eq!(compute_attestation_subnet_prefix_bits(64, 0), 6);
+        assert_eq!(compute_attestation_subnet_prefix_bits(65, 0), 7);
+        assert_eq!(compute_attestation_subnet_prefix_bits(0, 1), 1);
+    }
 }
 
 #[cfg(test)]
@@ -2638,6 +2706,9 @@ mod yaml_tests {
         REORG_HEAD_WEIGHT_THRESHOLD: 20
         REORG_PARENT_WEIGHT_THRESHOLD: 160
         REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+        EPOCHS_PER_SUBNET_SUBSCRIPTION: 256
+        ATTESTATION_SUBNET_COUNT: 64
+        ATTESTATION_SUBNET_EXTRA_BITS: 0
         DEPOSIT_CHAIN_ID: 7042643276
         DEPOSIT_NETWORK_ID: 7042643276
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
@@ -2787,6 +2858,9 @@ mod yaml_tests {
         REORG_HEAD_WEIGHT_THRESHOLD: 20
         REORG_PARENT_WEIGHT_THRESHOLD: 160
         REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+        EPOCHS_PER_SUBNET_SUBSCRIPTION: 256
+        ATTESTATION_SUBNET_COUNT: 64
+        ATTESTATION_SUBNET_EXTRA_BITS: 0
         DEPOSIT_CHAIN_ID: 7042643276
         DEPOSIT_NETWORK_ID: 7042643276
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
@@ -2896,6 +2970,9 @@ mod yaml_tests {
         MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
         CHURN_LIMIT_QUOTIENT: 65536
         PROPOSER_SCORE_BOOST: 40
+        EPOCHS_PER_SUBNET_SUBSCRIPTION: 256
+        ATTESTATION_SUBNET_COUNT: 64
+        ATTESTATION_SUBNET_EXTRA_BITS: 0
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
@@ -2928,7 +3005,6 @@ mod yaml_tests {
         check_default!(resp_timeout);
         check_default!(message_domain_invalid_snappy);
         check_default!(message_domain_valid_snappy);
-        check_default!(attestation_subnet_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
     }
