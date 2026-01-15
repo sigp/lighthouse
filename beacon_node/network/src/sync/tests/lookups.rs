@@ -34,8 +34,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec, FixedBlobSidecarList, ForkContext,
+    ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, XorShiftRng},
 };
@@ -817,7 +817,6 @@ impl TestRig {
         blocks.last().expect("empty blocks").1
     }
 
-    #[cfg(not(feature = "fake_crypto"))]
     fn corrupt_last_block_signature(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let mut block = (*rpc_block.block_cloned()).clone();
@@ -827,14 +826,12 @@ impl TestRig {
         self.re_insert_block(Arc::new(block), blobs, columns);
     }
 
-    #[cfg(not(feature = "fake_crypto"))]
     fn valid_signature(&mut self) -> bls::Signature {
         let keypair = bls::Keypair::random();
         let msg = Hash256::random();
         keypair.sk.sign(msg)
     }
 
-    #[cfg(not(feature = "fake_crypto"))]
     fn corrupt_last_blob_proposer_signature(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
@@ -856,7 +853,6 @@ impl TestRig {
         self.re_insert_block(block, Some(blobs), columns);
     }
 
-    #[cfg(not(feature = "fake_crypto"))]
     fn corrupt_last_blob_kzg_proof(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
@@ -878,7 +874,6 @@ impl TestRig {
         self.re_insert_block(block, Some(blobs), columns);
     }
 
-    #[cfg(not(feature = "fake_crypto"))]
     fn corrupt_last_column_proposer_signature(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
@@ -892,7 +887,6 @@ impl TestRig {
         self.re_insert_block(block, blobs, Some(columns));
     }
 
-    #[cfg(not(feature = "fake_crypto"))]
     fn corrupt_last_column_kzg_proof(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
@@ -917,7 +911,6 @@ impl TestRig {
         last_block
     }
 
-    #[cfg(not(feature = "fake_crypto"))]
     fn re_insert_block(
         &mut self,
         block: Arc<SignedBeaconBlock<E>>,
@@ -2338,7 +2331,9 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
 // - Respond with stream terminator
 //   ^ The stream terminator should be ignored and not close the next retry
 
-#[cfg(not(feature = "fake_crypto"))]
+// These `crypto_on` tests assert that the fake_crytpo feature works as expected. We run only the
+// `crypto_on` tests without the fake_crypto feature and make sure that processing fails, = to
+// assert that signatures and kzg proofs are checked
 #[tokio::test]
 async fn crypto_on_fail_with_invalid_block_signature() {
     let mut r = TestRig::default();
@@ -2346,11 +2341,15 @@ async fn crypto_on_fail_with_invalid_block_signature() {
     r.corrupt_last_block_signature();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
-    r.assert_failed_lookup_sync();
-    r.expect_penalties_of_type("lookup_block_processing_failure");
+    if cfg!(feature = "fake_crypto") {
+        r.assert_successful_lookup_sync();
+        r.expect_no_penalties();
+    } else {
+        r.assert_failed_lookup_sync();
+        r.expect_penalties_of_type("lookup_block_processing_failure");
+    }
 }
 
-#[cfg(not(feature = "fake_crypto"))]
 #[tokio::test]
 async fn crypto_on_fail_with_bad_blob_proposer_signature() {
     let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
@@ -2360,11 +2359,15 @@ async fn crypto_on_fail_with_bad_blob_proposer_signature() {
     r.corrupt_last_blob_proposer_signature();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
-    r.assert_failed_lookup_sync();
-    r.expect_penalties_of_type("lookup_blobs_processing_failure");
+    if cfg!(feature = "fake_crypto") {
+        r.assert_successful_lookup_sync();
+        r.expect_no_penalties();
+    } else {
+        r.assert_failed_lookup_sync();
+        r.expect_penalties_of_type("lookup_blobs_processing_failure");
+    }
 }
 
-#[cfg(not(feature = "fake_crypto"))]
 #[tokio::test]
 async fn crypto_on_fail_with_bad_blob_kzg_proof() {
     let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
@@ -2374,11 +2377,15 @@ async fn crypto_on_fail_with_bad_blob_kzg_proof() {
     r.corrupt_last_blob_kzg_proof();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
-    r.assert_failed_lookup_sync();
-    r.expect_penalties_of_type("lookup_blobs_processing_failure");
+    if cfg!(feature = "fake_crypto") {
+        r.assert_successful_lookup_sync();
+        r.expect_no_penalties();
+    } else {
+        r.assert_failed_lookup_sync();
+        r.expect_penalties_of_type("lookup_blobs_processing_failure");
+    }
 }
 
-#[cfg(not(feature = "fake_crypto"))]
 #[tokio::test]
 async fn crypto_on_fail_with_bad_column_proposer_signature() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
@@ -2388,11 +2395,15 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
     r.corrupt_last_column_proposer_signature();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
-    r.assert_failed_lookup_sync();
-    r.expect_penalties_of_type("lookup_custody_column_processing_failure");
+    if cfg!(feature = "fake_crypto") {
+        r.assert_successful_lookup_sync();
+        r.expect_no_penalties();
+    } else {
+        r.assert_failed_lookup_sync();
+        r.expect_penalties_of_type("lookup_custody_column_processing_failure");
+    }
 }
 
-#[cfg(not(feature = "fake_crypto"))]
 #[tokio::test]
 async fn crypto_on_fail_with_bad_column_kzg_proof() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
@@ -2402,6 +2413,11 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
     r.corrupt_last_column_kzg_proof();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
-    r.assert_failed_lookup_sync();
-    r.expect_penalties_of_type("lookup_custody_column_processing_failure");
+    if cfg!(feature = "fake_crypto") {
+        r.assert_successful_lookup_sync();
+        r.expect_no_penalties();
+    } else {
+        r.assert_failed_lookup_sync();
+        r.expect_penalties_of_type("lookup_custody_column_processing_failure");
+    }
 }
