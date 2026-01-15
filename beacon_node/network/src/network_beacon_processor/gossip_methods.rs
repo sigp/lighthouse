@@ -1435,7 +1435,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 PubsubMessage::PartialDataColumnSidecar(Box::new((
                                     subnet,
                                     updated_partial.column.clone(),
-                                    None,
                                 ))),
                                 PubsubMessage::DataColumnSidecar(Box::new((
                                     subnet,
@@ -1463,7 +1462,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             messages: vec![PubsubMessage::PartialDataColumnSidecar(Box::new((
                                 subnet,
                                 updated_partial.column.clone(),
-                                None,
                             )))],
                         });
                     }

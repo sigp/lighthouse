@@ -531,14 +531,8 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             // For block producers, eagerly send all column data via partial messages
             // Gossipsub will handle per-peer diffing
             let partial = (*data_col).clone().into_partial();
-            // Pass bitmap of cells to eagerly send - for block producer, send all cells
-            let eager_data = Some(partial.column.sidecar.cells_present_bitmap.clone());
             [
-                PubsubMessage::PartialDataColumnSidecar(Box::new((
-                    subnet,
-                    partial.column,
-                    eager_data,
-                ))),
+                PubsubMessage::PartialDataColumnSidecar(Box::new((subnet, partial.column))),
                 PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
             ]
         })

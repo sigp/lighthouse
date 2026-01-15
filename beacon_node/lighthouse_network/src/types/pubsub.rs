@@ -10,7 +10,7 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::data::partial_data_column_sidecar::{
-    CellBitmap, DanglingPartialDataColumn, PartialDataColumnSidecar,
+    DanglingPartialDataColumn, PartialDataColumnSidecar,
 };
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
@@ -24,11 +24,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
-type PartialDataColumnSidecarTuple<E> = (
-    DataColumnSubnetId,
-    Arc<DanglingPartialDataColumn<E>>,
-    Option<CellBitmap<E>>,
-);
+type PartialDataColumnSidecarTuple<E> = (DataColumnSubnetId, Arc<DanglingPartialDataColumn<E>>);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<E: EthSpec> {
@@ -428,7 +424,6 @@ impl<E: EthSpec> PubsubMessage<E> {
                     Ok(Self::PartialDataColumnSidecar(Box::new((
                         *id,
                         Arc::new(data_column),
-                        None,
                     ))))
                 }
                 other => Err(format!("Partial message unsupported for topic: {other}")),
@@ -448,11 +443,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::PartialDataColumnSidecar(data) => {
                 let sidecar = &data.1;
-                let eager_cells = &data.2;
-                let mut message = PartialDataColumnSidecarMessage::new(sidecar.clone());
-                if let Some(eager_cells) = eager_cells {
-                    message.eagerly_send(eager_cells);
-                }
+                let message = PartialDataColumnSidecarMessage::new(sidecar.clone());
                 return EncodedPubsubMessage::PartialDataColumnSidecarMessage(message);
             }
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),

@@ -9,39 +9,12 @@ use types::data::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataCo
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartialDataColumnSidecarMessage<E: EthSpec> {
     pub partial_column: Arc<DanglingPartialDataColumn<E>>,
-    send_eager: Option<SendEager<E>>,
 }
 
 impl<E: EthSpec> PartialDataColumnSidecarMessage<E> {
     pub fn new(partial_column: Arc<DanglingPartialDataColumn<E>>) -> Self {
-        PartialDataColumnSidecarMessage {
-            partial_column,
-            send_eager: None,
-        }
+        PartialDataColumnSidecarMessage { partial_column }
     }
-
-    pub fn eagerly_send(&mut self, cells: &CellBitmap<E>) {
-        let Some(eager) = self
-            .partial_column
-            .sidecar
-            .clone_filter(|idx| cells.get(idx).unwrap_or(false))
-        else {
-            return;
-        };
-
-        self.send_eager = Some(SendEager {
-            data: eager.as_ssz_bytes(),
-            metadata: eager.cells_present_bitmap.into(),
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct SendEager<E: EthSpec> {
-    /// The encoded message to send eagerly, i.e. when we have no metadata for that peer.
-    data: Vec<u8>,
-    /// The metadata to associate with a peer after sending it the eager message.
-    metadata: CellBitmapMetadata<E>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,12 +73,7 @@ impl<E: EthSpec> Partial for PartialDataColumnSidecarMessage<E> {
         match metadata {
             None => Ok(PartialAction {
                 need: false,
-                send: self.send_eager.clone().map(|eager| {
-                    (
-                        eager.data,
-                        Box::new(eager.metadata) as Box<dyn Metadata + 'static>,
-                    )
-                }),
+                send: None,
             }),
             Some(metadata) => {
                 let peer_has = CellBitmap::<E>::from_ssz_bytes(metadata)

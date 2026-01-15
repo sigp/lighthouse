@@ -815,7 +815,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                             &self_cloned.chain.spec,
                                         ),
                                         partial.column.clone(),
-                                        None,
                                     )))
                                 })
                                 .collect(),
