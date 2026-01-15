@@ -34,8 +34,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot, data_column_sidecar::ColumnIndex,
+    BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec, FixedBlobSidecarList, ForkContext,
+    ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, XorShiftRng},
 };
 
@@ -817,14 +818,94 @@ impl TestRig {
     }
 
     #[cfg(not(feature = "fake_crypto"))]
-    fn corrupt_last_block(&mut self) {
+    fn corrupt_last_block_signature(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let mut block = (*rpc_block.block_cloned()).clone();
         let blobs = rpc_block.blobs().cloned();
         let columns = rpc_block.custody_columns().cloned();
-        *block.message_mut().body_mut().graffiti_mut() =
-            <types::Graffiti as types::test_utils::TestRandom>::random_for_test(&mut self.rng);
+        *block.signature_mut() = self.valid_signature();
         self.re_insert_block(Arc::new(block), blobs, columns);
+    }
+
+    #[cfg(not(feature = "fake_crypto"))]
+    fn valid_signature(&mut self) -> bls::Signature {
+        let keypair = bls::Keypair::random();
+        let msg = Hash256::random();
+        keypair.sk.sign(msg)
+    }
+
+    #[cfg(not(feature = "fake_crypto"))]
+    fn corrupt_last_blob_proposer_signature(&mut self) {
+        let rpc_block = self.get_last_block().clone();
+        let block = rpc_block.block_cloned();
+        let mut blobs = rpc_block
+            .blobs()
+            .cloned()
+            .expect("no blobs")
+            .into_iter()
+            .collect::<Vec<_>>();
+        let columns = rpc_block.custody_columns().cloned();
+        let first = blobs.first_mut().expect("empty blobs");
+        Arc::make_mut(first).signed_block_header.signature = self.valid_signature();
+        let max_blobs =
+            self.harness
+                .spec
+                .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
+        let blobs =
+            types::BlobSidecarList::new(blobs, max_blobs).expect("invalid blob sidecar list");
+        self.re_insert_block(block, Some(blobs), columns);
+    }
+
+    #[cfg(not(feature = "fake_crypto"))]
+    fn corrupt_last_blob_kzg_proof(&mut self) {
+        let rpc_block = self.get_last_block().clone();
+        let block = rpc_block.block_cloned();
+        let mut blobs = rpc_block
+            .blobs()
+            .cloned()
+            .expect("no blobs")
+            .into_iter()
+            .collect::<Vec<_>>();
+        let columns = rpc_block.custody_columns().cloned();
+        let first = blobs.first_mut().expect("empty blobs");
+        Arc::make_mut(first).kzg_proof = kzg::KzgProof::empty();
+        let max_blobs =
+            self.harness
+                .spec
+                .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
+        let blobs =
+            types::BlobSidecarList::new(blobs, max_blobs).expect("invalid blob sidecar list");
+        self.re_insert_block(block, Some(blobs), columns);
+    }
+
+    #[cfg(not(feature = "fake_crypto"))]
+    fn corrupt_last_column_proposer_signature(&mut self) {
+        let rpc_block = self.get_last_block().clone();
+        let block = rpc_block.block_cloned();
+        let blobs = rpc_block.blobs().cloned();
+        let mut columns = rpc_block.custody_columns().cloned().expect("no columns");
+        let first = columns.first_mut().expect("empty columns");
+        let mut data = first.clone_arc();
+        Arc::make_mut(&mut data).signed_block_header.signature = self.valid_signature();
+        *first =
+            beacon_chain::data_column_verification::CustodyDataColumn::from_asserted_custody(data);
+        self.re_insert_block(block, blobs, Some(columns));
+    }
+
+    #[cfg(not(feature = "fake_crypto"))]
+    fn corrupt_last_column_kzg_proof(&mut self) {
+        let rpc_block = self.get_last_block().clone();
+        let block = rpc_block.block_cloned();
+        let blobs = rpc_block.blobs().cloned();
+        let mut columns = rpc_block.custody_columns().cloned().expect("no columns");
+        let first = columns.first_mut().expect("empty columns");
+        let mut data = first.clone_arc();
+        let column = Arc::make_mut(&mut data);
+        let proof = column.kzg_proofs.first_mut().expect("no kzg proofs");
+        *proof = kzg::KzgProof::empty();
+        *first =
+            beacon_chain::data_column_verification::CustodyDataColumn::from_asserted_custody(data);
+        self.re_insert_block(block, blobs, Some(columns));
     }
 
     fn get_last_block(&self) -> &RpcBlock<E> {
@@ -2262,7 +2343,65 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
 async fn crypto_on_fail_with_invalid_block_signature() {
     let mut r = TestRig::default();
     r.build_chain(1).await;
-    r.corrupt_last_block();
+    r.corrupt_last_block_signature();
     r.trigger_with_last_block();
     r.simulate(CompleteStrategy::happy_path()).await;
+    r.assert_failed_lookup_sync();
+    r.expect_penalties_of_type("lookup_block_processing_failure");
+}
+
+#[cfg(not(feature = "fake_crypto"))]
+#[tokio::test]
+async fn crypto_on_fail_with_bad_blob_proposer_signature() {
+    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
+        return;
+    };
+    r.build_chain(1).await;
+    r.corrupt_last_blob_proposer_signature();
+    r.trigger_with_last_block();
+    r.simulate(CompleteStrategy::happy_path()).await;
+    r.assert_failed_lookup_sync();
+    r.expect_penalties_of_type("lookup_blobs_processing_failure");
+}
+
+#[cfg(not(feature = "fake_crypto"))]
+#[tokio::test]
+async fn crypto_on_fail_with_bad_blob_kzg_proof() {
+    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
+        return;
+    };
+    r.build_chain(1).await;
+    r.corrupt_last_blob_kzg_proof();
+    r.trigger_with_last_block();
+    r.simulate(CompleteStrategy::happy_path()).await;
+    r.assert_failed_lookup_sync();
+    r.expect_penalties_of_type("lookup_blobs_processing_failure");
+}
+
+#[cfg(not(feature = "fake_crypto"))]
+#[tokio::test]
+async fn crypto_on_fail_with_bad_column_proposer_signature() {
+    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+        return;
+    };
+    r.build_chain(1).await;
+    r.corrupt_last_column_proposer_signature();
+    r.trigger_with_last_block();
+    r.simulate(CompleteStrategy::happy_path()).await;
+    r.assert_failed_lookup_sync();
+    r.expect_penalties_of_type("lookup_custody_column_processing_failure");
+}
+
+#[cfg(not(feature = "fake_crypto"))]
+#[tokio::test]
+async fn crypto_on_fail_with_bad_column_kzg_proof() {
+    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+        return;
+    };
+    r.build_chain(1).await;
+    r.corrupt_last_column_kzg_proof();
+    r.trigger_with_last_block();
+    r.simulate(CompleteStrategy::happy_path()).await;
+    r.assert_failed_lookup_sync();
+    r.expect_penalties_of_type("lookup_custody_column_processing_failure");
 }
