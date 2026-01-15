@@ -14,9 +14,10 @@ use crate::rpc::{
     GoodbyeReason, HandlerErr, InboundRequestId, Protocol, RPC, RPCError, RPCMessage, RPCReceived,
     RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse,
 };
+use crate::service::partial_column_header_tracker::PartialColumnHeaderTracker;
 use crate::types::{
-    GossipEncoding, GossipKind, GossipTopic, PartialDataColumnSidecarMessage, SnappyTransform,
-    Subnet, SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
+    GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumn, SnappyTransform, Subnet,
+    SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
     subnet_from_topic_hash,
 };
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
@@ -53,7 +54,9 @@ use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 pub mod api_types;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
+mod partial_column_header_tracker;
 pub mod utils;
+
 /// The number of peers we target per subnet for discovery queries.
 pub const TARGET_SUBNET_PEERS: usize = 3;
 
@@ -173,6 +176,7 @@ pub struct Network<E: EthSpec> {
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
+    partial_column_header_tracker: PartialColumnHeaderTracker,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
 }
@@ -518,6 +522,7 @@ impl<E: EthSpec> Network<E> {
             score_settings,
             update_gossipsub_scores,
             gossip_cache,
+            partial_column_header_tracker: PartialColumnHeaderTracker::new(),
             local_peer_id,
         };
 
@@ -917,7 +922,13 @@ impl<E: EthSpec> Network<E> {
                 GossipEncoding::default(),
                 self.enr_fork_id.fork_digest,
             );
-            let partial_message = PartialDataColumnSidecarMessage::new(column);
+            let header_sent_set = self
+                .partial_column_header_tracker
+                .get_for_block(column.block_root);
+            let Ok(partial_message) = OutgoingPartialColumn::new(column, header_sent_set) else {
+                error!("Unable to publish partial column without header");
+                continue;
+            };
             let publish_topic: Topic = topic.clone().into();
 
             if let Err(e) = self

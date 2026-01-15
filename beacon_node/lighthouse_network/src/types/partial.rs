@@ -1,59 +1,106 @@
 use crate::PeerId;
 use libp2p::gossipsub::partial_messages::{Metadata, Partial, PartialAction, PartialError};
+use parking_lot::Mutex;
 use ssz::{Decode, Encode};
+use ssz_types::VariableList;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use types::EthSpec;
 use types::data::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
+use types::partial_data_column_sidecar::PartialDataColumnSidecar;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct PartialDataColumnSidecarMessage<E: EthSpec> {
+pub type HeaderSentSet = Arc<Mutex<HashSet<PeerId>>>;
+
+pub struct NoHeaderInColumnError;
+
+#[derive(Debug, Clone)]
+pub struct OutgoingPartialColumn<E: EthSpec> {
     pub partial_column: Arc<DanglingPartialDataColumn<E>>,
+    pub header_message: Vec<u8>,
+    pub header_sent_set: HeaderSentSet,
 }
 
-impl<E: EthSpec> PartialDataColumnSidecarMessage<E> {
-    pub fn new(partial_column: Arc<DanglingPartialDataColumn<E>>) -> Self {
-        PartialDataColumnSidecarMessage { partial_column }
+impl<E: EthSpec> OutgoingPartialColumn<E> {
+    pub fn new(
+        partial_column: Arc<DanglingPartialDataColumn<E>>,
+        header_sent_set: HeaderSentSet,
+    ) -> Result<Self, NoHeaderInColumnError> {
+        let Some(header) = partial_column.sidecar.header.first().cloned() else {
+            return Err(NoHeaderInColumnError);
+        };
+
+        let header_message = PartialDataColumnSidecar {
+            cells_present_bitmap: CellBitmap::<E>::with_capacity(
+                partial_column.sidecar.cells_present_bitmap.len(),
+            )
+            .expect("Taking length from bitmap with same bound"),
+            column: VariableList::empty(),
+            kzg_proofs: VariableList::empty(),
+            header: VariableList::repeat_full(header),
+        }
+        .as_ssz_bytes();
+
+        Ok(OutgoingPartialColumn {
+            partial_column,
+            header_message,
+            header_sent_set,
+        })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CellBitmapMetadata<E: EthSpec> {
-    bitmap: CellBitmap<E>,
-    encoded: Vec<u8>,
+enum CellBitmapMetadata<E: EthSpec> {
+    Unknown,
+    Known {
+        bitmap: CellBitmap<E>,
+        encoded: Vec<u8>,
+    },
 }
 
 impl<E: EthSpec> Metadata for CellBitmapMetadata<E> {
     fn as_slice(&self) -> &[u8] {
-        &self.encoded
+        match self {
+            CellBitmapMetadata::Unknown => &[],
+            CellBitmapMetadata::Known { encoded, .. } => encoded,
+        }
     }
 
     fn update(&mut self, data: &[u8]) -> Result<bool, PartialError> {
-        let data =
+        let peer_bitmap =
             CellBitmap::<E>::from_ssz_bytes(data).map_err(|_| PartialError::InvalidFormat)?;
-        if data.len() != self.bitmap.len() {
+
+        let CellBitmapMetadata::Known { bitmap, encoded } = self else {
+            *self = CellBitmapMetadata::Known {
+                bitmap: peer_bitmap,
+                encoded: data.to_vec(),
+            };
+            return Ok(true);
+        };
+
+        if peer_bitmap.len() != bitmap.len() {
             return Err(PartialError::OutOfRange);
         }
-        let new_bitmap = self.bitmap.union(&data);
-        if self.bitmap == new_bitmap {
+        let new_bitmap = bitmap.union(&peer_bitmap);
+        if *bitmap == new_bitmap {
             return Ok(false);
         }
-        self.bitmap = new_bitmap;
-        self.encoded = self.bitmap.as_ssz_bytes();
+        *bitmap = new_bitmap;
+        *encoded = bitmap.as_ssz_bytes();
         Ok(true)
     }
 }
 
 impl<E: EthSpec> From<CellBitmap<E>> for CellBitmapMetadata<E> {
     fn from(value: CellBitmap<E>) -> Self {
-        Self {
+        Self::Known {
             encoded: value.as_ssz_bytes(),
             bitmap: value,
         }
     }
 }
 
-impl<E: EthSpec> Partial for PartialDataColumnSidecarMessage<E> {
+impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
     fn group_id(&self) -> Vec<u8> {
         self.partial_column.block_root.as_slice().to_vec()
     }
@@ -67,11 +114,22 @@ impl<E: EthSpec> Partial for PartialDataColumnSidecarMessage<E> {
 
     fn partial_action_from_metadata(
         &self,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         metadata: Option<&[u8]>,
     ) -> Result<PartialAction, PartialError> {
         match metadata {
-            None => Ok(PartialAction {
+            None => {
+                // send the header-only messsage to the peer if we have not yet
+                let send = self.header_sent_set.lock().insert(peer_id).then(|| {
+                    (
+                        self.header_message.clone(),
+                        Box::new(CellBitmapMetadata::<E>::Unknown) as Box<dyn Metadata>,
+                    )
+                });
+
+                Ok(PartialAction { need: false, send })
+            }
+            Some([]) => Ok(PartialAction {
                 need: false,
                 send: None,
             }),
