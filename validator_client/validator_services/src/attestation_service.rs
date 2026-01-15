@@ -207,15 +207,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 match self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
                     Ok(_) => {
                         *last_slot = current_slot;
-                        let duration = if let Some(duration) = self.slot_clock.duration_to_next_slot() {
-                            duration
-                        } else {
-                            error!("Failed to read slot clock");
-                            slot_duration
-                        };
+                        let duration =
+                            if let Some(duration) = self.slot_clock.duration_to_next_slot() {
+                                duration
+                            } else {
+                                error!("Failed to read slot clock");
+                                slot_duration
+                            };
 
                         sleep(duration).await;
-                    },
+                    }
                     Err(e) => {
                         crit!(error = e, "Failed to spawn attestation tasks")
                     }
