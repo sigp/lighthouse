@@ -12,13 +12,12 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::blob_sidecar::BlobIdentifier;
+use types::data::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
     ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot,
-    blob_sidecar::BlobSidecar,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot, data::BlobSidecar,
 };
 
 /// Maximum length of error message.

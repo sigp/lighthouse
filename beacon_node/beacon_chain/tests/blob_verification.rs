@@ -10,7 +10,7 @@ use beacon_chain::{
 use bls::{Keypair, Signature};
 use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
-use types::{blob_sidecar::FixedBlobSidecarList, *};
+use types::{data::FixedBlobSidecarList, *};
 
 type E = MainnetEthSpec;
 
