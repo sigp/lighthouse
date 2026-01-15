@@ -4,8 +4,8 @@ use itertools::Itertools;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use tree_hash::{MerkleHasher, TreeHash, TreeHashType};
+use types::SlotData;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::slot_data::SlotData;
 use types::sync_committee_contribution::SyncContributionData;
 use types::{
     Attestation, AttestationData, AttestationRef, CommitteeIndex, EthSpec, Hash256, Slot,

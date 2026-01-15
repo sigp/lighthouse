@@ -114,10 +114,6 @@ pub mod blob_sidecar {
     };
 }
 
-pub mod payload {
-    pub use crate::execution::BlockProductionVersion;
-}
-
 pub mod execution_requests {
     pub use crate::execution::{
         ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
@@ -135,10 +131,6 @@ pub mod data_column_custody_group {
     };
 }
 
-pub mod sync_aggregate {
-    pub use crate::sync_committee::SyncAggregateError as Error;
-}
-
 pub mod light_client_update {
     pub use crate::light_client::consts::{
         CURRENT_SYNC_COMMITTEE_INDEX, CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_ROOT_INDEX,
@@ -153,10 +145,6 @@ pub mod sync_committee_contribution {
     };
 }
 
-pub mod slot_data {
-    pub use crate::core::SlotData;
-}
-
 pub mod signed_aggregate_and_proof {
     pub use crate::attestation::SignedAggregateAndProofRefMut;
 }
@@ -166,12 +154,3 @@ pub mod payload_attestation {
         PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage,
     };
 }
-
-pub mod application_domain {
-    pub use crate::core::ApplicationDomain;
-}
-
-// Temporary re-exports to maintain backwards compatibility for Lighthouse.
-pub use crate::kzg_ext::consts::VERSIONED_HASH_VERSION_KZG;
-pub use crate::light_client::LightClientError as LightClientUpdateError;
-pub use crate::state::BeaconStateError as Error;
