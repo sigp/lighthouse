@@ -12,7 +12,6 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, NotifyExecutionLayer,
     block_verification_types::AsBlock,
     data_availability_checker::Availability,
-    data_column_verification::CustodyDataColumnList,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
         generate_rand_block_and_blobs, test_spec,
@@ -35,10 +34,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlobSidecarList, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList,
-    ForkContext, ForkName, Graffiti, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    data_column_sidecar::ColumnIndex,
-    test_utils::{SeedableRng, TestRandom, XorShiftRng},
+    BlobSidecar, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList, ForkContext, ForkName,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot, data_column_sidecar::ColumnIndex,
+    test_utils::{SeedableRng, XorShiftRng},
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -818,12 +816,14 @@ impl TestRig {
         blocks.last().expect("empty blocks").1
     }
 
+    #[cfg(not(feature = "fake_crypto"))]
     fn corrupt_last_block(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let mut block = (*rpc_block.block_cloned()).clone();
         let blobs = rpc_block.blobs().cloned();
         let columns = rpc_block.custody_columns().cloned();
-        *block.message_mut().body_mut().graffiti_mut() = Graffiti::random_for_test(&mut self.rng);
+        *block.message_mut().body_mut().graffiti_mut() =
+            <types::Graffiti as types::test_utils::TestRandom>::random_for_test(&mut self.rng);
         self.re_insert_block(Arc::new(block), blobs, columns);
     }
 
@@ -836,11 +836,12 @@ impl TestRig {
         last_block
     }
 
+    #[cfg(not(feature = "fake_crypto"))]
     fn re_insert_block(
         &mut self,
         block: Arc<SignedBeaconBlock<E>>,
-        blobs: Option<BlobSidecarList<E>>,
-        columns: Option<CustodyDataColumnList<E>>,
+        blobs: Option<types::BlobSidecarList<E>>,
+        columns: Option<beacon_chain::data_column_verification::CustodyDataColumnList<E>>,
     ) {
         self.network_blocks_by_slot.clear();
         self.network_blocks_by_root.clear();
