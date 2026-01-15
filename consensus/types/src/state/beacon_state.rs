@@ -2528,6 +2528,42 @@ impl<E: EthSpec> BeaconState<E> {
         self.epoch_cache().get_base_reward(validator_index)
     }
 
+    /// Get the proportional slashing multiplier for the current fork.
+    pub fn get_proportional_slashing_multiplier(&self, spec: &ChainSpec) -> u64 {
+        let fork_name = self.fork_name_unchecked();
+        if fork_name >= ForkName::Bellatrix {
+            spec.proportional_slashing_multiplier_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            spec.proportional_slashing_multiplier_altair
+        } else {
+            spec.proportional_slashing_multiplier
+        }
+    }
+
+    /// Get the minimum slashing penalty quotient for the current fork.
+    pub fn get_min_slashing_penalty_quotient(&self, spec: &ChainSpec) -> u64 {
+        let fork_name = self.fork_name_unchecked();
+        if fork_name.electra_enabled() {
+            spec.min_slashing_penalty_quotient_electra
+        } else if fork_name >= ForkName::Bellatrix {
+            spec.min_slashing_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            spec.min_slashing_penalty_quotient_altair
+        } else {
+            spec.min_slashing_penalty_quotient
+        }
+    }
+
+    /// Get the whistleblower reward quotient for the current fork.
+    pub fn get_whistleblower_reward_quotient(&self, spec: &ChainSpec) -> u64 {
+        let fork_name = self.fork_name_unchecked();
+        if fork_name.electra_enabled() {
+            spec.whistleblower_reward_quotient_electra
+        } else {
+            spec.whistleblower_reward_quotient
+        }
+    }
+
     // ******* Electra accessors *******
 
     /// Return the churn limit for the current epoch.

@@ -107,7 +107,7 @@ pub mod attesting_indices_electra {
         for committee_index in committee_indices {
             let beacon_committee = committees
                 .get(committee_index as usize)
-                .ok_or(Error::NoCommitteeFound(committee_index))?;
+                .ok_or(BeaconStateError::NoCommitteeFound(committee_index))?;
 
             // This check is new to the spec's `process_attestation` in Electra.
             if committee_index >= committee_count_per_slot {

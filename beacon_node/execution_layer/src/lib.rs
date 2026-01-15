@@ -47,8 +47,8 @@ use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
+use types::execution::BlockProductionVersion;
 use types::non_zero_usize::new_non_zero_usize;
-use types::payload::BlockProductionVersion;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
     SignedBlindedBeaconBlock,

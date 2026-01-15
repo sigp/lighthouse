@@ -44,7 +44,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
-use types::application_domain::ApplicationDomain;
+use types::ApplicationDomain;
 use types::{
     Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
     SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
@@ -1970,8 +1970,8 @@ impl ApiTester {
             .await
         {
             Ok(result) => panic!("Full node are unable to return blobs post-Fulu: {result:?}"),
-            // Post-Fulu, full nodes don't store blobs and return error 500
-            Err(e) => assert_eq!(e.status().unwrap(), 500),
+            // Post-Fulu, full nodes don't store blobs and return error 400 (Bad Request)
+            Err(e) => assert_eq!(e.status().unwrap(), 400),
         };
 
         self

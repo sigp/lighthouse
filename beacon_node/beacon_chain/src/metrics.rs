@@ -482,20 +482,6 @@ pub static ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS: LazyLock<Result<Histogram
             "Time taken to read the head state",
         )
     });
-pub static ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "attestation_production_cache_interaction_seconds",
-            "Time spent interacting with the attester cache",
-        )
-    });
-pub static ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "attestation_production_cache_prime_seconds",
-            "Time spent loading a new state from the disk due to a cache miss",
-        )
-    });
 
 /*
  * Fork Choice
@@ -1627,10 +1613,9 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
         )
     });
 pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
-    try_create_histogram_vec_with_buckets(
+    try_create_histogram_vec(
         "beacon_data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
-        Ok(vec![0.1, 0.15, 0.25, 0.35, 0.5, 0.7, 1.0, 2.5, 5.0, 10.0]),
         &["blob_count"],
     )
 });
@@ -1703,6 +1688,33 @@ pub static BLOBS_FROM_EL_RECEIVED: LazyLock<Result<Histogram>> = LazyLock::new(|
         ]),
     )
 });
+
+/*
+ * Standardized getBlobs metrics across clients from https://github.com/ethereum/beacon-metrics
+ */
+pub static BEACON_ENGINE_GET_BLOBS_V2_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV2_requests_total",
+            "Total number of engine_getBlobsV2 requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V2_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV2_responses_total",
+            "Total number of successful engine_getBlobsV2 responses from the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V2_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_engine_getBlobsV2_request_duration_seconds",
+            "Duration of engine_getBlobsV2 requests to the execution layer in seconds",
+        )
+    });
 
 /*
  * Light server message verification
