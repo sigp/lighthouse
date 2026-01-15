@@ -380,7 +380,7 @@ impl Config {
         config.validator_store.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
-        config.enable_beacon_head_monitor = validator_client_config.enable_beacon_head_monitor;
+        config.enable_beacon_head_monitor = !validator_client_config.disable_beacon_head_monitor;
 
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;
