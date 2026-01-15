@@ -11,6 +11,7 @@ use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, NotifyExecutionLayer,
     block_verification_types::AsBlock,
+    data_column_verification::CustodyDataColumnList,
     data_availability_checker::Availability,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
@@ -34,8 +35,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlobSidecarList, BlockImportSource, DataColumnSidecar, FixedBlobSidecarList,
+    ForkContext, ForkName, Graffiti, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, XorShiftRng},
 };
@@ -817,6 +818,15 @@ impl TestRig {
         blocks.last().expect("empty blocks").1
     }
 
+    fn corrupt_last_block(&mut self) {
+        let rpc_block = self.get_last_block().clone();
+        let mut block = rpc_block.block_cloned();
+        let blobs = rpc_block.blobs().cloned();
+        let columns = rpc_block.custody_columns().cloned();
+        *block.message_mut().body_mut().graffiti_mut() = Graffiti::random_for_test();
+        self.re_insert_block(block, blobs, columns);
+    }
+
     fn get_last_block(&self) -> &RpcBlock<E> {
         let (_, last_block) = self
             .network_blocks_by_root
@@ -824,6 +834,30 @@ impl TestRig {
             .max_by_key(|(_, block)| block.slot())
             .expect("no blocks");
         last_block
+    }
+
+    fn re_insert_block(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<BlobSidecarList<E>>,
+        columns: Option<CustodyDataColumnList<E>>,
+    ) {
+        self.network_blocks_by_slot.clear();
+        self.network_blocks_by_root.clear();
+        let block_root = block.canonical_root();
+        let block_slot = block.slot();
+        let rpc_block = match (block.fork_name_unchecked().fulu_enabled(), columns, blobs) {
+            (true, Some(columns), _) => RpcBlock::new_with_custody_columns(
+                Some(block_root),
+                block,
+                columns.into_iter().collect(),
+            )
+            .unwrap(),
+            (_, _, blobs) => RpcBlock::new(Some(block_root), block, blobs).unwrap(),
+        };
+        self.network_blocks_by_slot
+            .insert(block_slot, rpc_block.clone());
+        self.network_blocks_by_root.insert(block_root, rpc_block);
     }
 
     /// Trigger a lookup with the last created block
@@ -2221,3 +2255,12 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
 // - Respond with bad data
 // - Respond with stream terminator
 //   ^ The stream terminator should be ignored and not close the next retry
+
+#[tokio::test]
+async fn crypto_on_fail_with_invalid_block_signature() {
+    let mut r = TestRig::default();
+    r.build_chain(1).await;
+    r.corrupt_last_block();
+    r.trigger_with_last_block();
+    r.simulate(CompleteStrategy::happy_path()).await;
+}

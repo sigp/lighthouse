@@ -1,6 +1,7 @@
 use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::apply_deposit,
 };
+use crate::VerifySignatures;
 use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
@@ -19,6 +20,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     eth1_timestamp: u64,
     deposits: Vec<Deposit>,
     execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, BlockProcessingError> {
     let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
@@ -41,7 +43,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
             .map_err(BlockProcessingError::MerkleTreeError)?;
         state.eth1_data_mut().deposit_root = deposit_tree.root();
         let Deposit { proof, data } = deposit;
-        apply_deposit(&mut state, data, Some(proof), true, spec)?;
+        apply_deposit(&mut state, data, Some(proof), true, verify_signatures, spec)?;
     }
 
     process_activations(&mut state, spec)?;
