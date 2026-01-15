@@ -108,7 +108,7 @@ pub struct Signature([u8; SIGNATURE_BYTES_LEN]);
 
 impl Signature {
     fn infinity() -> Self {
-        Self([0; SIGNATURE_BYTES_LEN])
+        Self(INFINITY_SIGNATURE)
     }
 }
 
