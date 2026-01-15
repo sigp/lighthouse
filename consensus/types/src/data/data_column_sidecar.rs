@@ -19,6 +19,7 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
+use crate::partial_data_column_sidecar::PartialDataColumnHeader;
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
     core::{Epoch, EthSpec, Hash256, Slot},
@@ -155,6 +156,11 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                     cells_present_bitmap: bitmap,
                     column: self.column,
                     kzg_proofs: self.kzg_proofs,
+                    header: VariableList::repeat_full(PartialDataColumnHeader {
+                        kzg_commitments: self.kzg_commitments.clone(),
+                        signed_block_header: self.signed_block_header,
+                        kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof,
+                    }),
                 },
             }),
             kzg_commitments: self.kzg_commitments,

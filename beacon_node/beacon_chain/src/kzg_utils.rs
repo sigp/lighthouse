@@ -485,6 +485,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                             .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                         kzg_proofs: VariableList::try_from(proofs)
                             .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                        header: VariableList::empty(),
                     },
                 }),
                 kzg_commitments: kzg_commitments.clone(),

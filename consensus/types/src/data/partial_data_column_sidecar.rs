@@ -1,19 +1,18 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    AbstractExecPayload, Cell, ColumnIndex, DataColumn, DataColumnSidecar, KzgCommitments,
+    AbstractExecPayload, Cell, ColumnIndex, DataColumn, DataColumnSidecar, EthSpec, Hash256,
+    KzgCommitments, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
-use crate::{EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
-use context_deserialize::context_deserialize;
 use educe::Educe;
 use kzg::KzgProof;
-use serde::{Deserialize, Serialize};
 use ssz::{BitList, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{FixedVector, VariableList};
 use std::borrow::Cow;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use typenum::U1;
 
 pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
@@ -22,15 +21,13 @@ pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
-#[serde(bound = "E: EthSpec")]
+#[derive(Debug, Clone, Encode, Decode, TreeHash, TestRandom, Educe)]
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
-#[context_deserialize(ForkName)]
 pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub cells_present_bitmap: CellBitmap<E>,
-    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub column: DataColumn<E>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
+    pub header: VariableList<PartialDataColumnHeader<E>, U1>,
 }
 
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
@@ -40,6 +37,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             cells_present_bitmap: BitList::with_capacity(1).unwrap(),
             column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
+            header: VariableList::new(vec![]).unwrap(),
         }
         .as_ssz_bytes()
         .len()
@@ -51,6 +49,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             cells_present_bitmap: BitList::with_capacity(block_blobs).unwrap(),
             column: VariableList::new(vec![Cell::<E>::default(); present_blobs]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty(); present_blobs]).unwrap(),
+            header: VariableList::new(vec![]).unwrap(), // header is not being sent on cell push
         }
         .as_ssz_bytes()
         .len()
@@ -61,6 +60,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             cells_present_bitmap: BitList::with_capacity(max_blobs_per_block).unwrap(),
             column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
+            header: VariableList::new(vec![]).unwrap(), // header is not being sent on cell push
         }
         .as_ssz_bytes()
         .len()
@@ -121,6 +121,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             cells_present_bitmap: new_bitmap,
             column: new_column,
             kzg_proofs: new_proofs,
+            header: self.header.clone(),
         })
     }
 
@@ -172,6 +173,11 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             cells_present_bitmap: new_bitmap,
             column: new_column,
             kzg_proofs: new_proofs,
+            header: if !self.header.is_empty() {
+                self.header.clone()
+            } else {
+                other.header.clone()
+            },
         })
     }
 }
@@ -194,8 +200,26 @@ impl<E: EthSpec> From<DataColumnSidecar<E>> for PartialDataColumnSidecar<E> {
             cells_present_bitmap,
             column: value.column,
             kzg_proofs: value.kzg_proofs,
+            header: VariableList::repeat_full(PartialDataColumnHeader {
+                kzg_commitments: value.kzg_commitments,
+                signed_block_header: value.signed_block_header,
+                kzg_commitments_inclusion_proof: value.kzg_commitments_inclusion_proof,
+            }),
         }
     }
+}
+
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+pub struct PartialDataColumnHeader<E: EthSpec> {
+    pub kzg_commitments: KzgCommitments<E>,
+    pub signed_block_header: SignedBeaconBlockHeader,
+    pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 }
 
 // TODO(dknopik): Name?
