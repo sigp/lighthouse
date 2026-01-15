@@ -205,7 +205,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 }
 
                 match self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
-                    Ok(_) => *last_slot = current_slot,
+                    Ok(_) => {
+                        *last_slot = current_slot;
+                        let duration = if let Some(duration) = self.slot_clock.duration_to_next_slot() {
+                            duration
+                        } else {
+                            error!("Failed to read slot clock");
+                            slot_duration
+                        };
+
+                        sleep(duration).await;
+                    },
                     Err(e) => {
                         crit!(error = e, "Failed to spawn attestation tasks")
                     }
@@ -253,6 +263,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         if attestation_duties.is_empty() {
             return Ok(());
         }
+
+        debug!(
+            %slot,
+            from_head_monitor = beacon_node_index.is_some(),
+            "Starting attestation production"
+        );
 
         let attestation_service = self.clone();
 
