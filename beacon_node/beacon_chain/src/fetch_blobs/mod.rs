@@ -36,7 +36,7 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
 use types::data::{BlobSidecarError, DataColumnSidecarError};
-use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
+use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::{
     BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
     SignedBeaconBlockHeader, VersionedHash,
@@ -51,7 +51,7 @@ pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     /// Complete columns ready to be imported into the `DataAvailabilityChecker`.
     CompleteColumns(Vec<Arc<types::DataColumnSidecar<T::EthSpec>>>),
     /// Incomplete partial columns that need assembly via gossip
-    PartialColumns(Vec<Arc<VerifiablePartialDataColumn<T::EthSpec>>>),
+    PartialColumns(Vec<Arc<DanglingPartialDataColumn<T::EthSpec>>>),
 }
 
 #[derive(Debug)]
@@ -430,7 +430,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map(|data_columns| {
                         data_columns
                             .into_iter()
-                            .filter(|col| custody_columns_indices.contains(&col.index()))
+                            .filter(|col| custody_columns_indices.contains(&col.index))
                             .map(|col| {
                                 KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
                                     KzgVerifiedPartialDataColumn::from_execution_verified(col),

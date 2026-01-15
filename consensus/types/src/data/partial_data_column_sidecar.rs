@@ -1,15 +1,13 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    AbstractExecPayload, Cell, ColumnIndex, DataColumn, DataColumnSidecar, EthSpec, Hash256,
-    KzgCommitments, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    Cell, ColumnIndex, DataColumn, DataColumnSidecar, EthSpec, Hash256, KzgCommitments,
+    SignedBeaconBlockHeader,
 };
 use educe::Educe;
 use kzg::KzgProof;
 use ssz::{BitList, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
-use std::borrow::Cow;
-use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 use typenum::U1;
@@ -230,102 +228,15 @@ pub struct DanglingPartialDataColumn<E: EthSpec> {
     pub sidecar: PartialDataColumnSidecar<E>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct VerifiablePartialDataColumn<E: EthSpec> {
-    pub column: Arc<DanglingPartialDataColumn<E>>,
-    pub kzg_commitments: KzgCommitments<E>,
-    pub slot: Slot,
-}
-
-// TODO(dknopik): Is there an existing approriate error type?
-#[derive(Debug)]
-pub enum PartialDataColumnMatchingError {
-    MismatchingBlock,
-    InvalidForkBlock,
-}
-
-impl<E: EthSpec> VerifiablePartialDataColumn<E> {
-    pub fn from_dangling_and_block<P: AbstractExecPayload<E>>(
-        column: Arc<DanglingPartialDataColumn<E>>,
-        block: &SignedBeaconBlock<E, P>,
-    ) -> Result<Self, PartialDataColumnMatchingError> {
-        if column.block_root != block.canonical_root() {
-            return Err(PartialDataColumnMatchingError::MismatchingBlock);
-        }
-
-        let kzg_commitments = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map_err(|_| PartialDataColumnMatchingError::InvalidForkBlock)?
-            .clone();
-
-        Ok(VerifiablePartialDataColumn {
-            column,
-            kzg_commitments,
-            slot: block.slot(),
-        })
-    }
-
+impl<E: EthSpec> DanglingPartialDataColumn<E> {
     pub fn clone_filter<F>(&self, filter: F) -> Option<Self>
     where
         F: Fn(usize) -> bool,
     {
-        Some(VerifiablePartialDataColumn {
-            column: Arc::new(DanglingPartialDataColumn {
-                sidecar: self.column.sidecar.clone_filter(filter)?,
-                block_root: self.column.block_root,
-                index: self.column.index,
-            }),
-            kzg_commitments: self.kzg_commitments.clone(),
-            slot: self.slot,
+        Some(DanglingPartialDataColumn {
+            sidecar: self.sidecar.clone_filter(filter)?,
+            block_root: self.block_root,
+            index: self.index,
         })
-    }
-
-    pub fn slot(&self) -> Slot {
-        self.slot
-    }
-
-    pub fn index(&self) -> ColumnIndex {
-        self.column.index
-    }
-
-    pub fn block_root(&self) -> Hash256 {
-        self.column.block_root
-    }
-
-    /// Convert this partial column into a full `DataColumnSidecar` if all cells are present.
-    /// Requires the signed beacon block to populate the header and inclusion proof.
-    pub fn as_full(
-        &self,
-        block: Option<&SignedBeaconBlock<E>>,
-    ) -> Option<Cow<'_, DataColumnSidecar<E>>> {
-        // we definitely require the block
-        let block = block?;
-
-        // we need to have all columns
-        if !self.column.sidecar.is_complete() {
-            return None;
-        }
-
-        // we need to have the correct amount of everything
-        let expected = self.column.sidecar.cells_present_bitmap.len();
-        if self.column.sidecar.column.len() != expected
-            || self.column.sidecar.kzg_proofs.len() != expected
-            || self.kzg_commitments.len() != expected
-        {
-            return None;
-        }
-
-        let (signed_block_header, kzg_commitments_inclusion_proof) =
-            block.signed_block_header_and_kzg_commitments_proof().ok()?;
-        Some(Cow::Owned(DataColumnSidecar {
-            kzg_commitments_inclusion_proof,
-            index: self.column.index,
-            column: self.column.sidecar.column.clone(),
-            kzg_commitments: self.kzg_commitments.clone(),
-            kzg_proofs: self.column.sidecar.kzg_proofs.clone(),
-            signed_block_header,
-        }))
     }
 }

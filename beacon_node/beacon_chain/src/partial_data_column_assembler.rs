@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
+use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::{ColumnIndex, DataColumnSidecar, EthSpec, Hash256, KzgCommitments, Slot};
 
 /// Assembles partial data columns into complete columns
@@ -20,20 +20,20 @@ struct PartialAssembly<E: EthSpec> {
     slot: Slot,
     kzg_commitments: KzgCommitments<E>,
     /// Map of column_index -> partial column being assembled
-    columns: HashMap<ColumnIndex, Arc<VerifiablePartialDataColumn<E>>>,
+    columns: HashMap<ColumnIndex, Arc<DanglingPartialDataColumn<E>>>,
 }
 
 /// Result of merging a partial column
 pub enum PartialMergeResult<E: EthSpec> {
     /// Merge was successful but column is still incomplete
     Incomplete {
-        updated_partial: Arc<VerifiablePartialDataColumn<E>>,
+        updated_partial: Arc<DanglingPartialDataColumn<E>>,
     },
     /// Merge completed the column
     Completed {
         full_column: Arc<DataColumnSidecar<E>>,
         /// The updated partial for publishing (same as full but as partial type)
-        updated_partial: Arc<VerifiablePartialDataColumn<E>>,
+        updated_partial: Arc<DanglingPartialDataColumn<E>>,
     },
 }
 
@@ -67,10 +67,10 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         for custody_col in custody_columns {
             let partial = custody_col.into_inner();
-            let column_index = partial.column.index;
+            let column_index = partial.index;
 
             // Check if this partial is already complete
-            if partial.column.sidecar.is_complete() {
+            if partial.sidecar.is_complete() {
                 // Convert to full column
                 if let Some(full) = Self::partial_to_full(&partial, &kzg_commitments) {
                     result.complete_columns.push(full);
@@ -96,26 +96,20 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn merge_partial(
         &self,
         block_root: Hash256,
-        partial: Arc<VerifiablePartialDataColumn<E>>,
+        partial: Arc<DanglingPartialDataColumn<E>>,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies.get_mut(&block_root)?;
 
-        let column_index = partial.column.index;
+        let column_index = partial.index;
 
         let merged = if let Some(existing) = assembly.columns.get(&column_index) {
             // Merge with existing partial
-            let merged_sidecar = existing.column.sidecar.merge(&partial.column.sidecar)?;
-            Arc::new(VerifiablePartialDataColumn {
-                column: Arc::new(
-                    types::partial_data_column_sidecar::DanglingPartialDataColumn {
-                        block_root: existing.column.block_root,
-                        index: existing.column.index,
-                        sidecar: merged_sidecar,
-                    },
-                ),
-                kzg_commitments: existing.kzg_commitments.clone(),
-                slot: existing.slot,
+            let merged_sidecar = existing.sidecar.merge(&partial.sidecar)?;
+            Arc::new(DanglingPartialDataColumn {
+                block_root: existing.block_root,
+                index: existing.index,
+                sidecar: merged_sidecar,
             })
         } else {
             // First time seeing this column index for this block
@@ -123,7 +117,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         };
 
         // Check if merged column is now complete
-        if merged.column.sidecar.is_complete() {
+        if merged.sidecar.is_complete() {
             // Remove from assembly since it's complete
             assembly.columns.remove(&column_index);
 
@@ -149,7 +143,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         &self,
         block_root: &Hash256,
         column_index: ColumnIndex,
-    ) -> Option<Arc<VerifiablePartialDataColumn<E>>> {
+    ) -> Option<Arc<DanglingPartialDataColumn<E>>> {
         self.assemblies
             .read()
             .peek(block_root)?
@@ -194,18 +188,18 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
     /// Convert a complete partial to a full DataColumnSidecar
     fn partial_to_full(
-        partial: &VerifiablePartialDataColumn<E>,
+        partial: &DanglingPartialDataColumn<E>,
         kzg_commitments: &KzgCommitments<E>,
     ) -> Option<Arc<DataColumnSidecar<E>>> {
         // Use the as_full method - requires a block for signed header
         // For now we'll construct it manually since we have all the data
-        if !partial.column.sidecar.is_complete() {
+        if !partial.sidecar.is_complete() {
             return None;
         }
 
-        let expected = partial.column.sidecar.cells_present_bitmap.len();
-        if partial.column.sidecar.column.len() != expected
-            || partial.column.sidecar.kzg_proofs.len() != expected
+        let expected = partial.sidecar.cells_present_bitmap.len();
+        if partial.sidecar.column.len() != expected
+            || partial.sidecar.kzg_proofs.len() != expected
             || kzg_commitments.len() != expected
         {
             return None;
@@ -229,5 +223,5 @@ pub struct InitResult<E: EthSpec> {
     /// Columns that were already complete
     pub complete_columns: Vec<Arc<DataColumnSidecar<E>>>,
     /// Columns that need further assembly via gossip
-    pub incomplete_partials: Vec<Arc<VerifiablePartialDataColumn<E>>>,
+    pub incomplete_partials: Vec<Arc<DanglingPartialDataColumn<E>>>,
 }

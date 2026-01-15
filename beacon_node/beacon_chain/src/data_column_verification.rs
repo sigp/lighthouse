@@ -18,10 +18,10 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use types::data::ColumnIndex;
-use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
+use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -302,27 +302,27 @@ pub struct GossipVerifiedPartialDataColumn<T: BeaconChainTypes, O: ObservationSt
 
 impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedPartialDataColumn<T, O> {
     pub fn new(
-        column_sidecar: Arc<VerifiablePartialDataColumn<T::EthSpec>>,
+        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
         validate_partial_data_column_sidecar_for_gossip(column_sidecar, chain)
     }
 
     /// Create a `GossipVerifiedPartialDataColumn` for testing ONLY.
-    pub fn __new_for_testing(column_sidecar: Arc<VerifiablePartialDataColumn<T::EthSpec>>) -> Self {
+    pub fn __new_for_testing(column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>) -> Self {
         Self {
-            block_root: column_sidecar.block_root(),
+            block_root: column_sidecar.block_root,
             data_column: KzgVerifiedPartialDataColumn::__new_for_testing(column_sidecar),
             _phantom: Default::default(),
         }
     }
 
-    pub fn as_data_column(&self) -> &VerifiablePartialDataColumn<T::EthSpec> {
+    pub fn as_data_column(&self) -> &DanglingPartialDataColumn<T::EthSpec> {
         self.data_column.as_data_column()
     }
 
     /// This is cheap as we're calling clone on an Arc
-    pub fn clone_data_column(&self) -> Arc<VerifiablePartialDataColumn<T::EthSpec>> {
+    pub fn clone_data_column(&self) -> Arc<DanglingPartialDataColumn<T::EthSpec>> {
         self.data_column.clone_data_column()
     }
 
@@ -331,7 +331,15 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedPartialDataColum
     }
 
     pub fn slot(&self) -> Slot {
-        self.data_column.as_data_column().slot()
+        self.data_column
+            .as_data_column()
+            .sidecar
+            .header
+            .first()
+            .expect("This was verified, so we have the header")
+            .signed_block_header
+            .message
+            .slot
     }
 
     pub fn index(&self) -> ColumnIndex {
@@ -400,41 +408,41 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
 #[derive(Debug, Educe, Clone)]
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedPartialDataColumn<E: EthSpec> {
-    data: Arc<VerifiablePartialDataColumn<E>>,
+    data: Arc<DanglingPartialDataColumn<E>>,
 }
 
 impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
     pub fn new(
-        data_column: Arc<VerifiablePartialDataColumn<E>>,
+        data_column: Arc<DanglingPartialDataColumn<E>>,
         kzg: &Kzg,
     ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_partial_data_column(data_column, kzg)
     }
 
     /// Create a `KzgVerifiedPartialDataColumn` for testing ONLY.
-    pub(crate) fn __new_for_testing(data_column: Arc<VerifiablePartialDataColumn<E>>) -> Self {
+    pub(crate) fn __new_for_testing(data_column: Arc<DanglingPartialDataColumn<E>>) -> Self {
         Self { data: data_column }
     }
 
     /// Mark a partial data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
-    pub fn from_execution_verified(data_column: Arc<VerifiablePartialDataColumn<E>>) -> Self {
+    pub fn from_execution_verified(data_column: Arc<DanglingPartialDataColumn<E>>) -> Self {
         Self { data: data_column }
     }
 
-    pub fn to_data_column(self) -> Arc<VerifiablePartialDataColumn<E>> {
+    pub fn to_data_column(self) -> Arc<DanglingPartialDataColumn<E>> {
         self.data
     }
-    pub fn as_data_column(&self) -> &VerifiablePartialDataColumn<E> {
+    pub fn as_data_column(&self) -> &DanglingPartialDataColumn<E> {
         &self.data
     }
     /// This is cheap as we're calling clone on an Arc
-    pub fn clone_data_column(&self) -> Arc<VerifiablePartialDataColumn<E>> {
+    pub fn clone_data_column(&self) -> Arc<DanglingPartialDataColumn<E>> {
         self.data.clone()
     }
 
     pub fn index(&self) -> ColumnIndex {
-        self.data.index()
+        self.data.index
     }
 }
 
@@ -550,7 +558,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 #[derive(Debug, Educe, Clone)]
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedCustodyPartialDataColumn<E: EthSpec> {
-    data: Arc<VerifiablePartialDataColumn<E>>,
+    data: Arc<DanglingPartialDataColumn<E>>,
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
@@ -562,63 +570,20 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         }
     }
 
-    pub fn into_inner(self) -> Arc<VerifiablePartialDataColumn<E>> {
+    pub fn into_inner(self) -> Arc<DanglingPartialDataColumn<E>> {
         self.data
     }
 
-    pub fn as_data_column(&self) -> &VerifiablePartialDataColumn<E> {
+    pub fn as_data_column(&self) -> &DanglingPartialDataColumn<E> {
         &self.data
     }
 
-    pub fn clone_arc(&self) -> Arc<VerifiablePartialDataColumn<E>> {
+    pub fn clone_arc(&self) -> Arc<DanglingPartialDataColumn<E>> {
         self.data.clone()
     }
 
     pub fn index(&self) -> ColumnIndex {
-        self.data.index()
-    }
-
-    // TODO(dknopik): This clones in far too many cases
-    // https://github.com/sigp/lighthouse/issues/XXXX
-    pub fn try_as_full(
-        &self,
-        block: Option<&SignedBeaconBlock<E>>,
-    ) -> Option<KzgVerifiedCustodyDataColumn<E>> {
-        self.data
-            .as_full(block)
-            .map(|full| KzgVerifiedCustodyDataColumn {
-                data: Arc::new(full.into_owned()),
-            })
-    }
-
-    pub fn merge(&mut self, other: &Self) -> bool {
-        let to_be_added = other
-            .data
-            .column
-            .sidecar
-            .cells_present_bitmap
-            .difference(&self.data.column.sidecar.cells_present_bitmap);
-        if to_be_added.is_zero() {
-            return false;
-        };
-
-        let Some(merged) = self.data.column.sidecar.merge(&other.data.column.sidecar) else {
-            return false;
-        };
-
-        *self = Self {
-            data: Arc::new(VerifiablePartialDataColumn {
-                column: Arc::new(DanglingPartialDataColumn {
-                    block_root: self.data.column.block_root,
-                    index: self.data.column.index,
-                    sidecar: merged,
-                }),
-                kzg_commitments: self.data.kzg_commitments.clone(),
-                slot: self.data.slot,
-            }),
-        };
-
-        true
+        self.data.index
     }
 }
 
@@ -640,7 +605,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 /// Returns an error if the kzg verification check fails.
 #[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
-    data_column: Arc<VerifiablePartialDataColumn<E>>,
+    data_column: Arc<DanglingPartialDataColumn<E>>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedPartialDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
@@ -727,15 +692,10 @@ pub fn validate_partial_data_column_sidecar_for_gossip<
     T: BeaconChainTypes,
     O: ObservationStrategy,
 >(
-    data_column: Arc<VerifiablePartialDataColumn<T::EthSpec>>,
+    data_column: Arc<DanglingPartialDataColumn<T::EthSpec>>,
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedPartialDataColumn<T, O>, GossipDataColumnError> {
-    // TODO(dknopik): This is kinda underspecified, just slap everything in here that *could* apply
-    // https://github.com/sigp/lighthouse/issues/XXXX
-    let column_slot = data_column.slot();
-    let block_root = data_column.block_root();
-    verify_sidecar_not_from_future_slot(chain, column_slot)?;
-    verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
+    let block_root = data_column.block_root;
 
     let filtered_column = if let Some(missing_cells) = chain
         .data_availability_checker

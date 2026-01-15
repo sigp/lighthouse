@@ -151,14 +151,6 @@ pub static BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: L
         "Total number of gossip partial data column sidecar verified for propagation.",
     )
 });
-pub static BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_CACHED_TOTAL: LazyLock<
-    Result<IntCounter>,
-> = LazyLock::new(|| {
-    try_create_int_counter(
-        "beacon_processor_gossip_partial_data_column_cached_total",
-        "Total number of gossip partial data column sidecars received before their block.",
-    )
-});
 // Gossip Exits.
 pub static BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {

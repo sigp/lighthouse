@@ -532,7 +532,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             // Gossipsub will handle per-peer diffing
             let partial = (*data_col).clone().into_partial();
             [
-                PubsubMessage::PartialDataColumnSidecar(Box::new((subnet, partial.column))),
+                PubsubMessage::PartialDataColumnSidecar(Box::new((subnet, Arc::new(partial)))),
                 PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
             ]
         })

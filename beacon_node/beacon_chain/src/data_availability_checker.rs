@@ -42,7 +42,7 @@ use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::DataColumnSidecar;
 use types::new_non_zero_usize;
-use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
+use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
@@ -229,9 +229,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn determine_missing_cells_partial(
         &self,
         block_root: &Hash256,
-        data_column: &VerifiablePartialDataColumn<T::EthSpec>,
+        data_column: &DanglingPartialDataColumn<T::EthSpec>,
     ) -> Option<Vec<usize>> {
-        let column_index = data_column.column.index;
+        let column_index = data_column.index;
 
         // Check DA checker cache first - if we have a full column cached, nothing is missing
         if self
@@ -253,7 +253,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // No cached data, return all present cells as "missing" (new data we want)
         let incoming_cells: Vec<usize> = data_column
-            .column
             .sidecar
             .cells_present_bitmap
             .iter()
@@ -970,9 +969,9 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 /// Returns cells from the incoming column that aren't in the cached partial, or None on data conflict.
 fn compare_full_to_partial<E: EthSpec>(
     incoming_cell_count: usize,
-    cached_partial: &VerifiablePartialDataColumn<E>,
+    cached_partial: &DanglingPartialDataColumn<E>,
 ) -> Option<Vec<usize>> {
-    let cached_bitmap = &cached_partial.column.sidecar.cells_present_bitmap;
+    let cached_bitmap = &cached_partial.sidecar.cells_present_bitmap;
 
     // Check that cell counts match
     if cached_bitmap.len() != incoming_cell_count {
@@ -999,11 +998,11 @@ fn compare_full_to_partial<E: EthSpec>(
 /// Compare an incoming partial column against a cached partial.
 /// Returns cells from the incoming column that aren't in the cached partial, or None on data conflict.
 fn compare_partial_to_partial<E: EthSpec>(
-    incoming: &VerifiablePartialDataColumn<E>,
-    cached_partial: &VerifiablePartialDataColumn<E>,
+    incoming: &DanglingPartialDataColumn<E>,
+    cached_partial: &DanglingPartialDataColumn<E>,
 ) -> Option<Vec<usize>> {
-    let incoming_bitmap = &incoming.column.sidecar.cells_present_bitmap;
-    let cached_bitmap = &cached_partial.column.sidecar.cells_present_bitmap;
+    let incoming_bitmap = &incoming.sidecar.cells_present_bitmap;
+    let cached_bitmap = &cached_partial.sidecar.cells_present_bitmap;
 
     // Check that cell counts match
     if incoming_bitmap.len() != cached_bitmap.len() {

@@ -12,8 +12,8 @@ use beacon_chain::data_column_verification::{
 use beacon_chain::partial_data_column_assembler::PartialMergeResult;
 use beacon_chain::store::Error;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
-    BlockProcessStatus, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -49,7 +49,7 @@ use types::{
     Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
 };
 
-use beacon_processor::work_reprocessing_queue::{QueuedColumnReconstruction, QueuedPartialColumn};
+use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
@@ -57,7 +57,7 @@ use beacon_processor::{
         ReprocessQueueMessage,
     },
 };
-use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
+use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -786,46 +786,29 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
         seen_duration: Duration,
-        allow_reprocess: bool,
     ) {
-        let partial_column = match self
-            .chain
-            .data_availability_checker
-            .get_cached_block(&column_sidecar.block_root)
-        {
-            Some(
-                BlockProcessStatus::ExecutionValidated(block)
-                | BlockProcessStatus::NotValidated(block, _),
-            ) => Some(VerifiablePartialDataColumn::from_dangling_and_block(
-                column_sidecar.clone(),
-                &block,
-            )),
-            None | Some(BlockProcessStatus::Unknown) => None,
-        };
+        // TODO(dknopik): add check and cache for header
 
-        match partial_column {
-            Some(Ok(partial_column)) => {
-                debug!("Received partial while having block");
-                self.process_gossip_verifiable_partial_data_column_sidecar(
-                    peer_id,
-                    Arc::new(partial_column),
-                    seen_duration,
-                )
-                .await;
-            }
-            Some(Err(err)) => {
-                warn!(?err, "Error creating verifiable partial data column");
-            }
-            None => self.handle_dangling_partial_data_column_sidecar_missing_block(
-                peer_id,
-                column_sidecar,
-                seen_duration,
-                allow_reprocess,
-            ),
-        }
+        // TODO(dknopik): make this more elegant with above todo
+        let slot = column_sidecar
+            .sidecar
+            .header
+            .first()
+            .unwrap()
+            .signed_block_header
+            .message
+            .slot;
+
+        self.process_gossip_verifiable_partial_data_column_sidecar(
+            peer_id,
+            column_sidecar,
+            slot,
+            seen_duration,
+        )
+        .await;
     }
 
-    fn handle_dangling_partial_data_column_sidecar_missing_block(
+    /*fn handle_dangling_partial_data_column_sidecar_missing_block(
         self: &Arc<Self>,
         peer_id: PeerId,
         column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
@@ -876,24 +859,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             error!("Failed to send attestation for re-processing")
         }
-    }
+    }*/
 
     #[instrument(
         name = SPAN_PROCESS_GOSSIP_PARTIAL_DATA_COLUMN,
         parent = None,
         level = "debug",
         skip_all,
-        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index()),
+        fields(slot = %slot, block_root = ?column_sidecar.block_root, index = column_sidecar.index),
     )]
     pub async fn process_gossip_verifiable_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Arc<VerifiablePartialDataColumn<T::EthSpec>>,
+        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
+        slot: Slot,
         seen_duration: Duration,
     ) {
-        let slot = column_sidecar.slot();
-        let block_root = column_sidecar.block_root();
-        let index = column_sidecar.index();
+        let block_root = column_sidecar.block_root;
+        let index = column_sidecar.index;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
@@ -1404,7 +1387,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let processing_start_time = Instant::now();
         let block_root = verified_partial.block_root();
-        let _data_column_slot = verified_partial.slot();
         let data_column_index = verified_partial.index();
 
         let result = self
@@ -1434,7 +1416,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             messages: vec![
                                 PubsubMessage::PartialDataColumnSidecar(Box::new((
                                     subnet,
-                                    updated_partial.column.clone(),
+                                    updated_partial.clone(),
                                 ))),
                                 PubsubMessage::DataColumnSidecar(Box::new((
                                     subnet,
@@ -1455,13 +1437,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                         // Publish the updated partial
                         let subnet = DataColumnSubnetId::from_column_index(
-                            updated_partial.column.index,
+                            updated_partial.index,
                             &self.chain.spec,
                         );
                         self.send_network_message(NetworkMessage::Publish {
                             messages: vec![PubsubMessage::PartialDataColumnSidecar(Box::new((
                                 subnet,
-                                updated_partial.column.clone(),
+                                updated_partial.clone(),
                             )))],
                         });
                     }

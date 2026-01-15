@@ -13,17 +13,17 @@ pub use crate::{
 };
 
 pub use c_kzg::{
-    Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
-    BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
+    BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, Blob, Bytes32,
+    Bytes48, FIELD_ELEMENTS_PER_BLOB, KzgSettings,
 };
 
 use crate::trusted_setup::load_trusted_setup;
 use rayon::prelude::*;
 pub use rust_eth_kzg::{
-    constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
+    constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
 };
-use tracing::{instrument, Span};
+use tracing::{Span, instrument};
 
 /// Disables the fixed-base multi-scalar multiplication optimization for computing
 /// cell KZG proofs, because `rust-eth-kzg` already handles the precomputation.
@@ -55,6 +55,8 @@ pub enum Error {
     ReconstructFailed(String),
     /// Kzg was not initialized with PeerDAS enabled.
     DASContextUninitialized,
+    /// A partial column was provided without necessary data
+    PartialWithoutHeader,
 }
 
 impl From<c_kzg::Error> for Error {

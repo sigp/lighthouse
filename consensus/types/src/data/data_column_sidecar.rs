@@ -1,7 +1,6 @@
 use crate::data::partial_data_column_sidecar::CellBitmap;
 use crate::data::partial_data_column_sidecar::DanglingPartialDataColumn;
 use crate::data::partial_data_column_sidecar::PartialDataColumnSidecar;
-use crate::data::partial_data_column_sidecar::VerifiablePartialDataColumn;
 use std::sync::Arc;
 
 use bls::Signature;
@@ -137,7 +136,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
     }
 
     /// Convert this full data column into a verifiable partial data column.
-    pub fn into_partial(self) -> VerifiablePartialDataColumn<E> {
+    pub fn into_partial(self) -> DanglingPartialDataColumn<E> {
         let cell_count = self.column.len();
         let mut bitmap =
             CellBitmap::<E>::with_capacity(cell_count).expect("our column has the same bound");
@@ -147,23 +146,19 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                 .expect("The correct size is initialized right above");
         }
 
-        VerifiablePartialDataColumn {
-            slot: self.slot(),
-            column: Arc::new(DanglingPartialDataColumn {
-                block_root: self.block_root(),
-                index: self.index,
-                sidecar: PartialDataColumnSidecar {
-                    cells_present_bitmap: bitmap,
-                    column: self.column,
-                    kzg_proofs: self.kzg_proofs,
-                    header: VariableList::repeat_full(PartialDataColumnHeader {
-                        kzg_commitments: self.kzg_commitments.clone(),
-                        signed_block_header: self.signed_block_header,
-                        kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof,
-                    }),
-                },
-            }),
-            kzg_commitments: self.kzg_commitments,
+        DanglingPartialDataColumn {
+            block_root: self.block_root(),
+            index: self.index,
+            sidecar: PartialDataColumnSidecar {
+                cells_present_bitmap: bitmap,
+                column: self.column,
+                kzg_proofs: self.kzg_proofs,
+                header: VariableList::repeat_full(PartialDataColumnHeader {
+                    kzg_commitments: self.kzg_commitments.clone(),
+                    signed_block_header: self.signed_block_header,
+                    kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof,
+                }),
+            },
         }
     }
 }

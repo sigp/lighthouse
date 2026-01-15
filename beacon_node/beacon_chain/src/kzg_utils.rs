@@ -9,7 +9,7 @@ use tracing::instrument;
 use types::data::{Cell, DataColumn, DataColumnSidecarError};
 use types::kzg_ext::KzgCommitments;
 use types::partial_data_column_sidecar::{
-    CellBitmap, DanglingPartialDataColumn, PartialDataColumnSidecar, VerifiablePartialDataColumn,
+    CellBitmap, DanglingPartialDataColumn, PartialDataColumnHeader,
 };
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
@@ -102,7 +102,7 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
 /// Partial columns may have missing cells, indicated by a bitmap. We only verify present cells.
 pub fn validate_partial_data_columns<'a, E: EthSpec>(
     kzg: &Kzg,
-    data_column_iter: impl Iterator<Item = &'a Arc<VerifiablePartialDataColumn<E>>>,
+    data_column_iter: impl Iterator<Item = &'a Arc<DanglingPartialDataColumn<E>>>,
 ) -> Result<(), (Option<u64>, KzgError)> {
     let mut cells = Vec::new();
     let mut proofs = Vec::new();
@@ -110,8 +110,8 @@ pub fn validate_partial_data_columns<'a, E: EthSpec>(
     let mut commitments = Vec::new();
 
     for data_column in data_column_iter {
-        let col_index = data_column.column.index;
-        let sidecar = &data_column.column.sidecar;
+        let col_index = data_column.index;
+        let sidecar = &data_column.sidecar;
 
         if sidecar.column.is_empty() {
             return Err((Some(col_index), KzgError::KzgVerificationFailed));
@@ -120,11 +120,15 @@ pub fn validate_partial_data_columns<'a, E: EthSpec>(
         // Partial columns have a bitmap indicating present cells
         // We iterate over the bitmap and only process present cells
         let mut present_iterator = sidecar.column.iter().zip(sidecar.kzg_proofs.iter());
-        for (present, commitment) in sidecar
-            .cells_present_bitmap
-            .iter()
-            .zip(data_column.kzg_commitments.iter())
-        {
+        for (present, commitment) in sidecar.cells_present_bitmap.iter().zip(
+            data_column
+                .sidecar
+                .header
+                .first()
+                .ok_or((Some(col_index), KzgError::PartialWithoutHeader))?
+                .kzg_commitments
+                .iter(),
+        ) {
             if present {
                 let (cell, proof) = present_iterator.next().ok_or((
                     Some(col_index),
@@ -285,7 +289,7 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     kzg: &Kzg,
     spec: &ChainSpec,
-) -> Result<Vec<Arc<VerifiablePartialDataColumn<E>>>, DataColumnSidecarError> {
+) -> Result<Vec<Arc<DanglingPartialDataColumn<E>>>, DataColumnSidecarError> {
     if blobs_and_proofs.is_empty() {
         return Ok(vec![]);
     }
@@ -295,6 +299,7 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
         .body()
         .blob_kzg_commitments()
         .map_err(|_err| DataColumnSidecarError::PreDeneb)?;
+    let kzg_commitments_inclusion_proof = block.message().body().kzg_commitments_merkle_proof()?;
     let signed_block_header = block.signed_block_header();
 
     let blob_cells_and_proofs_vec = blobs_and_proofs
@@ -323,6 +328,7 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
 
     build_partial_data_columns(
         kzg_commitments.clone(),
+        kzg_commitments_inclusion_proof,
         signed_block_header,
         blob_cells_and_proofs_vec,
         spec,
@@ -415,10 +421,11 @@ pub(crate) fn build_data_column_sidecars<E: EthSpec>(
 
 pub(crate) fn build_partial_data_columns<E: EthSpec>(
     kzg_commitments: KzgCommitments<E>,
+    kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
     signed_block_header: SignedBeaconBlockHeader,
     blob_cells_and_proofs_vec: Vec<Option<CellsAndKzgProofs>>,
     spec: &ChainSpec,
-) -> Result<Vec<Arc<VerifiablePartialDataColumn<E>>>, String> {
+) -> Result<Vec<Arc<DanglingPartialDataColumn<E>>>, String> {
     let number_of_columns = E::number_of_columns();
     let max_blobs_per_block = spec
         .max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch()))
@@ -470,27 +477,28 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
         }
     }
 
-    let sidecars: Result<Vec<Arc<VerifiablePartialDataColumn<E>>>, String> = columns
+    let sidecars: Result<Vec<Arc<DanglingPartialDataColumn<E>>>, String> = columns
         .into_iter()
         .zip(column_kzg_proofs)
         .enumerate()
         .map(|(index, (col, proofs))| {
-            Ok(Arc::new(VerifiablePartialDataColumn {
-                column: Arc::new(DanglingPartialDataColumn {
-                    block_root: signed_block_header.message.canonical_root(),
-                    index: index as u64,
-                    sidecar: PartialDataColumnSidecar {
-                        cells_present_bitmap: bitmap.clone(),
-                        column: DataColumn::<E>::try_from(col)
-                            .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                        kzg_proofs: VariableList::try_from(proofs)
-                            .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                        header: VariableList::empty(),
-                    },
-                }),
-                kzg_commitments: kzg_commitments.clone(),
-                slot: signed_block_header.message.slot,
-            }))
+            let column = DanglingPartialDataColumn {
+                block_root: signed_block_header.message.canonical_root(),
+                index: index as u64,
+                sidecar: types::partial_data_column_sidecar::PartialDataColumnSidecar {
+                    cells_present_bitmap: bitmap.clone(),
+                    column: DataColumn::<E>::try_from(col)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    kzg_proofs: VariableList::try_from(proofs)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    header: VariableList::repeat_full(PartialDataColumnHeader {
+                        kzg_commitments: kzg_commitments.clone(),
+                        signed_block_header: signed_block_header.clone(),
+                        kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
+                    }),
+                },
+            };
+            Ok(Arc::new(column))
         })
         .collect();
 

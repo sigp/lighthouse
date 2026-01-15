@@ -136,7 +136,7 @@ use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace
 use tree_hash::TreeHash;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
-use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
+use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -2200,7 +2200,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all, level = "trace")]
     pub fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
-        data_column_sidecar: Arc<VerifiablePartialDataColumn<T::EthSpec>>,
+        data_column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
     ) -> Result<GossipVerifiedPartialDataColumn<T>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer =

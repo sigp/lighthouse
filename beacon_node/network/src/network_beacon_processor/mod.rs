@@ -264,7 +264,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     column_sidecar,
                     seen_timestamp,
-                    true,
                 )
                 .await
         };
@@ -811,10 +810,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 .map(|partial| {
                                     PubsubMessage::PartialDataColumnSidecar(Box::new((
                                         DataColumnSubnetId::from_column_index(
-                                            partial.column.index,
+                                            partial.index,
                                             &self_cloned.chain.spec,
                                         ),
-                                        partial.column.clone(),
+                                        partial.clone(),
                                     )))
                                 })
                                 .collect(),
