@@ -809,18 +809,18 @@ impl<E: EthSpec> Network<E> {
             .insert(topic.clone());
 
         let config = &self.network_globals.config;
-        let disable_request =
-            config.disable_partial_messages_request || config.disable_partial_messages_support;
-        let disable_support = config.disable_partial_messages_support;
-
         let partial = topic.kind().supports_partial_messages();
         let topic: Topic = topic.into();
 
-        match self.gossipsub_mut().subscribe(
-            &topic,
-            partial && !disable_request,
-            partial && !disable_support,
-        ) {
+        let subscribe_result = if partial && !config.disable_partial_messages_support {
+            let request_partials = !config.disable_partial_messages_request;
+            self.gossipsub_mut()
+                .subscribe_partial(&topic, request_partials)
+        } else {
+            self.gossipsub_mut().subscribe(&topic)
+        };
+
+        match subscribe_result {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
@@ -1315,16 +1315,16 @@ impl<E: EthSpec> Network<E> {
                 }
             }
             Event::Partial {
-                topic_id,
-                propagation_source,
+                topic_hash,
+                peer_id,
                 group_id,
                 message,
                 metadata,
             } => {
-                let topic = GossipTopic::decode(topic_id.as_str())
+                let topic = GossipTopic::decode(topic_hash.as_str())
                     .inspect_err(|error| {
                         debug!(
-                            topic = ?topic_id,
+                            topic = ?topic_hash,
                             error,
                             "Could not decode gossipsub partial message topic"
                         );
@@ -1342,19 +1342,19 @@ impl<E: EthSpec> Network<E> {
                                 metadata_string.push('0');
                             }
                         }
-                        debug!(metadata = metadata_string, %topic, %propagation_source, "Got metadata")
+                        debug!(metadata = metadata_string, %topic, %peer_id, "Got metadata")
                     } else {
-                        warn!(?metadata, %topic, %propagation_source, "Got weird metadata");
+                        warn!(?metadata, %topic, %peer_id, "Got weird metadata");
                     }
                 } else {
-                    debug!(%propagation_source, "Got no metadata")
+                    debug!(%peer_id, "Got no metadata")
                 }
 
                 if let Some(message) = message {
-                    match PubsubMessage::decode_partial(&topic_id, &group_id, &message) {
+                    match PubsubMessage::decode_partial(&topic_hash, &group_id, &message) {
                         Err(error) => {
                             debug!(
-                                topic = ?topic_id,
+                                topic = ?topic_hash,
                                 error,
                                 "Could not decode gossipsub partial message"
                             );
@@ -1369,14 +1369,14 @@ impl<E: EthSpec> Network<E> {
                         Ok(message) => {
                             debug!(
                                 %message,
-                                %propagation_source,
+                                %peer_id,
                                 "Decoded partial message"
                             );
                             // Notify the network
                             return Some(NetworkEvent::PubsubMessage {
                                 id: MessageId::new(&[]), // TODO(dknopik): waht to send
-                                source: propagation_source,
-                                topic: topic_id,
+                                source: peer_id,
+                                topic: topic_hash,
                                 message,
                             });
                         }
