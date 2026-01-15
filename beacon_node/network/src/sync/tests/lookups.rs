@@ -11,8 +11,8 @@ use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, NotifyExecutionLayer,
     block_verification_types::AsBlock,
-    data_column_verification::CustodyDataColumnList,
     data_availability_checker::Availability,
+    data_column_verification::CustodyDataColumnList,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
         generate_rand_block_and_blobs, test_spec,
@@ -823,8 +823,7 @@ impl TestRig {
         let mut block = (*rpc_block.block_cloned()).clone();
         let blobs = rpc_block.blobs().cloned();
         let columns = rpc_block.custody_columns().cloned();
-        *block.message_mut().body_mut().graffiti_mut() =
-            Graffiti::random_for_test(&mut self.rng);
+        *block.message_mut().body_mut().graffiti_mut() = Graffiti::random_for_test(&mut self.rng);
         self.re_insert_block(Arc::new(block), blobs, columns);
     }
 
