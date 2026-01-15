@@ -118,8 +118,6 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
             )
         }
 
-        let exited_validators = duties_service.exited_count();
-
         if total_validators == 0 {
             info!(
                 msg = "see `lighthouse vm create --help` or the HTTP API documentation",
@@ -137,29 +135,19 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
         } else if attesting_validators > 0 {
             info!(
                 current_epoch_proposers = proposing_validators,
+                active_validators = attesting_validators,
                 total_validators = total_validators,
-                active = attesting_validators,
-                exited = exited_validators,
                 %epoch,
                 %slot,
                 "Some validators active"
             );
         } else {
-            // Log a different log if all validators have exited
-            if exited_validators == total_validators {
-                info!(
-                    exited_validators = total_validators,
-                    %epoch,
-                    %slot,
-                    "All validators have exited")
-            } else {
-                info!(
-                    validators = total_validators,
-                    %epoch,
-                    %slot,
-                    "Awaiting activation"
-                );
-            }
+            info!(
+                validators = total_validators,
+                %epoch,
+                %slot,
+                "Awaiting activation"
+            );
         }
     } else {
         error!("Unable to read slot clock");
