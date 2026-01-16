@@ -1,10 +1,7 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::types::partial::PartialDataColumnSidecarMessage;
+use crate::TopicHash;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use crate::{Gossipsub, TopicHash};
-use gossipsub::{IdentTopic, PublishError};
-use libp2p::gossipsub;
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
@@ -24,8 +21,6 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
-type PartialDataColumnSidecarTuple<E> = (DataColumnSubnetId, Arc<DanglingPartialDataColumn<E>>);
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a new block.
@@ -34,9 +29,6 @@ pub enum PubsubMessage<E: EthSpec> {
     BlobSidecar(Box<(u64, Arc<BlobSidecar<E>>)>),
     /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
     DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
-    /// Gossipsub message providing notification of a [`PartialDataColumnSidecar`] along with the subnet id where it was received.
-    /// TODO(dknopik) - it is time for this to move into its own enum.
-    PartialDataColumnSidecar(Box<PartialDataColumnSidecarTuple<E>>), // TODO(dknopik): review `Arc` situation
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
     /// Gossipsub message providing notification of a `SingleAttestation` with its subnet id.
@@ -145,9 +137,6 @@ impl<E: EthSpec> PubsubMessage<E> {
             }
             PubsubMessage::DataColumnSidecar(column_sidecar_data) => {
                 GossipKind::DataColumnSidecar(column_sidecar_data.0)
-            }
-            PubsubMessage::PartialDataColumnSidecar(partial_column_sidecar_data) => {
-                GossipKind::DataColumnSidecar(partial_column_sidecar_data.0)
             }
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
@@ -406,46 +395,16 @@ impl<E: EthSpec> PubsubMessage<E> {
         }
     }
 
-    pub fn decode_partial(topic: &TopicHash, group: &[u8], data: &[u8]) -> Result<Self, String> {
-        match GossipTopic::decode(topic.as_str()) {
-            Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
-            Ok(gossip_topic) => match gossip_topic.kind() {
-                GossipKind::DataColumnSidecar(id) => {
-                    let block_root = Hash256::from_ssz_bytes(group)
-                        .map_err(|e| format!("Error decoding group: {:?}", e))?;
-                    let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
-                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
-                    let data_column = DanglingPartialDataColumn {
-                        block_root,
-                        // Partial messages are spec'd under the assumption that there is one column per subnet.
-                        index: **id,
-                        sidecar,
-                    };
-                    Ok(Self::PartialDataColumnSidecar(Box::new((
-                        *id,
-                        Arc::new(data_column),
-                    ))))
-                }
-                other => Err(format!("Partial message unsupported for topic: {other}")),
-            },
-        }
-    }
-
     /// Encodes a `PubsubMessage`.
-    pub fn encode(&self) -> EncodedPubsubMessage<E> {
+    pub fn encode(&self) -> Vec<u8> {
         // Currently do not employ encoding strategies based on the topic. All messages are ssz
         // encoded.
         // Also note, that the compression is handled by the `SnappyTransform` struct. Gossipsub will compress the
         // messages for us.
-        let bytes = match &self {
+        match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
             PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
-            PubsubMessage::PartialDataColumnSidecar(data) => {
-                let sidecar = &data.1;
-                let message = PartialDataColumnSidecarMessage::new(sidecar.clone());
-                return EncodedPubsubMessage::PartialDataColumnSidecarMessage(message);
-            }
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -456,12 +415,34 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::BlsToExecutionChange(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
-        };
-        EncodedPubsubMessage::Full(bytes)
+        }
     }
+}
 
-    pub fn is_partial(&self) -> bool {
-        matches!(self, PubsubMessage::PartialDataColumnSidecar(_))
+/// Decodes incoming partial data column sidecar from gossipsub partial protocol.
+pub fn decode_partial<E: EthSpec>(
+    topic: &TopicHash,
+    group: &[u8],
+    data: &[u8],
+) -> Result<Arc<DanglingPartialDataColumn<E>>, String> {
+    match GossipTopic::decode(topic.as_str()) {
+        Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
+        Ok(gossip_topic) => match gossip_topic.kind() {
+            GossipKind::DataColumnSidecar(id) => {
+                let block_root = Hash256::from_ssz_bytes(group)
+                    .map_err(|e| format!("Error decoding group: {:?}", e))?;
+                let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
+                    .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                let data_column = DanglingPartialDataColumn {
+                    block_root,
+                    // Partial messages are spec'd under the assumption that there is one column per subnet.
+                    index: **id,
+                    sidecar,
+                };
+                Ok(Arc::new(data_column))
+            }
+            other => Err(format!("Partial message unsupported for topic: {other}")),
+        },
     }
 }
 
@@ -485,13 +466,6 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 "DataColumnSidecar: slot: {}, column index: {}",
                 data.1.slot(),
                 data.1.index,
-            ),
-            PubsubMessage::PartialDataColumnSidecar(data) => write!(
-                f,
-                "PartialDataColumnSidecar: group: {}, column index: {}, cells: {}",
-                data.1.block_root,
-                data.1.index,
-                hex::encode(data.1.sidecar.cells_present_bitmap.as_slice()),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,
@@ -526,26 +500,6 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             }
             PubsubMessage::LightClientOptimisticUpdate(_data) => {
                 write!(f, "Light CLient Optimistic Update")
-            }
-        }
-    }
-}
-
-pub enum EncodedPubsubMessage<E: EthSpec> {
-    Full(Vec<u8>),
-    PartialDataColumnSidecarMessage(PartialDataColumnSidecarMessage<E>),
-}
-
-impl<E: EthSpec> EncodedPubsubMessage<E> {
-    pub fn do_publish(
-        self,
-        gossipsub: &mut Gossipsub,
-        topic: IdentTopic,
-    ) -> Result<(), PublishError> {
-        match self {
-            EncodedPubsubMessage::Full(bytes) => gossipsub.publish(topic, bytes).map(|_| ()),
-            EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => {
-                gossipsub.publish_partial(topic, partial)
             }
         }
     }

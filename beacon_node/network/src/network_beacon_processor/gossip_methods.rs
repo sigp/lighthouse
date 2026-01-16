@@ -1412,17 +1412,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             full_column.index,
                             &self.chain.spec,
                         );
+                        self.send_network_message(NetworkMessage::PublishPartial {
+                            columns: vec![updated_partial.clone()],
+                        });
                         self.send_network_message(NetworkMessage::Publish {
-                            messages: vec![
-                                PubsubMessage::PartialDataColumnSidecar(Box::new((
-                                    subnet,
-                                    updated_partial.clone(),
-                                ))),
-                                PubsubMessage::DataColumnSidecar(Box::new((
-                                    subnet,
-                                    full_column.clone(),
-                                ))),
-                            ],
+                            messages: vec![PubsubMessage::DataColumnSidecar(Box::new((
+                                subnet,
+                                full_column.clone(),
+                            )))],
                         });
 
                         // Check if block is now fully available
@@ -1436,15 +1433,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
 
                         // Publish the updated partial
-                        let subnet = DataColumnSubnetId::from_column_index(
-                            updated_partial.index,
-                            &self.chain.spec,
-                        );
-                        self.send_network_message(NetworkMessage::Publish {
-                            messages: vec![PubsubMessage::PartialDataColumnSidecar(Box::new((
-                                subnet,
-                                updated_partial.clone(),
-                            )))],
+                        self.send_network_message(NetworkMessage::PublishPartial {
+                            columns: vec![updated_partial.clone()],
                         });
                     }
                 }

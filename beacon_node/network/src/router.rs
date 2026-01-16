@@ -24,6 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
+use types::data::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
@@ -69,6 +70,8 @@ pub enum RouterMessage<E: EthSpec> {
     /// message, the message itself and a bool which indicates if the message should be processed
     /// by the beacon chain after successful verification.
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
+    /// A partial data column sidecar has been received via gossipsub partial protocol.
+    PartialDataColumnSidecar(PeerId, Arc<DanglingPartialDataColumn<E>>),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
     /// The peer has an updated custody group count from METADATA.
@@ -180,6 +183,11 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
                 self.handle_gossip(id, peer_id, gossip, should_process);
             }
+            RouterMessage::PartialDataColumnSidecar(peer_id, column) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_partial_data_column_sidecar(peer_id, column, timestamp_now()),
+                ),
         }
     }
 
@@ -379,17 +387,6 @@ impl<T: BeaconChainTypes> Router<T> {
                             message_id,
                             peer_id,
                             subnet_id,
-                            column_sidecar,
-                            timestamp_now(),
-                        ),
-                )
-            }
-            PubsubMessage::PartialDataColumnSidecar(data) => {
-                let (_, column_sidecar) = *data;
-                self.handle_beacon_processor_send_result(
-                    self.network_beacon_processor
-                        .send_gossip_partial_data_column_sidecar(
-                            peer_id,
                             column_sidecar,
                             timestamp_now(),
                         ),

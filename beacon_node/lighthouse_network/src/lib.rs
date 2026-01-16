@@ -98,8 +98,8 @@ impl std::fmt::Display for ClearDialError<'_> {
 }
 
 pub use crate::types::{
-    Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
-    SubnetDiscovery,
+    Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PartialDataColumnSidecarMessage,
+    PubsubMessage, Subnet, SubnetDiscovery, decode_partial,
 };
 
 pub use prometheus_client;

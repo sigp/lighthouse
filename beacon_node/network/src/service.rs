@@ -38,6 +38,7 @@ use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
+use types::data::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::{
     EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
@@ -83,6 +84,10 @@ pub enum NetworkMessage<E: EthSpec> {
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<E>> },
+    /// Publish partial data column sidecars via the partial gossipsub protocol.
+    PublishPartial {
+        columns: Vec<Arc<DanglingPartialDataColumn<E>>>,
+    },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -560,6 +565,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
             }
+            NetworkEvent::PartialDataColumnSidecar { source, column } => {
+                self.send_to_router(RouterMessage::PartialDataColumnSidecar(source, column));
+            }
             NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
                     .listen_multiaddrs
@@ -643,12 +651,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::Publish { messages } => {
                 let mut topic_kinds = Vec::new();
                 for message in &messages {
-                    let message_kind = if message.is_partial() {
-                        "partial"
-                    } else {
-                        "full"
-                    };
-                    let kind = (message.kind(), message_kind);
+                    let kind = message.kind();
                     if !topic_kinds.contains(&kind) {
                         topic_kinds.push(kind);
                     }
@@ -659,6 +662,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     "Sending pubsub messages"
                 );
                 self.libp2p.publish(messages);
+            }
+            NetworkMessage::PublishPartial { columns } => {
+                debug!(
+                    count = columns.len(),
+                    "Sending partial data column sidecars"
+                );
+                self.libp2p.publish_partial(columns);
             }
             NetworkMessage::ReportPeer {
                 peer_id,

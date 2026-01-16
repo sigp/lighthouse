@@ -15,11 +15,11 @@ use crate::rpc::{
     RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse,
 };
 use crate::types::{
-    EncodedPubsubMessage, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
-    SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
+    GossipEncoding, GossipKind, GossipTopic, PartialDataColumnSidecarMessage, SnappyTransform,
+    Subnet, SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
     subnet_from_topic_hash,
 };
-use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
+use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
@@ -42,10 +42,11 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
-use types::data::partial_data_column_sidecar::CellBitmap;
+use types::data::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
 use types::{ChainSpec, ForkName};
 use types::{
-    EnrForkId, EthSpec, ForkContext, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -101,6 +102,13 @@ pub enum NetworkEvent<E: EthSpec> {
         topic: TopicHash,
         /// The message itself.
         message: PubsubMessage<E>,
+    },
+    /// A partial data column sidecar received via gossipsub partial protocol.
+    PartialDataColumnSidecar {
+        /// The peer from which we received this message.
+        source: PeerId,
+        /// The partial column data.
+        column: Arc<DanglingPartialDataColumn<E>>,
     },
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
@@ -851,19 +859,10 @@ impl<E: EthSpec> Network<E> {
     pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
-                let message_data = message.encode();
+                let bytes = message.encode();
                 let gossipsub = self.gossipsub_mut();
                 let publish_topic: Topic = topic.clone().into();
-                let (cache, result) = match message_data {
-                    EncodedPubsubMessage::Full(bytes) => (
-                        Some(bytes.clone()),
-                        gossipsub.publish(publish_topic, bytes).map(|_| ()),
-                    ),
-                    EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => {
-                        (None, gossipsub.publish_partial(publish_topic, partial))
-                    }
-                };
-                if let Err(e) = result {
+                if let Err(e) = gossipsub.publish(publish_topic, bytes.clone()) {
                     match e {
                         PublishError::Duplicate => {
                             debug!(
@@ -900,12 +899,54 @@ impl<E: EthSpec> Network<E> {
                         }
                     }
 
-                    if let PublishError::NoPeersSubscribedToTopic = e
-                        && let Some(bytes) = cache
-                    {
+                    if let PublishError::NoPeersSubscribedToTopic = e {
                         self.gossip_cache.insert(topic, bytes);
                     }
                 }
+            }
+        }
+    }
+
+    /// Publishes partial data column sidecars to the gossipsub network.
+    pub fn publish_partial(&mut self, columns: Vec<Arc<DanglingPartialDataColumn<E>>>) {
+        for column in columns {
+            let subnet =
+                DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
+            let topic = GossipTopic::new(
+                GossipKind::DataColumnSidecar(subnet),
+                GossipEncoding::default(),
+                self.enr_fork_id.fork_digest,
+            );
+            let partial_message = PartialDataColumnSidecarMessage::new(column);
+            let publish_topic: Topic = topic.clone().into();
+
+            if let Err(e) = self
+                .gossipsub_mut()
+                .publish_partial(publish_topic, partial_message)
+            {
+                match e {
+                    PublishError::Duplicate => {
+                        debug!(
+                            kind = %topic.kind(),
+                            "Attempted to publish duplicate partial message"
+                        );
+                    }
+                    ref e => {
+                        warn!(
+                            error = ?e,
+                            kind = %topic.kind(),
+                            "Could not publish partial message"
+                        );
+                    }
+                }
+
+                // add to metrics
+                if let Some(v) = metrics::get_int_gauge(
+                    &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                    &[&format!("{:?}", topic.kind())],
+                ) {
+                    v.inc()
+                };
             }
         }
     }
@@ -1351,7 +1392,7 @@ impl<E: EthSpec> Network<E> {
                 }
 
                 if let Some(message) = message {
-                    match PubsubMessage::decode_partial(&topic_hash, &group_id, &message) {
+                    match decode_partial::<E>(&topic_hash, &group_id, &message) {
                         Err(error) => {
                             debug!(
                                 topic = ?topic_hash,
@@ -1366,18 +1407,17 @@ impl<E: EthSpec> Network<E> {
                             //    MessageAcceptance::Reject,
                             //);
                         }
-                        Ok(message) => {
+                        Ok(column) => {
                             debug!(
-                                %message,
+                                block_root = %column.block_root,
+                                index = column.index,
                                 %peer_id,
                                 "Decoded partial message"
                             );
                             // Notify the network
-                            return Some(NetworkEvent::PubsubMessage {
-                                id: MessageId::new(&[]), // TODO(dknopik): waht to send
+                            return Some(NetworkEvent::PartialDataColumnSidecar {
                                 source: peer_id,
-                                topic: topic_hash,
-                                message,
+                                column,
                             });
                         }
                     }

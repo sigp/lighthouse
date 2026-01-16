@@ -804,19 +804,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     EngineGetBlobsOutput::PartialColumns(partials) => {
                         // Publish partial columns without eager send
-                        self_cloned.send_network_message(NetworkMessage::Publish {
-                            messages: partials
-                                .into_iter()
-                                .map(|partial| {
-                                    PubsubMessage::PartialDataColumnSidecar(Box::new((
-                                        DataColumnSubnetId::from_column_index(
-                                            partial.index,
-                                            &self_cloned.chain.spec,
-                                        ),
-                                        partial.clone(),
-                                    )))
-                                })
-                                .collect(),
+                        self_cloned.send_network_message(NetworkMessage::PublishPartial {
+                            columns: partials,
                         })
                     }
                 };

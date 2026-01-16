@@ -524,21 +524,37 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .collect::<Vec<_>>();
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
-    let pubsub_messages = data_column_sidecars
-        .into_iter()
-        .flat_map(|data_col| {
-            let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
-            // For block producers, eagerly send all column data via partial messages
-            // Gossipsub will handle per-peer diffing
-            let partial = (*data_col).clone().into_partial();
-            [
-                PubsubMessage::PartialDataColumnSidecar(Box::new((subnet, Arc::new(partial)))),
-                PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col))),
-            ]
-        })
-        .collect::<Vec<_>>();
-    crate::utils::publish_pubsub_messages(sender_clone, pubsub_messages)
-        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
+    let mut full_messages = Vec::new();
+    let mut partial_columns = Vec::new();
+
+    for data_col in data_column_sidecars {
+        partial_columns.push(Arc::new((*data_col).clone().into_partial()));
+
+        let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
+        full_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
+            subnet, data_col,
+        ))));
+    }
+
+    // Publish full messages
+    if !full_messages.is_empty() {
+        crate::utils::publish_pubsub_messages(sender_clone, full_messages).map_err(|_| {
+            BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
+        })?;
+    }
+
+    // Publish partial messages
+    if !partial_columns.is_empty() {
+        crate::utils::publish_network_message(
+            sender_clone,
+            NetworkMessage::PublishPartial {
+                columns: partial_columns,
+            },
+        )
+        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))?;
+    }
+
+    Ok(())
 }
 
 async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
