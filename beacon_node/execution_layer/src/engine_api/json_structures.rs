@@ -5,9 +5,9 @@ use ssz::{Decode, TryFromIter};
 use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::beacon_block_body::KzgCommitments;
 use types::data::BlobsList;
 use types::execution::{ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests};
+use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

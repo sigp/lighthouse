@@ -17,8 +17,8 @@ use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
-use types::beacon_block_body::KzgCommitments;
 use types::data::BlobIdentifier;
+use types::kzg_ext::KzgCommitments;
 use types::{
     BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
     DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
@@ -839,7 +839,7 @@ mod test {
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::{debug_span, info};
-    use types::non_zero_usize::new_non_zero_usize;
+    use types::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;

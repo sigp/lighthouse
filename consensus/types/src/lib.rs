@@ -49,60 +49,6 @@ pub use sync_committee::*;
 pub use validator::*;
 pub use withdrawal::*;
 
-// Temporary facade modules to maintain backwards compatibility for Lighthouse.
-pub mod eth_spec {
-    pub use crate::core::EthSpec;
-}
-
-pub mod chain_spec {
-    pub use crate::core::ChainSpec;
-}
-
-pub mod beacon_block {
-    pub use crate::block::{BlindedBeaconBlock, BlockImportSource};
-}
-
-pub mod beacon_block_body {
-    pub use crate::kzg_ext::{KzgCommitments, format_kzg_commitments};
-}
-
-pub mod beacon_state {
-    pub use crate::state::{
-        BeaconState, BeaconStateBase, CommitteeCache, compute_committee_index_in_epoch,
-        compute_committee_range_in_epoch, epoch_committee_count,
-    };
-}
-
 pub mod graffiti {
-    pub use crate::core::GraffitiString;
-}
-
-pub mod historical_summary {
-    pub use crate::state::HistoricalSummary;
-}
-
-pub mod epoch_cache {
-    pub use crate::state::{EpochCache, EpochCacheError, EpochCacheKey};
-}
-
-pub mod non_zero_usize {
-    pub use crate::core::new_non_zero_usize;
-}
-
-pub mod builder_bid {
-    pub use crate::builder::*;
-}
-
-pub mod light_client_update {
-    pub use crate::light_client::consts::{
-        CURRENT_SYNC_COMMITTEE_INDEX, CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_ROOT_INDEX,
-        FINALIZED_ROOT_INDEX_ELECTRA, MAX_REQUEST_LIGHT_CLIENT_UPDATES, NEXT_SYNC_COMMITTEE_INDEX,
-        NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
-    };
-}
-
-pub mod sync_committee_contribution {
-    pub use crate::sync_committee::{
-        SyncCommitteeContributionError as Error, SyncContributionData,
-    };
+    pub use crate::core::{GRAFFITI_BYTES_LEN, Graffiti, GraffitiString};
 }
