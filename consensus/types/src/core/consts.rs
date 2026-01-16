@@ -25,3 +25,17 @@ pub mod bellatrix {
 pub mod deneb {
     pub use kzg::VERSIONED_HASH_VERSION_KZG;
 }
+pub mod gloas {
+    pub const BUILDER_INDEX_SELF_BUILD: u64 = u64::MAX;
+    pub const BUILDER_INDEX_FLAG: u64 = 1 << 40;
+
+    // Fork choice constants
+    pub type PayloadStatus = u8;
+    pub const PAYLOAD_STATUS_PENDING: PayloadStatus = 0;
+    pub const PAYLOAD_STATUS_EMPTY: PayloadStatus = 1;
+    pub const PAYLOAD_STATUS_FULL: PayloadStatus = 2;
+
+    pub const ATTESTATION_TIMELINESS_INDEX: usize = 0;
+    pub const PTC_TIMELINESS_INDEX: usize = 1;
+    pub const NUM_BLOCK_TIMELINESS_DEADLINES: usize = 2;
+}

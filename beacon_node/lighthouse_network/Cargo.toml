@@ -5,9 +5,6 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
 
-[features]
-libp2p-websocket = []
-
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
@@ -27,6 +24,7 @@ futures = { workspace = true }
 gossipsub = { workspace = true }
 hex = { workspace = true }
 itertools = { workspace = true }
+libp2p = { workspace = true }
 libp2p-mplex = { git = "https://github.com/jxs/rust-libp2p.git", branch = "gossipsub-partial-messages" }
 lighthouse_version = { workspace = true }
 local-ip-address = "0.6"
@@ -54,25 +52,6 @@ tracing-subscriber = { workspace = true }
 typenum = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
-
-[dependencies.libp2p]
-git = "https://github.com/jxs/rust-libp2p.git"
-branch = "gossipsub-partial-messages"
-default-features = false
-features = [
-    "identify",
-    "yamux",
-    "noise",
-    "dns",
-    "tcp",
-    "tokio",
-    "plaintext",
-    "secp256k1",
-    "macros",
-    "metrics",
-    "quic",
-    "upnp",
-]
 
 [dev-dependencies]
 async-channel = { workspace = true }

@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Address, Epoch, ForkName};
+use crate::{Address, ForkName};
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -29,7 +29,6 @@ pub struct BuilderPendingWithdrawal {
     pub amount: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub builder_index: u64,
-    pub withdrawable_epoch: Epoch,
 }
 
 #[cfg(test)]

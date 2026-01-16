@@ -4,6 +4,7 @@ use crate::types::partial::PartialDataColumnSidecarMessage;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{Gossipsub, TopicHash};
 use gossipsub::{IdentTopic, PublishError};
+use libp2p::gossipsub;
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};

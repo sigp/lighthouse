@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
@@ -41,7 +41,7 @@ use crate::metrics::{
 use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::DataColumnSidecar;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
@@ -1045,7 +1045,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
     use store::HotColdDB;
-    use types::data_column_sidecar::DataColumn;
+    use types::data::DataColumn;
     use types::{
         ChainSpec, ColumnIndex, DataColumnSidecar, EthSpec, ForkName, MainnetEthSpec, Slot,
     };

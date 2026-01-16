@@ -4,9 +4,8 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use types::beacon_block_body::KzgCommitments;
 use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
-use types::{ColumnIndex, DataColumnSidecar, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, DataColumnSidecar, EthSpec, Hash256, KzgCommitments, Slot};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {

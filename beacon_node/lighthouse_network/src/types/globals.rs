@@ -9,8 +9,8 @@ use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::error;
-use types::data_column_custody_group::{compute_subnets_from_custody_group, get_custody_groups};
+use tracing::{debug, error};
+use types::data::{compute_subnets_from_custody_group, get_custody_groups};
 use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
@@ -79,7 +79,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             sampling_subnets.extend(subnets);
         }
 
-        tracing::debug!(
+        debug!(
             cgc = custody_group_count,
             ?sampling_subnets,
             "Starting node with custody params"

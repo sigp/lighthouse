@@ -13,7 +13,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
-tiny-bip39 = "1"
+tiny-bip39 = "2"
 uuid = { workspace = true }
 
 [dev-dependencies]

@@ -1,7 +1,7 @@
-use bls::Hash256;
 use milhouse::{List, Vector};
 use ssz_types::BitVector;
 use std::mem;
+use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
     EthSpec, ExecutionPayloadBid, Fork,
@@ -88,15 +88,23 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         pending_deposits: pre.pending_deposits.clone(),
         pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
         pending_consolidations: pre.pending_consolidations.clone(),
+        proposer_lookahead: mem::take(&mut pre.proposer_lookahead),
         // Gloas
-        execution_payload_availability: BitVector::default(), // All bits set to false initially
+        builders: List::default(),
+        next_withdrawal_builder_index: 0,
+        // All bits set to true per spec:
+        // execution_payload_availability = [0b1 for _ in range(SLOTS_PER_HISTORICAL_ROOT)]
+        execution_payload_availability: BitVector::from_bytes(
+            vec![0xFFu8; E::SlotsPerHistoricalRoot::to_usize() / 8].into(),
+        )
+        .map_err(|_| Error::InvalidBitfield)?,
         builder_pending_payments: Vector::new(vec![
             BuilderPendingPayment::default();
             E::builder_pending_payments_limit()
         ])?,
         builder_pending_withdrawals: List::default(), // Empty list initially,
         latest_block_hash: pre.latest_execution_payload_header.block_hash,
-        latest_withdrawals_root: Hash256::default(),
+        payload_expected_withdrawals: List::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
@@ -105,7 +113,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: mem::take(&mut pre.epoch_cache),
-        proposer_lookahead: mem::take(&mut pre.proposer_lookahead),
     });
     Ok(post)
 }

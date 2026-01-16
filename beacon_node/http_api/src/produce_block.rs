@@ -16,7 +16,7 @@ use lighthouse_tracing::{SPAN_PRODUCE_BLOCK_V2, SPAN_PRODUCE_BLOCK_V3};
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::instrument;
-use types::{payload::BlockProductionVersion, *};
+use types::{execution::BlockProductionVersion, *};
 use warp::{
     Reply,
     hyper::{Body, Response},

@@ -1,5 +1,5 @@
-use gossipsub::partial::{Metadata, PublishAction};
-use gossipsub::{Partial, PartialMessageError};
+use crate::PeerId;
+use libp2p::gossipsub::partial_messages::{Metadata, Partial, PartialAction, PartialError};
 use ssz::{Decode, Encode};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -55,11 +55,11 @@ impl<E: EthSpec> Metadata for CellBitmapMetadata<E> {
         &self.encoded
     }
 
-    fn update(&mut self, data: &[u8]) -> Result<bool, PartialMessageError> {
-        let data = CellBitmap::<E>::from_ssz_bytes(data)
-            .map_err(|_| PartialMessageError::InvalidFormat)?;
+    fn update(&mut self, data: &[u8]) -> Result<bool, PartialError> {
+        let data =
+            CellBitmap::<E>::from_ssz_bytes(data).map_err(|_| PartialError::InvalidFormat)?;
         if data.len() != self.bitmap.len() {
-            return Err(PartialMessageError::OutOfRange);
+            return Err(PartialError::OutOfRange);
         }
         let new_bitmap = self.bitmap.union(&data);
         if self.bitmap == new_bitmap {
@@ -92,12 +92,13 @@ impl<E: EthSpec> Partial for PartialDataColumnSidecarMessage<E> {
             .as_ssz_bytes()
     }
 
-    fn partial_message_bytes_from_metadata(
+    fn partial_action_from_metadata(
         &self,
+        _peer_id: PeerId,
         metadata: Option<&[u8]>,
-    ) -> Result<PublishAction, PartialMessageError> {
+    ) -> Result<PartialAction, PartialError> {
         match metadata {
-            None => Ok(PublishAction {
+            None => Ok(PartialAction {
                 need: false,
                 send: self.send_eager.clone().map(|eager| {
                     (
@@ -108,7 +109,7 @@ impl<E: EthSpec> Partial for PartialDataColumnSidecarMessage<E> {
             }),
             Some(metadata) => {
                 let peer_has = CellBitmap::<E>::from_ssz_bytes(metadata)
-                    .map_err(|_| PartialMessageError::InvalidFormat)?;
+                    .map_err(|_| PartialError::InvalidFormat)?;
                 let need = !peer_has.is_subset(&self.partial_column.sidecar.cells_present_bitmap);
 
                 let send = self
@@ -124,7 +125,7 @@ impl<E: EthSpec> Partial for PartialDataColumnSidecarMessage<E> {
                         )
                     });
 
-                Ok(PublishAction { need, send })
+                Ok(PartialAction { need, send })
             }
         }
     }

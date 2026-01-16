@@ -17,7 +17,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::{debug, instrument};
-use types::data_column_sidecar::ColumnIndex;
+use types::data::ColumnIndex;
 use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
@@ -653,13 +653,10 @@ pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
-pub fn verify_kzg_for_data_column_list<'a, E: EthSpec>(
+pub fn verify_kzg_for_data_column_list<'a, E: EthSpec + 'a>(
     data_column_iter: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
     kzg: &Kzg,
-) -> Result<(), (Option<ColumnIndex>, KzgError)>
-where
-    E: 'a,
-{
+) -> Result<(), (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
     validate_full_data_columns(kzg, data_column_iter)?;
     Ok(())
