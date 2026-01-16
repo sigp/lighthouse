@@ -420,29 +420,28 @@ impl<E: EthSpec> PubsubMessage<E> {
 }
 
 /// Decodes incoming partial data column sidecar from gossipsub partial protocol.
+/// Note: Currenly, data columns are the only supported partial messages. In future this could
+/// return an enum.
 pub fn decode_partial<E: EthSpec>(
-    topic: &TopicHash,
+    topic: &GossipTopic,
     group: &[u8],
     data: &[u8],
 ) -> Result<Arc<DanglingPartialDataColumn<E>>, String> {
-    match GossipTopic::decode(topic.as_str()) {
-        Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
-        Ok(gossip_topic) => match gossip_topic.kind() {
-            GossipKind::DataColumnSidecar(id) => {
-                let block_root = Hash256::from_ssz_bytes(group)
-                    .map_err(|e| format!("Error decoding group: {:?}", e))?;
-                let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
-                    .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
-                let data_column = DanglingPartialDataColumn {
-                    block_root,
-                    // Partial messages are spec'd under the assumption that there is one column per subnet.
-                    index: **id,
-                    sidecar,
-                };
-                Ok(Arc::new(data_column))
-            }
-            other => Err(format!("Partial message unsupported for topic: {other}")),
-        },
+    match topic.kind() {
+        GossipKind::DataColumnSidecar(id) => {
+            let block_root = Hash256::from_ssz_bytes(group)
+                .map_err(|e| format!("Error decoding group: {:?}", e))?;
+            let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
+                .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+            let data_column = DanglingPartialDataColumn {
+                block_root,
+                // Partial messages are spec'd under the assumption that there is one column per subnet.
+                index: **id,
+                sidecar,
+            };
+            Ok(Arc::new(data_column))
+        }
+        other => Err(format!("Partial message unsupported for topic: {other}")),
     }
 }
 

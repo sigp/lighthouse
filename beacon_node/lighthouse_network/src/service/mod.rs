@@ -1383,18 +1383,10 @@ impl<E: EthSpec> Network<E> {
                     })
                     .ok()?;
 
-                // TODO(dknopik): this currently hardcodes the data column metadata format
+                // TODO(dknopik): Remove as soon as partial messages stable?
                 if let Some(metadata) = metadata {
                     if let Ok(metadata) = CellBitmap::<E>::from_ssz_bytes(&metadata) {
-                        let mut metadata_string = String::with_capacity(metadata.len());
-                        for bit in metadata.iter() {
-                            if bit {
-                                metadata_string.push('1');
-                            } else {
-                                metadata_string.push('0');
-                            }
-                        }
-                        debug!(metadata = metadata_string, %topic, %peer_id, "Got metadata")
+                        debug!(%metadata, %topic, %peer_id, "Got metadata")
                     } else {
                         warn!(?metadata, %topic, %peer_id, "Got weird metadata");
                     }
@@ -1403,7 +1395,7 @@ impl<E: EthSpec> Network<E> {
                 }
 
                 if let Some(message) = message {
-                    match decode_partial::<E>(&topic_hash, &group_id, &message) {
+                    match decode_partial::<E>(&topic, &group_id, &message) {
                         Err(error) => {
                             debug!(
                                 topic = ?topic_hash,
