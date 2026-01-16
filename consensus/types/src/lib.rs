@@ -77,16 +77,8 @@ pub mod graffiti {
     pub use crate::core::GraffitiString;
 }
 
-pub mod indexed_attestation {
-    pub use crate::attestation::{IndexedAttestationBase, IndexedAttestationElectra};
-}
-
 pub mod historical_summary {
     pub use crate::state::HistoricalSummary;
-}
-
-pub mod participation_flags {
-    pub use crate::attestation::ParticipationFlags;
 }
 
 pub mod epoch_cache {
@@ -97,46 +89,8 @@ pub mod non_zero_usize {
     pub use crate::core::new_non_zero_usize;
 }
 
-pub mod data_column_sidecar {
-    pub use crate::data::{
-        Cell, ColumnIndex, DataColumn, DataColumnSidecar, DataColumnSidecarError,
-        DataColumnSidecarList,
-    };
-}
-
 pub mod builder_bid {
     pub use crate::builder::*;
-}
-
-pub mod blob_sidecar {
-    pub use crate::data::{
-        BlobIdentifier, BlobSidecar, BlobSidecarError, BlobsList, FixedBlobSidecarList,
-    };
-}
-
-pub mod payload {
-    pub use crate::execution::BlockProductionVersion;
-}
-
-pub mod execution_requests {
-    pub use crate::execution::{
-        ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
-    };
-}
-
-pub mod execution_payload_envelope {
-    pub use crate::execution::{ExecutionPayloadEnvelope, SignedExecutionPayloadEnvelope};
-}
-
-pub mod data_column_custody_group {
-    pub use crate::data::{
-        CustodyIndex, compute_columns_for_custody_group, compute_ordered_custody_column_indices,
-        compute_subnets_for_node, compute_subnets_from_custody_group, get_custody_groups,
-    };
-}
-
-pub mod sync_aggregate {
-    pub use crate::sync_committee::SyncAggregateError as Error;
 }
 
 pub mod light_client_update {
@@ -152,26 +106,3 @@ pub mod sync_committee_contribution {
         SyncCommitteeContributionError as Error, SyncContributionData,
     };
 }
-
-pub mod slot_data {
-    pub use crate::core::SlotData;
-}
-
-pub mod signed_aggregate_and_proof {
-    pub use crate::attestation::SignedAggregateAndProofRefMut;
-}
-
-pub mod payload_attestation {
-    pub use crate::attestation::{
-        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage,
-    };
-}
-
-pub mod application_domain {
-    pub use crate::core::ApplicationDomain;
-}
-
-// Temporary re-exports to maintain backwards compatibility for Lighthouse.
-pub use crate::kzg_ext::consts::VERSIONED_HASH_VERSION_KZG;
-pub use crate::light_client::LightClientError as LightClientUpdateError;
-pub use crate::state::BeaconStateError as Error;

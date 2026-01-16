@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 use typenum::Unsigned;
-use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
+use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
 
