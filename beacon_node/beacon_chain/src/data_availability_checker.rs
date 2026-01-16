@@ -39,7 +39,7 @@ use crate::metrics::{
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///

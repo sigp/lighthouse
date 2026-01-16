@@ -13,7 +13,7 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::data::BlobIdentifier;
-use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
     ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
