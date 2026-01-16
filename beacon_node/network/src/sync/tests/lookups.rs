@@ -43,7 +43,7 @@ use tracing::info;
 use types::{
     BeaconState, BeaconStateBase, BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec,
     ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    data_column_sidecar::ColumnIndex,
+    data::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 

@@ -6,10 +6,8 @@ use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::BlobsList;
-use types::execution_requests::{
-    ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests,
-};
+use types::data::BlobsList;
+use types::execution::{ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests};
 use types::{Blob, KzgProof};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

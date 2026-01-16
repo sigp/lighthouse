@@ -7,7 +7,7 @@ use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use tracing::instrument;
 use types::beacon_block_body::KzgCommitments;
-use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
+use types::data::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
     EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock, SignedBeaconBlockHeader,
