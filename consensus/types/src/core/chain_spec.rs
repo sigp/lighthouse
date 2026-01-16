@@ -14,10 +14,9 @@ use tree_hash::TreeHash;
 use crate::{
     core::{
         APPLICATION_DOMAIN_BUILDER, Address, ApplicationDomain, EnrForkId, Epoch, EthSpec,
-        EthSpecId, Hash256, MainnetEthSpec, Slot, Uint256,
+        EthSpecId, ExecutionBlockHash, Hash256, MainnetEthSpec, Slot, Uint256,
     },
     data::{BlobIdentifier, DataColumnSubnetId, DataColumnsByRootIdentifier},
-    execution::ExecutionBlockHash,
     fork::{Fork, ForkData, ForkName},
 };
 
