@@ -431,13 +431,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .flatten()
             .collect::<Vec<_>>();
 
-        // verify kzg for all data columns at once
-        if !all_data_columns.is_empty() {
-            // Attributes fault to the specific peer that sent an invalid column
-            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
-        }
-
         for available_block in available_blocks {
             let block_data_required = self.blobs_required_for_block(&available_block.block)
                 || self.data_columns_required_for_block(&available_block.block);
@@ -450,6 +443,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     return Err(AvailabilityCheckError::MissingBlobs);
                 }
             }
+        }
+
+        // verify kzg for all data columns at once
+        if !all_data_columns.is_empty() {
+            // Attributes fault to the specific peer that sent an invalid column
+            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
         Ok(())
@@ -780,7 +780,7 @@ impl<E: EthSpec> AvailableBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
-        da_checker: Arc<DataAvailabilityChecker<T>>,
+        da_checker: &DataAvailabilityChecker<T>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where
@@ -803,8 +803,26 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
                 }
 
-                if block.num_expected_blobs() != blobs.len() {
+                let Ok(block_kzg_commitments) = block.message().body().blob_kzg_commitments()
+                else {
+                    return Err(AvailabilityCheckError::Unexpected(
+                        "Expected blobs but could not fetch KZG commitments from the block"
+                            .to_owned(),
+                    ));
+                };
+
+                if blobs.len() != block_kzg_commitments.len() {
                     return Err(AvailabilityCheckError::MissingBlobs);
+                }
+
+                for (blob, &block_kzg_commitment) in blobs.iter().zip(block_kzg_commitments.iter())
+                {
+                    if blob.kzg_commitment != block_kzg_commitment {
+                        return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                            blob_commitment: blob.kzg_commitment,
+                            block_commitment: block_kzg_commitment,
+                        });
+                    }
                 }
             }
             AvailableBlockData::DataColumns(data_columns) => {
@@ -1132,7 +1150,7 @@ mod test {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
                 let da_checker = Arc::new(new_da_checker(spec.clone()));
-                RpcBlock::new(Arc::new(block), Some(block_data), da_checker, spec.clone())
+                RpcBlock::new(Arc::new(block), Some(block_data), &da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();

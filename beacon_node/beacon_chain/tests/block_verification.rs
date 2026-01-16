@@ -163,7 +163,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                chain.data_availability_checker.clone(),
+                &chain.data_availability_checker,
                 chain.spec.clone(),
             )
             .unwrap()
@@ -178,7 +178,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                chain.data_availability_checker.clone(),
+                &chain.data_availability_checker,
                 chain.spec.clone(),
             )
             .unwrap()
@@ -186,7 +186,7 @@ where
         None => RpcBlock::new(
             block,
             Some(AvailableBlockData::NoData),
-            chain.data_availability_checker.clone(),
+            &chain.data_availability_checker,
             chain.spec.clone(),
         )
         .unwrap(),
@@ -415,7 +415,7 @@ async fn chain_segment_non_linear_parent_roots() {
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         blocks[3].block_data().cloned(),
-        harness.chain.data_availability_checker.clone(),
+        &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
     .unwrap();
@@ -455,7 +455,7 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         blocks[3].block_data().cloned(),
-        harness.chain.data_availability_checker.clone(),
+        &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
     .unwrap();
@@ -485,7 +485,7 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         blocks[3].block_data().cloned(),
-        harness.chain.data_availability_checker.clone(),
+        &harness.chain.data_availability_checker,
         harness.chain.spec.clone(),
     )
     .unwrap();
@@ -632,7 +632,7 @@ async fn invalid_signature_gossip_block() {
         let rpc_block = RpcBlock::new(
             Arc::new(signed_block),
             None,
-            harness.chain.data_availability_checker.clone(),
+            &harness.chain.data_availability_checker,
             harness.spec.clone(),
         )
         .unwrap();
@@ -1643,7 +1643,7 @@ async fn add_base_block_to_altair_chain() {
     let base_rpc_block = RpcBlock::new(
         Arc::new(base_block.clone()),
         None,
-        harness.chain.data_availability_checker.clone(),
+        &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
     .unwrap();
@@ -1674,7 +1674,7 @@ async fn add_base_block_to_altair_chain() {
                     RpcBlock::new(
                         Arc::new(base_block),
                         None,
-                        harness.chain.data_availability_checker.clone(),
+                        &harness.chain.data_availability_checker,
                         harness.spec.clone()
                     )
                     .unwrap()
@@ -1794,7 +1794,7 @@ async fn add_altair_block_to_base_chain() {
     let altair_rpc_block = RpcBlock::new(
         Arc::new(altair_block.clone()),
         None,
-        harness.chain.data_availability_checker.clone(),
+        &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
     .unwrap();
@@ -1825,7 +1825,7 @@ async fn add_altair_block_to_base_chain() {
                     RpcBlock::new(
                         Arc::new(altair_block),
                         None,
-                        harness.chain.data_availability_checker.clone(),
+                        &harness.chain.data_availability_checker,
                         harness.spec.clone()
                     )
                     .unwrap()
@@ -1895,7 +1895,7 @@ async fn import_duplicate_block_unrealized_justification() {
     let rpc_block = RpcBlock::new(
         block.clone(),
         Some(AvailableBlockData::NoData),
-        harness.chain.data_availability_checker.clone(),
+        &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
     .unwrap();
@@ -1998,7 +1998,7 @@ async fn signature_verify_mixed_rpc_block_variants() {
             RpcBlock::new(
                 block,
                 None,
-                harness.chain.data_availability_checker.clone(),
+                &harness.chain.data_availability_checker,
                 harness.chain.spec.clone(),
             )
             .unwrap()
@@ -2068,7 +2068,7 @@ async fn rpc_block_construction_fails_with_wrong_blob_count() {
             let result = RpcBlock::new(
                 Arc::new(block),
                 Some(block_data),
-                harness.chain.data_availability_checker.clone(),
+                &harness.chain.data_availability_checker,
                 harness.chain.spec.clone(),
             );
 
@@ -2138,7 +2138,7 @@ async fn rpc_block_rejects_missing_custody_columns() {
                 let result = RpcBlock::new(
                     Arc::new(block),
                     Some(block_data),
-                    harness.chain.data_availability_checker.clone(),
+                    &harness.chain.data_availability_checker,
                     harness.chain.spec.clone(),
                 );
 
@@ -2226,7 +2226,7 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             let result = RpcBlock::new(
                 Arc::new(block),
                 Some(AvailableBlockData::NoData),
-                harness.chain.data_availability_checker.clone(),
+                &harness.chain.data_availability_checker,
                 harness.chain.spec.clone(),
             );
 

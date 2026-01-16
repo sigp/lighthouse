@@ -1612,7 +1612,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let block = RpcBlock::new(
             block,
             None,
-            self.chain.data_availability_checker.clone(),
+            &self.chain.data_availability_checker,
             self.chain.spec.clone(),
         )
         .map_err(|_| SendErrorProcessor::SendError)?;

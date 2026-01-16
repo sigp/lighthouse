@@ -249,12 +249,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
                         Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
                     network_1
-                        .add_validator_client_with_fallbacks(
-                            validator_config,
-                            i,
-                            beacon_nodes,
-                            files,
-                        )
+                        .add_validator_client_with_fallbacks(validator_config, beacon_nodes, files)
                         .await
                         .expect("should add validator");
                 },

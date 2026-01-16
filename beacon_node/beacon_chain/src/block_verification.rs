@@ -646,44 +646,36 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
-    // Filter `chain_segment` for `RpcBlock::FullyAvailable` and verify KZG.
-    let available_blocks = chain_segment
-        .iter()
-        .map(|(_, block)| match block {
-            RpcBlock::FullyAvailable(available_block) => Ok(available_block.clone()),
-            // RangeSync and BackfillSync already ensure that the chain segment is fully available
-            // so this shouldn't be possible in practice.
-            RpcBlock::BlockOnly { .. } => Err(BlockError::InternalError(
-                "Chain segment is not fully available".to_string(),
-            )),
-        })
-        .collect::<Result<_, _>>()?;
+    let mut available_blocks = Vec::with_capacity(chain_segment.len());
+    let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
 
-    chain
-        .data_availability_checker
-        .batch_verify_kzg_for_available_blocks(&available_blocks)?;
+    for (block_root, block) in chain_segment {
+        let consensus_context =
+            ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-    let mut signature_verified_blocks = chain_segment
-        .into_iter()
-        .map(|(block_root, block)| {
-            let consensus_context =
-                ConsensusContext::new(block.slot()).set_current_block_root(block_root);
-            match block {
-                RpcBlock::FullyAvailable(available_block) => SignatureVerifiedBlock {
+        match block {
+            RpcBlock::FullyAvailable(available_block) => {
+                available_blocks.push(available_block.clone());
+                signature_verified_blocks.push(SignatureVerifiedBlock {
                     block: MaybeAvailableBlock::Available(available_block),
                     block_root,
                     parent: None,
                     consensus_context,
-                },
-                RpcBlock::BlockOnly { block, block_root } => SignatureVerifiedBlock {
-                    block: MaybeAvailableBlock::AvailabilityPending { block_root, block },
-                    block_root,
-                    parent: None,
-                    consensus_context,
-                },
+                });
             }
-        })
-        .collect::<Vec<_>>();
+            RpcBlock::BlockOnly { .. } => {
+                // RangeSync and BackfillSync already ensure that the chain segment is fully available
+                // so this shouldn't be possible in practice.
+                return Err(BlockError::InternalError(
+                    "Chain segment is not fully available".to_string(),
+                ));
+            }
+        }
+    }
+
+    chain
+        .data_availability_checker
+        .batch_verify_kzg_for_available_blocks(&available_blocks)?;
 
     // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
