@@ -16,6 +16,7 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use ssz_types::VariableList;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
@@ -533,6 +534,38 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         withdrawals,
                         blob_gas_used: header.blob_gas_used,
                         excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Gloas(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Gloas(ExecutionPayloadGloas {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                        // block_access_list is not available via getPayloadBodiesByHash/Range
+                        // so we initialize it as empty here. The full payload with block_access_list
+                        // should be obtained via getPayload when needed.
+                        block_access_list: VariableList::empty(),
                     }))
                 } else {
                     Err(format!(

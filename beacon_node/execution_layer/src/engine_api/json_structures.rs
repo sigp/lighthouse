@@ -107,6 +107,9 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
+    #[superstruct(only(Gloas))]
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadBellatrix<E> {
@@ -252,6 +255,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             withdrawals: withdrawals_to_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
         })
     }
 }
@@ -425,6 +429,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             withdrawals: withdrawals_from_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
+            block_access_list: payload.block_access_list,
         })
     }
 }

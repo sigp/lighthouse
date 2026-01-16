@@ -26,17 +26,17 @@ pub use execution_payload_envelope::ExecutionPayloadEnvelope;
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionPayloadHeaderGloas, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_requests::{
     ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
 };
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-    BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef,
-    BlockProductionVersion, BlockType, ExecPayload, FullPayload, FullPayloadBellatrix,
-    FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadRef,
-    OwnedExecPayload,
+    BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadGloas,
+    BlindedPayloadRef, BlockProductionVersion, BlockType, ExecPayload, FullPayload,
+    FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra,
+    FullPayloadFulu, FullPayloadGloas, FullPayloadRef, OwnedExecPayload,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::SignedExecutionPayloadBid;

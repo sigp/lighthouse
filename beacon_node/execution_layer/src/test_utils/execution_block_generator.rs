@@ -725,6 +725,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().try_into().unwrap(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    block_access_list: VariableList::empty(),
                 }),
                 _ => unreachable!(),
             },

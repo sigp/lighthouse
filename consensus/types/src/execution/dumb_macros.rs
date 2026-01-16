@@ -3,7 +3,6 @@
 // - ExecutionPayloadHeader
 // - FullPayload
 // - BlindedPayload
-// TODO(EIP-7732): get rid of this whole file and panics once the engine_api is refactored for ePBS
 
 #[macro_export]
 macro_rules! map_execution_payload_into_full_payload {
@@ -29,7 +28,10 @@ macro_rules! map_execution_payload_into_full_payload {
                 let f: fn(ExecutionPayloadFulu<_>, fn(_) -> _) -> _ = $f;
                 f(inner, FullPayload::Fulu)
             }
-            ExecutionPayload::Gloas(_) => panic!("FullPayload::Gloas does not exist!"),
+            ExecutionPayload::Gloas(inner) => {
+                let f: fn(ExecutionPayloadGloas<_>, fn(_) -> _) -> _ = $f;
+                f(inner, FullPayload::Gloas)
+            }
         }
     };
 }
@@ -58,7 +60,10 @@ macro_rules! map_execution_payload_into_blinded_payload {
                 let f: fn(ExecutionPayloadFulu<_>, fn(_) -> _) -> _ = $f;
                 f(inner, BlindedPayload::Fulu)
             }
-            ExecutionPayload::Gloas(_) => panic!("BlindedPayload::Gloas does not exist!"),
+            ExecutionPayload::Gloas(inner) => {
+                let f: fn(ExecutionPayloadGloas<_>, fn(_) -> _) -> _ = $f;
+                f(inner, BlindedPayload::Gloas)
+            }
         }
     };
 }
@@ -102,7 +107,13 @@ macro_rules! map_execution_payload_ref_into_execution_payload_header {
                 ) -> _ = $f;
                 f(inner, ExecutionPayloadHeader::Fulu)
             }
-            ExecutionPayloadRef::Gloas(_) => panic!("ExecutionPayloadHeader::Gloas does not exist!"),
+            ExecutionPayloadRef::Gloas(inner) => {
+                let f: fn(
+                    &$lifetime ExecutionPayloadGloas<_>,
+                    fn(_) -> _,
+                ) -> _ = $f;
+                f(inner, ExecutionPayloadHeader::Gloas)
+            }
         }
     }
 }
