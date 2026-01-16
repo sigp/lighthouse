@@ -28,7 +28,7 @@ pub enum RpcBlock<E: EthSpec> {
     BlockOnly {
         block: Arc<SignedBeaconBlock<E>>,
         block_root: Hash256,
-    },  
+    },
 }
 
 impl<E: EthSpec> Debug for RpcBlock<E> {

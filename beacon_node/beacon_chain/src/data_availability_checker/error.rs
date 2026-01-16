@@ -46,7 +46,6 @@ impl Error {
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError
-            | Error::InvalidFork
             | Error::InvalidAvailableBlockData => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
