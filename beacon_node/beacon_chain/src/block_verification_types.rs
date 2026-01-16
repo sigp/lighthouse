@@ -21,10 +21,6 @@ use types::{
 ///    verification. i.e. this block has all the required data to get verified and imported into fork choice.
 ///
 /// 2. `BlockOnly`: This is a post-deneb block that may or may not require blobs to be considered fully available.
-///
-/// Note: We make a distinction over blocks received over gossip because
-/// in a post-deneb world, the blobs corresponding to a given block that are received
-/// over rpc do not contain the proposer signature for dos resistance.
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
 pub enum RpcBlock<E: EthSpec> {
@@ -32,7 +28,7 @@ pub enum RpcBlock<E: EthSpec> {
     BlockOnly {
         block: Arc<SignedBeaconBlock<E>>,
         block_root: Hash256,
-    },
+    },  
 }
 
 impl<E: EthSpec> Debug for RpcBlock<E> {

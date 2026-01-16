@@ -22,7 +22,6 @@ pub enum Error {
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
-    InvalidFork,
     InvalidAvailableBlockData,
 }
 
