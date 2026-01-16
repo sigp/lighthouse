@@ -18,7 +18,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::BlobIdentifier;
+use types::data::BlobIdentifier;
 use types::{
     BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
     DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,

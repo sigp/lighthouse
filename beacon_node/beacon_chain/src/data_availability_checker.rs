@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch,
     EthSpec, Hash256, SignedBeaconBlock, Slot,
@@ -876,7 +876,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
     use store::HotColdDB;
-    use types::data_column_sidecar::DataColumn;
+    use types::data::DataColumn;
     use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
