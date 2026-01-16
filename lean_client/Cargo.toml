@@ -1,0 +1,35 @@
+[package]
+name = "lean_client"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+clap_utils = { workspace = true }
+lean_consensus = { workspace = true }
+environment = { workspace = true }
+health_metrics = { workspace = true }
+
+lean_genesis = { workspace = true }
+lean_keystore = { path = "keystore" }
+lean_network = { workspace = true }
+lean_network_config = { workspace = true }
+lean_store = { path = "store" }
+lean_validator_service = { workspace = true }
+lean_config = { workspace = true }
+lighthouse_version = { workspace = true }
+logging = { workspace = true }
+metrics = { workspace = true }
+serde = { workspace = true }
+slot_clock = { workspace = true }
+store = { workspace = true, features = ["redb"] }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+types = { workspace = true }
+warp = { workspace = true }
+warp_utils = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

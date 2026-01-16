@@ -1,0 +1,9 @@
+[package]
+name = "lean_network_config"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+tracing = { workspace = true }

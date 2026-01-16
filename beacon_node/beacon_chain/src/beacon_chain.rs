@@ -3352,6 +3352,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
+        let _interop_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DURATION_SECONDS);
 
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);

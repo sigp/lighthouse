@@ -1,0 +1,24 @@
+[package]
+name = "lean_consensus"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ethereum_ssz = "0.10.0"
+ethereum_ssz_derive = "0.10.0"
+fixed_bytes = { workspace = true }
+int_to_bytes = { workspace = true }
+lean_crypto = { workspace = true }
+milhouse = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+ssz_types = { workspace = true }
+metrics = { workspace = true }
+lazy_static = "1.4.0"
+tracing = { workspace = true }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
+types = { workspace = true }
+
+

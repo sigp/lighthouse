@@ -62,6 +62,17 @@ members = [
     "crypto/kzg",
     "database_manager",
     "lcli",
+    "lean_client",
+    "lean_client/validator_service",
+    "lean_client/consensus",
+    "lean_client/lean_network",
+    "lean_client/forkchoice",
+    "lean_client/crypto",
+    "lean_client/store",
+    "lean_client/keystore",
+    "lean_client/common/lean_genesis",
+    "lean_client/common/lean_config",
+    "lean_client/common/lean_network_config",
     "lighthouse",
     "lighthouse/environment",
     "slasher",
@@ -278,6 +289,21 @@ xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9feb
 zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
 zip = { version = "6.0", default-features = false, features = ["deflate"] }
 zstd = "0.13"
+
+# lean chain crates
+lean_client = { path = "lean_client" }
+lean_validator_service = { path = "lean_client/validator_service" }
+lean_consensus = { path = "lean_client/consensus" }
+lean_network = { path = "lean_client/lean_network" }
+lean_forkchoice = { path = "lean_client/forkchoice" }
+lean_crypto = { path = "lean_client/crypto"}
+lean_store = { path = "lean_client/store" }
+lean_keystore = { path = "lean_client/keystore" }
+lean_genesis = { path = "lean_client/common/lean_genesis" }
+lean_config = { path = "lean_client/common/lean_config" }
+lean_network_config = { path = "lean_client/common/lean_network_config" }
+leansig = { git = "https://github.com/leanEthereum/leanSig" }
+
 
 [profile.maxperf]
 inherits = "release"

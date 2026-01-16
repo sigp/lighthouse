@@ -49,6 +49,18 @@ pub static BLOCK_PROCESSING_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|
         "Full runtime of block processing",
     )
 });
+pub static CHAIN_ONBLOCK_DURATION_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "chain_onblock_duration_seconds",
+        "Time taken to process a block in the chain's onBlock function.",
+    )
+});
+pub static BLOCK_PROCESSING_DURATION_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "block_processing_duration_seconds",
+        "Time taken to process a block in the state transition function.",
+    )
+});
 pub static BLOCK_PROCESSING_BLOCK_ROOT: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_block_processing_block_root_seconds",

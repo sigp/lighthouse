@@ -1,0 +1,121 @@
+pub mod cli;
+pub mod config;
+pub mod http_metrics;
+
+pub use config::Config;
+
+use std::sync::Arc;
+
+use crate::config::Config as LeanClientConfig;
+use crate::config::MetricsConfig;
+use environment::RuntimeContext;
+use lean_config::{LeanClientPaths, initialize as load_runtime};
+use lean_keystore::{KeyStore, ValidatorKeyPair};
+use lean_network::{NetworkConfig, NetworkService};
+use lean_validator_service::ValidatorService;
+use slot_clock::SystemTimeSlotClock;
+use store::database::interface::BeaconNodeBackend as LeanBackend;
+use tokio::sync::mpsc;
+use tracing::info;
+use types::EthSpec;
+
+/// Capacity for messages flowing from `NetworkService` -> `ValidatorService`.
+///
+/// This is intentionally bounded to avoid unbounded memory growth under gossip storms.
+const NETWORK_TO_VALIDATOR_CHANNEL_CAPACITY: usize = 1024;
+
+/// Capacity for messages flowing from `ValidatorService` -> `NetworkService`.
+///
+/// These are control-plane messages (publish, requests, status updates) and should be relatively
+/// low volume. Keeping this bounded helps prevent memory growth in pathological cases.
+const VALIDATOR_TO_NETWORK_CHANNEL_CAPACITY: usize = 256;
+
+pub struct ProductionLeanClient<E: EthSpec> {
+    context: RuntimeContext<E>,
+    slot_clock: SystemTimeSlotClock,
+    db: Arc<LeanBackend<E>>,
+    validator_key_pair: Option<ValidatorKeyPair>,
+    validator_index: u64,
+    keystore: Option<KeyStore>,
+    network_config: NetworkConfig,
+    metrics_config: MetricsConfig,
+}
+
+impl<E: EthSpec> ProductionLeanClient<E> {
+    pub async fn new(context: RuntimeContext<E>, config: LeanClientConfig) -> Result<Self, String> {
+        let metrics_config = config.metrics.clone();
+        let resources = load_runtime::<E>(LeanClientPaths::from(config))?;
+
+        info!("Lean client runtime resources prepared");
+
+        Ok(Self {
+            context,
+            slot_clock: resources.slot_clock,
+            db: resources.db,
+            validator_key_pair: Some(resources.validator_key_pair),
+            validator_index: resources.validator_index,
+            keystore: Some(resources.keystore),
+            network_config: resources.network_config,
+            metrics_config,
+        })
+    }
+
+    pub async fn start_service(&mut self) -> Result<(), String> {
+        let (network_recv_tx, network_recv_rx) =
+            mpsc::channel(NETWORK_TO_VALIDATOR_CHANNEL_CAPACITY);
+        let (network_send_tx, network_send_rx) =
+            mpsc::channel(VALIDATOR_TO_NETWORK_CHANNEL_CAPACITY);
+
+        info!("Starting network service");
+        let network_service = NetworkService::<E>::new(
+            self.network_config.clone(),
+            network_recv_tx,
+            network_send_rx,
+        )
+        .map_err(|e| format!("Failed to create network service: {}", e))?;
+        self.context
+            .executor
+            .clone_with_name("lean_network_service".into())
+            .spawn(network_service.start(), "network_service");
+
+        info!("Starting validator service");
+        let validator_key_pair = self
+            .validator_key_pair
+            .take()
+            .ok_or_else(|| "Validator key pair not loaded".to_string())?;
+        let keystore = self
+            .keystore
+            .take()
+            .ok_or_else(|| "Keystore not initialized".to_string())?;
+
+        let validator_service = ValidatorService::new(
+            self.slot_clock.clone(),
+            network_recv_rx,
+            network_send_tx,
+            self.db.clone(),
+            self.validator_index,
+            validator_key_pair,
+            keystore,
+        )?;
+
+        self.context
+            .executor
+            .clone_with_name("lean_validator_service".into())
+            .spawn(validator_service.run(), "validator_service");
+
+        if self.metrics_config.enabled {
+            let (listen_addr, server) = http_metrics::serve(
+                self.metrics_config.clone(),
+                self.context.executor.exit(),
+            )
+            .map_err(|e| format!("Failed to start metrics server: {:?}", e))?;
+
+            self.context
+                .executor
+                .spawn_without_exit(server, "http_metrics");
+            info!(%listen_addr, "Metrics server started");
+        }
+
+        Ok(())
+    }
+}

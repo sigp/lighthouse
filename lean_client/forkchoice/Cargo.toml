@@ -1,0 +1,15 @@
+[package]
+name = "lean_forkchoice"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ethereum_ssz = "0.10.0"
+lean_consensus = { workspace = true }
+fixed_bytes = { workspace = true }
+parking_lot = { workspace = true }
+store = { workspace = true, features = ["redb"] }
+tracing = { workspace = true }
+metrics = { workspace = true }
+lazy_static = "1.4.0"
+types = { workspace = true }

@@ -1,0 +1,23 @@
+[package]
+name = "lean_config"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+lean_consensus = { workspace = true }
+lean_genesis = { workspace = true }
+lean_keystore = { workspace = true }
+lean_network = { workspace = true }
+lean_network_config = { workspace = true }
+lean_store = { workspace = true }
+ethereum_ssz = "0.10.0"
+tree_hash = { workspace = true }
+slot_clock = { workspace = true }
+store = { workspace = true, features = ["redb"] }
+tracing = { workspace = true }
+types = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+ssz_types = { workspace = true }

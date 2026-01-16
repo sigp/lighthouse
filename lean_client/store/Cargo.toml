@@ -1,0 +1,11 @@
+[package]
+name = "lean_store"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition.workspace = true
+
+[dependencies]
+ethereum_ssz = "0.10.0"
+lean_consensus = { workspace = true }
+store = { workspace = true, features = ["redb"] }
+types = { workspace = true }

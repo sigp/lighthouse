@@ -1,0 +1,109 @@
+pub use clap::{FromArgMatches, Parser};
+
+use clap_utils::get_color_style;
+use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
+use std::path::PathBuf;
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(
+    name = "lean_validator_node",
+    visible_aliases = &["l", "ln", "lean-node"],
+    about = "lean node follows the lean consensus for ethereum chain",
+    styles = get_color_style(),
+    next_line_help = true,
+    term_width = 80,
+    disable_help_flag = true,
+    disable_help_subcommand = true,
+    display_order = 0,
+)]
+pub struct LeanNode {
+    #[clap(
+        long,
+        value_name = "CONFIG_YAML",
+        help = "Path to the chain config.yaml file",
+        display_order = 0
+    )]
+    pub config: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "VALIDATOR_CONFIG_YAML",
+        help = "Path to the validator-config.yaml file",
+        display_order = 1
+    )]
+    pub validators: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "NODES_YAML",
+        help = "Path to the nodes.yaml file for bootnodes",
+        display_order = 2
+    )]
+    pub nodes: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "NODE_ID",
+        help = "Node identifier (e.g., 'lighthouse_0')",
+        display_order = 3
+    )]
+    pub node_id: String,
+
+    #[clap(
+        long,
+        value_name = "PRIVATE_KEY",
+        help = "Path to the hex encoded secp256k1 libp2p private key",
+        display_order = 4
+    )]
+    pub private_key: PathBuf,
+
+    #[clap(
+        long,
+        value_name = "SOCKET_PORT",
+        help = "P2P socket port (QUIC)",
+        display_order = 5
+    )]
+    pub socket_port: u16,
+
+    #[clap(
+        long,
+        value_name = "GENESIS_JSON",
+        help = "Path to the genesis.json file",
+        display_order = 6
+    )]
+    pub genesis_json: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Enable the metrics HTTP server",
+        display_order = 100
+    )]
+    pub metrics: bool,
+
+    #[clap(
+        long,
+        value_name = "ADDRESS",
+        help = "Listen address for the metrics HTTP server",
+        default_value = "127.0.0.1",
+        display_order = 101
+    )]
+    pub metrics_address: IpAddr,
+
+    #[clap(
+        long,
+        value_name = "PORT",
+        help = "Listen port for the metrics HTTP server",
+        default_value = "5064",
+        display_order = 102
+    )]
+    pub metrics_port: u16,
+
+    #[clap(
+        long,
+        value_name = "ORIGIN",
+        help = "CORS allow origin for the metrics HTTP server",
+        display_order = 103
+    )]
+    pub metrics_allow_origin: Option<String>,
+}

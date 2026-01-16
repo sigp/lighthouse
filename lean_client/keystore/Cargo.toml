@@ -1,0 +1,24 @@
+[package]
+name = "lean_keystore"
+version = "0.1.0"
+edition = "2024"
+
+# Binary commented out - using library functions directly
+# [[bin]]
+# name = "generate_keys"
+# path = "src/bin/generate_keys.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+thiserror = "1"
+leansig = { git = "https://github.com/leanEthereum/leanSig" }
+ethereum_ssz = "0.10.0"
+ethereum_ssz_derive = "0.10.0"
+rand = "0.9"
+
+[dev-dependencies]
+tempfile = { workspace = true }

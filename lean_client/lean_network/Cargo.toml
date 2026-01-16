@@ -1,0 +1,39 @@
+[package]
+name = "lean_network"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+async-trait = "0.1"
+enr = { version = "0.13", features = ["ed25519", "k256"] }
+ethereum_ssz_derive = "0.10.0"
+futures = { workspace = true }
+gossipsub = { workspace = true }
+lean_consensus = { workspace = true }
+ethereum_ssz = "0.10.0"
+libp2p-identity = { version = "0.2", features = ["secp256k1", "ed25519"] }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+sha2 = "0.10"
+snap = "1.1"
+task_executor = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+types = { workspace = true }
+metrics = { workspace = true }
+
+
+[dependencies.libp2p]
+version = "0.56"
+default-features = false
+features = [
+    "gossipsub",
+    "identify",
+    "tcp",
+    "tokio",
+    "macros",
+    "quic",
+    "mdns",
+    "request-response",
+]
+

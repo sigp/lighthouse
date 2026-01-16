@@ -18,6 +18,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
+    metrics::CHAIN_ONBLOCK_DURATION_SECONDS,
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -1498,6 +1499,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "fetch_blobs_gossip",
         );
 
+        let _interop_timer = metrics::start_timer(&CHAIN_ONBLOCK_DURATION_SECONDS);
         let result = self
             .chain
             .process_block(
@@ -1508,6 +1510,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 || Ok(()),
             )
             .await;
+        drop(_interop_timer);
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");
 
         match &result {
