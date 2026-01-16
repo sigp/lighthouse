@@ -15,7 +15,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::{debug, instrument};
-use types::data_column_sidecar::ColumnIndex;
+use types::data::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
     SignedBeaconBlockHeader, Slot,
