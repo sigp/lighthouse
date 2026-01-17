@@ -276,7 +276,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
                                 let col_sidecar = Arc::new(
-                                    DataColumnSidecar::from_ssz_bytes(data)
+                                    DataColumnSidecar::from_ssz_bytes_for_fork(data, *fork)
                                         .map_err(|e| format!("{:?}", e))?,
                                 );
                                 Ok(PubsubMessage::DataColumnSidecar(Box::new((
@@ -436,7 +436,7 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 f,
                 "DataColumnSidecar: slot: {}, column index: {}",
                 data.1.slot(),
-                data.1.index,
+                data.1.index(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

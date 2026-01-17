@@ -67,27 +67,19 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::RequestFailed)
     }
 
-    pub(crate) fn blobs_known_for_proposal(
-        &self,
-        proposer: u64,
-        slot: Slot,
-    ) -> Option<HashSet<u64>> {
-        let proposer_key = ProposalKey::new(proposer, slot);
+    pub(crate) fn blobs_known_for_slot(&self, slot: Slot) -> Option<HashSet<u64>> {
         self.chain
             .observed_blob_sidecars
             .read()
-            .known_for_proposal(&proposer_key)
+            .known_for_slot(&slot)
             .cloned()
     }
 
-    pub(crate) fn data_column_known_for_proposal(
-        &self,
-        proposal_key: ProposalKey,
-    ) -> Option<HashSet<ColumnIndex>> {
+    pub(crate) fn data_column_known_for_slot(&self, slot: Slot) -> Option<HashSet<ColumnIndex>> {
         self.chain
             .observed_column_sidecars
             .read()
-            .known_for_proposal(&proposal_key)
+            .known_for_slot(&slot)
             .cloned()
     }
 

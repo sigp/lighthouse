@@ -521,7 +521,8 @@ impl<E: EthSpec> Tester<E> {
             let gossip_verified_data_columns = columns
                 .into_iter()
                 .map(|column| {
-                    let subnet_id = DataColumnSubnetId::from_column_index(column.index, &self.spec);
+                    let subnet_id =
+                        DataColumnSubnetId::from_column_index(*column.index(), &self.spec);
                     GossipVerifiedDataColumn::new(column.clone(), subnet_id, &self.harness.chain)
                         .unwrap_or_else(|_| {
                             data_column_success = false;

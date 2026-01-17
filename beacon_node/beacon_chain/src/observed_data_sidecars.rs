@@ -3,7 +3,6 @@
 //! Only `BlobSidecar`s that have completed proposer signature verification can be added
 //! to this cache to reduce DoS risks.
 
-use crate::observed_block_producers::ProposalKey;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -22,7 +21,6 @@ pub enum Error {
 
 pub trait ObservableDataSidecar {
     fn slot(&self) -> Slot;
-    fn block_proposer_index(&self) -> u64;
     fn index(&self) -> u64;
     fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize;
 }
@@ -30,10 +28,6 @@ pub trait ObservableDataSidecar {
 impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
     fn slot(&self) -> Slot {
         self.slot()
-    }
-
-    fn block_proposer_index(&self) -> u64 {
-        self.block_proposer_index()
     }
 
     fn index(&self) -> u64 {
@@ -50,12 +44,8 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
         self.slot()
     }
 
-    fn block_proposer_index(&self) -> u64 {
-        self.block_proposer_index()
-    }
-
     fn index(&self) -> u64 {
-        self.index
+        *self.index()
     }
 
     fn max_num_of_items(_spec: &ChainSpec, _slot: Slot) -> usize {
@@ -73,8 +63,8 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
 /// like checking the proposer signature.
 pub struct ObservedDataSidecars<T: ObservableDataSidecar> {
     finalized_slot: Slot,
-    /// Stores all received data indices for a given `(ValidatorIndex, Slot)` tuple.
-    items: HashMap<ProposalKey, HashSet<u64>>,
+    /// Stores all received data indices for a given `slot`.
+    items: HashMap<Slot, HashSet<u64>>,
     spec: Arc<ChainSpec>,
     _phantom: PhantomData<T>,
 }
@@ -97,15 +87,9 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<bool, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
-        let data_indices = self
-            .items
-            .entry(ProposalKey {
-                slot: data_sidecar.slot(),
-                proposer: data_sidecar.block_proposer_index(),
-            })
-            .or_insert_with(|| {
-                HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
-            });
+        let data_indices = self.items.entry(data_sidecar.slot()).or_insert_with(|| {
+            HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
+        });
         let did_not_exist = data_indices.insert(data_sidecar.index());
 
         Ok(!did_not_exist)
@@ -116,16 +100,13 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
         self.sanitize_data_sidecar(data_sidecar)?;
         let is_known = self
             .items
-            .get(&ProposalKey {
-                slot: data_sidecar.slot(),
-                proposer: data_sidecar.block_proposer_index(),
-            })
+            .get(&data_sidecar.slot())
             .is_some_and(|indices| indices.contains(&data_sidecar.index()));
         Ok(is_known)
     }
 
-    pub fn known_for_proposal(&self, proposal_key: &ProposalKey) -> Option<&HashSet<u64>> {
-        self.items.get(proposal_key)
+    pub fn known_for_slot(&self, slot: &Slot) -> Option<&HashSet<u64>> {
+        self.items.get(slot)
     }
 
     fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {
@@ -150,7 +131,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
         }
 
         self.finalized_slot = finalized_slot;
-        self.items.retain(|k, _| k.slot > finalized_slot);
+        self.items.retain(|k, _| *k > finalized_slot);
     }
 }
 
@@ -229,7 +210,7 @@ mod tests {
 
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
+            .get(&Slot::new(0))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -247,7 +228,7 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
+            .get(&Slot::new(0))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -304,7 +285,7 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_b, Slot::new(three_epochs)))
+            .get(&Slot::new(three_epochs))
             .expect("the three epochs slot should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -328,7 +309,7 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_b, Slot::new(three_epochs)))
+            .get(&Slot::new(three_epochs))
             .expect("the three epochs slot should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -374,7 +355,7 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
+            .get(&Slot::new(0))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -412,7 +393,7 @@ mod tests {
         assert_eq!(cache.items.len(), 2, "two slots should be present");
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
+            .get(&Slot::new(0))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -421,7 +402,7 @@ mod tests {
         );
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_b, Slot::new(1)))
+            .get(&Slot::new(1))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -457,7 +438,7 @@ mod tests {
         assert_eq!(cache.items.len(), 2, "two slots should be present");
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
+            .get(&Slot::new(0))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -487,7 +468,7 @@ mod tests {
         );
         let cached_blob_indices = cache
             .items
-            .get(&ProposalKey::new(proposer_index_a, Slot::new(0)))
+            .get(&Slot::new(0))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),

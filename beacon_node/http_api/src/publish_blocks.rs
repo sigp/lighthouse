@@ -522,7 +522,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
     let pubsub_messages = data_column_sidecars
         .into_iter()
         .map(|data_col| {
-            let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
+            let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
             PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col)))
         })
         .collect::<Vec<_>>();

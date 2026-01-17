@@ -18,7 +18,6 @@ use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedD
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
-use crate::observed_block_producers::ProposalKey;
 use crate::validator_monitor::timestamp_now;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -193,9 +192,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         &kzg_commitments_proof,
     )?;
 
-    if let Some(observed_blobs) =
-        chain_adapter.blobs_known_for_proposal(block.message().proposer_index(), block.slot())
-    {
+    if let Some(observed_blobs) = chain_adapter.blobs_known_for_slot(block.slot()) {
         blob_sidecar_list.retain(|blob| !observed_blobs.contains(&blob.blob_index()));
         if blob_sidecar_list.is_empty() {
             debug!(
@@ -380,7 +377,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map(|data_columns| {
                         data_columns
                             .into_iter()
-                            .filter(|col| custody_columns_indices.contains(&col.index))
+                            .filter(|col| custody_columns_indices.contains(col.index()))
                             .map(|col| {
                                 KzgVerifiedCustodyDataColumn::from_asserted_custody(
                                     KzgVerifiedDataColumn::from_execution_verified(col),
@@ -391,9 +388,9 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
-                if let Some(observed_columns) = chain_adapter_cloned.data_column_known_for_proposal(
-                    ProposalKey::new(block.message().proposer_index(), block.slot()),
-                ) {
+                if let Some(observed_columns) =
+                    chain_adapter_cloned.data_column_known_for_slot(block.slot())
+                {
                     custody_columns.retain(|col| !observed_columns.contains(&col.index()));
                     if custody_columns.is_empty() {
                         return Ok(vec![]);
