@@ -120,7 +120,6 @@ pub const NOTHING_TO_DO: &str = "nothing_to_do";
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct BeaconProcessorConfig {
-    pub max_workers: usize,
     pub max_io_bound_workers: usize,
     pub max_cpu_bound_workers: usize,
     pub max_work_event_queue_len: usize,
@@ -133,7 +132,6 @@ pub struct BeaconProcessorConfig {
 impl Default for BeaconProcessorConfig {
     fn default() -> Self {
         Self {
-            max_workers: cmp::max(1, num_cpus::get()),
             max_io_bound_workers: MAX_IO_BOUND_WORKERS,
             max_cpu_bound_workers: cmp::max(1, num_cpus::get()),
             max_work_event_queue_len: DEFAULT_MAX_WORK_EVENT_QUEUE_LEN,
@@ -431,7 +429,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
     /// - Performed immediately, if a worker is available.
     /// - Queued for later processing, if no worker is currently available.
     ///
-    /// Only `self.config.max_workers` will ever be spawned at one time. Each worker is a `tokio` task
+    /// Only `self.config.max_cpu_bound_workers + self.config.max_io_bound_workers` will ever be spawned at one time. Each worker is a `tokio` task
     /// started with `spawn_blocking`.
     ///
     /// The optional `work_journal_tx` allows for an outside process to receive a log of all work
@@ -1095,7 +1093,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             // following head.
             //
             // Check attester slashings before proposer slashings since they have the
-            // potential to slash multiple validators at once.
+            // potential to slash multiple validators at ongice.
             .or_else(|| {
                 work_queues
                     .gossip_attester_slashing_queue

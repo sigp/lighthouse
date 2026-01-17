@@ -247,11 +247,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     *network_globals.sync_state.write() = SyncState::Synced;
 
     let beacon_processor_config = BeaconProcessorConfig {
-        // The number of workers must be greater than one. Tests which use the
-        // builder workflow sometimes require an internal HTTP request in order
-        // to fulfill an already in-flight HTTP request, therefore having only
-        // one worker will result in a deadlock.
-        max_workers: 2,
         ..BeaconProcessorConfig::default()
     };
     let BeaconProcessorChannels {

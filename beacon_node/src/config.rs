@@ -830,10 +830,10 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
     {
-        client_config.beacon_processor.max_workers = max_workers;
+        client_config.beacon_processor.max_cpu_bound_workers = max_workers;
     }
 
-    if client_config.beacon_processor.max_workers == 0 {
+    if client_config.beacon_processor.max_cpu_bound_workers == 0 {
         return Err("--beacon-processor-max-workers must be a non-zero value".to_string());
     }
 

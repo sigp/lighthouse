@@ -2684,9 +2684,8 @@ fn beacon_processor() {
             assert_eq!(
                 config.beacon_processor,
                 BeaconProcessorConfig {
-                    max_workers: 1,
-                    max_cpu_bound_workers: 0,
-                    max_io_bound_workers: 0,
+                    max_io_bound_workers: 100,
+                    max_cpu_bound_workers: 8,
                     max_work_event_queue_len: 2,
                     max_scheduled_work_queue_len: 3,
                     max_gossip_attestation_batch_size: 4,

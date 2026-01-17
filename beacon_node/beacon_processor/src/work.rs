@@ -166,7 +166,6 @@ impl WorkCategory {
         match work_type {
             // IO bound tasks
             WorkType::GossipAttestationToConvert
-            | WorkType::UnknownBlockAggregate
             | WorkType::UnknownLightClientOptimisticUpdate
             | WorkType::GossipVoluntaryExit
             | WorkType::GossipProposerSlashing
@@ -190,14 +189,15 @@ impl WorkCategory {
             | WorkType::LightClientUpdatesByRangeRequest
             | WorkType::ApiRequestP0
             | WorkType::ApiRequestP1
-            | WorkType::Reprocess
-            | WorkType::GossipAggregateBatch => Self::IoBound,
+            | WorkType::Reprocess => Self::IoBound,
             // CPU bound tasks
             WorkType::GossipBlock
             | WorkType::UnknownBlockAttestation
+            | WorkType::UnknownBlockAggregate
             | WorkType::GossipAttestation
             | WorkType::GossipAttestationBatch
             | WorkType::GossipAggregate
+            | WorkType::GossipAggregateBatch
             | WorkType::GossipBlobSidecar
             | WorkType::GossipDataColumnSidecar
             | WorkType::DelayedImportBlock
