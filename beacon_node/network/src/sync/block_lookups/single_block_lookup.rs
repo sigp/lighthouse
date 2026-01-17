@@ -151,10 +151,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .block_request_state
                 .state
                 .insert_verified_response(block),
-            BlockComponent::Blob(_) | BlockComponent::DataColumn(_) => {
-                // For now ignore single blobs and columns, as the blob request state assumes all blobs are
-                // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
-                // block component has a minor effect, causing the node to re-request this blob
+            BlockComponent::DataColumn(_) => {
+                // For now ignore single columns, as the column request state assumes all columns are
+                // attributed to the same peer = the peer serving the remaining columns. Ignoring this
+                // block component has a minor effect, causing the node to re-request this column
                 // once the parent chain is successfully resolved
                 false
             }

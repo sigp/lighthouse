@@ -12,30 +12,28 @@ mod fetch_blobs_beacon_adapter;
 #[cfg(test)]
 mod tests;
 
-use crate::blob_verification::{GossipBlobError, KzgVerifiedBlob};
+use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::AsBlock;
 use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
-use crate::validator_monitor::timestamp_now;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     metrics,
 };
 use execution_layer::Error as ExecutionLayerError;
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use execution_layer::json_structures::BlobAndProofV2;
 use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
-use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
 use types::data::{BlobSidecarError, DataColumnSidecarError};
 use types::{
-    BeaconStateError, Blob, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, KzgProofs,
-    SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
+    BeaconStateError, Blob, ColumnIndex, FullPayload, Hash256, KzgProofs, SignedBeaconBlock,
+    VersionedHash,
 };
 
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
@@ -128,9 +126,9 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         )
         .await
     } else {
-        return Err(FetchEngineBlobError::InternalError(
+        Err(FetchEngineBlobError::InternalError(
             "fetch blobs v1 no longer supported".to_owned(),
-        ));
+        ))
     }
 }
 
@@ -318,35 +316,4 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
         .ok_or(FetchEngineBlobError::RuntimeShutdown)?
         .await
         .map_err(FetchEngineBlobError::TokioJoin)?
-}
-
-fn build_blob_sidecars<E: EthSpec>(
-    block: &Arc<SignedBeaconBlock<E, FullPayload<E>>>,
-    response: Vec<Option<BlobAndProofV1<E>>>,
-    signed_block_header: SignedBeaconBlockHeader,
-    kzg_commitments_inclusion_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
-) -> Result<Vec<KzgVerifiedBlob<E>>, FetchEngineBlobError> {
-    let mut sidecars = vec![];
-    for (index, blob_and_proof) in response
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, opt_blob)| Some((index, opt_blob?)))
-    {
-        let blob_sidecar = BlobSidecar::new_with_existing_proof(
-            index,
-            blob_and_proof.blob,
-            block,
-            signed_block_header.clone(),
-            kzg_commitments_inclusion_proof,
-            blob_and_proof.proof,
-        )
-        .map_err(FetchEngineBlobError::BlobSidecarError)?;
-
-        sidecars.push(KzgVerifiedBlob::from_execution_verified(
-            Arc::new(blob_sidecar),
-            timestamp_now(),
-        ));
-    }
-
-    Ok(sidecars)
 }

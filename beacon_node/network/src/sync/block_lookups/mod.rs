@@ -45,7 +45,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
 use tracing::{debug, error, warn};
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
+use types::{DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 pub mod common;
 pub mod parent_chain;
@@ -79,7 +79,6 @@ const MAX_LOOKUPS: usize = 200;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
-    Blob(DownloadResult<Arc<BlobSidecar<E>>>),
     DataColumn(DownloadResult<Arc<DataColumnSidecar<E>>>),
 }
 
@@ -87,24 +86,16 @@ impl<E: EthSpec> BlockComponent<E> {
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
-            BlockComponent::Blob(blob) => {
-                match blob.value.as_ref() {
-                    BlobSidecar::Deneb(blob) => blob.block_parent_root(),
-                    BlobSidecar::Gloas(blob) => blob.beacon_block_root,
-                }
-            },
-            BlockComponent::DataColumn(column) => {
-                match column.value.as_ref() {
-                    DataColumnSidecar::Fulu(column) => column.block_parent_root(),
-                    DataColumnSidecar::Gloas(column) => column.beacon_block_root,
-                }
+            BlockComponent::DataColumn(column) => match column.value.as_ref() {
+                DataColumnSidecar::Fulu(column) => column.block_parent_root(),
+                // TODO(gloas) we don't have a parent root post gloas, not sure what to do here
+                DataColumnSidecar::Gloas(column) => column.beacon_block_root,
             },
         }
     }
     fn get_type(&self) -> &'static str {
         match self {
             BlockComponent::Block(_) => "block",
-            BlockComponent::Blob(_) => "blob",
             BlockComponent::DataColumn(_) => "data_column",
         }
     }

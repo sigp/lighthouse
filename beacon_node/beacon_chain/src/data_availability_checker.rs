@@ -17,10 +17,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::data::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch,
-    EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecarDeneb, BlobSidecarListDeneb, BlockImportSource, ChainSpec, DataColumnSidecar,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn get_blob(
         &self,
         blob_id: &BlobIdentifier,
-    ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+    ) -> Result<Option<Arc<BlobSidecarDeneb<T::EthSpec>>>, AvailabilityCheckError> {
         self.availability_cache.peek_blob(blob_id)
     }
 
@@ -734,7 +734,7 @@ pub enum AvailableBlockData<E: EthSpec> {
     /// Block is pre-Deneb or has zero blobs
     NoData,
     /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
-    Blobs(BlobSidecarList<E>),
+    Blobs(BlobSidecarListDeneb<E>),
     /// Block is post-PeerDAS and has more than zero blobs
     DataColumns(DataColumnSidecarList<E>),
 }

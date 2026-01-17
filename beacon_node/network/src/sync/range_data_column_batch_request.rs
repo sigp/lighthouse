@@ -192,7 +192,9 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             let column_block_signatures = columns
                 .iter()
                 .filter_map(|column| match column.as_ref() {
-                    DataColumnSidecar::Fulu(column) => Some(column.signed_block_header.signature.clone()),
+                    DataColumnSidecar::Fulu(column) => {
+                        Some(column.signed_block_header.signature.clone())
+                    }
                     _ => None,
                 })
                 .unique()
@@ -237,17 +239,16 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                     continue;
                 }
                 // If theres more than one unique block signature, penalize the peers serving the
-                // invalid block signatures.
+                // invalid block signatures. This check is only relevant for Fulu.
                 column_block_signatures => {
                     for column in columns {
-                        if let DataColumnSidecar::Fulu(column) = column.as_ref() {
-                            if column_block_signatures
+                        if let DataColumnSidecar::Fulu(column) = column.as_ref()
+                            && column_block_signatures
                                 .contains(&column.signed_block_header.signature)
-                                && block.signature() != &column.signed_block_header.signature
-                                && let Some(naughty_peer) = column_to_peer.get(&column.index)
-                            {
-                                naughty_peers.push((column.index, *naughty_peer));
-                            }
+                            && block.signature() != &column.signed_block_header.signature
+                            && let Some(naughty_peer) = column_to_peer.get(&column.index)
+                        {
+                            naughty_peers.push((column.index, *naughty_peer));
                         }
                     }
                     continue;

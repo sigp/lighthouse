@@ -3193,11 +3193,9 @@ where
 
     /// Simulate some of the blobs / data columns being seen on gossip.
     /// Converts the blobs to data columns if the slot is Fulu or later.
-    pub async fn process_gossip_blobs_or_columns<'a>(
+    pub async fn process_gossip_columns(
         &self,
         block: &SignedBeaconBlock<E>,
-        blobs: impl Iterator<Item = &'a Blob<E>>,
-        proofs: impl Iterator<Item = &'a KzgProof>,
         custody_columns_opt: Option<HashSet<ColumnIndex>>,
     ) {
         let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
@@ -3230,9 +3228,7 @@ where
                     .unwrap();
             }
         } else {
-            for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
-                panic!("We no longer support blobs over gossip");
-            }
+            panic!("We no longer support blobs over gossip");
         }
     }
 }
@@ -3281,7 +3277,10 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
-) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
+) -> (
+    SignedBeaconBlock<E, FullPayload<E>>,
+    Vec<BlobSidecarDeneb<E>>,
+) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
@@ -3313,7 +3312,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         .zip(proofs.into_iter())
         .enumerate()
     {
-        blob_sidecars.push(BlobSidecar::Deneb(BlobSidecarDeneb {
+        blob_sidecars.push(BlobSidecarDeneb {
             index: index as u64,
             blob: blob.clone(),
             kzg_commitment,
@@ -3324,7 +3323,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .body()
                 .kzg_commitment_merkle_proof(index)
                 .unwrap(),
-        }));
+        });
     }
     (block, blob_sidecars)
 }

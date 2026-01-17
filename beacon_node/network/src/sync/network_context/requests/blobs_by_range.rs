@@ -1,13 +1,13 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use std::sync::Arc;
-use types::{BlobSidecar, EthSpec};
+use types::{BlobSidecarDeneb, EthSpec};
 
 /// Accumulates results of a blobs_by_range request. Only returns items after receiving the
 /// stream termination.
 pub struct BlobsByRangeRequestItems<E: EthSpec> {
     request: BlobsByRangeRequest,
-    items: Vec<Arc<BlobSidecar<E>>>,
+    items: Vec<Arc<BlobSidecarDeneb<E>>>,
     max_blobs_per_block: u64,
 }
 
@@ -22,7 +22,7 @@ impl<E: EthSpec> BlobsByRangeRequestItems<E> {
 }
 
 impl<E: EthSpec> ActiveRequestItems for BlobsByRangeRequestItems<E> {
-    type Item = Arc<BlobSidecar<E>>;
+    type Item = Arc<BlobSidecarDeneb<E>>;
 
     fn add(&mut self, blob: Self::Item) -> Result<bool, LookupVerifyError> {
         if blob.slot() < self.request.start_slot
@@ -30,27 +30,19 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRangeRequestItems<E> {
         {
             return Err(LookupVerifyError::UnrequestedSlot(blob.slot()));
         }
-        if *blob.index() >= self.max_blobs_per_block {
-            return Err(LookupVerifyError::UnrequestedIndex(*blob.index()));
+        if blob.index >= self.max_blobs_per_block {
+            return Err(LookupVerifyError::UnrequestedIndex(blob.index));
         }
 
-        match blob.as_ref() {
-            BlobSidecar::Deneb(blob) => {
-                if !blob.verify_blob_sidecar_inclusion_proof() {
-                    return Err(LookupVerifyError::InvalidInclusionProof);
-                }
-            }
-            _ => {}
+        if !blob.verify_blob_sidecar_inclusion_proof() {
+            return Err(LookupVerifyError::InvalidInclusionProof);
         }
         if self
             .items
             .iter()
-            .any(|existing| existing.slot() == blob.slot() && *existing.index() == *blob.index())
+            .any(|existing| existing.slot() == blob.slot() && existing.index == blob.index)
         {
-            return Err(LookupVerifyError::DuplicatedData(
-                blob.slot(),
-                *blob.index(),
-            ));
+            return Err(LookupVerifyError::DuplicatedData(blob.slot(), blob.index));
         }
 
         self.items.push(blob);

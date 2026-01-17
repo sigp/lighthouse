@@ -15,9 +15,9 @@ use superstruct::superstruct;
 use types::data::BlobIdentifier;
 use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
-    ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot, data::BlobSidecar,
+    BlobSidecarDeneb, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier,
+    Epoch, EthSpec, ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
@@ -589,7 +589,7 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     BlocksByRoot(Arc<SignedBeaconBlock<E>>),
 
     /// A response to a get BLOBS_BY_RANGE request
-    BlobsByRange(Arc<BlobSidecar<E>>),
+    BlobsByRange(Arc<BlobSidecarDeneb<E>>),
 
     /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<E>>),
@@ -604,7 +604,7 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     LightClientUpdatesByRange(Arc<LightClientUpdate<E>>),
 
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Arc<BlobSidecar<E>>),
+    BlobsByRoot(Arc<BlobSidecarDeneb<E>>),
 
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
     DataColumnsByRoot(Arc<DataColumnSidecar<E>>),

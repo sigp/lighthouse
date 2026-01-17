@@ -320,7 +320,9 @@ mod tests {
                 .unwrap()
                 .clone(),
         });
-        (*sidecar_d.signed_block_header_mut().unwrap())
+        sidecar_d
+            .signed_block_header_mut()
+            .unwrap()
             .message
             .body_root = Hash256::repeat_byte(7);
         assert_eq!(

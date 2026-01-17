@@ -1629,7 +1629,7 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
 /// even if the block has already been seen on gossip without all blobs/columns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
+pub async fn block_seen_on_gossip_with_columns() {
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
@@ -1639,7 +1639,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    if !fork_name.fulu_enabled() {
         return;
     }
 
@@ -1683,12 +1683,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     // Simulate some of the blobs being seen on gossip.
     tester
         .harness
-        .process_gossip_blobs_or_columns(
-            &block,
-            partial_blobs.iter(),
-            partial_kzg_proofs.iter(),
-            Some(get_custody_columns(&tester, block.slot())),
-        )
+        .process_gossip_columns(&block, Some(get_custody_columns(&tester, block.slot())))
         .await;
 
     // It should not yet be added to fork choice because all blobs have not been seen.
@@ -1721,7 +1716,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
 /// even if the blobs/columns have already been seen on gossip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn blobs_or_columns_seen_on_gossip_without_block() {
+pub async fn columns_seen_on_gossip_without_block() {
     let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
@@ -1732,7 +1727,7 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
     let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    if !fork_name.fulu_enabled() {
         return;
     }
 
@@ -1758,12 +1753,7 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
     // Simulate the blobs being seen on gossip.
     tester
         .harness
-        .process_gossip_blobs_or_columns(
-            &block,
-            blobs.iter(),
-            kzg_proofs.iter(),
-            Some(get_custody_columns(&tester, block.slot())),
-        )
+        .process_gossip_columns(&block, Some(get_custody_columns(&tester, block.slot())))
         .await;
 
     // It should not yet be added to fork choice because the block has not been seen.
@@ -1796,7 +1786,7 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
 /// This test checks that an HTTP POST request with the block succeeds with a 200 response
 /// if just the blobs have already been seen on gossip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns() {
+async fn columns_seen_on_gossip_without_block_and_no_http_columns() {
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
@@ -1806,7 +1796,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    if !fork_name.fulu_enabled() {
         return;
     }
 
@@ -1833,12 +1823,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
     // Simulate the blobs being seen on gossip.
     tester
         .harness
-        .process_gossip_blobs_or_columns(
-            &block,
-            blobs.iter(),
-            kzg_proofs.iter(),
-            Some(get_custody_columns(&tester, block.slot())),
-        )
+        .process_gossip_columns(&block, Some(get_custody_columns(&tester, block.slot())))
         .await;
 
     // It should not yet be added to fork choice because the block has not been seen.
@@ -1872,7 +1857,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
+async fn slashable_columns_seen_on_gossip_cause_failure() {
     let validation_level: Option<BroadcastValidation> =
         Some(BroadcastValidation::ConsensusAndEquivocation);
 
@@ -1883,7 +1868,7 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    if !fork_name.fulu_enabled() {
         return;
     }
 
@@ -1911,12 +1896,7 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     // Simulate the blobs of block B being seen on gossip.
     tester
         .harness
-        .process_gossip_blobs_or_columns(
-            &block_b,
-            blobs_b.iter(),
-            kzg_proofs_b.iter(),
-            Some(get_custody_columns(&tester, block_b.slot())),
-        )
+        .process_gossip_columns(&block_b, Some(get_custody_columns(&tester, block_b.slot())))
         .await;
 
     // It should not yet be added to fork choice because block B has not been seen.

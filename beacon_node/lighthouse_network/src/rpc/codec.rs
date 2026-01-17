@@ -16,8 +16,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
-    ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    BlobSidecarDeneb, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec,
+    ForkContext, ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
@@ -651,7 +651,7 @@ fn handle_rpc_response<E: EthSpec>(
             Some(fork_name) => {
                 if fork_name.deneb_enabled() {
                     Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
-                        BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                        BlobSidecarDeneb::from_ssz_bytes(decoded_buffer)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -672,7 +672,7 @@ fn handle_rpc_response<E: EthSpec>(
             Some(fork_name) => {
                 if fork_name.deneb_enabled() {
                     Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
-                        BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                        BlobSidecarDeneb::from_ssz_bytes(decoded_buffer)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -964,7 +964,7 @@ mod tests {
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
-    fn empty_blob_sidecar(spec: &ChainSpec) -> Arc<BlobSidecar<Spec>> {
+    fn empty_blob_sidecar(spec: &ChainSpec) -> Arc<BlobSidecarDeneb<Spec>> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
         let mut blob_sidecar = BlobSidecarDeneb::<Spec>::empty();
@@ -972,7 +972,7 @@ mod tests {
             .deneb_fork_epoch
             .expect("deneb fork epoch must be set")
             .start_slot(Spec::slots_per_epoch());
-        Arc::new(BlobSidecar::Deneb(blob_sidecar))
+        Arc::new(blob_sidecar)
     }
 
     fn empty_data_column_sidecar(spec: &ChainSpec) -> Arc<DataColumnSidecar<Spec>> {

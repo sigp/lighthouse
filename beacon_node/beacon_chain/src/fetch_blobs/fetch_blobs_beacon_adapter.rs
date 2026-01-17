@@ -1,7 +1,6 @@
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
-use crate::observed_block_producers::ProposalKey;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use execution_layer::json_structures::BlobAndProofV2;
 use kzg::Kzg;
 #[cfg(test)]
 use mockall::automock;
@@ -35,22 +34,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         &self.chain.task_executor
     }
 
-    pub(crate) async fn get_blobs_v1(
-        &self,
-        versioned_hashes: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV1<T::EthSpec>>>, FetchEngineBlobError> {
-        let execution_layer = self
-            .chain
-            .execution_layer
-            .as_ref()
-            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
-
-        execution_layer
-            .get_blobs_v1(versioned_hashes)
-            .await
-            .map_err(FetchEngineBlobError::RequestFailed)
-    }
-
     pub(crate) async fn get_blobs_v2(
         &self,
         versioned_hashes: Vec<Hash256>,
@@ -73,12 +56,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .read()
             .known_for_slot(&slot)
             .cloned()
-    }
-
-    pub(crate) fn cached_blob_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
-        self.chain
-            .data_availability_checker
-            .cached_blob_indexes(block_root)
     }
 
     pub(crate) fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {

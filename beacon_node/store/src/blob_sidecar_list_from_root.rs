@@ -1,24 +1,24 @@
 use std::sync::Arc;
-use types::{BlobSidecar, BlobSidecarList, EthSpec};
+use types::{BlobSidecarDeneb, BlobSidecarListDeneb, EthSpec};
 
 #[derive(Debug, Clone)]
 pub enum BlobSidecarListFromRoot<E: EthSpec> {
     /// Valid root that exists in the DB, but has no blobs associated with it.
     NoBlobs,
     /// Contains > 1 blob for the requested root.
-    Blobs(BlobSidecarList<E>),
+    Blobs(BlobSidecarListDeneb<E>),
     /// No root exists in the db or cache for the requested root.
     NoRoot,
 }
 
-impl<E: EthSpec> From<BlobSidecarList<E>> for BlobSidecarListFromRoot<E> {
-    fn from(value: BlobSidecarList<E>) -> Self {
+impl<E: EthSpec> From<BlobSidecarListDeneb<E>> for BlobSidecarListFromRoot<E> {
+    fn from(value: BlobSidecarListDeneb<E>) -> Self {
         Self::Blobs(value)
     }
 }
 
 impl<E: EthSpec> BlobSidecarListFromRoot<E> {
-    pub fn blobs(self) -> Option<BlobSidecarList<E>> {
+    pub fn blobs(self) -> Option<BlobSidecarListDeneb<E>> {
         match self {
             Self::NoBlobs | Self::NoRoot => None,
             Self::Blobs(blobs) => Some(blobs),
@@ -33,7 +33,7 @@ impl<E: EthSpec> BlobSidecarListFromRoot<E> {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Arc<BlobSidecar<E>>> {
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<BlobSidecarDeneb<E>>> {
         match self {
             Self::NoBlobs | Self::NoRoot => [].iter(),
             Self::Blobs(list) => list.iter(),

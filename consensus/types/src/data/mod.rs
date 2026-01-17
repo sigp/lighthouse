@@ -5,7 +5,7 @@ mod data_column_subnet_id;
 
 pub use blob_sidecar::{
     BlobIdentifier, BlobSidecar, BlobSidecarDeneb, BlobSidecarError, BlobSidecarGloas,
-    BlobSidecarList, BlobsList, FixedBlobSidecarList,
+    BlobSidecarList, BlobSidecarListDeneb, BlobsList, FixedBlobSidecarList,
 };
 pub use data_column_custody_group::{
     CustodyIndex, DataColumnCustodyGroupError, compute_columns_for_custody_group,

@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
+use types::{BlobSidecarDeneb, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -570,7 +570,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
+        blob_sidecar: Option<Arc<BlobSidecarDeneb<T::EthSpec>>>,
     ) {
         trace!(
             %peer_id,
@@ -628,7 +628,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
+        blob_sidecar: Option<Arc<BlobSidecarDeneb<T::EthSpec>>>,
     ) {
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(sync_id) => match sync_id {

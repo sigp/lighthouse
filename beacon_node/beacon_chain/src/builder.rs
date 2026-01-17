@@ -35,6 +35,7 @@ use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::RuntimeVariableList;
 use state_processing::{AllCaches, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -42,6 +43,7 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
+use types::BlobSidecar;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
@@ -595,6 +597,18 @@ where
                     .put_data_columns(&weak_subj_block_root, data_columns)
                     .map_err(|e| format!("Failed to store weak subjectivity data_column: {e:?}"))?;
             } else {
+                let blobs = blobs
+                    .into_iter()
+                    .filter_map(|b| match b.as_ref() {
+                        BlobSidecar::Deneb(blob) => Some(Arc::new(blob.clone())),
+                        BlobSidecar::Gloas(_) => None,
+                    })
+                    .collect::<Vec<_>>();
+
+                let max_blobs = self.spec.max_blobs_per_block(weak_subj_block.epoch()) as usize;
+                let blobs = RuntimeVariableList::new(blobs, max_blobs)
+                    .map_err(|e| format!("failed to store weak subjectivity blobs: {e:?}"))?;
+
                 store
                     .put_blobs(&weak_subj_block_root, blobs)
                     .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;

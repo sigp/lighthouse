@@ -91,7 +91,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
 #[derive(Debug)]
 struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
-    blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
+    blob_cache: LruCache<Hash256, BlobSidecarListDeneb<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
     data_column_custody_info_cache: Option<DataColumnCustodyInfo>,
 }
@@ -108,7 +108,7 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
         self.block_cache.put(block_root, block);
     }
-    pub fn put_blobs(&mut self, block_root: Hash256, blobs: BlobSidecarList<E>) {
+    pub fn put_blobs(&mut self, block_root: Hash256, blobs: BlobSidecarListDeneb<E>) {
         self.blob_cache.put(block_root, blobs);
     }
     pub fn put_data_column(&mut self, block_root: Hash256, data_column: Arc<DataColumnSidecar<E>>) {
@@ -125,7 +125,10 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
     }
-    pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
+    pub fn get_blobs<'a>(
+        &'a mut self,
+        block_root: &Hash256,
+    ) -> Option<&'a BlobSidecarListDeneb<E>> {
         self.blob_cache.get(block_root)
     }
     // Note: data columns are all individually cached, hence there's no guarantee that
@@ -936,7 +939,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::BeaconBlob, block_root.as_slice())
     }
 
-    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
+    pub fn put_blobs(
+        &self,
+        block_root: &Hash256,
+        blobs: BlobSidecarListDeneb<E>,
+    ) -> Result<(), Error> {
         self.blobs_db.put_bytes(
             DBColumn::BeaconBlob,
             block_root.as_slice(),
@@ -951,7 +958,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: BlobSidecarList<E>,
+        blobs: BlobSidecarListDeneb<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         ops.push(KeyValueStoreOp::PutKeyValue(
@@ -2550,12 +2557,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // a plain vec since we don't know the length limit of the list without
                 // knowing the slot.
                 // The encoding of a VariableList is the same as a regular vec.
-                let blobs: Vec<Arc<BlobSidecar<E>>> = Vec::<_>::from_ssz_bytes(blobs_bytes)?;
+                let blobs: Vec<Arc<BlobSidecarDeneb<E>>> = Vec::<_>::from_ssz_bytes(blobs_bytes)?;
                 if let Some(max_blobs_per_block) = blobs
                     .first()
                     .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
                 {
-                    let blobs = BlobSidecarList::new(blobs, max_blobs_per_block as usize)?;
+                    let blobs = BlobSidecarListDeneb::new(blobs, max_blobs_per_block as usize)?;
                     self.block_cache
                         .as_ref()
                         .inspect(|cache| cache.lock().put_blobs(*block_root, blobs.clone()));

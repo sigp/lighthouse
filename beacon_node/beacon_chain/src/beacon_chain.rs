@@ -102,6 +102,7 @@ use safe_arith::SafeArith;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
+use ssz_types::RuntimeVariableList;
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
     common::get_attesting_indices_from_state,
@@ -1130,19 +1131,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(mut all_cached_columns) = all_cached_columns_opt {
             all_cached_columns.retain(|col| indices.contains(col.index()));
             Ok(all_cached_columns)
-        } else {
-            if let Some(block) = self.get_blinded_block(&block_root)? {
-                indices
+        } else if let Some(block) = self.get_blinded_block(&block_root)? {
+            indices
                 .iter()
                 .filter_map(|index| {
                     self.get_data_column(&block_root, index, block.fork_name_unchecked())
                         .transpose()
                 })
                 .collect::<Result<_, _>>()
-            } else {
-                Ok(vec![])
-            }
-           
+        } else {
+            Ok(vec![])
         }
     }
 
@@ -1269,7 +1267,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(None)
             }
         } else {
-            self.get_blobs(block_root).map(|b| b.blobs())
+            let max_blobs = self.spec.max_blobs_per_block(block.epoch());
+            let blobs = self.get_blobs(block_root)?.blobs();
+            match blobs {
+                Some(blobs) => {
+                    let list: Vec<_> = blobs
+                        .into_iter()
+                        .map(|blob| Arc::new(BlobSidecar::Deneb((*blob).clone())))
+                        .collect();
+                    let blob_sidecar_list = RuntimeVariableList::new(list, max_blobs as usize)?;
+                    Ok(Some(blob_sidecar_list))
+                }
+                None => Ok(None),
+            }
         }
     }
 
@@ -3064,24 +3074,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         for blob in &blobs {
-            if let Some(blob) = blob {
-                match blob.as_ref() {
-                    // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
-                    // into the da_checker, where invalid = descendant of invalid blocks.
-                    // Note: blobs should have at least one item and all items have the same parent root.
-                    BlobSidecar::Deneb(blob) => {
-                        if !self
-                            .canonical_head
-                            .fork_choice_read_lock()
-                            .contains_block(&blob.block_parent_root())
-                        {
-                            return Err(BlockError::ParentUnknown {
-                                parent_root: blob.block_parent_root(),
-                            });
-                        }
-                    }
-                    // Dont need to handle the Gloas variant, since blobs wont be served over RPC post-Fulu
-                    _ => {}
+            if let Some(blob) = blob.as_ref() {
+                // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
+                // into the da_checker, where invalid = descendant of invalid blocks.
+                // Note: blobs should have at least one item and all items have the same parent root.
+                if !self
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .contains_block(&blob.block_parent_root())
+                {
+                    return Err(BlockError::ParentUnknown {
+                        parent_root: blob.block_parent_root(),
+                    });
                 }
             }
         }
@@ -3124,7 +3128,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn emit_sse_blob_sidecar_events<'a, I>(self: &Arc<Self>, block_root: &Hash256, blobs_iter: I)
     where
-        I: Iterator<Item = &'a BlobSidecar<T::EthSpec>>,
+        I: Iterator<Item = &'a BlobSidecarDeneb<T::EthSpec>>,
     {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_blob_sidecar_subscribers()
@@ -3133,7 +3137,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .data_availability_checker
                 .cached_blob_indexes(block_root)
                 .unwrap_or_default();
-            let new_blobs = blobs_iter.filter(|b| !imported_blobs.contains(b.index()));
+            let new_blobs = blobs_iter.filter(|b| !imported_blobs.contains(&b.index));
 
             for blob in new_blobs {
                 event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
@@ -3561,10 +3565,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         self.check_blob_header_signature_and_slashability(
             block_root,
-            blobs.iter().flatten().filter_map(|b| match b.as_ref() {
-                BlobSidecar::Deneb(blob) => Some(blob),
-                _ => None,
-            }),
+            blobs.iter().flatten().map(|b| b.as_ref()),
         )?;
         let availability = self
             .data_availability_checker
@@ -7347,7 +7348,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Retrieves block roots (in ascending slot order) within some slot range from fork choice.
-    pub fn block_roots_from_fork_choice(&self, start_slot: u64, count: u64) -> Vec<Hash256> {
+    pub fn block_roots_from_fork_choice(
+        &self,
+        start_slot: u64,
+        count: u64,
+    ) -> Vec<(Hash256, Slot)> {
         let head_block_root = self.canonical_head.cached_head().head_block_root();
         let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
         let block_roots_iter = fork_choice_read_lock
@@ -7358,7 +7363,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         for (root, slot) in block_roots_iter {
             if slot < end_slot && slot >= start_slot {
-                roots.push(root);
+                roots.push((root, slot));
             }
             if slot < start_slot {
                 break;

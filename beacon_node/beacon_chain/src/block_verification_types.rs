@@ -9,7 +9,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::data::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarListDeneb, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
@@ -60,7 +60,7 @@ impl<E: EthSpec> RpcBlock<E> {
         }
     }
 
-    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
+    pub fn blobs(&self) -> Option<&BlobSidecarListDeneb<E>> {
         match &self.block {
             RpcBlockInner::Block(_) => None,
             RpcBlockInner::BlockAndBlobs(_, blobs) => Some(blobs),
@@ -87,7 +87,7 @@ enum RpcBlockInner<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
     /// This variant is used with parent lookups and by-range responses. It should have all blobs
     /// ordered, all block roots matching, and the correct number of blobs for this block.
-    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
+    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarListDeneb<E>),
     /// This variant is used with parent lookups and by-range responses. It should have all
     /// requested data columns, all block roots matching for this block.
     BlockAndCustodyColumns(Arc<SignedBeaconBlock<E>>, CustodyDataColumnList<E>),
@@ -115,7 +115,7 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn new(
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
-        blobs: Option<BlobSidecarList<E>>,
+        blobs: Option<BlobSidecarListDeneb<E>>,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
         // Treat empty blob lists as if they are missing.
@@ -129,7 +129,7 @@ impl<E: EthSpec> RpcBlock<E> {
                 return Err(AvailabilityCheckError::MissingBlobs);
             }
             for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
-                let blob_commitment = *blob.kzg_commitment();
+                let blob_commitment = blob.kzg_commitment;
                 if blob_commitment != block_commitment {
                     return Err(AvailabilityCheckError::KzgCommitmentMismatch {
                         block_commitment,
@@ -177,7 +177,7 @@ impl<E: EthSpec> RpcBlock<E> {
     ) -> (
         Hash256,
         Arc<SignedBeaconBlock<E>>,
-        Option<BlobSidecarList<E>>,
+        Option<BlobSidecarListDeneb<E>>,
         Option<CustodyDataColumnList<E>>,
     ) {
         let block_root = self.block_root();

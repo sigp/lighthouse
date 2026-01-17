@@ -991,13 +991,13 @@ pub struct SseBlobSidecar {
 }
 
 impl SseBlobSidecar {
-    pub fn from_blob_sidecar<E: EthSpec>(blob_sidecar: &BlobSidecar<E>) -> SseBlobSidecar {
+    pub fn from_blob_sidecar<E: EthSpec>(blob_sidecar: &BlobSidecarDeneb<E>) -> SseBlobSidecar {
         SseBlobSidecar {
             block_root: blob_sidecar.block_root(),
-            index: *blob_sidecar.index(),
+            index: blob_sidecar.index,
             slot: blob_sidecar.slot(),
-            kzg_commitment: *blob_sidecar.kzg_commitment(),
-            versioned_hash: blob_sidecar.kzg_commitment().calculate_versioned_hash(),
+            kzg_commitment: blob_sidecar.kzg_commitment,
+            versioned_hash: blob_sidecar.kzg_commitment.calculate_versioned_hash(),
         }
     }
 }

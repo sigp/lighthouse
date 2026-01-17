@@ -105,7 +105,8 @@ async fn rpc_blobs_with_invalid_header_signature() {
         .max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
     let mut blob_sidecars = FixedBlobSidecarList::new(vec![None; max_len]);
     for (i, (kzg_proof, blob)) in kzg_proofs.into_iter().zip(blobs).enumerate() {
-        let blob_sidecar = BlobSidecar::new(i, blob, &corrupt_block, kzg_proof).unwrap();
+        let blob_sidecar =
+            BlobSidecarDeneb::new(i, blob, &corrupt_block.clone_as_blinded(), kzg_proof).unwrap();
         blob_sidecars[i] = Some(Arc::new(blob_sidecar));
     }
 

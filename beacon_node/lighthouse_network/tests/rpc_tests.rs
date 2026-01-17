@@ -17,7 +17,7 @@ use tokio::time::sleep;
 use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-    BlobSidecar, BlobSidecarDeneb, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
+    BlobSidecarDeneb, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
     DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
     KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
@@ -348,7 +348,7 @@ fn test_blobs_by_range_chunked_rpc() {
         let mut blob = BlobSidecarDeneb::<E>::empty();
         blob.signed_block_header.message.slot = deneb_slot;
 
-        let rpc_response = Response::BlobsByRange(Some(Arc::new(BlobSidecar::Deneb(blob))));
+        let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;

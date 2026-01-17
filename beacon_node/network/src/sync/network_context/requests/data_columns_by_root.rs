@@ -57,13 +57,10 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
 
-        match data_column.as_ref() {
-            DataColumnSidecar::Fulu(data_column) => {
-                if !data_column.verify_inclusion_proof() {
-                    return Err(LookupVerifyError::InvalidInclusionProof);
-                }
-            }
-            _ => {}
+        if let DataColumnSidecar::Fulu(data_column) = data_column.as_ref()
+            && !data_column.verify_inclusion_proof()
+        {
+            return Err(LookupVerifyError::InvalidInclusionProof);
         }
 
         if !self.request.indices.contains(data_column.index()) {

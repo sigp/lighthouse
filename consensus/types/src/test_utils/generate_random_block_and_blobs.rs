@@ -3,7 +3,14 @@ use kzg::{KzgCommitment, KzgProof};
 use rand::Rng;
 
 use crate::{
-    BlobSidecarDeneb, block::{BeaconBlock, SignedBeaconBlock}, core::{EthSpec, MainnetEthSpec}, data::{Blob, BlobSidecar, BlobsList}, execution::FullPayload, fork::{ForkName, map_fork_name}, kzg_ext::{KzgCommitments, KzgProofs}, test_utils::TestRandom
+    BlobSidecarDeneb,
+    block::{BeaconBlock, SignedBeaconBlock},
+    core::{EthSpec, MainnetEthSpec},
+    data::{Blob, BlobSidecar, BlobsList},
+    execution::FullPayload,
+    fork::{ForkName, map_fork_name},
+    kzg_ext::{KzgCommitments, KzgProofs},
+    test_utils::TestRandom,
 };
 
 type BlobsBundle<E> = (KzgCommitments<E>, KzgProofs<E>, BlobsList<E>);
@@ -79,7 +86,11 @@ mod test {
         let (_block, blobs) =
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 2, &mut rng());
         for blob in blobs {
-            assert!(blob.as_deneb().unwrap().verify_blob_sidecar_inclusion_proof());
+            assert!(
+                blob.as_deneb()
+                    .unwrap()
+                    .verify_blob_sidecar_inclusion_proof()
+            );
         }
     }
 
@@ -100,11 +111,16 @@ mod test {
             &block,
             signed_block_header,
             &kzg_commitments_inclusion_proof,
-            blob.kzg_proof().clone(),
+            *blob.kzg_proof(),
         )
         .unwrap();
 
-        assert!(blob_sidecar.as_deneb().unwrap().verify_blob_sidecar_inclusion_proof());
+        assert!(
+            blob_sidecar
+                .as_deneb()
+                .unwrap()
+                .verify_blob_sidecar_inclusion_proof()
+        );
     }
 
     #[test]
@@ -113,8 +129,14 @@ mod test {
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut rng());
 
         for mut blob in blobs {
-            *blob.kzg_commitment_inclusion_proof_mut().unwrap() = FixedVector::random_for_test(&mut rng());
-            assert!(!blob.as_deneb().unwrap().verify_blob_sidecar_inclusion_proof());
+            *blob.kzg_commitment_inclusion_proof_mut().unwrap() =
+                FixedVector::random_for_test(&mut rng());
+            assert!(
+                !blob
+                    .as_deneb()
+                    .unwrap()
+                    .verify_blob_sidecar_inclusion_proof()
+            );
         }
     }
 }

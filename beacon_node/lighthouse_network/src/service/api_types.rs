@@ -3,7 +3,7 @@ use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
+    BlobSidecarDeneb, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
@@ -155,13 +155,13 @@ pub enum Response<E: EthSpec> {
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
     BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobSidecar<E>>>),
+    BlobsByRange(Option<Arc<BlobSidecarDeneb<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_Range request.
     DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
+    BlobsByRoot(Option<Arc<BlobSidecarDeneb<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
     DataColumnsByRoot(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a LightClientUpdate request.

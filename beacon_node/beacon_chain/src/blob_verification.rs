@@ -1,24 +1,13 @@
-use educe::Educe;
-use slot_clock::SlotClock;
-use std::marker::PhantomData;
-use std::sync::Arc;
-
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
-use crate::block_verification::{
-    BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
-};
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use crate::{BeaconChainError, metrics};
+use educe::Educe;
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, instrument};
+use tracing::instrument;
 use tree_hash::TreeHash;
-use types::data::BlobIdentifier;
-use types::{
-    BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
-};
+use types::{BeaconStateError, BlobSidecar, BlobSidecarDeneb, EthSpec, Hash256, Slot};
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
@@ -162,7 +151,7 @@ impl From<BeaconStateError> for GossipBlobError {
 #[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedBlob<E: EthSpec> {
-    blob: Arc<BlobSidecar<E>>,
+    blob: Arc<BlobSidecarDeneb<E>>,
     #[ssz(skip_serializing, skip_deserializing)]
     seen_timestamp: Duration,
 }
@@ -181,27 +170,27 @@ impl<E: EthSpec> Ord for KzgVerifiedBlob<E> {
 
 impl<E: EthSpec> KzgVerifiedBlob<E> {
     pub fn new(
-        blob: Arc<BlobSidecar<E>>,
+        blob: Arc<BlobSidecarDeneb<E>>,
         kzg: &Kzg,
         seen_timestamp: Duration,
     ) -> Result<Self, KzgError> {
         verify_kzg_for_blob(blob, kzg, seen_timestamp)
     }
-    pub fn to_blob(self) -> Arc<BlobSidecar<E>> {
+    pub fn to_blob(self) -> Arc<BlobSidecarDeneb<E>> {
         self.blob
     }
-    pub fn as_blob(&self) -> &BlobSidecar<E> {
+    pub fn as_blob(&self) -> &BlobSidecarDeneb<E> {
         &self.blob
     }
     pub fn get_commitment(&self) -> &KzgCommitment {
-        &self.blob.kzg_commitment()
+        &self.blob.kzg_commitment
     }
     /// This is cheap as we're calling clone on an Arc
-    pub fn clone_blob(&self) -> Arc<BlobSidecar<E>> {
+    pub fn clone_blob(&self) -> Arc<BlobSidecarDeneb<E>> {
         self.blob.clone()
     }
     pub fn blob_index(&self) -> u64 {
-        *self.blob.index()
+        self.blob.index
     }
     pub fn seen_timestamp(&self) -> Duration {
         self.seen_timestamp
@@ -210,7 +199,7 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
     ///
     /// This should ONLY be used for testing.
     #[cfg(test)]
-    pub fn __assumed_valid(blob: Arc<BlobSidecar<E>>) -> Self {
+    pub fn __assumed_valid(blob: Arc<BlobSidecarDeneb<E>>) -> Self {
         Self {
             blob,
             seen_timestamp: Duration::from_secs(0),
@@ -218,7 +207,10 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
     }
     /// Mark a blob as KZG verified. Caller must ONLY use this on blob sidecars constructed
     /// from EL blobs.
-    pub fn from_execution_verified(blob: Arc<BlobSidecar<E>>, seen_timestamp: Duration) -> Self {
+    pub fn from_execution_verified(
+        blob: Arc<BlobSidecarDeneb<E>>,
+        seen_timestamp: Duration,
+    ) -> Self {
         Self {
             blob,
             seen_timestamp,
@@ -230,11 +222,11 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
 ///
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<E: EthSpec>(
-    blob: Arc<BlobSidecar<E>>,
+    blob: Arc<BlobSidecarDeneb<E>>,
     kzg: &Kzg,
     seen_timestamp: Duration,
 ) -> Result<KzgVerifiedBlob<E>, KzgError> {
-    validate_blob::<E>(kzg, blob.blob(), *blob.kzg_commitment(), *blob.kzg_proof())?;
+    validate_blob::<E>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
     Ok(KzgVerifiedBlob {
         blob,
         seen_timestamp,
@@ -246,7 +238,7 @@ pub struct KzgVerifiedBlobList<E: EthSpec> {
 }
 
 impl<E: EthSpec> KzgVerifiedBlobList<E> {
-    pub fn new<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
+    pub fn new<I: IntoIterator<Item = Arc<BlobSidecarDeneb<E>>>>(
         blob_list: I,
         kzg: &Kzg,
         seen_timestamp: Duration,
@@ -292,10 +284,10 @@ pub fn verify_kzg_for_blob_list<'a, E: EthSpec, I>(
     kzg: &'a Kzg,
 ) -> Result<(), KzgError>
 where
-    I: Iterator<Item = &'a Arc<BlobSidecar<E>>>,
+    I: Iterator<Item = &'a Arc<BlobSidecarDeneb<E>>>,
 {
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_iter
-        .map(|blob| (blob.blob(), (*blob.kzg_commitment(), *blob.kzg_proof())))
+        .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
     validate_blobs::<E>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
 }

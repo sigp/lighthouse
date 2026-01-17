@@ -101,8 +101,6 @@ pub struct DataColumnSidecar<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-
-
 impl<E: EthSpec> DataColumnSidecar<E> {
     pub fn slot(&self) -> Slot {
         match self {

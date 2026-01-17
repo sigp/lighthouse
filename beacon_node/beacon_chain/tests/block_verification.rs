@@ -40,7 +40,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 enum DataSidecars<E: EthSpec> {
-    Blobs(BlobSidecarList<E>),
+    Blobs(BlobSidecarListDeneb<E>),
     DataColumns(Vec<CustodyDataColumn<E>>),
 }
 
@@ -81,10 +81,12 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
             beacon_state: snapshot.beacon_state,
         });
 
+        let fork_name = snapshot.beacon_block.fork_name_unchecked();
+
         let data_sidecars = if harness.spec.is_peer_das_enabled_for_epoch(block_epoch) {
             harness
                 .chain
-                .get_data_columns(&snapshot.beacon_block_root)
+                .get_data_columns(&snapshot.beacon_block_root, fork_name)
                 .unwrap()
                 .map(|columns| {
                     columns
@@ -219,10 +221,10 @@ fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>], blobs: &mut [Option<
 
 fn update_blob_signed_header<E: EthSpec>(
     signed_block: &SignedBeaconBlock<E>,
-    blobs: &mut BlobSidecarList<E>,
+    blobs: &mut BlobSidecarListDeneb<E>,
 ) {
     for old_blob_sidecar in blobs.as_mut_slice() {
-        let new_blob = Arc::new(BlobSidecar::<E> {
+        let new_blob = Arc::new(BlobSidecarDeneb::<E> {
             index: old_blob_sidecar.index,
             blob: old_blob_sidecar.blob.clone(),
             kzg_commitment: old_blob_sidecar.kzg_commitment,
@@ -231,7 +233,7 @@ fn update_blob_signed_header<E: EthSpec>(
             kzg_commitment_inclusion_proof: signed_block
                 .message()
                 .body()
-                .kzg_commitment_merkle_proof(old_blob_sidecar.index as usize)
+                .kzg_commitment_merkle_proof(*old_blob_sidecar.index() as usize)
                 .unwrap(),
         });
         *old_blob_sidecar = new_blob;
@@ -1364,11 +1366,9 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     if let Some((kzg_proofs, blobs)) = blobs1 {
         harness
-            .process_gossip_blobs_or_columns(
+            .process_gossip_columns(
                 verified_block.block(),
-                blobs.iter(),
-                kzg_proofs.iter(),
-                None,
+                Some(get_custody_columns(&tester, block.slot())),
             )
             .await;
     }

@@ -62,9 +62,6 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub executor: TaskExecutor,
 }
 
-// Publish blobs in batches of exponentially increasing size.
-const BLOB_PUBLICATION_EXP_FACTOR: usize = 2;
-
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error<T::EthSpec>> {
         self.beacon_processor_send.try_send(event)

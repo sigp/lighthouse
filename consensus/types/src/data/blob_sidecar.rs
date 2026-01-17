@@ -72,7 +72,7 @@ pub enum Error {
             TreeHash,
         ),
         context_deserialize(ForkName),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
+        educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -121,6 +121,18 @@ impl<E: EthSpec> PartialOrd for BlobSidecar<E> {
 impl<E: EthSpec> Ord for BlobSidecar<E> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.index().cmp(other.index())
+    }
+}
+
+impl<E: EthSpec> PartialOrd for BlobSidecarDeneb<E> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<E: EthSpec> Ord for BlobSidecarDeneb<E> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&other.index)
     }
 }
 
@@ -243,7 +255,7 @@ impl<E: EthSpec> BlobSidecar<E> {
 
     pub fn slot(&self) -> Slot {
         match self {
-            BlobSidecar::Deneb(blob) => blob.signed_block_header.message.slot,
+            BlobSidecar::Deneb(blob) => blob.slot(),
             BlobSidecar::Gloas(blob) => blob.slot,
         }
     }
@@ -254,7 +266,7 @@ impl<E: EthSpec> BlobSidecar<E> {
 
     pub fn block_root(&self) -> Hash256 {
         match self {
-            BlobSidecar::Deneb(blob) => blob.signed_block_header.message.tree_hash_root(),
+            BlobSidecar::Deneb(blob) => blob.block_root(),
             BlobSidecar::Gloas(blob) => blob.beacon_block_root,
         }
     }
@@ -264,10 +276,11 @@ impl<E: EthSpec> BlobSidecar<E> {
         block: &SignedBeaconBlock<E>,
         kzg_proofs: KzgProofs<E>,
         spec: &ChainSpec,
-    ) -> Result<BlobSidecarList<E>, BlobSidecarError> {
+    ) -> Result<BlobSidecarListDeneb<E>, BlobSidecarError> {
         let mut blob_sidecars = vec![];
         for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-            let blob_sidecar = BlobSidecar::new(i, blob, &block.clone_as_blinded(), *kzg_proof)?;
+            let blob_sidecar =
+                BlobSidecarDeneb::new(i, blob, &block.clone_as_blinded(), *kzg_proof)?;
             blob_sidecars.push(Arc::new(blob_sidecar));
         }
         RuntimeVariableList::new(
@@ -279,6 +292,47 @@ impl<E: EthSpec> BlobSidecar<E> {
 }
 
 impl<E: EthSpec> BlobSidecarDeneb<E> {
+    pub fn new(
+        index: usize,
+        blob: Blob<E>,
+        signed_block: &SignedBlindedBeaconBlock<E>,
+        kzg_proof: KzgProof,
+    ) -> Result<Self, BlobSidecarError> {
+        let expected_kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_e| BlobSidecarError::PreDeneb)?;
+        let kzg_commitment = *expected_kzg_commitments
+            .get(index)
+            .ok_or(BlobSidecarError::MissingKzgCommitment)?;
+        let kzg_commitment_inclusion_proof = signed_block
+            .message()
+            .body()
+            .kzg_commitment_merkle_proof(index)?;
+
+        Ok(Self {
+            index: index as u64,
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            signed_block_header: signed_block.signed_block_header(),
+            kzg_commitment_inclusion_proof,
+        })
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.signed_block_header.message.tree_hash_root()
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.signed_block_header.message.slot
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.slot().epoch(E::slots_per_epoch())
+    }
+
     #[allow(clippy::arithmetic_side_effects)]
     pub fn max_size() -> usize {
         // Fixed part
@@ -413,6 +467,7 @@ impl<E: EthSpec> BlobSidecarGloas<E> {
 }
 
 pub type BlobSidecarList<E> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
+pub type BlobSidecarListDeneb<E> = RuntimeVariableList<Arc<BlobSidecarDeneb<E>>>;
 /// Alias for a non length-constrained list of `BlobSidecar`s.
-pub type FixedBlobSidecarList<E> = RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>;
+pub type FixedBlobSidecarList<E> = RuntimeFixedVector<Option<Arc<BlobSidecarDeneb<E>>>>;
 pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;

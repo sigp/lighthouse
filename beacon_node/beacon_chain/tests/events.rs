@@ -8,7 +8,10 @@ use rand::rngs::StdRng;
 use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, MinimalEthSpec, Slot};
+use types::{
+    BlobSidecarDeneb, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, EthSpec,
+    MinimalEthSpec, Slot,
+};
 
 type E = MinimalEthSpec;
 
@@ -34,13 +37,22 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
     // build and process a gossip verified data column
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
     let sidecar = {
-        // DA checker only accepts sampling columns, so we need to create one with a sampling index.
-        let mut random_sidecar = DataColumnSidecar::random_for_test(&mut rng);
         let slot = Slot::new(10);
-        let epoch = slot.epoch(E::slots_per_epoch());
-        random_sidecar.signed_block_header.message.slot = slot;
-        random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
-        random_sidecar
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        // DA checker only accepts sampling columns, so we need to create one with a sampling index.
+        if fork_name.gloas_enabled() {
+            let mut random_sidecar = DataColumnSidecarGloas::random_for_test(&mut rng);
+            let epoch = slot.epoch(E::slots_per_epoch());
+            random_sidecar.slot = slot;
+            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            DataColumnSidecar::Gloas(random_sidecar)
+        } else {
+            let mut random_sidecar = DataColumnSidecarFulu::random_for_test(&mut rng);
+            let epoch = slot.epoch(E::slots_per_epoch());
+            random_sidecar.signed_block_header.message.slot = slot;
+            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            DataColumnSidecar::Fulu(random_sidecar)
+        }
     };
     let gossip_verified_data_column =
         GossipVerifiedDataColumn::__new_for_testing(Arc::new(sidecar));
@@ -89,10 +101,24 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     let (kzg_proofs, blobs) = opt_blobs.unwrap();
     assert_eq!(blobs.len(), 2);
 
-    let blob_1 =
-        Arc::new(BlobSidecar::new(0, blobs[0].clone(), &signed_block.clone_as_blinded(), kzg_proofs[0]).unwrap());
-    let blob_2 =
-        Arc::new(BlobSidecar::new(1, blobs[1].clone(), &signed_block.clone_as_blinded(), kzg_proofs[1]).unwrap());
+    let blob_1 = Arc::new(
+        BlobSidecarDeneb::new(
+            0,
+            blobs[0].clone(),
+            &signed_block.clone_as_blinded(),
+            kzg_proofs[0],
+        )
+        .unwrap(),
+    );
+    let blob_2 = Arc::new(
+        BlobSidecarDeneb::new(
+            1,
+            blobs[1].clone(),
+            &signed_block.clone_as_blinded(),
+            kzg_proofs[1],
+        )
+        .unwrap(),
+    );
 
     let blobs = FixedBlobSidecarList::new(vec![Some(blob_1.clone()), Some(blob_2.clone())]);
     let expected_sse_blobs = vec![

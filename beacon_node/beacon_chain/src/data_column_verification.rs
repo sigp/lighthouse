@@ -9,7 +9,7 @@ use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
 use slot_clock::SlotClock;
-use ssz_derive::{Decode, Encode};
+use ssz_derive::Encode;
 use ssz_types::VariableList;
 use std::iter;
 use std::marker::PhantomData;
@@ -17,8 +17,8 @@ use std::sync::Arc;
 use tracing::{debug, instrument};
 use types::data::ColumnIndex;
 use types::{
-    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
-    DataColumnSubnetId, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
+    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId,
+    EthSpec, Hash256, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -225,6 +225,17 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
             DataColumnSidecar::Gloas(_) => {
                 todo!()
             }
+        }
+    }
+
+    /// Construct a `GossipVerifiedBlob` that is assumed to be valid.
+    ///
+    /// This should ONLY be used for testing.
+    pub fn __assumed_valid(column: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+        Self {
+            block_root: column.block_root(),
+            data_column: KzgVerifiedDataColumn { data: column },
+            _phantom: PhantomData,
         }
     }
 

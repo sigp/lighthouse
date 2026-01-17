@@ -539,7 +539,8 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             )
             .map_err(KzgError::ReconstructFailed)
         }
-        DataColumnSidecar::Gloas(first_column) => todo!(),
+        // TODO(gloas) resolve TODO
+        DataColumnSidecar::Gloas(_) => todo!(),
     }
 }
 

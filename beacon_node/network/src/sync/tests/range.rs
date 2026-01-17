@@ -21,14 +21,14 @@ use lighthouse_network::service::api_types::{
 use lighthouse_network::{PeerId, SyncInfo};
 use std::time::Duration;
 use types::{
-    BlobSidecarList, BlockImportSource, Epoch, EthSpec, Hash256, MinimalEthSpec as E,
+    BlobSidecarListDeneb, BlockImportSource, Epoch, EthSpec, Hash256, MinimalEthSpec as E,
     SignedBeaconBlock, SignedBeaconBlockHash, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
 
 pub(crate) enum DataSidecars<E: EthSpec> {
-    Blobs(BlobSidecarList<E>),
+    Blobs(BlobSidecarListDeneb<E>),
     DataColumns(Vec<CustodyDataColumn<E>>),
 }
 

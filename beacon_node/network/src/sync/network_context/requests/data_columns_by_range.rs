@@ -28,17 +28,14 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRangeRequestItems<E> {
         {
             return Err(LookupVerifyError::UnrequestedSlot(data_column.slot()));
         }
-        if !self.request.columns.contains(&data_column.index()) {
+        if !self.request.columns.contains(data_column.index()) {
             return Err(LookupVerifyError::UnrequestedIndex(*data_column.index()));
         }
 
-        match data_column.as_ref() {
-            DataColumnSidecar::Fulu(data_column) => {
-                if !data_column.verify_inclusion_proof() {
-                    return Err(LookupVerifyError::InvalidInclusionProof);
-                }
-            }
-            _ => {}
+        if let DataColumnSidecar::Fulu(data_column) = data_column.as_ref()
+            && !data_column.verify_inclusion_proof()
+        {
+            return Err(LookupVerifyError::InvalidInclusionProof);
         }
 
         if self.items.iter().any(|existing| {

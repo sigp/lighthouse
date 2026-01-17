@@ -73,7 +73,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecarDeneb, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -120,7 +120,7 @@ pub enum SyncMessage<E: EthSpec> {
     RpcBlob {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        blob_sidecar: Option<Arc<BlobSidecar<E>>>,
+        blob_sidecar: Option<Arc<BlobSidecarDeneb<E>>>,
         seen_timestamp: Duration,
     },
 
@@ -134,9 +134,6 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
-
-    /// A blob with an unknown parent has been received.
-    UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
 
     /// A data column with an unknown parent has been received.
     UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
@@ -850,32 +847,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }),
                 );
             }
-            SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                match blob.as_ref() {
-                    BlobSidecar::Deneb(blob_sidecar_deneb) => {
-                        let blob_slot = blob.slot();
-                        let block_root = blob.block_root();
-                        let parent_root = blob_sidecar_deneb.block_parent_root();
-                        debug!(%block_root, %parent_root, "Received unknown parent blob message");
-                        self.handle_unknown_parent(
-                            peer_id,
-                            block_root,
-                            parent_root,
-                            blob_slot,
-                            BlockComponent::Blob(DownloadResult {
-                                value: blob,
-                                block_root,
-                                seen_timestamp: timestamp_now(),
-                                peer_group: PeerGroup::from_single(peer_id),
-                            }),
-                        );
-                    }
-                    // We should never receive blobs over sync for post-Gloas slots
-                    _ => {
-                        error!("Received blobs while syncing post-Gloas slots")
-                    }
-                }
-            }
             SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
                 let data_column_slot = data_column.slot();
                 let block_root = data_column.block_root();
@@ -895,10 +866,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 peer_group: PeerGroup::from_single(peer_id),
                             }),
                         );
-                    },
+                    }
                     // TODO(gloas)
-                    DataColumnSidecar::Gloas(column) => todo!(),
-                } 
+                    DataColumnSidecar::Gloas(_) => todo!(),
+                }
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
@@ -1152,7 +1123,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
+        blob: Option<Arc<BlobSidecarDeneb<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match sync_request_id {
@@ -1204,7 +1175,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+        blob: RpcEvent<Arc<BlobSidecarDeneb<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             self.block_lookups
@@ -1260,7 +1231,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         id: BlobsByRangeRequestId,
         peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+        blob: RpcEvent<Arc<BlobSidecarDeneb<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(
