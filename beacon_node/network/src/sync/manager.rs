@@ -851,40 +851,54 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot();
-                let block_root = blob.block_root();
-                let parent_root = blob.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent blob message");
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
-                    parent_root,
-                    blob_slot,
-                    BlockComponent::Blob(DownloadResult {
-                        value: blob,
-                        block_root,
-                        seen_timestamp: timestamp_now(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
-                );
+                match blob.as_ref() {
+                    BlobSidecar::Deneb(blob_sidecar_deneb) => {
+                        let blob_slot = blob.slot();
+                        let block_root = blob.block_root();
+                        let parent_root = blob_sidecar_deneb.block_parent_root();
+                        debug!(%block_root, %parent_root, "Received unknown parent blob message");
+                        self.handle_unknown_parent(
+                            peer_id,
+                            block_root,
+                            parent_root,
+                            blob_slot,
+                            BlockComponent::Blob(DownloadResult {
+                                value: blob,
+                                block_root,
+                                seen_timestamp: timestamp_now(),
+                                peer_group: PeerGroup::from_single(peer_id),
+                            }),
+                        );
+                    }
+                    // We should never receive blobs over sync for post-Gloas slots
+                    _ => {
+                        error!("Received blobs while syncing post-Gloas slots")
+                    }
+                }
             }
             SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
                 let data_column_slot = data_column.slot();
                 let block_root = data_column.block_root();
-                let parent_root = data_column.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent data column message");
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
-                    parent_root,
-                    data_column_slot,
-                    BlockComponent::DataColumn(DownloadResult {
-                        value: data_column,
-                        block_root,
-                        seen_timestamp: timestamp_now(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
-                );
+                match data_column.as_ref() {
+                    DataColumnSidecar::Fulu(column) => {
+                        let parent_root = column.block_parent_root();
+                        debug!(%block_root, %parent_root, "Received unknown parent data column message");
+                        self.handle_unknown_parent(
+                            peer_id,
+                            block_root,
+                            parent_root,
+                            data_column_slot,
+                            BlockComponent::DataColumn(DownloadResult {
+                                value: data_column,
+                                block_root,
+                                seen_timestamp: timestamp_now(),
+                                peer_group: PeerGroup::from_single(peer_id),
+                            }),
+                        );
+                    },
+                    // TODO(gloas)
+                    DataColumnSidecar::Gloas(column) => todo!(),
+                } 
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {

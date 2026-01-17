@@ -825,7 +825,6 @@ mod test {
 
     use crate::test_utils::generate_data_column_indices_rand_order;
     use crate::{
-        blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         custody_context::NodeCustodyType,
@@ -918,91 +917,6 @@ mod test {
         harness
     }
 
-    async fn availability_pending_block<E, Hot, Cold>(
-        harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
-    ) -> (
-        AvailabilityPendingExecutedBlock<E>,
-        Vec<GossipVerifiedBlob<BaseHarnessType<E, Hot, Cold>>>,
-    )
-    where
-        E: EthSpec,
-        Hot: ItemStore<E>,
-        Cold: ItemStore<E>,
-    {
-        let chain = &harness.chain;
-        let head = chain.head_snapshot();
-        let parent_state = head.beacon_state.clone();
-
-        let target_slot = chain.slot().expect("should get slot") + 1;
-        let parent_root = head.beacon_block_root;
-        let parent_block = chain
-            .get_blinded_block(&parent_root)
-            .expect("should get block")
-            .expect("should have block");
-
-        let (signed_beacon_block_hash, (block, maybe_blobs), state) = harness
-            .add_block_at_slot(target_slot, parent_state)
-            .await
-            .expect("should add block");
-        let block_root = signed_beacon_block_hash.into();
-        assert_eq!(
-            block_root,
-            block.canonical_root(),
-            "block root should match"
-        );
-
-        // log kzg commitments
-        info!("printing kzg commitments");
-        for comm in Vec::from(
-            block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .expect("should be deneb fork")
-                .clone(),
-        ) {
-            info!(commitment = ?comm, "kzg commitment");
-        }
-        info!("done printing kzg commitments");
-
-        let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
-            let sidecars =
-                BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
-            Vec::from(sidecars)
-                .into_iter()
-                .map(|sidecar| {
-                    let subnet = sidecar.index;
-                    GossipVerifiedBlob::new(sidecar, subnet, &harness.chain)
-                        .expect("should validate blob")
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-
-        let slot = block.slot();
-        let consensus_context = ConsensusContext::<E>::new(slot);
-        let import_data: BlockImportData<E> = BlockImportData {
-            block_root,
-            state,
-            parent_block,
-            consensus_context,
-        };
-
-        let payload_verification_outcome = PayloadVerificationOutcome {
-            payload_verification_status: PayloadVerificationStatus::Verified,
-            is_valid_merge_transition_block: false,
-        };
-
-        let availability_pending_block = AvailabilityPendingExecutedBlock {
-            block,
-            import_data,
-            payload_verification_outcome,
-        };
-
-        (availability_pending_block, gossip_verified_blobs)
-    }
-
     async fn setup_harness_and_cache<E, T>(
         capacity: usize,
     ) -> (
@@ -1040,219 +954,6 @@ mod test {
         );
         (harness, cache, chain_db_path)
     }
-
-    #[tokio::test]
-    async fn overflow_cache_test_insert_components() {
-        type E = MinimalEthSpec;
-        type T = DiskHarnessType<E>;
-        let capacity = 4;
-        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
-
-        let (pending_block, blobs) = availability_pending_block(&harness).await;
-        let root = pending_block.import_data.block_root;
-
-        let blobs_expected = pending_block.num_blobs_expected();
-        assert_eq!(
-            blobs.len(),
-            blobs_expected,
-            "should have expected number of blobs"
-        );
-        assert!(cache.critical.read().is_empty(), "cache should be empty");
-        let availability = cache
-            .put_executed_block(pending_block)
-            .expect("should put block");
-        if blobs_expected == 0 {
-            assert!(
-                matches!(availability, Availability::Available(_)),
-                "block doesn't have blobs, should be available"
-            );
-            assert_eq!(
-                cache.critical.read().len(),
-                1,
-                "cache should still have block as it hasn't been imported yet"
-            );
-        } else {
-            assert!(
-                matches!(availability, Availability::MissingComponents(_)),
-                "should be pending blobs"
-            );
-            assert_eq!(
-                cache.critical.read().len(),
-                1,
-                "cache should have one block"
-            );
-            assert!(
-                cache.critical.read().peek(&root).is_some(),
-                "newly inserted block should exist in memory"
-            );
-        }
-
-        let mut kzg_verified_blobs = Vec::new();
-        for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
-            kzg_verified_blobs.push(gossip_blob.into_inner());
-            let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
-                .expect("should put blob");
-            if blob_index == blobs_expected - 1 {
-                assert!(matches!(availability, Availability::Available(_)));
-            } else {
-                assert!(matches!(availability, Availability::MissingComponents(_)));
-                assert_eq!(cache.critical.read().len(), 1);
-            }
-        }
-
-        let (pending_block, blobs) = availability_pending_block(&harness).await;
-        let blobs_expected = pending_block.num_blobs_expected();
-        assert_eq!(
-            blobs.len(),
-            blobs_expected,
-            "should have expected number of blobs"
-        );
-        let root = pending_block.import_data.block_root;
-        let mut kzg_verified_blobs = vec![];
-        for gossip_blob in blobs {
-            kzg_verified_blobs.push(gossip_blob.into_inner());
-            let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
-                .expect("should put blob");
-            assert!(
-                matches!(availability, Availability::MissingComponents(_)),
-                "should be pending block"
-            );
-            assert_eq!(
-                cache.critical.read().len(),
-                2,
-                "cache should have two blocks now"
-            );
-        }
-        let availability = cache
-            .put_executed_block(pending_block)
-            .expect("should put block");
-        assert!(
-            matches!(availability, Availability::Available(_)),
-            "block should be available: {:?}",
-            availability
-        );
-        assert!(
-            cache.critical.read().len() == 2,
-            "cache should still have available block"
-        );
-    }
-
-    #[tokio::test]
-    // ensure the state cache keeps memory usage low and that it can properly recover states
-    // THIS TEST CAN BE DELETED ONCE TREE STATES IS MERGED AND WE RIP OUT THE STATE CACHE
-    async fn overflow_cache_test_state_cache() {
-        type E = MinimalEthSpec;
-        type T = DiskHarnessType<E>;
-        let capacity = STATE_LRU_CAPACITY * 2;
-        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
-
-        let mut pending_blocks = VecDeque::new();
-        let mut states = Vec::new();
-        let mut state_roots = Vec::new();
-        // Get enough blocks to fill the cache to capacity, ensuring all blocks have blobs
-        while pending_blocks.len() < capacity {
-            let (mut pending_block, _) = availability_pending_block(&harness).await;
-            if pending_block.num_blobs_expected() == 0 {
-                // we need blocks with blobs
-                continue;
-            }
-            let state_root = pending_block.import_data.state.canonical_root().unwrap();
-            states.push(pending_block.import_data.state.clone());
-            pending_blocks.push_back(pending_block);
-            state_roots.push(state_root);
-        }
-
-        let state_cache = cache.state_lru_cache().lru_cache();
-        let mut pushed_diet_blocks = VecDeque::new();
-
-        for i in 0..capacity {
-            let pending_block = pending_blocks.pop_front().expect("should have block");
-            let block_root = pending_block.as_block().canonical_root();
-
-            assert_eq!(
-                state_cache.read().len(),
-                std::cmp::min(i, STATE_LRU_CAPACITY),
-                "state cache should be empty at start"
-            );
-
-            if i >= STATE_LRU_CAPACITY {
-                let lru_root = state_roots[i - STATE_LRU_CAPACITY];
-                assert_eq!(
-                    state_cache.read().peek_lru().map(|(root, _)| root),
-                    Some(&lru_root),
-                    "lru block should be in cache"
-                );
-            }
-
-            // put the block in the cache
-            let availability = cache
-                .put_executed_block(pending_block)
-                .expect("should put block");
-
-            // grab the diet block from the cache for later testing
-            let diet_block = cache
-                .critical
-                .read()
-                .peek(&block_root)
-                .and_then(|pending_components| pending_components.get_diet_block().cloned())
-                .expect("should exist");
-            pushed_diet_blocks.push_back(diet_block);
-
-            // should be unavailable since we made sure all blocks had blobs
-            assert!(
-                matches!(availability, Availability::MissingComponents(_)),
-                "should be pending blobs"
-            );
-
-            if i >= STATE_LRU_CAPACITY {
-                let evicted_index = i - STATE_LRU_CAPACITY;
-                let evicted_root = state_roots[evicted_index];
-                assert!(
-                    state_cache.read().peek(&evicted_root).is_none(),
-                    "lru root should be evicted"
-                );
-                // get the diet block via direct conversion (testing only)
-                let diet_block = pushed_diet_blocks.pop_front().expect("should have block");
-                // reconstruct the pending block by replaying the block on the parent state
-                let recovered_pending_block = cache
-                    .state_lru_cache()
-                    .recover_pending_executed_block(diet_block, &debug_span!("test"))
-                    .expect("should reconstruct pending block");
-
-                // assert the recovered state is the same as the original
-                assert_eq!(
-                    recovered_pending_block.import_data.state, states[evicted_index],
-                    "recovered state should be the same as the original"
-                );
-            }
-        }
-
-        // now check the last block
-        let last_block = pushed_diet_blocks.pop_back().expect("should exist").clone();
-        // the state should still be in the cache
-        assert!(
-            state_cache
-                .read()
-                .peek(&last_block.as_block().state_root())
-                .is_some(),
-            "last block state should still be in cache"
-        );
-        // get the diet block via direct conversion (testing only)
-        let diet_block = last_block.clone();
-        // recover the pending block from the cache
-        let recovered_pending_block = cache
-            .state_lru_cache()
-            .recover_pending_executed_block(diet_block, &debug_span!("test"))
-            .expect("should reconstruct pending block");
-        // assert the recovered state is the same as the original
-        assert_eq!(
-            Some(&recovered_pending_block.import_data.state),
-            states.last(),
-            "recovered state should be the same as the original"
-        );
-    }
 }
 
 #[cfg(test)]
@@ -1289,7 +990,7 @@ mod pending_components_tests {
             RuntimeFixedVector::default(max_len);
 
         for blob in blobs_vec {
-            if let Some(b) = blobs.get_mut(blob.index as usize) {
+            if let Some(b) = blobs.get_mut(*blob.index() as usize) {
                 *b = Some(Arc::new(blob));
             }
         }
@@ -1299,7 +1000,7 @@ mod pending_components_tests {
         for (index, blob) in blobs.iter().enumerate() {
             if let Some(invalid_blob) = blob {
                 let mut blob_copy = invalid_blob.as_ref().clone();
-                blob_copy.kzg_commitment = KzgCommitment::random_for_test(&mut rng);
+                *blob_copy.kzg_commitment_mut() = KzgCommitment::random_for_test(&mut rng);
                 *invalid_blobs.get_mut(index).unwrap() = Some(Arc::new(blob_copy));
             }
         }

@@ -9,7 +9,7 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::build_data_column_sidecars;
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -506,7 +506,7 @@ where
                 if commitments
                     .iter()
                     .zip(blobs.iter())
-                    .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
+                    .any(|(commitment, blob)| *commitment != *blob.kzg_commitment())
                 {
                     return Err("Checkpoint blob does not match block commitment".into());
                 }
@@ -1006,7 +1006,6 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
-            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
@@ -1196,7 +1195,7 @@ fn build_data_columns_from_blobs<E: EthSpec>(
         .into_par_iter()
         .map(|blob_sidecar| {
             let kzg_blob_ref = blob_sidecar
-                .blob
+                .blob()
                 .as_ref()
                 .try_into()
                 .map_err(|e| format!("Failed to convert blob to kzg blob: {e:?}"))?;
@@ -1213,17 +1212,29 @@ fn build_data_columns_from_blobs<E: EthSpec>(
             .blob_kzg_commitments()
             .cloned()
             .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
-        let kzg_commitments_inclusion_proof = beacon_block_body
-            .kzg_commitments_merkle_proof()
-            .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
-        build_data_column_sidecars(
-            kzg_commitments,
-            kzg_commitments_inclusion_proof,
-            block.signed_block_header(),
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+
+        if block.fork_name_unchecked().gloas_enabled() {
+            build_data_column_sidecars_gloas(
+                kzg_commitments,
+                block.signed_block_header(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        } else {
+            let kzg_commitments_inclusion_proof = beacon_block_body
+                .kzg_commitments_merkle_proof()
+                .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
+
+            build_data_column_sidecars_fulu(
+                kzg_commitments,
+                kzg_commitments_inclusion_proof,
+                block.signed_block_header(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        }
     };
     Ok(data_columns)
 }

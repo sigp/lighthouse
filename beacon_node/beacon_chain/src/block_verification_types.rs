@@ -129,7 +129,7 @@ impl<E: EthSpec> RpcBlock<E> {
                 return Err(AvailabilityCheckError::MissingBlobs);
             }
             for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
-                let blob_commitment = blob.kzg_commitment;
+                let blob_commitment = *blob.kzg_commitment();
                 if blob_commitment != block_commitment {
                     return Err(AvailabilityCheckError::KzgCommitmentMismatch {
                         block_commitment,

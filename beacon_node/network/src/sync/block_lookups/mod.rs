@@ -87,8 +87,18 @@ impl<E: EthSpec> BlockComponent<E> {
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
-            BlockComponent::Blob(blob) => blob.value.block_parent_root(),
-            BlockComponent::DataColumn(column) => column.value.block_parent_root(),
+            BlockComponent::Blob(blob) => {
+                match blob.value.as_ref() {
+                    BlobSidecar::Deneb(blob) => blob.block_parent_root(),
+                    BlobSidecar::Gloas(blob) => blob.beacon_block_root,
+                }
+            },
+            BlockComponent::DataColumn(column) => {
+                match column.value.as_ref() {
+                    DataColumnSidecar::Fulu(column) => column.block_parent_root(),
+                    DataColumnSidecar::Gloas(column) => column.beacon_block_root,
+                }
+            },
         }
     }
     fn get_type(&self) -> &'static str {

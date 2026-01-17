@@ -1,6 +1,7 @@
 mod builder_bid;
 mod builder_pending_payment;
 mod builder_pending_withdrawal;
+mod proposer_preference;
 
 pub use builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,

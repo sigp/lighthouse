@@ -3,13 +3,7 @@ use kzg::{KzgCommitment, KzgProof};
 use rand::Rng;
 
 use crate::{
-    block::{BeaconBlock, SignedBeaconBlock},
-    core::{EthSpec, MainnetEthSpec},
-    data::{Blob, BlobSidecar, BlobsList},
-    execution::FullPayload,
-    fork::{ForkName, map_fork_name},
-    kzg_ext::{KzgCommitments, KzgProofs},
-    test_utils::TestRandom,
+    BlobSidecarDeneb, block::{BeaconBlock, SignedBeaconBlock}, core::{EthSpec, MainnetEthSpec}, data::{Blob, BlobSidecar, BlobsList}, execution::FullPayload, fork::{ForkName, map_fork_name}, kzg_ext::{KzgCommitments, KzgProofs}, test_utils::TestRandom
 };
 
 type BlobsBundle<E> = (KzgCommitments<E>, KzgProofs<E>, BlobsList<E>);
@@ -40,7 +34,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         .zip(proofs.into_iter())
         .enumerate()
     {
-        blob_sidecars.push(BlobSidecar {
+        blob_sidecars.push(BlobSidecar::Deneb(BlobSidecarDeneb {
             index: index as u64,
             blob: blob.clone(),
             kzg_commitment,
@@ -51,7 +45,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .body()
                 .kzg_commitment_merkle_proof(index)
                 .unwrap(),
-        });
+        }));
     }
     (block, blob_sidecars)
 }
@@ -85,7 +79,7 @@ mod test {
         let (_block, blobs) =
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 2, &mut rng());
         for blob in blobs {
-            assert!(blob.verify_blob_sidecar_inclusion_proof());
+            assert!(blob.as_deneb().unwrap().verify_blob_sidecar_inclusion_proof());
         }
     }
 
@@ -93,12 +87,7 @@ mod test {
     fn test_verify_blob_inclusion_proof_from_existing_proof() {
         let (block, mut blob_sidecars) =
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut rng());
-        let BlobSidecar {
-            index,
-            blob,
-            kzg_proof,
-            ..
-        } = blob_sidecars.pop().unwrap();
+        let blob = blob_sidecars.pop().unwrap();
 
         // Compute the commitments inclusion proof and use it for building blob sidecar.
         let (signed_block_header, kzg_commitments_inclusion_proof) = block
@@ -106,16 +95,16 @@ mod test {
             .unwrap();
 
         let blob_sidecar = BlobSidecar::new_with_existing_proof(
-            index as usize,
-            blob,
+            *blob.index() as usize,
+            blob.blob().clone(),
             &block,
             signed_block_header,
             &kzg_commitments_inclusion_proof,
-            kzg_proof,
+            blob.kzg_proof().clone(),
         )
         .unwrap();
 
-        assert!(blob_sidecar.verify_blob_sidecar_inclusion_proof());
+        assert!(blob_sidecar.as_deneb().unwrap().verify_blob_sidecar_inclusion_proof());
     }
 
     #[test]
@@ -124,8 +113,8 @@ mod test {
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut rng());
 
         for mut blob in blobs {
-            blob.kzg_commitment_inclusion_proof = FixedVector::random_for_test(&mut rng());
-            assert!(!blob.verify_blob_sidecar_inclusion_proof());
+            *blob.kzg_commitment_inclusion_proof_mut().unwrap() = FixedVector::random_for_test(&mut rng());
+            assert!(!blob.as_deneb().unwrap().verify_blob_sidecar_inclusion_proof());
         }
     }
 }

@@ -358,7 +358,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 match blob_list_result.as_ref() {
                     Ok(blobs_sidecar_list) => {
                         if let Some(blob_sidecar) =
-                            blobs_sidecar_list.iter().find(|b| b.index == *index)
+                            blobs_sidecar_list.iter().find(|b| *b.index() == *index)
                         {
                             self.send_response(
                                 peer_id,

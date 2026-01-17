@@ -237,7 +237,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
-    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>, ForkName),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
     DeleteSyncCommitteeBranch(Hash256),

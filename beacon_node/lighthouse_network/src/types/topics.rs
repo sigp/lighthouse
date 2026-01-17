@@ -72,13 +72,6 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         topics.push(GossipKind::BlsToExecutionChange);
     }
 
-    if fork_name.deneb_enabled() && !fork_name.fulu_enabled() {
-        // All of deneb blob topics are core topics
-        for i in 0..spec.blob_sidecar_subnet_count(fork_name) {
-            topics.push(GossipKind::BlobSidecar(i));
-        }
-    }
-
     if fork_name.fulu_enabled() {
         for subnet in &opts.sampling_subnets {
             topics.push(GossipKind::DataColumnSidecar(*subnet));
@@ -101,7 +94,6 @@ pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool
         // All these topics are core-only
         GossipKind::BeaconBlock
         | GossipKind::BeaconAggregateAndProof
-        | GossipKind::BlobSidecar(_)
         | GossipKind::DataColumnSidecar(_)
         | GossipKind::VoluntaryExit
         | GossipKind::ProposerSlashing
@@ -145,8 +137,6 @@ pub enum GossipKind {
     BeaconBlock,
     /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
-    /// Topic for publishing BlobSidecars.
-    BlobSidecar(u64),
     /// Topic for publishing DataColumnSidecars.
     DataColumnSidecar(DataColumnSubnetId),
     /// Topic for publishing raw attestations on a particular subnet.
@@ -177,9 +167,6 @@ impl std::fmt::Display for GossipKind {
             GossipKind::Attestation(subnet_id) => write!(f, "beacon_attestation_{}", **subnet_id),
             GossipKind::SyncCommitteeMessage(subnet_id) => {
                 write!(f, "sync_committee_{}", **subnet_id)
-            }
-            GossipKind::BlobSidecar(blob_index) => {
-                write!(f, "{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
             GossipKind::DataColumnSidecar(column_subnet_id) => {
                 write!(f, "{}{}", DATA_COLUMN_SIDECAR_PREFIX, **column_subnet_id)
@@ -307,9 +294,6 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
-            GossipKind::BlobSidecar(blob_index) => {
-                format!("{}{}", BLOB_SIDECAR_PREFIX, blob_index)
-            }
             GossipKind::DataColumnSidecar(column_subnet_id) => {
                 format!("{}{}", DATA_COLUMN_SIDECAR_PREFIX, *column_subnet_id)
             }
@@ -355,8 +339,6 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
         return Some(GossipKind::SyncCommitteeMessage(SyncSubnetId::new(
             index.parse::<u64>().ok()?,
         )));
-    } else if let Some(index) = topic.strip_prefix(BLOB_SIDECAR_PREFIX) {
-        return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
     } else if let Some(index) = topic.strip_prefix(DATA_COLUMN_SIDECAR_PREFIX) {
         return Some(GossipKind::DataColumnSidecar(DataColumnSubnetId::new(
             index.parse::<u64>().ok()?,
@@ -528,17 +510,6 @@ mod tests {
                     .contains(&GossipKind::BeaconBlock)
             );
         }
-    }
-
-    #[test]
-    fn blobs_are_not_subscribed_in_peerdas() {
-        let spec = get_spec();
-        let s = get_sampling_subnets();
-        let topic_config = get_topic_config(&s);
-        assert!(
-            !core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec,)
-                .contains(&GossipKind::BlobSidecar(0))
-        );
     }
 
     #[test]

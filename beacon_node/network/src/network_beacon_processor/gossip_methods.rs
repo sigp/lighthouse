@@ -4,7 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
@@ -22,7 +21,7 @@ use beacon_chain::{
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use lighthouse_tracing::{
-    SPAN_PROCESS_GOSSIP_BLOB, SPAN_PROCESS_GOSSIP_BLOCK, SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+    SPAN_PROCESS_GOSSIP_BLOCK, SPAN_PROCESS_GOSSIP_DATA_COLUMN,
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
@@ -609,7 +608,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index()),
     )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
@@ -621,7 +620,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let slot = column_sidecar.slot();
         let block_root = column_sidecar.block_root();
-        let index = column_sidecar.index;
+        let index = *column_sidecar.index();
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
@@ -764,252 +763,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
             }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(
-        name = SPAN_PROCESS_GOSSIP_BLOB,
-        parent = None,
-        level = "debug",
-        skip_all,
-        fields(
-            slot = ?blob_sidecar.slot(),
-            block_root = ?blob_sidecar.block_root(),
-            index = blob_sidecar.index),
-    )]
-    pub async fn process_gossip_blob(
-        self: &Arc<Self>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        _peer_client: Client,
-        blob_index: u64,
-        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
-        seen_duration: Duration,
-    ) {
-        let slot = blob_sidecar.slot();
-        let root = blob_sidecar.block_root();
-        let index = blob_sidecar.index;
-        let commitment = blob_sidecar.kzg_commitment;
-        let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
-        // Log metrics to track delay from other nodes on the network.
-        metrics::set_gauge(&metrics::BEACON_BLOB_DELAY_GOSSIP, delay.as_millis() as i64);
-        match self
-            .chain
-            .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
-        {
-            Ok(gossip_verified_blob) => {
-                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
-
-                if delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
-                    metrics::inc_counter(&metrics::BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL);
-                    debug!(
-                        block_root = ?gossip_verified_blob.block_root(),
-                        proposer_index = gossip_verified_blob.block_proposer_index(),
-                        slot = %gossip_verified_blob.slot(),
-                        delay = ?delay,
-                        commitment = %gossip_verified_blob.kzg_commitment(),
-                        "Gossip blob arrived late"
-                    );
-                }
-
-                debug!(
-                    %slot,
-                    %root,
-                    %index,
-                    commitment = %gossip_verified_blob.kzg_commitment(),
-                    "Successfully verified gossip blob"
-                );
-
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-
-                // Log metrics to keep track of propagation delay times.
-                if let Some(duration) = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .ok()
-                    .and_then(|now| now.checked_sub(seen_duration))
-                {
-                    metrics::set_gauge(
-                        &metrics::BEACON_BLOB_DELAY_GOSSIP_VERIFICATION,
-                        duration.as_millis() as i64,
-                    );
-                }
-                self.process_gossip_verified_blob(peer_id, gossip_verified_blob, seen_duration)
-                    .await
-            }
-            Err(err) => {
-                match err {
-                    GossipBlobError::ParentUnknown { parent_root } => {
-                        debug!(
-                            action = "requesting parent",
-                            block_root = %root,
-                            parent_root = %parent_root,
-                            %commitment,
-                            "Unknown parent hash for blob"
-                        );
-                        self.send_sync_message(SyncMessage::UnknownParentBlob(
-                            peer_id,
-                            blob_sidecar,
-                        ));
-                    }
-                    GossipBlobError::PubkeyCacheTimeout | GossipBlobError::BeaconChainError(_) => {
-                        crit!(
-                            error = ?err,
-                            "Internal error when verifying blob sidecar"
-                        )
-                    }
-                    GossipBlobError::ProposalSignatureInvalid
-                    | GossipBlobError::UnknownValidator(_)
-                    | GossipBlobError::ProposerIndexMismatch { .. }
-                    | GossipBlobError::BlobIsNotLaterThanParent { .. }
-                    | GossipBlobError::InvalidSubnet { .. }
-                    | GossipBlobError::InvalidInclusionProof
-                    | GossipBlobError::KzgError(_)
-                    | GossipBlobError::NotFinalizedDescendant { .. } => {
-                        warn!(
-                            error = ?err,
-                            %slot,
-                            %root,
-                            %index,
-                            %commitment,
-                            "Could not verify blob sidecar for gossip. Rejecting the blob sidecar"
-                        );
-                        // Prevent recurring behaviour by penalizing the peer.
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "gossip_blob_low",
-                        );
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Reject,
-                        );
-                    }
-                    GossipBlobError::RepeatBlob { .. } => {
-                        // We may have received the blob from the EL. Do not penalise the peer.
-                        // Gossip filter should filter any duplicates received after this.
-                        debug!(
-                            %slot,
-                            %root,
-                            %index,
-                            "Received already available blob sidecar. Ignoring the blob sidecar"
-                        )
-                    }
-                    GossipBlobError::FutureSlot { .. } => {
-                        debug!(
-                            error = ?err,
-                            %slot,
-                            %root,
-                            %index,
-                            %commitment,
-                            "Could not verify blob sidecar for gossip. Ignoring the blob sidecar"
-                        );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::HighToleranceError,
-                            "gossip_blob_high",
-                        );
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Ignore,
-                        );
-                    }
-                    GossipBlobError::PastFinalizedSlot { .. } => {
-                        debug!(
-                            error = ?err,
-                            %slot,
-                            %root,
-                            %index,
-                            %commitment,
-                            "Could not verify blob sidecar for gossip. Ignoring the blob sidecar"
-                        );
-                        // Prevent recurring behaviour by penalizing the peer. A low-tolerance
-                        // error is fine because there's no reason for peers to be propagating old
-                        // blobs on gossip, even if their view of finality is lagging.
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "gossip_blob_low",
-                        );
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Ignore,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    async fn process_gossip_verified_blob(
-        self: &Arc<Self>,
-        peer_id: PeerId,
-        verified_blob: GossipVerifiedBlob<T>,
-        _seen_duration: Duration,
-    ) {
-        let processing_start_time = Instant::now();
-        let block_root = verified_blob.block_root();
-        let blob_slot = verified_blob.slot();
-        let blob_index = verified_blob.id().index;
-
-        let result = self.chain.process_gossip_blob(verified_blob).await;
-        register_process_result_metrics(&result, metrics::BlockSource::Gossip, "blob");
-
-        match &result {
-            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                debug!(
-                    %block_root,
-                    "Gossipsub blob processed - imported fully available block"
-                );
-                self.chain.recompute_head_at_current_slot().await;
-
-                metrics::set_gauge(
-                    &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
-                    processing_start_time.elapsed().as_millis() as i64,
-                );
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                debug!(
-                    %slot,
-                    %blob_index,
-                    %block_root,
-                    "Processed gossip blob - waiting for other components"
-                );
-            }
-            Err(BlockError::DuplicateFullyImported(_)) => {
-                debug!(
-                    ?block_root,
-                    blob_index, "Ignoring gossip blob already imported"
-                );
-            }
-            Err(err) => {
-                debug!(
-                    outcome = ?err,
-                    ?block_root,
-                    %blob_slot,
-                    blob_index,
-                    "Invalid gossip blob"
-                );
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::MidToleranceError,
-                    "bad_gossip_blob_ssz",
-                );
-            }
-        }
-
-        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
-        // imported. A block can become imported both after processing a block or blob. If a
-        // importing a block results in `Imported`, notify. Do not notify of blob errors.
-        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
-            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported: true,
-            });
         }
     }
 

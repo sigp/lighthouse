@@ -1,4 +1,3 @@
-use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
@@ -12,44 +11,6 @@ use types::test_utils::TestRandom;
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, MinimalEthSpec, Slot};
 
 type E = MinimalEthSpec;
-
-/// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
-#[tokio::test]
-async fn blob_sidecar_event_on_process_gossip_blob() {
-    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
-        return;
-    };
-
-    let spec = Arc::new(test_spec::<E>());
-    let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec)
-        .deterministic_keypairs(8)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    // subscribe to blob sidecar events
-    let event_handler = harness.chain.event_handler.as_ref().unwrap();
-    let mut blob_event_receiver = event_handler.subscribe_blob_sidecar();
-
-    // build and process a gossip verified blob
-    let kzg = harness.chain.kzg.as_ref();
-    let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
-    let sidecar = BlobSidecar::random_valid(&mut rng, kzg)
-        .map(Arc::new)
-        .unwrap();
-    let gossip_verified_blob = GossipVerifiedBlob::__assumed_valid(sidecar);
-    let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(gossip_verified_blob.as_blob());
-
-    let _ = harness
-        .chain
-        .process_gossip_blob(gossip_verified_blob)
-        .await
-        .unwrap();
-
-    let sidecar_event = blob_event_receiver.try_recv().unwrap();
-    assert_eq!(sidecar_event, EventKind::BlobSidecar(expected_sse_blobs));
-}
 
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
@@ -129,9 +90,9 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     assert_eq!(blobs.len(), 2);
 
     let blob_1 =
-        Arc::new(BlobSidecar::new(0, blobs[0].clone(), &signed_block, kzg_proofs[0]).unwrap());
+        Arc::new(BlobSidecar::new(0, blobs[0].clone(), &signed_block.clone_as_blinded(), kzg_proofs[0]).unwrap());
     let blob_2 =
-        Arc::new(BlobSidecar::new(1, blobs[1].clone(), &signed_block, kzg_proofs[1]).unwrap());
+        Arc::new(BlobSidecar::new(1, blobs[1].clone(), &signed_block.clone_as_blinded(), kzg_proofs[1]).unwrap());
 
     let blobs = FixedBlobSidecarList::new(vec![Some(blob_1.clone()), Some(blob_2.clone())]);
     let expected_sse_blobs = vec![

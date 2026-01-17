@@ -17,7 +17,6 @@ use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
     AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
     PayloadVerificationOutcome, PayloadVerificationStatus,
-    blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
     data_availability_checker::Availability,
     test_utils::{
@@ -468,7 +467,7 @@ impl TestRig {
     ) {
         self.log(&format!(
             "parent_lookup_blob_response {:?}",
-            blob_sidecar.as_ref().map(|b| b.index)
+            blob_sidecar.as_ref().map(|b| *b.index())
         ));
         self.send_sync_message(SyncMessage::RpcBlob {
             sync_request_id: SyncRequestId::SingleBlob { id },
@@ -1029,7 +1028,7 @@ impl TestRig {
         let (mut block, mut blobs) = self.rand_block_and_blobs(num_blobs);
         *block.message_mut().parent_root_mut() = parent_root;
         blobs.iter_mut().for_each(|blob| {
-            blob.signed_block_header = block.signed_block_header();
+            *blob.signed_block_header_mut().unwrap() = block.signed_block_header();
         });
         (block, blobs)
     }
@@ -1085,26 +1084,6 @@ impl TestRig {
             Availability::Available(_) => panic!("block removed from da_checker, available"),
             Availability::MissingComponents(block_root) => {
                 self.log(&format!("inserted block to da_checker {block_root:?}"))
-            }
-        };
-    }
-
-    fn insert_blob_to_da_checker(&mut self, blob: BlobSidecar<E>) {
-        match self
-            .harness
-            .chain
-            .data_availability_checker
-            .put_gossip_verified_blobs(
-                blob.block_root(),
-                std::iter::once(GossipVerifiedBlob::<_, Observe>::__assumed_valid(
-                    blob.into(),
-                )),
-            )
-            .unwrap()
-        {
-            Availability::Available(_) => panic!("blob removed from da_checker, available"),
-            Availability::MissingComponents(block_root) => {
-                self.log(&format!("inserted blob to da_checker {block_root:?}"))
             }
         };
     }
@@ -1874,27 +1853,6 @@ fn block_in_processing_cache_becomes_valid_imported() {
     r.expect_no_active_lookups();
 }
 
-// IGNORE: wait for change that delays blob fetching to knowing the block
-#[ignore]
-#[test]
-fn blobs_in_da_checker_skip_download() {
-    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
-        return;
-    };
-    let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
-    let block_root = block.canonical_root();
-    let peer_id = r.new_connected_peer();
-    for blob in blobs {
-        r.insert_blob_to_da_checker(blob);
-    }
-    r.trigger_unknown_block_from_attestation(block_root, peer_id);
-    // Should download and process the block
-    r.complete_single_lookup_block_valid(block, true);
-    // Should not trigger blob request
-    r.expect_empty_network();
-    r.expect_no_active_lookups();
-}
-
 #[test]
 fn custody_lookup_happy_path() {
     let Some(mut r) = TestRig::test_setup_after_fulu() else {
@@ -2027,7 +1985,7 @@ mod deneb_only {
                     }
                     RequestTrigger::GossipUnknownParentBlob { .. } => {
                         let single_blob = blobs.first().cloned().unwrap();
-                        let parent_root = single_blob.block_parent_root();
+                        let parent_root = single_blob.as_deneb().unwrap().block_parent_root();
                         rig.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, single_blob));
 
                         let parent_block_req_id = rig.expect_block_parent_request(parent_root);

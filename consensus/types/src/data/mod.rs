@@ -4,7 +4,8 @@ mod data_column_sidecar;
 mod data_column_subnet_id;
 
 pub use blob_sidecar::{
-    BlobIdentifier, BlobSidecar, BlobSidecarError, BlobSidecarList, BlobsList, FixedBlobSidecarList,
+    BlobIdentifier, BlobSidecar, BlobSidecarDeneb, BlobSidecarError, BlobSidecarGloas,
+    BlobSidecarList, BlobsList, FixedBlobSidecarList,
 };
 pub use data_column_custody_group::{
     CustodyIndex, DataColumnCustodyGroupError, compute_columns_for_custody_group,
@@ -13,7 +14,8 @@ pub use data_column_custody_group::{
 };
 pub use data_column_sidecar::{
     Cell, ColumnIndex, DataColumn, DataColumnSidecar, DataColumnSidecarError,
-    DataColumnSidecarList, DataColumnsByRootIdentifier,
+    DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarList,
+    DataColumnsByRootIdentifier,
 };
 pub use data_column_subnet_id::DataColumnSubnetId;
 

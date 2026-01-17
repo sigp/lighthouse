@@ -693,7 +693,7 @@ fn handle_rpc_response<E: EthSpec>(
             Some(fork_name) => {
                 if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRoot(Arc::new(
-                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                        DataColumnSidecar::from_ssz_bytes_for_fork(decoded_buffer, fork_name)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -714,7 +714,7 @@ fn handle_rpc_response<E: EthSpec>(
             Some(fork_name) => {
                 if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRange(Arc::new(
-                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                        DataColumnSidecar::from_ssz_bytes_for_fork(decoded_buffer, fork_name)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -916,6 +916,7 @@ mod tests {
         SignedBeaconBlockHeader, Slot,
         data::{BlobIdentifier, Cell},
     };
+    use types::{BlobSidecarDeneb, DataColumnSidecarFulu};
 
     type Spec = types::MainnetEthSpec;
 
@@ -966,18 +967,18 @@ mod tests {
     fn empty_blob_sidecar(spec: &ChainSpec) -> Arc<BlobSidecar<Spec>> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let mut blob_sidecar = BlobSidecar::<Spec>::empty();
+        let mut blob_sidecar = BlobSidecarDeneb::<Spec>::empty();
         blob_sidecar.signed_block_header.message.slot = spec
             .deneb_fork_epoch
             .expect("deneb fork epoch must be set")
             .start_slot(Spec::slots_per_epoch());
-        Arc::new(blob_sidecar)
+        Arc::new(BlobSidecar::Deneb(blob_sidecar))
     }
 
     fn empty_data_column_sidecar(spec: &ChainSpec) -> Arc<DataColumnSidecar<Spec>> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let data_column_sidecar = DataColumnSidecar {
+        let data_column_sidecar = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: 0,
             column: VariableList::new(vec![Cell::<Spec>::default()]).unwrap(),
             kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
@@ -993,7 +994,7 @@ mod tests {
                 signature: Signature::empty(),
             },
             kzg_commitments_inclusion_proof: Default::default(),
-        };
+        });
         Arc::new(data_column_sidecar)
     }
 

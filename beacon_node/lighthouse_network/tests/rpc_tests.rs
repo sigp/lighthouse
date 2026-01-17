@@ -17,9 +17,9 @@ use tokio::time::sleep;
 use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
-    EthSpec, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BlobSidecar, BlobSidecarDeneb, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
+    DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
+    KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -345,10 +345,10 @@ fn test_blobs_by_range_chunked_rpc() {
         });
 
         // BlobsByRange Response
-        let mut blob = BlobSidecar::<E>::empty();
+        let mut blob = BlobSidecarDeneb::<E>::empty();
         blob.signed_block_header.message.slot = deneb_slot;
 
-        let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
+        let rpc_response = Response::BlobsByRange(Some(Arc::new(BlobSidecar::Deneb(blob))));
 
         // keep count of the number of messages received
         let mut messages_received = 0;
@@ -1007,7 +1007,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         let rpc_request = RequestType::DataColumnsByRoot(req);
 
         // DataColumnsByRoot Response
-        let data_column = Arc::new(DataColumnSidecar {
+        let data_column = Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: 1,
             signed_block_header: SignedBeaconBlockHeader {
                 message: BeaconBlockHeader {
@@ -1030,7 +1030,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
             ]
             .try_into()
             .unwrap(),
-        });
+        }));
 
         let rpc_response = Response::DataColumnsByRoot(Some(data_column.clone()));
 
@@ -1152,7 +1152,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
         });
 
         // DataColumnsByRange Response
-        let data_column = Arc::new(DataColumnSidecar {
+        let data_column = Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: 1,
             signed_block_header: SignedBeaconBlockHeader {
                 message: BeaconBlockHeader {
@@ -1175,7 +1175,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
             ]
             .try_into()
             .unwrap(),
-        });
+        }));
 
         let rpc_response = Response::DataColumnsByRange(Some(data_column.clone()));
 

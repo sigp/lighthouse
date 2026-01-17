@@ -1822,7 +1822,7 @@ fn to_fixed_blob_sidecar_list<E: EthSpec>(
 ) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
     let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);
     for blob in blobs.into_iter() {
-        let index = blob.index as usize;
+        let index = *blob.index() as usize;
         *fixed_list
             .get_mut(index)
             .ok_or(LookupVerifyError::UnrequestedIndex(index as u64))? = Some(blob)

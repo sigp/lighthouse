@@ -30,18 +30,27 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRangeRequestItems<E> {
         {
             return Err(LookupVerifyError::UnrequestedSlot(blob.slot()));
         }
-        if blob.index >= self.max_blobs_per_block {
-            return Err(LookupVerifyError::UnrequestedIndex(blob.index));
+        if *blob.index() >= self.max_blobs_per_block {
+            return Err(LookupVerifyError::UnrequestedIndex(*blob.index()));
         }
-        if !blob.verify_blob_sidecar_inclusion_proof() {
-            return Err(LookupVerifyError::InvalidInclusionProof);
+
+        match blob.as_ref() {
+            BlobSidecar::Deneb(blob) => {
+                if !blob.verify_blob_sidecar_inclusion_proof() {
+                    return Err(LookupVerifyError::InvalidInclusionProof);
+                }
+            }
+            _ => {}
         }
         if self
             .items
             .iter()
-            .any(|existing| existing.slot() == blob.slot() && existing.index == blob.index)
+            .any(|existing| existing.slot() == blob.slot() && *existing.index() == *blob.index())
         {
-            return Err(LookupVerifyError::DuplicatedData(blob.slot(), blob.index));
+            return Err(LookupVerifyError::DuplicatedData(
+                blob.slot(),
+                *blob.index(),
+            ));
         }
 
         self.items.push(blob);

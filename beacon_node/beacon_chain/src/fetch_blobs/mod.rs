@@ -18,7 +18,6 @@ use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedD
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
-use crate::observed_block_producers::ProposalKey;
 use crate::validator_monitor::timestamp_now;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -40,11 +39,11 @@ use types::{
 };
 
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
-/// gossip network. The blobs / data columns have not been marked as observed yet, as they may not
+/// gossip network. The data columns have not been marked as observed yet, as they may not
 /// be published immediately.
 #[derive(Debug)]
+// TODO(gloas) this doesn't need to be an enum
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
-    Blobs(Vec<KzgVerifiedBlob<T::EthSpec>>),
     /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
     CustodyColumns(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>),
 }
@@ -129,108 +128,10 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         )
         .await
     } else {
-        fetch_and_process_blobs_v1(
-            chain_adapter,
-            block_root,
-            block,
-            versioned_hashes,
-            publish_fn,
-        )
-        .await
+        return Err(FetchEngineBlobError::InternalError(
+            "fetch blobs v1 no longer supported".to_owned(),
+        ));
     }
-}
-
-#[instrument(skip_all, level = "debug")]
-async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
-    chain_adapter: FetchBlobsBeaconAdapter<T>,
-    block_root: Hash256,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    versioned_hashes: Vec<VersionedHash>,
-    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + Sized,
-) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
-    let num_expected_blobs = versioned_hashes.len();
-    metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
-    debug!(num_expected_blobs, "Fetching blobs from the EL");
-    let response = chain_adapter
-        .get_blobs_v1(versioned_hashes)
-        .await
-        .inspect_err(|_| {
-            inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
-        })?;
-
-    let num_fetched_blobs = response.iter().filter(|opt| opt.is_some()).count();
-    metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
-
-    if num_fetched_blobs == 0 {
-        debug!(num_expected_blobs, "No blobs fetched from the EL");
-        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
-        return Ok(None);
-    } else {
-        debug!(
-            num_expected_blobs,
-            num_fetched_blobs, "Received blobs from the EL"
-        );
-        inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
-    }
-
-    if chain_adapter.fork_choice_contains_block(&block_root) {
-        // Avoid computing sidecars if the block has already been imported.
-        debug!(
-            info = "block has already been imported",
-            "Ignoring EL blobs response"
-        );
-        return Ok(None);
-    }
-
-    let (signed_block_header, kzg_commitments_proof) = block
-        .signed_block_header_and_kzg_commitments_proof()
-        .map_err(FetchEngineBlobError::BeaconStateError)?;
-
-    let mut blob_sidecar_list = build_blob_sidecars(
-        &block,
-        response,
-        signed_block_header,
-        &kzg_commitments_proof,
-    )?;
-
-    if let Some(observed_blobs) =
-        chain_adapter.blobs_known_for_proposal(block.message().proposer_index(), block.slot())
-    {
-        blob_sidecar_list.retain(|blob| !observed_blobs.contains(&blob.blob_index()));
-        if blob_sidecar_list.is_empty() {
-            debug!(
-                info = "blobs have already been seen on gossip",
-                "Ignoring EL blobs response"
-            );
-            return Ok(None);
-        }
-    }
-
-    if let Some(known_blobs) = chain_adapter.cached_blob_indexes(&block_root) {
-        blob_sidecar_list.retain(|blob| !known_blobs.contains(&blob.blob_index()));
-        if blob_sidecar_list.is_empty() {
-            debug!(
-                info = "blobs have already been imported into data availability checker",
-                "Ignoring EL blobs response"
-            );
-            return Ok(None);
-        }
-    }
-
-    // Up until this point we have not observed the blobs in the gossip cache, which allows them to
-    // arrive independently while this function is running. In `publish_fn` we will observe them
-    // and then publish any blobs that had not already been observed.
-    publish_fn(EngineGetBlobsOutput::Blobs(blob_sidecar_list.clone()));
-
-    let availability_processing_status = chain_adapter
-        .process_engine_blobs(
-            block.slot(),
-            block_root,
-            EngineGetBlobsOutput::Blobs(blob_sidecar_list),
-        )
-        .await?;
-
-    Ok(Some(availability_processing_status))
 }
 
 #[instrument(skip_all, level = "debug")]
@@ -380,7 +281,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map(|data_columns| {
                         data_columns
                             .into_iter()
-                            .filter(|col| custody_columns_indices.contains(&col.index))
+                            .filter(|col| custody_columns_indices.contains(col.index()))
                             .map(|col| {
                                 KzgVerifiedCustodyDataColumn::from_asserted_custody(
                                     KzgVerifiedDataColumn::from_execution_verified(col),
@@ -391,9 +292,9 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
-                if let Some(observed_columns) = chain_adapter_cloned.data_column_known_for_proposal(
-                    ProposalKey::new(block.message().proposer_index(), block.slot()),
-                ) {
+                if let Some(observed_columns) =
+                    chain_adapter_cloned.data_column_known_for_slot(block.slot())
+                {
                     custody_columns.retain(|col| !observed_columns.contains(&col.index()));
                     if custody_columns.is_empty() {
                         return Ok(vec![]);

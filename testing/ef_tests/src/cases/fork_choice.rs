@@ -27,10 +27,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
-    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecarList,
-    DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
-    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState, BlobSidecar, BlobSidecarDeneb, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256
 };
 
 // When set to true, cache any states fetched from the db.
@@ -521,7 +518,7 @@ impl<E: EthSpec> Tester<E> {
             let gossip_verified_data_columns = columns
                 .into_iter()
                 .map(|column| {
-                    let subnet_id = DataColumnSubnetId::from_column_index(column.index, &self.spec);
+                    let subnet_id = DataColumnSubnetId::from_column_index(*column.index(), &self.spec);
                     GossipVerifiedDataColumn::new(column.clone(), subnet_id, &self.harness.chain)
                         .unwrap_or_else(|_| {
                             data_column_success = false;
@@ -598,7 +595,7 @@ impl<E: EthSpec> Tester<E> {
                 .zip(commitments.into_iter())
                 .enumerate()
             {
-                let blob_sidecar = Arc::new(BlobSidecar {
+                let blob_sidecar = Arc::new(BlobSidecar::Deneb(BlobSidecarDeneb {
                     index: i as u64,
                     blob,
                     kzg_commitment,
@@ -609,11 +606,11 @@ impl<E: EthSpec> Tester<E> {
                         .body()
                         .kzg_commitment_merkle_proof(i)
                         .unwrap(),
-                });
+                }));
 
                 let chain = self.harness.chain.clone();
                 let blob =
-                    match GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain)
+                    match GossipVerifiedBlob::new(blob_sidecar.clone(), *blob_sidecar.index(), &chain)
                     {
                         Ok(gossip_verified_blob) => gossip_verified_blob,
                         Err(GossipBlobError::KzgError(_)) => {

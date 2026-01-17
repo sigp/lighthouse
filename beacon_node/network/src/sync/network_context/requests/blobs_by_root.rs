@@ -50,14 +50,24 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRootRequestItems<E> {
         if self.request.block_root != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
-        if !blob.verify_blob_sidecar_inclusion_proof() {
-            return Err(LookupVerifyError::InvalidInclusionProof);
+
+        match blob.as_ref() {
+            BlobSidecar::Deneb(blob) => {
+                if !blob.verify_blob_sidecar_inclusion_proof() {
+                    return Err(LookupVerifyError::InvalidInclusionProof);
+                }
+            }
+            _ => {}
         }
-        if !self.request.indices.contains(&blob.index) {
-            return Err(LookupVerifyError::UnrequestedIndex(blob.index));
+
+        if !self.request.indices.contains(blob.index()) {
+            return Err(LookupVerifyError::UnrequestedIndex(*blob.index()));
         }
-        if self.items.iter().any(|b| b.index == blob.index) {
-            return Err(LookupVerifyError::DuplicatedData(blob.slot(), blob.index));
+        if self.items.iter().any(|b| *b.index() == *blob.index()) {
+            return Err(LookupVerifyError::DuplicatedData(
+                blob.slot(),
+                *blob.index(),
+            ));
         }
 
         self.items.push(blob);
