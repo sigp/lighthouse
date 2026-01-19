@@ -24,7 +24,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";

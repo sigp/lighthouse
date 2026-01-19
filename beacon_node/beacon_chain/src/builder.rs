@@ -42,7 +42,7 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
-use types::data_column_custody_group::CustodyIndex;
+use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
     Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,

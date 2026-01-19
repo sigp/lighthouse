@@ -2,7 +2,7 @@ use bls::PublicKeyBytes;
 use context_deserialize::ContextDeserialize;
 pub use eth2::Error;
 use eth2::types::beacon_response::EmptyMetadata;
-use eth2::types::builder_bid::SignedBuilderBid;
+use eth2::types::builder::SignedBuilderBid;
 use eth2::types::{
     ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
     SignedValidatorRegistrationData, Slot,
@@ -542,7 +542,7 @@ mod tests {
     use super::*;
     use bls::Signature;
     use eth2::types::MainnetEthSpec;
-    use eth2::types::builder_bid::{BuilderBid, BuilderBidFulu};
+    use eth2::types::builder::{BuilderBid, BuilderBidFulu};
     use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     use mockito::{Matcher, Server, ServerGuard};
 

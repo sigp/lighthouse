@@ -31,7 +31,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 

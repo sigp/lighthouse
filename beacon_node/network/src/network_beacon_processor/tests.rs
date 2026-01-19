@@ -39,7 +39,7 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
     DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,

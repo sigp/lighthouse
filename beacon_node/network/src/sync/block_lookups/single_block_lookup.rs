@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
 // Dedicated enum for LookupResult to force its usage

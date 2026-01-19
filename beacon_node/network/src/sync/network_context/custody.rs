@@ -13,7 +13,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tracing::{Span, debug, debug_span, warn};
-use types::{DataColumnSidecar, Hash256, data_column_sidecar::ColumnIndex};
+use types::{DataColumnSidecar, Hash256, data::ColumnIndex};
 use types::{DataColumnSidecarList, EthSpec};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};

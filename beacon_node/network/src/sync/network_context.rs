@@ -49,7 +49,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     ForkContext, Hash256, SignedBeaconBlock, Slot,
