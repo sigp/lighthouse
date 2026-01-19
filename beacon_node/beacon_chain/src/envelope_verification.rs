@@ -138,18 +138,8 @@ fn load_snapshot<T: BeaconChainTypes>(
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
 
-    let beacon_block_root = envelope.beacon_block_root();
-    if !chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .contains_block(&beacon_block_root)
-    {
-        return Err(EnvelopeError::BlockRootUnknown {
-            block_root: beacon_block_root,
-        });
-    }
-
     let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
+    let beacon_block_root = envelope.beacon_block_root();
     let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
         return Err(EnvelopeError::BlockRootUnknown {
             block_root: beacon_block_root,
@@ -159,44 +149,23 @@ fn load_snapshot<T: BeaconChainTypes>(
 
     // TODO(EIP-7732): add metrics here
 
-    // Load the parent block's state from the database, returning an error if it is not found.
-    // It is an error because if we know the parent block we should also know the parent state.
-    // Retrieve any state that is advanced through to at most `block.slot()`: this is
-    // particularly important if `block` descends from the finalized/split block, but at a slot
-    // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
-    let (parent_state_root, state) = chain
+    let block_state_root = proto_beacon_block.state_root;
+    // We can use `get_hot_state` here rather than `get_advanced_hot_state` because the envelope
+    // must be from the same slot as its block (so no advance is required).
+    let cache_state = true;
+    let state = chain
         .store
-        // TODO(EIP-7732): the state doesn't need to be advanced here because we're applying an envelope
-        //                 but this function does use a lot of caches that could be more efficient. Is there
-        //                 a better way to do this?
-        .get_advanced_hot_state(
-            beacon_block_root,
-            proto_beacon_block.slot,
-            proto_beacon_block.state_root,
-        )
+        .get_hot_state(&block_state_root, cache_state)
         .map_err(|e| EnvelopeError::BeaconChainError(Arc::new(e.into())))?
         .ok_or_else(|| {
             BeaconChainError::DBInconsistent(format!(
-                "Missing state for parent block {beacon_block_root:?}",
+                "Missing state for envelope block {block_state_root:?}",
             ))
         })?;
 
-    if state.slot() == proto_beacon_block.slot {
-        // Sanity check.
-        if parent_state_root != proto_beacon_block.state_root {
-            return Err(BeaconChainError::DBInconsistent(format!(
-                "Parent state at slot {} has the wrong state root: {:?} != {:?}",
-                state.slot(),
-                parent_state_root,
-                proto_beacon_block.state_root,
-            ))
-            .into());
-        }
-    }
-
     Ok(EnvelopeProcessingSnapshot {
         pre_state: state,
-        state_root: parent_state_root,
+        state_root: block_state_root,
         beacon_block_root,
     })
 }
