@@ -49,15 +49,16 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
             true
         } else {
             // For non same-slot attestations, check execution payload availability
-            // TODO(EIP7732) Discuss if we want to return new error BeaconStateError::InvalidExecutionPayloadAvailabilityIndex here for bit out of bounds or use something like BeaconStateError::InvalidBitfield
             let slot_index = data
                 .slot
                 .as_usize()
                 .safe_rem(E::slots_per_historical_root())?;
-            state
+            let payload_index = state
                 .execution_payload_availability()?
                 .get(slot_index)
-                .map_err(|_| Error::InvalidExecutionPayloadAvailabilityIndex(slot_index))?
+                .map(|avail| if avail { 1 } else { 0 } as u64)
+                .map_err(|_| Error::InvalidExecutionPayloadAvailabilityIndex(slot_index))?;
+            data.index == payload_index
         };
         is_matching_target && head_root_matches && payload_matches
     } else {
