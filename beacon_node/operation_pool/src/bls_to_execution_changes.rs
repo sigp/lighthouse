@@ -113,16 +113,18 @@ impl<E: EthSpec> BlsToExecutionChanges<E> {
                 .validators()
                 .get(validator_index as usize)
                 .is_none_or(|validator| {
-                    let prune = validator.has_execution_withdrawal_credential(spec)
-                        && head_block
-                            .message()
-                            .body()
-                            .bls_to_execution_changes()
-                            .map_or(true, |recent_changes| {
-                                !recent_changes
-                                    .iter()
-                                    .any(|c| c.message.validator_index == validator_index)
-                            });
+                    let prune = validator.has_execution_withdrawal_credential(
+                        spec,
+                        head_state.fork_name_unchecked(),
+                    ) && head_block
+                        .message()
+                        .body()
+                        .bls_to_execution_changes()
+                        .map_or(true, |recent_changes| {
+                            !recent_changes
+                                .iter()
+                                .any(|c| c.message.validator_index == validator_index)
+                        });
                     if prune {
                         validator_indices_pruned.push(validator_index);
                     }

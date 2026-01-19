@@ -41,6 +41,10 @@ pub enum BlockProcessingError {
         index: usize,
         reason: AttestationInvalid,
     },
+    PayloadAttestationInvalid {
+        index: usize,
+        reason: PayloadAttestationInvalid,
+    },
     DepositInvalid {
         index: usize,
         reason: DepositInvalid,
@@ -91,6 +95,9 @@ pub enum BlockProcessingError {
     },
     WithdrawalCredentialsInvalid,
     PendingAttestationInElectra,
+    ExecutionPayloadBidInvalid {
+        reason: ExecutionPayloadBidInvalid,
+    },
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -147,6 +154,12 @@ impl From<milhouse::Error> for BlockProcessingError {
     }
 }
 
+impl From<ExecutionPayloadBidInvalid> for BlockProcessingError {
+    fn from(reason: ExecutionPayloadBidInvalid) -> Self {
+        Self::ExecutionPayloadBidInvalid { reason }
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -200,7 +213,8 @@ impl_into_block_processing_error_with_index!(
     AttestationInvalid,
     DepositInvalid,
     ExitInvalid,
-    BlsExecutionChangeInvalid
+    BlsExecutionChangeInvalid,
+    PayloadAttestationInvalid
 );
 
 pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
@@ -402,6 +416,58 @@ pub enum IndexedAttestationInvalid {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum PayloadAttestationInvalid {
+    /// Block root does not match the parent beacon block root.
+    BlockRootMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
+    /// The attestation slot is not the previous slot.
+    SlotMismatch {
+        expected: Slot,
+        found: Slot,
+    },
+    BadIndexedPayloadAttestation(IndexedPayloadAttestationInvalid),
+}
+
+impl From<BlockOperationError<IndexedPayloadAttestationInvalid>>
+    for BlockOperationError<PayloadAttestationInvalid>
+{
+    fn from(e: BlockOperationError<IndexedPayloadAttestationInvalid>) -> Self {
+        match e {
+            BlockOperationError::Invalid(e) => BlockOperationError::invalid(
+                PayloadAttestationInvalid::BadIndexedPayloadAttestation(e),
+            ),
+            BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
+            BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
+            BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::BitfieldError(e) => BlockOperationError::BitfieldError(e),
+            BlockOperationError::ConsensusContext(e) => BlockOperationError::ConsensusContext(e),
+            BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum IndexedPayloadAttestationInvalid {
+    /// The number of indices is 0.
+    IndicesEmpty,
+    /// The validator indices were not in increasing order.
+    ///
+    /// The error occurred between the given `index` and `index + 1`
+    BadValidatorIndicesOrdering(usize),
+    /// The validator index is unknown. One cannot slash one who does not exist.
+    UnknownValidator(u64),
+    /// The indexed attestation aggregate signature was not valid.
+    BadSignature,
+    /// There was an error whilst attempting to get a set of signatures. The signatures may have
+    /// been invalid or an internal error occurred.
+    SignatureSetError(SignatureSetError),
+    /// Invalid Payload Status
+    PayloadStatusInvalid,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum DepositInvalid {
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
@@ -438,6 +504,38 @@ pub enum ExitInvalid {
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
     PendingWithdrawalInQueue(u64),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ExecutionPayloadBidInvalid {
+    /// The builder sent a 0 amount
+    BadAmount,
+    /// The signature is invalid.
+    BadSignature,
+    /// The builder's withdrawal credential is invalid
+    BadWithdrawalCredentials,
+    /// The builder is not an active validator.
+    BuilderNotActive(u64),
+    /// The builder is slashed
+    BuilderSlashed(u64),
+    /// The builder has insufficient balance to cover the bid
+    InsufficientBalance {
+        builder_index: u64,
+        builder_balance: u64,
+        bid_value: u64,
+    },
+    /// Bid slot doesn't match state slot
+    SlotMismatch { state_slot: Slot, bid_slot: Slot },
+    /// The bid's parent block hash doesn't match the state's latest block hash
+    ParentBlockHashMismatch {
+        state_block_hash: ExecutionBlockHash,
+        bid_parent_hash: ExecutionBlockHash,
+    },
+    /// The bid's parent block root doesn't match the block's parent root
+    ParentBlockRootMismatch {
+        block_parent_root: Hash256,
+        bid_parent_root: Hash256,
+    },
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -25,3 +25,6 @@ pub mod bellatrix {
 pub mod deneb {
     pub use kzg::VERSIONED_HASH_VERSION_KZG;
 }
+pub mod gloas {
+    pub const BUILDER_INDEX_SELF_BUILD: u64 = u64::MAX;
+}

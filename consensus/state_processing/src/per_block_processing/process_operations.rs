@@ -5,6 +5,7 @@ use crate::common::{
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
+use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -38,7 +39,15 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
-    if state.fork_name_unchecked().electra_enabled() {
+    if state.fork_name_unchecked().gloas_enabled() {
+        process_payload_attestations(
+            state,
+            block_body.payload_attestations()?.iter(),
+            verify_signatures,
+            ctxt,
+            spec,
+        )?;
+    } else if state.fork_name_unchecked().electra_enabled() {
         state.update_pubkey_cache()?;
         process_deposit_requests(state, &block_body.execution_requests()?.deposits, spec)?;
         process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;
@@ -514,9 +523,10 @@ pub fn process_withdrawal_requests<E: EthSpec>(
 
         let validator = state.get_validator(validator_index)?;
         // Verify withdrawal credentials
-        let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
+        let has_correct_credential =
+            validator.has_execution_withdrawal_credential(spec, state.fork_name_unchecked());
         let is_correct_source_address = validator
-            .get_execution_withdrawal_address(spec)
+            .get_execution_withdrawal_address(spec, state.fork_name_unchecked())
             .map(|addr| addr == request.source_address)
             .unwrap_or(false);
 
@@ -561,7 +571,7 @@ pub fn process_withdrawal_requests<E: EthSpec>(
                 .safe_add(pending_balance_to_withdraw)?;
 
         // Only allow partial withdrawals with compounding withdrawal credentials
-        if validator.has_compounding_withdrawal_credential(spec)
+        if validator.has_compounding_withdrawal_credential(spec, state.fork_name_unchecked())
             && has_sufficient_effective_balance
             && has_excess_balance
         {
@@ -730,7 +740,9 @@ pub fn process_consolidation_request<E: EthSpec>(
 
     let source_validator = state.get_validator(source_index)?;
     // Verify the source withdrawal credentials
-    if let Some(withdrawal_address) = source_validator.get_execution_withdrawal_address(spec) {
+    if let Some(withdrawal_address) =
+        source_validator.get_execution_withdrawal_address(spec, state.fork_name_unchecked())
+    {
         if withdrawal_address != consolidation_request.source_address {
             return Ok(());
         }
@@ -741,7 +753,7 @@ pub fn process_consolidation_request<E: EthSpec>(
 
     let target_validator = state.get_validator(target_index)?;
     // Verify the target has compounding withdrawal credentials
-    if !target_validator.has_compounding_withdrawal_credential(spec) {
+    if !target_validator.has_compounding_withdrawal_credential(spec, state.fork_name_unchecked()) {
         return Ok(());
     }
 
@@ -786,4 +798,53 @@ pub fn process_consolidation_request<E: EthSpec>(
         })?;
 
     Ok(())
+}
+
+// TODO(EIP-7732): Add test cases for `process_payload_attestations` to
+// `consensus/state_processing/src/per_block_processing/tests.rs`.
+// The tests will require being able to build Gloas blocks with PayloadAttestations,
+// which currently fails due to incomplete Gloas block structure as mentioned here
+// https://github.com/sigp/lighthouse/pull/8273
+pub fn process_payload_attestation<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    payload_attestation: &PayloadAttestation<E>,
+    att_index: usize,
+    verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<E>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    verify_payload_attestation(state, payload_attestation, ctxt, verify_signatures, spec)
+        .map_err(|e| e.into_with_index(att_index))
+}
+
+pub fn process_payload_attestations<'a, E: EthSpec, I>(
+    state: &mut BeaconState<E>,
+    payload_attestations: I,
+    verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<E>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError>
+where
+    I: Iterator<Item = &'a PayloadAttestation<E>>,
+{
+    // Ensure required caches are all built. These should be no-ops during regular operation.
+    // TODO(EIP-7732): verify necessary caches
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    initialize_epoch_cache(state, spec)?;
+    initialize_progressive_balances_cache(state, spec)?;
+    state.build_slashings_cache()?;
+
+    payload_attestations
+        .enumerate()
+        .try_for_each(|(i, payload_attestation)| {
+            process_payload_attestation(
+                state,
+                payload_attestation,
+                i,
+                verify_signatures,
+                ctxt,
+                spec,
+            )
+        })
 }

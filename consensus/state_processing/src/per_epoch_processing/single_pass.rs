@@ -15,9 +15,9 @@ use std::collections::{BTreeSet, HashMap};
 use tracing::instrument;
 use typenum::Unsigned;
 use types::{
-    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
-    EthSpec, ExitCache, ForkName, ParticipationFlags, PendingDeposit, ProgressiveBalancesCache,
-    RelativeEpoch, Validator,
+    ActivationQueue, BeaconState, BeaconStateError, BuilderPendingPayment, ChainSpec, Checkpoint,
+    DepositData, Epoch, EthSpec, ExitCache, ForkName, ParticipationFlags, PendingDeposit,
+    ProgressiveBalancesCache, RelativeEpoch, Validator,
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
@@ -33,6 +33,7 @@ pub struct SinglePassConfig {
     pub pending_consolidations: bool,
     pub effective_balance_updates: bool,
     pub proposer_lookahead: bool,
+    pub builder_pending_payments: bool,
 }
 
 impl Default for SinglePassConfig {
@@ -52,6 +53,7 @@ impl SinglePassConfig {
             pending_consolidations: true,
             effective_balance_updates: true,
             proposer_lookahead: true,
+            builder_pending_payments: true,
         }
     }
 
@@ -65,6 +67,7 @@ impl SinglePassConfig {
             pending_consolidations: false,
             effective_balance_updates: false,
             proposer_lookahead: false,
+            builder_pending_payments: false,
         }
     }
 }
@@ -455,6 +458,12 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         )?;
     }
 
+    // Process builder pending payments outside the single-pass loop, as they depend on balances for multiple
+    // validators and cannot be computed accurately inside the loop.
+    if fork_name.gloas_enabled() && conf.builder_pending_payments {
+        process_builder_pending_payments(state, state_ctxt, spec)?;
+    }
+
     // Finally, finish updating effective balance caches. We need this to happen *after* processing
     // of pending consolidations, which recomputes some effective balances.
     if conf.effective_balance_updates {
@@ -473,7 +482,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     Ok(summary)
 }
 
-// TOOO(EIP-7917): use balances cache
+// TODO(EIP-7917): use balances cache
 pub fn process_proposer_lookahead<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -499,6 +508,68 @@ pub fn process_proposer_lookahead<E: EthSpec>(
     }
 
     *state.proposer_lookahead_mut()? = Vector::new(lookahead)?;
+
+    Ok(())
+}
+
+/// Calculate the quorum threshold for builder payments based on total active balance.
+fn get_builder_payment_quorum_threshold<E: EthSpec>(
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<u64, Error> {
+    let per_slot_balance = state_ctxt
+        .total_active_balance
+        .safe_div(E::slots_per_epoch())?;
+    let quorum = per_slot_balance.safe_mul(spec.builder_payment_threshold_numerator)?;
+    quorum
+        .safe_div(spec.builder_payment_threshold_denominator)
+        .map_err(Error::from)
+}
+
+/// Process builder pending payments, moving qualifying payments to withdrawals.
+/// TODO(EIP-7732): Add EF consensus-spec tests for `process_builder_pending_payments`
+/// Currently blocked by EF consensus-spec-tests for Gloas not yet integrated.
+fn process_builder_pending_payments<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let quorum = get_builder_payment_quorum_threshold::<E>(state_ctxt, spec)?;
+
+    // Collect qualifying payments
+    let qualifying_payments = state
+        .builder_pending_payments()?
+        .iter()
+        .take(E::slots_per_epoch() as usize)
+        .filter(|payment| payment.weight > quorum)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    // Update `builder_pending_withdrawals` with qualifying `builder_pending_payments`
+    qualifying_payments
+        .into_iter()
+        .try_for_each(|payment| -> Result<(), Error> {
+            let exit_queue_epoch =
+                state.compute_exit_epoch_and_update_churn(payment.withdrawal.amount, spec)?;
+            let withdrawable_epoch =
+                exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
+
+            let mut withdrawal = payment.withdrawal.clone();
+            withdrawal.withdrawable_epoch = withdrawable_epoch;
+            state.builder_pending_withdrawals_mut()?.push(withdrawal)?;
+            Ok(())
+        })?;
+
+    // Move remaining `builder_pending_payments` to start of list and set the rest to default
+    let new_payments = state
+        .builder_pending_payments()?
+        .iter()
+        .skip(E::slots_per_epoch() as usize)
+        .cloned()
+        .chain((0..E::slots_per_epoch() as usize).map(|_| BuilderPendingPayment::default()))
+        .collect::<Vec<_>>();
+
+    *state.builder_pending_payments_mut()? = Vector::new(new_payments)?;
 
     Ok(())
 }
