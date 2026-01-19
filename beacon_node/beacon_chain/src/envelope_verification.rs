@@ -55,9 +55,9 @@ pub enum EnvelopeError {
         committed_bid: u64,
         envelope: u64,
     },
-    // The slot doesn't match the parent block
+    // The envelope slot doesn't match the block
     SlotMismatch {
-        parent_block: Slot,
+        block: Slot,
         envelope: Slot,
     },
     // The validator index is unknown
@@ -127,13 +127,13 @@ fn load_snapshot<T: BeaconChainTypes>(
     envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
-    // Reject any block if its parent is not known to fork choice.
+    // Reject any block if its block is not known to fork choice.
     //
     // A block that is not in fork choice is either:
     //
     //  - Not yet imported: we should reject this block because we should only import a child
-    //  after its parent has been fully imported.
-    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+    //  envelope after its parent has been fully imported.
+    //  - Pre-finalized: if the block is _prior_ to finalization, we should ignore the envelope
     //  because it will revert finalization. Note that the finalized block is stored in fork
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
@@ -176,8 +176,8 @@ fn load_snapshot<T: BeaconChainTypes>(
 #[educe(Debug(bound = "T: BeaconChainTypes"))]
 pub struct GossipVerifiedEnvelope<T: BeaconChainTypes> {
     pub signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-    pub parent_block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    pub parent: Option<Box<EnvelopeProcessingSnapshot<T::EthSpec>>>,
+    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    pub snapshot: Option<Box<EnvelopeProcessingSnapshot<T::EthSpec>>>,
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
@@ -197,7 +197,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         //
         // Presently these two cases are conflated.
         let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
-        let Some(parent_proto_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
+        let Some(proto_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
             return Err(EnvelopeError::BlockRootUnknown {
                 block_root: beacon_block_root,
             });
@@ -210,13 +210,13 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // TODO(EIP-7732): this could be obtained from the ProtoBlock instead of the DB
         //                 but this means the ProtoBlock needs to include something like the ExecutionBid
         //                 will need to answer this question later.
-        let parent_block = chain
+        let block = chain
             .get_full_block(&beacon_block_root)?
             .ok_or_else(|| {
                 EnvelopeError::from(BeaconChainError::MissingBeaconBlock(beacon_block_root))
             })
             .map(Arc::new)?;
-        let execution_bid = &parent_block
+        let execution_bid = &block
             .message()
             .body()
             .signed_execution_payload_bid()?
@@ -229,9 +229,9 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // should these kinds of checks be included for envelopes as well?
 
         // check that the slot of the envelope matches the slot of the parent block
-        if envelope.slot != parent_block.slot() {
+        if envelope.slot != block.slot() {
             return Err(EnvelopeError::SlotMismatch {
-                parent_block: parent_block.slot(),
+                block: block.slot(),
                 envelope: envelope.slot,
             });
         }
@@ -258,8 +258,8 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let block_slot = envelope.slot;
         let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         let proposer_shuffling_decision_block =
-            parent_proto_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
-        let mut opt_parent = None;
+            proto_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
+        let mut opt_snapshot = None;
         let envelope_ref = signed_envelope.as_ref();
         let proposer = chain.with_proposer_cache::<_, EnvelopeError>(
             proposer_shuffling_decision_block,
@@ -274,14 +274,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 // The proposer index was *not* cached and we must load the parent in order to
                 // determine the proposer index.
                 let snapshot = load_snapshot(envelope_ref, chain)?;
-                opt_parent = Some(Box::new(snapshot.clone()));
+                opt_snapshot = Some(Box::new(snapshot.clone()));
                 Ok((snapshot.state_root, snapshot.pre_state))
             },
         )?;
         let fork = proposer.fork;
 
         // True builder index accounting for self-building.
-        let proposer_index = parent_block.message().proposer_index();
+        let proposer_index = block.message().proposer_index();
         let builder_index = envelope.builder_index(proposer_index);
 
         let signature_is_valid = {
@@ -303,8 +303,8 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         Ok(Self {
             signed_envelope,
-            parent_block,
-            parent: opt_parent,
+            block,
+            snapshot: opt_snapshot,
         })
     }
 
@@ -341,7 +341,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         let payload_notifier =
             PayloadNotifier::from_envelope(chain.clone(), envelope, notify_execution_layer)?;
         let block_root = envelope.beacon_block_root;
-        let slot = self.parent_block.slot();
+        let slot = self.block.slot();
 
         let payload_verification_future = async move {
             let chain = payload_notifier.chain.clone();
@@ -372,17 +372,17 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?;
 
-        let parent = if let Some(snapshot) = self.parent {
+        let snapshot = if let Some(snapshot) = self.snapshot {
             *snapshot
         } else {
             load_snapshot(signed_envelope.as_ref(), chain)?
         };
-        let mut state = parent.pre_state;
+        let mut state = snapshot.pre_state;
 
         // All the state modifications are done in envelope_processing
         envelope_processing(
             &mut state,
-            Some(parent.state_root),
+            Some(snapshot.state_root),
             &signed_envelope,
             // verify signature already done for GossipVerifiedEnvelope
             VerifySignatures::False,
@@ -396,7 +396,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
             },
             import_data: EnvelopeImportData {
                 block_root,
-                parent_block: self.parent_block,
+                block: self.block,
                 post_state: Box::new(state),
             },
             payload_verification_handle,

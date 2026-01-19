@@ -7,13 +7,14 @@ use types::{
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
     pub block_root: Hash256,
-    pub parent_block: Arc<SignedBeaconBlock<E>>,
+    pub block: Arc<SignedBeaconBlock<E>>,
     pub post_state: Box<BeaconState<E>>,
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
+    // TODO(EIP-7732): rename to execution_block_hash
     block_hash: ExecutionBlockHash,
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     columns: DataColumnSidecarList<E>,
