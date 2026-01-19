@@ -1,4 +1,3 @@
-use bls::Hash256;
 use milhouse::{List, Vector};
 use ssz_types::BitVector;
 use std::mem;
@@ -88,7 +87,10 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         pending_deposits: pre.pending_deposits.clone(),
         pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
         pending_consolidations: pre.pending_consolidations.clone(),
+        proposer_lookahead: mem::take(&mut pre.proposer_lookahead),
         // Gloas
+        builders: List::default(),
+        next_withdrawal_builder_index: 0,
         execution_payload_availability: BitVector::default(), // All bits set to false initially
         builder_pending_payments: Vector::new(vec![
             BuilderPendingPayment::default();
@@ -96,7 +98,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         ])?,
         builder_pending_withdrawals: List::default(), // Empty list initially,
         latest_block_hash: pre.latest_execution_payload_header.block_hash,
-        latest_withdrawals_root: Hash256::default(),
+        payload_expected_withdrawals: List::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
@@ -105,7 +107,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: mem::take(&mut pre.epoch_cache),
-        proposer_lookahead: mem::take(&mut pre.proposer_lookahead),
     });
     Ok(post)
 }

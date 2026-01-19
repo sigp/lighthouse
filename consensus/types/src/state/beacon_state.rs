@@ -23,7 +23,8 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    BuilderPendingPayment, BuilderPendingWithdrawal, ExecutionBlockHash, ExecutionPayloadBid,
+    Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal, ExecutionBlockHash,
+    ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -608,8 +609,17 @@ where
     #[superstruct(only(Fulu, Gloas))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
-
     // Gloas
+    #[compare_fields(as_iter)]
+    #[test_random(default)]
+    #[superstruct(only(Gloas))]
+    pub builders: List<Builder, E::BuilderRegistryLimit>,
+
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(only(Gloas), partial_getter(copy))]
+    pub next_withdrawal_builder_index: BuilderIndex,
+
     #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
@@ -631,10 +641,10 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_hash: ExecutionBlockHash,
 
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Gloas))]
-    #[metastruct(exclude_from(tree_lists))]
-    pub latest_withdrawals_root: Hash256,
+    pub payload_expected_withdrawals: List<Withdrawal, E::MaxWithdrawalsPerPayload>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]

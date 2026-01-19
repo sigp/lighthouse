@@ -123,6 +123,10 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type NumberOfColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type ProposerLookaheadSlots: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
+     * New in Gloas
+     */
+    type BuilderRegistryLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
      * Derived values (set these CAREFULLY)
      */
     /// The length of the `{previous,current}_epoch_attestations` lists.
@@ -484,6 +488,7 @@ impl EthSpec for MainnetEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U64; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type BuilderRegistryLimit = U1099511627776;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -574,7 +579,8 @@ impl EthSpec for MinimalEthSpec {
         MaxDepositRequestsPerPayload,
         MaxWithdrawalRequestsPerPayload,
         PTCSize,
-        MaxPayloadAttestations
+        MaxPayloadAttestations,
+        BuilderRegistryLimit
     });
 
     fn default_spec() -> ChainSpec {
@@ -647,6 +653,7 @@ impl EthSpec for GnosisEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type BuilderRegistryLimit = U1099511627776;
     type PTCSize = U512;
     type MaxPayloadAttestations = U2;
 

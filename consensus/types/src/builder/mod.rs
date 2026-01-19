@@ -1,7 +1,9 @@
+mod builder;
 mod builder_bid;
 mod builder_pending_payment;
 mod builder_pending_withdrawal;
 
+pub use builder::{Builder, BuilderIndex};
 pub use builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, SignedBuilderBid,

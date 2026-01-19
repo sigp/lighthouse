@@ -130,8 +130,6 @@ pub mod gloas {
         let (expected_withdrawals, builder_withdrawals_count, partial_withdrawals_count) =
             get_expected_withdrawals(state, spec)?;
 
-        *state.latest_withdrawals_root_mut()? = expected_withdrawals.tree_hash_root();
-
         for withdrawal in expected_withdrawals.iter() {
             decrease_balance(
                 state,

@@ -162,15 +162,6 @@ pub fn envelope_processing<E: EthSpec>(
         });
     };
 
-    // Verify the withdrawals root
-    envelope_verify!(
-        payload.withdrawals.tree_hash_root() == *state.latest_withdrawals_root()?,
-        EnvelopeProcessingError::WithdrawalsRootMismatch {
-            state: *state.latest_withdrawals_root()?,
-            envelope: payload.withdrawals.tree_hash_root(),
-        }
-    );
-
     // Verify the gas limit
     envelope_verify!(
         payload.gas_limit == committed_bid.gas_limit,
