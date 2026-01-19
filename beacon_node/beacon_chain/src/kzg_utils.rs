@@ -6,8 +6,8 @@ use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use tracing::instrument;
-use types::beacon_block_body::KzgCommitments;
 use types::data::{Cell, DataColumn, DataColumnSidecarError};
+use types::kzg_ext::KzgCommitments;
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
     EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock, SignedBeaconBlockHeader,
@@ -448,8 +448,7 @@ mod test {
     use kzg::{Kzg, KzgCommitment, trusted_setup::get_trusted_setup};
     use types::{
         BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
-        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
-        beacon_block_body::KzgCommitments,
+        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
     };
 
     type E = MainnetEthSpec;

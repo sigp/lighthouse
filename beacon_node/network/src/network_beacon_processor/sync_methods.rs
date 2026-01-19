@@ -31,8 +31,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::beacon_block_body::format_kzg_commitments;
 use types::data::FixedBlobSidecarList;
+use types::kzg_ext::format_kzg_commitments;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
