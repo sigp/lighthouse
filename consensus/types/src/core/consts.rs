@@ -27,4 +27,5 @@ pub mod deneb {
 }
 pub mod gloas {
     pub const BUILDER_INDEX_SELF_BUILD: u64 = u64::MAX;
+    pub const BUILDER_INDEX_FLAG: u64 = 1 << 40;
 }

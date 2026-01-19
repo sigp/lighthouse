@@ -1364,6 +1364,7 @@ async fn proposer_shuffling_root_consistency_at_fork_boundary() {
 }
 
 #[tokio::test]
+#[allow(clippy::large_stack_frames)]
 async fn proposer_shuffling_changing_with_lookahead() {
     let initial_blocks = E::slots_per_epoch() * 4 - 1;
 

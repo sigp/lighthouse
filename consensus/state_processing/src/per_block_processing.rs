@@ -10,6 +10,7 @@ use signature_sets::{
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
+use types::consts::gloas::BUILDER_INDEX_FLAG;
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -526,6 +527,48 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }
 
+pub fn convert_builder_index_to_validator_index(builder_index: BuilderIndex) -> u64 {
+    builder_index | BUILDER_INDEX_FLAG
+}
+
+pub fn convert_validator_index_to_builder_index(validator_index: u64) -> BuilderIndex {
+    validator_index & !BUILDER_INDEX_FLAG
+}
+
+pub fn get_builder_withdrawals<E: EthSpec>(
+    state: &BeaconState<E>,
+    withdrawal_index: &mut u64,
+    withdrawals: &mut Vec<Withdrawal>,
+) -> Result<u64, BlockProcessingError> {
+    let Ok(builder_pending_withdrawals) = state.builder_pending_withdrawals() else {
+        // Pre-Gloas, nothing to do.
+        return Ok(0);
+    };
+
+    let withdrawals_limit = E::max_withdrawals_per_payload();
+
+    let mut processed_count = 0;
+    for withdrawal in builder_pending_withdrawals {
+        let has_reached_limit = withdrawals.len() == withdrawals_limit;
+
+        if has_reached_limit {
+            break;
+        }
+
+        let builder_index = withdrawal.builder_index;
+
+        withdrawals.push(Withdrawal {
+            index: *withdrawal_index,
+            validator_index: convert_builder_index_to_validator_index(builder_index),
+            address: withdrawal.fee_recipient,
+            amount: withdrawal.amount,
+        });
+        withdrawal_index.safe_add_assign(1)?;
+        processed_count.safe_add_assign(1)?;
+    }
+    Ok(processed_count)
+}
+
 /// Compute the next batch of withdrawals which should be included in a block.
 ///
 /// https://ethereum.github.io/consensus-specs/specs/gloas/beacon-chain/#modified-get_expected_withdrawals
@@ -536,61 +579,15 @@ pub fn get_expected_withdrawals<E: EthSpec>(
 ) -> Result<(Withdrawals<E>, Option<usize>, Option<usize>), BlockProcessingError> {
     let epoch = state.current_epoch();
     let mut withdrawal_index = state.next_withdrawal_index()?;
-    let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = Vec::<Withdrawal>::with_capacity(E::max_withdrawals_per_payload());
     let fork_name = state.fork_name_unchecked();
+
+    let mut validator_index = state.next_withdrawal_validator_index()?;
 
     // [New in Gloas:EIP7732]
     // Sweep for builder payments
     let processed_builder_withdrawals_count =
-        if let Ok(builder_pending_withdrawals) = state.builder_pending_withdrawals() {
-            let mut processed_builder_withdrawals_count = 0;
-            for withdrawal in builder_pending_withdrawals {
-                if withdrawal.withdrawable_epoch > epoch
-                    || withdrawals.len().safe_add(1)? == E::max_withdrawals_per_payload()
-                {
-                    break;
-                }
-
-                if process_withdrawals::is_builder_payment_withdrawable(state, withdrawal)? {
-                    let total_withdrawn = withdrawals
-                        .iter()
-                        .filter_map(|w| {
-                            (w.validator_index == withdrawal.builder_index).then_some(w.amount)
-                        })
-                        .safe_sum()?;
-                    let balance = state
-                        .get_balance(withdrawal.builder_index as usize)?
-                        .safe_sub(total_withdrawn)?;
-                    let builder = state.get_validator(withdrawal.builder_index as usize)?;
-
-                    let withdrawable_balance = if builder.slashed {
-                        std::cmp::min(balance, withdrawal.amount)
-                    } else if balance > spec.min_activation_balance {
-                        std::cmp::min(
-                            balance.safe_sub(spec.min_activation_balance)?,
-                            withdrawal.amount,
-                        )
-                    } else {
-                        0
-                    };
-
-                    if withdrawable_balance > 0 {
-                        withdrawals.push(Withdrawal {
-                            index: withdrawal_index,
-                            validator_index: withdrawal.builder_index,
-                            address: withdrawal.fee_recipient,
-                            amount: withdrawable_balance,
-                        });
-                        withdrawal_index.safe_add_assign(1)?;
-                    }
-                }
-                processed_builder_withdrawals_count.safe_add_assign(1)?;
-            }
-            Some(processed_builder_withdrawals_count)
-        } else {
-            None
-        };
+        get_builder_withdrawals(state, &mut withdrawal_index, &mut withdrawals)?;
 
     // [New in Electra:EIP7251]
     // Consume pending partial withdrawals
@@ -696,7 +693,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
         withdrawals
             .try_into()
             .map_err(BlockProcessingError::SszTypesError)?,
-        processed_builder_withdrawals_count,
+        Some(processed_builder_withdrawals_count as usize),
         processed_partial_withdrawals_count,
     ))
 }
