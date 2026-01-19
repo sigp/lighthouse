@@ -11,6 +11,7 @@ use serde_json::json;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
+use tracing::{debug, error};
 
 use std::time::{Duration, Instant};
 
@@ -35,6 +36,7 @@ pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
+pub const ENGINE_NEW_PAYLOAD_V5: &str = "engine_newPayloadV5";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
@@ -42,11 +44,13 @@ pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV4";
 pub const ENGINE_GET_PAYLOAD_V5: &str = "engine_getPayloadV5";
+pub const ENGINE_GET_PAYLOAD_V6: &str = "engine_getPayloadV6";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_V3: &str = "engine_forkchoiceUpdatedV3";
+pub const ENGINE_FORKCHOICE_UPDATED_V4: &str = "engine_forkchoiceUpdatedV4";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
@@ -74,14 +78,17 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V2,
     ENGINE_NEW_PAYLOAD_V3,
     ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
     ENGINE_GET_PAYLOAD_V4,
     ENGINE_GET_PAYLOAD_V5,
+    ENGINE_GET_PAYLOAD_V6,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_FORKCHOICE_UPDATED_V3,
+    ENGINE_FORKCHOICE_UPDATED_V4,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_CLIENT_VERSION_V1,
@@ -912,6 +919,69 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v5_gloas<E: EthSpec>(
+        &self,
+        new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let block_hash = new_payload_request_gloas.execution_payload.block_hash;
+        let block_number = new_payload_request_gloas.execution_payload.block_number;
+        let slot_number = new_payload_request_gloas.execution_payload.slot_number;
+
+        debug!(
+            %block_hash,
+            block_number,
+            slot_number,
+            "Sending engine_newPayloadV5 for Gloas"
+        );
+
+        let params = json!([
+            JsonExecutionPayload::Gloas(
+                new_payload_request_gloas
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_gloas.versioned_hashes,
+            new_payload_request_gloas.parent_beacon_block_root,
+            new_payload_request_gloas
+                .execution_requests
+                .get_execution_requests_list(),
+        ]);
+
+        let result: Result<JsonPayloadStatusV1, _> = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V5,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await;
+
+        match &result {
+            Ok(response) => {
+                debug!(
+                    %block_hash,
+                    block_number,
+                    slot_number,
+                    status = ?response.status,
+                    latest_valid_hash = ?response.latest_valid_hash,
+                    validation_error = ?response.validation_error,
+                    "Received engine_newPayloadV5 response"
+                );
+            }
+            Err(e) => {
+                error!(
+                    %block_hash,
+                    block_number,
+                    slot_number,
+                    error = ?e,
+                    "engine_newPayloadV5 failed"
+                );
+            }
+        }
+
+        Ok(result?.into())
+    }
+
     pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -1067,6 +1137,61 @@ impl HttpJsonRpc {
         }
     }
 
+    pub async fn get_payload_v6<E: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<E>, Error> {
+        debug!(
+            ?payload_id,
+            %fork_name,
+            "Sending engine_getPayloadV6 for Gloas"
+        );
+
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        match fork_name {
+            ForkName::Gloas => {
+                let result: Result<JsonGetPayloadResponseGloas<E>, _> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V6,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await;
+
+                match &result {
+                    Ok(response) => {
+                        debug!(
+                            ?payload_id,
+                            block_hash = %response.execution_payload.block_hash,
+                            block_number = response.execution_payload.block_number,
+                            slot_number = response.execution_payload.slot_number,
+                            block_value = %response.block_value,
+                            "Received engine_getPayloadV6 response"
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            ?payload_id,
+                            %fork_name,
+                            error = ?e,
+                            "engine_getPayloadV6 failed"
+                        );
+                    }
+                }
+
+                JsonGetPayloadResponse::Gloas(result?)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            _ => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v6 with {}",
+                fork_name
+            ))),
+        }
+    }
+
     pub async fn forkchoice_updated_v1(
         &self,
         forkchoice_state: ForkchoiceState,
@@ -1128,6 +1253,63 @@ impl HttpJsonRpc {
             .await?;
 
         Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v4(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let slot_number = payload_attributes
+            .as_ref()
+            .and_then(|pa| pa.slot_number().ok());
+
+        debug!(
+            head_block_hash = %forkchoice_state.head_block_hash,
+            safe_block_hash = %forkchoice_state.safe_block_hash,
+            finalized_block_hash = %forkchoice_state.finalized_block_hash,
+            has_payload_attributes = payload_attributes.is_some(),
+            ?slot_number,
+            "Sending engine_forkchoiceUpdatedV4 for Gloas"
+        );
+
+        let params = json!([
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from)
+        ]);
+
+        let result: Result<JsonForkchoiceUpdatedV1Response, _> = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V4,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await;
+
+        match &result {
+            Ok(response) => {
+                debug!(
+                    head_block_hash = %forkchoice_state.head_block_hash,
+                    status = ?response.payload_status.status,
+                    latest_valid_hash = ?response.payload_status.latest_valid_hash,
+                    payload_id = ?response.payload_id,
+                    ?slot_number,
+                    "Received engine_forkchoiceUpdatedV4 response"
+                );
+            }
+            Err(e) => {
+                error!(
+                    head_block_hash = %forkchoice_state.head_block_hash,
+                    safe_block_hash = %forkchoice_state.safe_block_hash,
+                    finalized_block_hash = %forkchoice_state.finalized_block_hash,
+                    ?slot_number,
+                    error = ?e,
+                    "engine_forkchoiceUpdatedV4 failed"
+                );
+            }
+        }
+
+        Ok(result?.into())
     }
 
     pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
@@ -1198,9 +1380,11 @@ impl HttpJsonRpc {
             new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
             new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
+            new_payload_v5: capabilities.contains(ENGINE_NEW_PAYLOAD_V5),
             forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
+            forkchoice_updated_v4: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V4),
             get_payload_bodies_by_hash_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
             get_payload_bodies_by_range_v1: capabilities
@@ -1210,6 +1394,7 @@ impl HttpJsonRpc {
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
             get_payload_v4: capabilities.contains(ENGINE_GET_PAYLOAD_V4),
             get_payload_v5: capabilities.contains(ENGINE_GET_PAYLOAD_V5),
+            get_payload_v6: capabilities.contains(ENGINE_GET_PAYLOAD_V6),
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
             get_blobs_v1: capabilities.contains(ENGINE_GET_BLOBS_V1),
             get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
@@ -1353,10 +1538,12 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Gloas(new_payload_request_gloas) => {
-                if engine_capabilities.new_payload_v4 {
-                    self.new_payload_v4_gloas(new_payload_request_gloas).await
+                if engine_capabilities.new_payload_v5 {
+                    self.new_payload_v5_gloas(new_payload_request_gloas).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
+                    Err(Error::RequiredMethodUnsupported(
+                        "engine_newPayloadV5 is required for Gloas/Amsterdam fork",
+                    ))
                 }
             }
         }
@@ -1402,10 +1589,12 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Gloas => {
-                if engine_capabilities.get_payload_v5 {
-                    self.get_payload_v5(fork_name, payload_id).await
+                if engine_capabilities.get_payload_v6 {
+                    self.get_payload_v6(fork_name, payload_id).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
+                    Err(Error::RequiredMethodUnsupported(
+                        "engine_getPayloadV6 is required for Gloas/Amsterdam fork",
+                    ))
                 }
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
@@ -1443,6 +1632,16 @@ impl HttpJsonRpc {
                     } else {
                         Err(Error::RequiredMethodUnsupported(
                             "engine_forkchoiceUpdatedV3",
+                        ))
+                    }
+                }
+                PayloadAttributes::V4(_) => {
+                    if engine_capabilities.forkchoice_updated_v4 {
+                        self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
+                            .await
+                    } else {
+                        Err(Error::RequiredMethodUnsupported(
+                            "engine_forkchoiceUpdatedV4 is required for Gloas/Amsterdam fork",
                         ))
                     }
                 }

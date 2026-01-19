@@ -113,6 +113,10 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(only(Gloas))]
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
+    /// EIP-7843: Slot number
+    #[superstruct(only(Gloas), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub slot_number: u64,
 }
 
 impl<'a, E: EthSpec> ExecutionPayloadRef<'a, E> {

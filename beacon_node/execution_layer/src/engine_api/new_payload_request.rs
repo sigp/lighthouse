@@ -221,7 +221,17 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
                 parent_beacon_block_root: block_ref.parent_root,
                 execution_requests: &block_ref.body.execution_requests,
             })),
-            BeaconBlockRef::Gloas(_) => Err(Self::Error::IncorrectStateVariant),
+            BeaconBlockRef::Gloas(block_ref) => Ok(Self::Gloas(NewPayloadRequestGloas {
+                execution_payload: &block_ref.body.execution_payload.execution_payload,
+                versioned_hashes: block_ref
+                    .body
+                    .blob_kzg_commitments
+                    .iter()
+                    .map(kzg_commitment_to_versioned_hash)
+                    .collect(),
+                parent_beacon_block_root: block_ref.parent_root,
+                execution_requests: &block_ref.body.execution_requests,
+            })),
         }
     }
 }

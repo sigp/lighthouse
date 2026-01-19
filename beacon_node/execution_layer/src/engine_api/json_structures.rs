@@ -110,6 +110,9 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[superstruct(only(Gloas))]
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
+    #[superstruct(only(Gloas))]
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub slot_number: u64,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadBellatrix<E> {
@@ -256,6 +259,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number,
         })
     }
 }
@@ -430,6 +434,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
+            slot_number: payload.slot_number,
         })
     }
 }
@@ -721,7 +726,7 @@ impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(
         derive(Debug, Clone, PartialEq, Serialize, Deserialize),
         serde(rename_all = "camelCase")
@@ -737,10 +742,13 @@ pub struct JsonPayloadAttributes {
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::address_hex")]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2, V3))]
+    #[superstruct(only(V2, V3, V4))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(V3))]
+    #[superstruct(only(V3, V4))]
     pub parent_beacon_block_root: Hash256,
+    #[superstruct(only(V4))]
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub slot_number: u64,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -763,6 +771,14 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 suggested_fee_recipient: pa.suggested_fee_recipient,
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
                 parent_beacon_block_root: pa.parent_beacon_block_root,
+            }),
+            PayloadAttributes::V4(pa) => Self::V4(JsonPayloadAttributesV4 {
+                timestamp: pa.timestamp,
+                prev_randao: pa.prev_randao,
+                suggested_fee_recipient: pa.suggested_fee_recipient,
+                withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: pa.parent_beacon_block_root,
+                slot_number: pa.slot_number,
             }),
         }
     }
@@ -788,6 +804,14 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 suggested_fee_recipient: jpa.suggested_fee_recipient,
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
                 parent_beacon_block_root: jpa.parent_beacon_block_root,
+            }),
+            JsonPayloadAttributes::V4(jpa) => Self::V4(PayloadAttributesV4 {
+                timestamp: jpa.timestamp,
+                prev_randao: jpa.prev_randao,
+                suggested_fee_recipient: jpa.suggested_fee_recipient,
+                withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: jpa.parent_beacon_block_root,
+                slot_number: jpa.slot_number,
             }),
         }
     }

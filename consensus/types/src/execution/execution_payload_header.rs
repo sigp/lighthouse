@@ -117,6 +117,10 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     /// EIP-7928: Block access list root
     #[superstruct(only(Gloas), partial_getter(copy))]
     pub block_access_list_root: Hash256,
+    /// EIP-7843: Slot number
+    #[superstruct(only(Gloas), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub slot_number: u64,
 }
 
 impl<E: EthSpec> ExecutionPayloadHeader<E> {
@@ -291,6 +295,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderFulu<E> {
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
             block_access_list_root: Hash256::zero(),
+            slot_number: 0,
         }
     }
 }
@@ -431,6 +436,7 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadGloas<E>> for ExecutionPayloadHead
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list_root: payload.block_access_list.tree_hash_root(),
+            slot_number: payload.slot_number,
         }
     }
 }

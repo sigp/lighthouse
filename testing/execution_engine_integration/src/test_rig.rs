@@ -311,6 +311,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                     Address::repeat_byte(42),
                     Some(vec![]),
                     None,
+                    None,
                 ),
             )
             .await;
@@ -354,6 +355,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             prev_randao,
             suggested_fee_recipient,
             Some(vec![]),
+            None,
             None,
         );
 
@@ -513,6 +515,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             suggested_fee_recipient,
             Some(vec![]),
             None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
@@ -570,8 +573,9 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         let payload_attributes = PayloadAttributes::new(
             timestamp,
             prev_randao,
-            Address::repeat_byte(42),
+            suggested_fee_recipient,
             Some(vec![]),
+            None,
             None,
         );
         let slot = Slot::new(42);
