@@ -1144,7 +1144,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns the full block at the given root, if it's available in the database.
     ///
     /// Should always return a full block for pre-merge and post-gloas blocks.
-    /// An
     pub fn get_full_block(
         &self,
         block_root: &Hash256,

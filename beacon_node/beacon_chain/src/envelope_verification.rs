@@ -220,8 +220,13 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let payload = &envelope.payload;
         let beacon_block_root = envelope.beacon_block_root;
 
-        // check that we've seen the parent block of this envelope and that it passes validation
-        // TODO(EIP-7732): this check would fail if the block didn't pass validation right?
+        // Check that we've seen the beacon block for this envelope and that it passes validation.
+        // TODO(EIP-7732): We need a block status table in order to differentiate between:
+        //
+        // 1. Blocks we haven't seen (IGNORE), and
+        // 2. Blocks we've seen that are invalid (REJECT).
+        //
+        // Presently these two cases are conflated.
         let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
         let Some(parent_proto_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
             return Err(EnvelopeError::BlockRootUnknown {
@@ -233,7 +238,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // TODO(EIP-7732): check that we haven't seen another valid `SignedExecutionPayloadEnvelope`
         //                 for this block root from this builder - envelope status table check
 
-        // TODO(EIP-7732): this should probably be obtained from the ProtoBlock instead of the DB
+        // TODO(EIP-7732): this could be obtained from the ProtoBlock instead of the DB
         //                 but this means the ProtoBlock needs to include something like the ExecutionBid
         //                 will need to answer this question later.
         let parent_block = chain
@@ -278,11 +283,9 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             });
         }
 
-        // TODO(EIP-7732): check these assumptions.. exactly what the most efficient way to verify the signatures
-        //                 in this case isn't clear. There are questions about the proposer cache, the pubkey cache,
-        //                 and so on.
-
-        // get the fork from the cache so we can verify the signature
+        // Get the fork from the proposer cache so we can verify the signature.
+        // This is currently the most efficient way to implement envelope signature verification
+        // because the `fork` might depend on advancing the parent state.
         let block_slot = envelope.slot;
         let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         let proposer_shuffling_decision_block =
