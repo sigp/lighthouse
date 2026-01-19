@@ -1,6 +1,6 @@
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use std::sync::Arc;
-use types::{BlobSidecarDeneb, EthSpec, ForkContext, Hash256, data::BlobIdentifier};
+use types::{BlobSidecar, EthSpec, ForkContext, Hash256, data::BlobIdentifier};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -27,7 +27,7 @@ impl BlobsByRootSingleBlockRequest {
 
 pub struct BlobsByRootRequestItems<E: EthSpec> {
     request: BlobsByRootSingleBlockRequest,
-    items: Vec<Arc<BlobSidecarDeneb<E>>>,
+    items: Vec<Arc<BlobSidecar<E>>>,
 }
 
 impl<E: EthSpec> BlobsByRootRequestItems<E> {
@@ -40,7 +40,7 @@ impl<E: EthSpec> BlobsByRootRequestItems<E> {
 }
 
 impl<E: EthSpec> ActiveRequestItems for BlobsByRootRequestItems<E> {
-    type Item = Arc<BlobSidecarDeneb<E>>;
+    type Item = Arc<BlobSidecar<E>>;
 
     /// Appends a chunk to this multi-item request. If all expected chunks are received, this
     /// method returns `Some`, resolving the request before the stream terminator.

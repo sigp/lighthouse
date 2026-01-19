@@ -421,8 +421,6 @@ pub fn reconstruct_blobs<E: EthSpec>(
         }
     };
 
-    let fork_name = signed_block.fork_name_unchecked();
-
     let blob_sidecars = blob_indices
         .into_iter()
         .map(|row_index| {
@@ -465,23 +463,19 @@ pub fn reconstruct_blobs<E: EthSpec>(
             let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
             let kzg_proof = KzgProof::empty();
 
-            if fork_name.gloas_enabled() {
-                BlobSidecar::<E>::new(row_index, blob, signed_block, kzg_proof)
-            } else {
-                BlobSidecar::<E>::new_with_existing_proof(
-                    row_index,
-                    blob,
-                    signed_block,
-                    first_data_column
-                        .signed_block_header()
-                        .map_err(|e| format!("{e:?}"))?
-                        .clone(),
-                    first_data_column
-                        .kzg_commitments_inclusion_proof()
-                        .map_err(|e| format!("{e:?}"))?,
-                    kzg_proof,
-                )
-            }
+            BlobSidecar::<E>::new_with_existing_proof(
+                row_index,
+                blob,
+                signed_block,
+                first_data_column
+                    .signed_block_header()
+                    .map_err(|e| format!("{e:?}"))?
+                    .clone(),
+                first_data_column
+                    .kzg_commitments_inclusion_proof()
+                    .map_err(|e| format!("{e:?}"))?,
+                kzg_proof,
+            )
             .map(Arc::new)
             .map_err(|e| format!("{e:?}"))
         })
@@ -718,8 +712,8 @@ mod test {
         for i in blob_indices {
             let reconstructed_blob = &reconstructed_blobs
                 .iter()
-                .find(|sidecar| *sidecar.index() == i)
-                .map(|sidecar| sidecar.blob().clone())
+                .find(|sidecar| sidecar.index == i)
+                .map(|sidecar| sidecar.blob.clone())
                 .expect("reconstructed blob should exist");
             let original_blob = blobs.get(i as usize).unwrap();
             assert_eq!(reconstructed_blob, original_blob, "{i}");
@@ -746,7 +740,7 @@ mod test {
             reconstruct_blobs(kzg, subset_columns, None, &signed_blinded_block, spec).unwrap();
 
         for (i, original_blob) in blobs.iter().enumerate() {
-            let reconstructed_blob = reconstructed_blobs.get(i).unwrap().blob();
+            let reconstructed_blob = &reconstructed_blobs.get(i).unwrap().blob;
             assert_eq!(reconstructed_blob, original_blob, "{i}");
         }
     }

@@ -991,7 +991,7 @@ pub struct SseBlobSidecar {
 }
 
 impl SseBlobSidecar {
-    pub fn from_blob_sidecar<E: EthSpec>(blob_sidecar: &BlobSidecarDeneb<E>) -> SseBlobSidecar {
+    pub fn from_blob_sidecar<E: EthSpec>(blob_sidecar: &BlobSidecar<E>) -> SseBlobSidecar {
         SseBlobSidecar {
             block_root: blob_sidecar.block_root(),
             index: blob_sidecar.index,

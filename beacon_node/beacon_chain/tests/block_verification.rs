@@ -40,7 +40,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 enum DataSidecars<E: EthSpec> {
-    Blobs(BlobSidecarListDeneb<E>),
+    Blobs(BlobSidecarList<E>),
     DataColumns(Vec<CustodyDataColumn<E>>),
 }
 
@@ -221,10 +221,10 @@ fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>], blobs: &mut [Option<
 
 fn update_blob_signed_header<E: EthSpec>(
     signed_block: &SignedBeaconBlock<E>,
-    blobs: &mut BlobSidecarListDeneb<E>,
+    blobs: &mut BlobSidecarList<E>,
 ) {
     for old_blob_sidecar in blobs.as_mut_slice() {
-        let new_blob = Arc::new(BlobSidecarDeneb::<E> {
+        let new_blob = Arc::new(BlobSidecar::<E> {
             index: old_blob_sidecar.index,
             blob: old_blob_sidecar.blob.clone(),
             kzg_commitment: old_blob_sidecar.kzg_commitment,

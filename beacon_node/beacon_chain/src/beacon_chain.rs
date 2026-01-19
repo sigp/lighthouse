@@ -102,7 +102,6 @@ use safe_arith::SafeArith;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
-use ssz_types::RuntimeVariableList;
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
     common::get_attesting_indices_from_state,
@@ -1267,19 +1266,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(None)
             }
         } else {
-            let max_blobs = self.spec.max_blobs_per_block(block.epoch());
-            let blobs = self.get_blobs(block_root)?.blobs();
-            match blobs {
-                Some(blobs) => {
-                    let list: Vec<_> = blobs
-                        .into_iter()
-                        .map(|blob| Arc::new(BlobSidecar::Deneb((*blob).clone())))
-                        .collect();
-                    let blob_sidecar_list = RuntimeVariableList::new(list, max_blobs as usize)?;
-                    Ok(Some(blob_sidecar_list))
-                }
-                None => Ok(None),
-            }
+            Ok(self.get_blobs(block_root)?.blobs())
         }
     }
 
@@ -3128,7 +3115,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn emit_sse_blob_sidecar_events<'a, I>(self: &Arc<Self>, block_root: &Hash256, blobs_iter: I)
     where
-        I: Iterator<Item = &'a BlobSidecarDeneb<T::EthSpec>>,
+        I: Iterator<Item = &'a BlobSidecar<T::EthSpec>>,
     {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_blob_sidecar_subscribers()
@@ -3528,7 +3515,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn check_blob_header_signature_and_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
-        blobs: impl IntoIterator<Item = &'a BlobSidecarDeneb<T::EthSpec>>,
+        blobs: impl IntoIterator<Item = &'a BlobSidecar<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
         for header in blobs

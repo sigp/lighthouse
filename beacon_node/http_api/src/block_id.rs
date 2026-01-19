@@ -11,8 +11,8 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecar, BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -405,7 +405,7 @@ impl BlockId {
         let blobs = blob_sidecar_list
             .into_iter()
             .map(|sidecar| BlobWrapper::<T::EthSpec> {
-                blob: sidecar.blob().clone(),
+                blob: sidecar.blob.clone(),
             })
             .collect();
 
@@ -433,10 +433,7 @@ impl BlockId {
                 warp_utils::reject::custom_not_found(format!("no blobs stored for block {root}"))
             })?;
 
-        let blob_sidecar_list: Vec<_> = blob_sidecar_list
-            .into_iter()
-            .map(|b| Arc::new(BlobSidecar::Deneb((*b).clone())))
-            .collect();
+        let blob_sidecar_list: Vec<_> = blob_sidecar_list.into_iter().collect();
 
         let blob_sidecar_list = match indices {
             Some(indices) => indices

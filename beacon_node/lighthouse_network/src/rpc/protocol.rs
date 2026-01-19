@@ -17,10 +17,10 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecarDeneb, ChainSpec,
-    DataColumnSidecarFulu, DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId,
-    ForkContext, ForkName, LightClientBootstrap, LightClientBootstrapAltair,
-    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecarFulu,
+    DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
     SignedBeaconBlock,
 };
@@ -66,10 +66,10 @@ pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     + ssz::BYTES_PER_LENGTH_OFFSET); // Adding the additional ssz offset for the `ExecutionPayload` field
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
-    LazyLock::new(BlobSidecarDeneb::<MainnetEthSpec>::max_size);
+    LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
 
 pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
-    LazyLock::new(BlobSidecarDeneb::<MinimalEthSpec>::max_size);
+    LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
 
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
     VariableList::<u8, MaxErrorLen>::try_from(Vec::<u8>::new())

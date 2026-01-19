@@ -19,7 +19,7 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    BlobSidecarDeneb, BlobSidecarListDeneb, BlockImportSource, ChainSpec, DataColumnSidecar,
+    BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
     DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn get_blob(
         &self,
         blob_id: &BlobIdentifier,
-    ) -> Result<Option<Arc<BlobSidecarDeneb<T::EthSpec>>>, AvailabilityCheckError> {
+    ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
         self.availability_cache.peek_blob(blob_id)
     }
 
@@ -734,7 +734,7 @@ pub enum AvailableBlockData<E: EthSpec> {
     /// Block is pre-Deneb or has zero blobs
     NoData,
     /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
-    Blobs(BlobSidecarListDeneb<E>),
+    Blobs(BlobSidecarList<E>),
     /// Block is post-PeerDAS and has more than zero blobs
     DataColumns(DataColumnSidecarList<E>),
 }

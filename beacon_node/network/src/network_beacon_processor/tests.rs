@@ -45,7 +45,7 @@ use types::{
     SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
 use types::{
-    BlobSidecarListDeneb,
+    BlobSidecarList,
     data::{BlobIdentifier, FixedBlobSidecarList},
 };
 
@@ -66,7 +66,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<BlobSidecarListDeneb<E>>,
+    next_blobs: Option<BlobSidecarList<E>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,

@@ -3277,10 +3277,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
-) -> (
-    SignedBeaconBlock<E, FullPayload<E>>,
-    Vec<BlobSidecarDeneb<E>>,
-) {
+) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
@@ -3312,7 +3309,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         .zip(proofs.into_iter())
         .enumerate()
     {
-        blob_sidecars.push(BlobSidecarDeneb {
+        blob_sidecars.push(BlobSidecar {
             index: index as u64,
             blob: blob.clone(),
             kzg_commitment,

@@ -17,9 +17,9 @@ use tokio::time::sleep;
 use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-    BlobSidecarDeneb, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
-    DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
-    KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnsByRootIdentifier,
+    EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -345,7 +345,7 @@ fn test_blobs_by_range_chunked_rpc() {
         });
 
         // BlobsByRange Response
-        let mut blob = BlobSidecarDeneb::<E>::empty();
+        let mut blob = BlobSidecar::<E>::empty();
         blob.signed_block_header.message.slot = deneb_slot;
 
         let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));

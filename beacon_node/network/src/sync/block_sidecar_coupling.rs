@@ -11,7 +11,7 @@ use ssz_types::RuntimeVariableList;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{Span, debug};
 use types::{
-    BlobSidecarDeneb, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, SignedBeaconBlock,
 };
 
@@ -44,7 +44,7 @@ pub enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
 
 enum RangeBlockDataRequest<E: EthSpec> {
     NoData,
-    Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecarDeneb<E>>>>),
+    Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar<E>>>>),
     DataColumns {
         requests: HashMap<
             DataColumnsByRangeRequestId,
@@ -151,7 +151,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn add_blobs(
         &mut self,
         req_id: BlobsByRangeRequestId,
-        blobs: Vec<Arc<BlobSidecarDeneb<E>>>,
+        blobs: Vec<Arc<BlobSidecar<E>>>,
     ) -> Result<(), String> {
         match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => Err("received blobs but expected no data".to_owned()),
@@ -271,7 +271,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
     fn responses_with_blobs(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-        blobs: Vec<Arc<BlobSidecarDeneb<E>>>,
+        blobs: Vec<Arc<BlobSidecar<E>>>,
         spec: &ChainSpec,
     ) -> Result<Vec<RpcBlock<E>>, CouplingError> {
         // There can't be more more blobs than blocks. i.e. sending any blob (empty

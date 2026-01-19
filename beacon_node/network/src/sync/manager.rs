@@ -73,7 +73,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecarDeneb, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -120,7 +120,7 @@ pub enum SyncMessage<E: EthSpec> {
     RpcBlob {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        blob_sidecar: Option<Arc<BlobSidecarDeneb<E>>>,
+        blob_sidecar: Option<Arc<BlobSidecar<E>>>,
         seen_timestamp: Duration,
     },
 
@@ -1123,7 +1123,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        blob: Option<Arc<BlobSidecarDeneb<T::EthSpec>>>,
+        blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match sync_request_id {
@@ -1175,7 +1175,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecarDeneb<T::EthSpec>>>,
+        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             self.block_lookups
@@ -1231,7 +1231,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         id: BlobsByRangeRequestId,
         peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecarDeneb<T::EthSpec>>>,
+        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(

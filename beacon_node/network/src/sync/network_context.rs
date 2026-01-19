@@ -51,8 +51,8 @@ use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::data::FixedBlobSidecarList;
 use types::{
-    BlobSidecarDeneb, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList,
-    EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -244,7 +244,7 @@ pub enum RangeBlockComponent<E: EthSpec> {
     ),
     Blob(
         BlobsByRangeRequestId,
-        RpcResponseResult<Vec<Arc<BlobSidecarDeneb<E>>>>,
+        RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>,
     ),
     CustodyColumns(
         DataColumnsByRangeRequestId,
@@ -1435,7 +1435,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<BlobSidecarDeneb<T::EthSpec>>>,
+        rpc_event: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
         let resp = self.blobs_by_root_requests.on_response(id, rpc_event);
         let resp = resp.map(|res| {
@@ -1489,8 +1489,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: BlobsByRangeRequestId,
         peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<BlobSidecarDeneb<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Vec<Arc<BlobSidecarDeneb<T::EthSpec>>>>> {
+        rpc_event: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<BlobSidecar<T::EthSpec>>>>> {
         let resp = self.blobs_by_range_requests.on_response(id, rpc_event);
         self.on_rpc_response_result(id, "BlobsByRangeRequest", resp, peer_id, |b| b.len())
     }
@@ -1817,7 +1817,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 }
 
 fn to_fixed_blob_sidecar_list<E: EthSpec>(
-    blobs: Vec<Arc<BlobSidecarDeneb<E>>>,
+    blobs: Vec<Arc<BlobSidecar<E>>>,
     max_len: usize,
 ) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
     let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);

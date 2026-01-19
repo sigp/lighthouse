@@ -9,7 +9,7 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
 use types::{
-    BlobSidecarDeneb, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, EthSpec,
+    BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, EthSpec,
     MinimalEthSpec, Slot,
 };
 
@@ -101,24 +101,10 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     let (kzg_proofs, blobs) = opt_blobs.unwrap();
     assert_eq!(blobs.len(), 2);
 
-    let blob_1 = Arc::new(
-        BlobSidecarDeneb::new(
-            0,
-            blobs[0].clone(),
-            &signed_block.clone_as_blinded(),
-            kzg_proofs[0],
-        )
-        .unwrap(),
-    );
-    let blob_2 = Arc::new(
-        BlobSidecarDeneb::new(
-            1,
-            blobs[1].clone(),
-            &signed_block.clone_as_blinded(),
-            kzg_proofs[1],
-        )
-        .unwrap(),
-    );
+    let blob_1 =
+        Arc::new(BlobSidecar::new(0, blobs[0].clone(), &signed_block, kzg_proofs[0]).unwrap());
+    let blob_2 =
+        Arc::new(BlobSidecar::new(1, blobs[1].clone(), &signed_block, kzg_proofs[1]).unwrap());
 
     let blobs = FixedBlobSidecarList::new(vec![Some(blob_1.clone()), Some(blob_2.clone())]);
     let expected_sse_blobs = vec![

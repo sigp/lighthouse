@@ -20,7 +20,7 @@ use tracing::{Span, debug, debug_span};
 use types::data::BlobIdentifier;
 use types::kzg_ext::KzgCommitments;
 use types::{
-    BlobSidecarDeneb, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
+    BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
     DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
 };
 
@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn peek_blob(
         &self,
         blob_id: &BlobIdentifier,
-    ) -> Result<Option<Arc<BlobSidecarDeneb<T::EthSpec>>>, AvailabilityCheckError> {
+    ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
         if let Some(pending_components) = self.critical.read().peek(&blob_id.block_root) {
             Ok(pending_components
                 .verified_blobs
@@ -1315,8 +1315,8 @@ mod pending_components_tests {
 
     type Setup<E> = (
         SignedBeaconBlock<E>,
-        RuntimeFixedVector<Option<Arc<BlobSidecarDeneb<E>>>>,
-        RuntimeFixedVector<Option<Arc<BlobSidecarDeneb<E>>>>,
+        RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>,
+        RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>,
         usize,
     );
 
@@ -1326,7 +1326,7 @@ mod pending_components_tests {
         let (block, blobs_vec) =
             generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
         let max_len = spec.max_blobs_per_block(block.epoch()) as usize;
-        let mut blobs: RuntimeFixedVector<Option<Arc<BlobSidecarDeneb<E>>>> =
+        let mut blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
             RuntimeFixedVector::default(max_len);
 
         for blob in blobs_vec {
@@ -1335,7 +1335,7 @@ mod pending_components_tests {
             }
         }
 
-        let mut invalid_blobs: RuntimeFixedVector<Option<Arc<BlobSidecarDeneb<E>>>> =
+        let mut invalid_blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
             RuntimeFixedVector::default(max_len);
         for (index, blob) in blobs.iter().enumerate() {
             if let Some(invalid_blob) = blob {
@@ -1356,8 +1356,8 @@ mod pending_components_tests {
 
     pub fn setup_pending_components(
         block: SignedBeaconBlock<E>,
-        valid_blobs: RuntimeFixedVector<Option<Arc<BlobSidecarDeneb<E>>>>,
-        invalid_blobs: RuntimeFixedVector<Option<Arc<BlobSidecarDeneb<E>>>>,
+        valid_blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>,
+        invalid_blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>,
     ) -> PendingComponentsSetup<E> {
         let blobs = RuntimeFixedVector::new(
             valid_blobs

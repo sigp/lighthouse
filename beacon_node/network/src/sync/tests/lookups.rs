@@ -41,7 +41,7 @@ use lighthouse_network::{
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
 use tracing::info;
-use types::BlobSidecarDeneb;
+use types::BlobSidecar;
 use types::{
     BeaconState, BeaconStateBase, BlockImportSource, DataColumnSidecar, EthSpec, ForkContext,
     ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
@@ -194,7 +194,7 @@ impl TestRig {
     fn rand_block_and_blobs(
         &mut self,
         num_blobs: NumBlobs,
-    ) -> (SignedBeaconBlock<E>, Vec<BlobSidecarDeneb<E>>) {
+    ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
         let rng = &mut self.rng;
         generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
@@ -474,7 +474,7 @@ impl TestRig {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        blob_sidecar: Option<Arc<BlobSidecarDeneb<E>>>,
+        blob_sidecar: Option<Arc<BlobSidecar<E>>>,
     ) {
         self.send_sync_message(SyncMessage::RpcBlob {
             sync_request_id: SyncRequestId::SingleBlob { id },
@@ -488,7 +488,7 @@ impl TestRig {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        blobs: Vec<BlobSidecarDeneb<E>>,
+        blobs: Vec<BlobSidecar<E>>,
     ) {
         for blob in blobs {
             self.single_lookup_blob_response(id, peer_id, Some(blob.into()));
@@ -500,7 +500,7 @@ impl TestRig {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        blobs: Vec<BlobSidecarDeneb<E>>,
+        blobs: Vec<BlobSidecar<E>>,
         import: bool,
     ) {
         let block_root = blobs.first().unwrap().block_root();

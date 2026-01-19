@@ -1,13 +1,13 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use std::sync::Arc;
-use types::{BlobSidecarDeneb, EthSpec};
+use types::{BlobSidecar, EthSpec};
 
 /// Accumulates results of a blobs_by_range request. Only returns items after receiving the
 /// stream termination.
 pub struct BlobsByRangeRequestItems<E: EthSpec> {
     request: BlobsByRangeRequest,
-    items: Vec<Arc<BlobSidecarDeneb<E>>>,
+    items: Vec<Arc<BlobSidecar<E>>>,
     max_blobs_per_block: u64,
 }
 
@@ -22,7 +22,7 @@ impl<E: EthSpec> BlobsByRangeRequestItems<E> {
 }
 
 impl<E: EthSpec> ActiveRequestItems for BlobsByRangeRequestItems<E> {
-    type Item = Arc<BlobSidecarDeneb<E>>;
+    type Item = Arc<BlobSidecar<E>>;
 
     fn add(&mut self, blob: Self::Item) -> Result<bool, LookupVerifyError> {
         if blob.slot() < self.request.start_slot
