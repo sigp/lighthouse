@@ -11,7 +11,11 @@ deny = [
     { crate = "derivative", reason = "use educe or derive_more instead" },
     { crate = "ark-ff", reason = "present in Cargo.lock but not needed by Lighthouse" },
     { crate = "strum", deny-multiple-versions = true, reason = "takes a long time to compile" },
-    { crate = "reqwest", deny-multiple-versions = true, reason = "takes a long time to compile" }
+    { crate = "reqwest", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "aes", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "sha2", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "pbkdf2", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "scrypt", deny-multiple-versions = true, reason = "takes a long time to compile" },
 ]
 
 [sources]

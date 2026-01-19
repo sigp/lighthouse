@@ -26,7 +26,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{Instrument, debug, debug_span, warn};
 use tree_hash::TreeHash;
-use types::payload::BlockProductionVersion;
+use types::execution::BlockProductionVersion;
 use types::*;
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;

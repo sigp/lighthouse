@@ -1,4 +1,3 @@
-use crate::attester_cache::Error as AttesterCacheError;
 use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
@@ -99,7 +98,7 @@ pub enum BeaconChainError {
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
     ObservedDataSidecarsError(ObservedDataSidecarsError),
-    AttesterCacheError(AttesterCacheError),
+    EarlyAttesterCacheError,
     PruningError(PruningError),
     ArithError(ArithError),
     InvalidShufflingId {
@@ -221,7 +220,7 @@ pub enum BeaconChainError {
     UnableToPublish,
     UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientUpdateError(LightClientUpdateError),
+    LightClientError(LightClientError),
     LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
@@ -267,7 +266,6 @@ easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(ObservedDataSidecarsError, BeaconChainError);
-easy_from_to!(AttesterCacheError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
@@ -277,7 +275,7 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientUpdateError, BeaconChainError);
+easy_from_to!(LightClientError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
 easy_from_to!(AttestationError, BeaconChainError);
 
