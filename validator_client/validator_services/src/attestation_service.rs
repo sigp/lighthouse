@@ -207,15 +207,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 match self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
                     Ok(_) => {
                         *last_slot = current_slot;
-                        let duration =
-                            if let Some(duration) = self.slot_clock.duration_to_next_slot() {
-                                duration
-                            } else {
-                                error!("Failed to read slot clock");
-                                slot_duration
-                            };
-
-                        sleep(duration).await;
                     }
                     Err(e) => {
                         crit!(error = e, "Failed to spawn attestation tasks")
@@ -233,11 +224,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             return None;
         };
         let mut receiver = receiver.lock().await;
-        match receiver.recv().await {
-            Some(head_event) => Some(head_event),
-            None => {
-                warn!("Head monitor channel closed unexpectedly");
-                None
+        loop {
+            match receiver.recv().await {
+                Some(head_event) => {
+                    // Only return head events for the current slot - this ensures the
+                    // block for this slot has been produced before triggering attestation
+                    let current_slot = self.slot_clock.now()?;
+                    if head_event.slot == current_slot {
+                        return Some(head_event);
+                    }
+                    // Head event is for a previous slot, keep waiting
+                }
+                None => {
+                    warn!("Head monitor channel closed unexpectedly");
+                    return None;
+                }
             }
         }
     }

@@ -15,6 +15,7 @@ type CacheHashMap = HashMap<usize, SseHead>;
 #[derive(Debug)]
 pub struct HeadEvent {
     pub beacon_node_index: usize,
+    pub slot: types::Slot,
 }
 
 /// Cache to maintain the latest head received from each of the beacon nodes
@@ -121,9 +122,16 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                         continue;
                     }
 
+                    // Skip optimistic heads - the beacon node can't produce valid
+                    // attestation data when its execution layer is not verified
+                    if head.execution_optimistic {
+                        continue;
+                    }
+
                     if sender_tx
                         .send(HeadEvent {
                             beacon_node_index: candidate.index,
+                            slot: head.slot,
                         })
                         .await
                         .is_err()
@@ -156,7 +164,7 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
 mod tests {
     use super::*;
     use bls::FixedBytesExtended;
-    use types::Hash256;
+    use types::{Hash256, Slot};
 
     fn create_sse_head(slot: u64, block_root: u8) -> SseHead {
         SseHead {
@@ -265,8 +273,10 @@ mod tests {
     async fn test_head_event_creation() {
         let event = HeadEvent {
             beacon_node_index: 42,
+            slot: Slot::new(123),
         };
         assert_eq!(event.beacon_node_index, 42);
+        assert_eq!(event.slot, Slot::new(123));
     }
 
     #[tokio::test]
