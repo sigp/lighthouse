@@ -132,9 +132,8 @@ use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
-use types::blob_sidecar::FixedBlobSidecarList;
-use types::data_column_sidecar::ColumnIndex;
-use types::payload::BlockProductionVersion;
+use types::data::{ColumnIndex, FixedBlobSidecarList};
+use types::execution::BlockProductionVersion;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;

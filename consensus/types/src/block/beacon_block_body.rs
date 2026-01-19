@@ -13,10 +13,11 @@ use test_random_derive::TestRandom;
 use tree_hash::{BYTES_PER_CHUNK, TreeHash};
 use tree_hash_derive::TreeHash;
 
-use crate::payload_attestation::PayloadAttestation;
 use crate::{
     SignedExecutionPayloadBid,
-    attestation::{AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut},
+    attestation::{
+        AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut, PayloadAttestation,
+    },
     core::{EthSpec, Graffiti, Hash256},
     deposit::Deposit,
     execution::{

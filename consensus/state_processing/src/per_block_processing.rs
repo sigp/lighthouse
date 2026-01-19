@@ -322,7 +322,7 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
 pub fn process_eth1_data<E: EthSpec>(
     state: &mut BeaconState<E>,
     eth1_data: &Eth1Data,
-) -> Result<(), Error> {
+) -> Result<(), BeaconStateError> {
     if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data)? {
         *state.eth1_data_mut() = new_eth1_data;
     }
