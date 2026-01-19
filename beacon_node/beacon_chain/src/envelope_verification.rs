@@ -263,10 +263,10 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         }
 
         // builder index matches committed bid
-        if envelope.builder_index != execution_bid.builder_index {
+        if envelope.raw_builder_index() != execution_bid.builder_index {
             return Err(EnvelopeError::BuilderIndexMismatch {
                 committed_bid: execution_bid.builder_index,
-                envelope: envelope.builder_index,
+                envelope: envelope.raw_builder_index(),
             });
         }
 
@@ -308,13 +308,15 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         )?;
         let fork = proposer.fork;
 
+        // True builder index accounting for self-building.
+        let proposer_index = parent_block.message().proposer_index();
+        let builder_index = envelope.builder_index(proposer_index);
+
         let signature_is_valid = {
             let pubkey_cache = chain.validator_pubkey_cache.read();
             let builder_pubkey = pubkey_cache
-                .get(envelope.builder_index as usize)
-                .ok_or_else(|| EnvelopeError::UnknownValidator {
-                    builder_index: envelope.builder_index,
-                })?;
+                .get(builder_index as usize)
+                .ok_or_else(|| EnvelopeError::UnknownValidator { builder_index })?;
             signed_envelope.verify_signature(
                 builder_pubkey,
                 &fork,

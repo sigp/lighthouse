@@ -372,6 +372,8 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
+    let proposer_index = state.latest_block_header().proposer_index;
+    let builder_index = signed_envelope.message.builder_index(proposer_index);
     let domain = spec.get_domain(
         state.current_epoch(),
         Domain::BeaconBuilder,
@@ -379,9 +381,8 @@ where
         state.genesis_validators_root(),
     );
     let message = signed_envelope.message.signing_root(domain);
-    let pubkey = get_pubkey(signed_envelope.message.builder_index as usize).ok_or(
-        Error::ValidatorUnknown(signed_envelope.message.builder_index),
-    )?;
+    let pubkey =
+        get_pubkey(builder_index as usize).ok_or(Error::ValidatorUnknown(builder_index))?;
 
     Ok(SignatureSet::single_pubkey(
         &signed_envelope.signature,
@@ -400,6 +401,7 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
+    // TODO(EIP-7732): needs to handle self building!
     let domain = spec.get_domain(
         state.current_epoch(),
         Domain::BeaconBuilder,

@@ -39,12 +39,14 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     ///
     /// The `parent_state` is the post-state of the beacon block with
     /// block_root = self.message.beacon_block_root
-    /// TODO(EIP-7732): maybe delete this function later
+    /// TODO(EIP-7732): maybe delete this function later (it is inefficient)
     pub fn verify_signature_with_state(
         &self,
         parent_state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<bool, BeaconStateError> {
+        let proposer_index = parent_state.latest_block_header().proposer_index;
+        let builder_index = self.message.builder_index(proposer_index) as usize;
         let domain = spec.get_domain(
             parent_state.current_epoch(),
             Domain::BeaconBuilder,
@@ -53,23 +55,18 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
         );
         let pubkey = parent_state
             .validators()
-            .get(self.message.builder_index as usize)
+            .get(builder_index)
             .and_then(|v| {
                 let pk: Option<PublicKey> = v.pubkey.decompress().ok();
                 pk
             })
-            .ok_or(BeaconStateError::UnknownValidator(
-                self.message.builder_index as usize,
-            ))?;
+            .ok_or(BeaconStateError::UnknownValidator(builder_index))?;
         let message = self.message.signing_root(domain);
 
         Ok(self.signature.verify(&pubkey, message))
     }
 
     /// Verify `self.signature`.
-    ///
-    /// If the root of `block.message` is already known it can be passed in via `object_root_opt`.
-    /// Otherwise, it will be computed locally.
     pub fn verify_signature(
         &self,
         pubkey: &PublicKey,
@@ -77,9 +74,11 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> bool {
+        // Signed envelopes using the new BeaconBuilder domain per the spec:
+        // https://github.com/ethereum/consensus-specs/blob/v1.7.0-alpha.1/specs/gloas/beacon-chain.md#new-verify_execution_payload_envelope_signature
         let domain = spec.get_domain(
             self.epoch(),
-            Domain::BeaconProposer,
+            Domain::BeaconBuilder,
             fork,
             genesis_validators_root,
         );
