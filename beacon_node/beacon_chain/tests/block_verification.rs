@@ -233,7 +233,7 @@ fn update_blob_signed_header<E: EthSpec>(
             kzg_commitment_inclusion_proof: signed_block
                 .message()
                 .body()
-                .kzg_commitment_merkle_proof(*old_blob_sidecar.index() as usize)
+                .kzg_commitment_merkle_proof(old_blob_sidecar.index as usize)
                 .unwrap(),
         });
         *old_blob_sidecar = new_blob;
@@ -246,18 +246,18 @@ fn update_data_column_signed_header<E: EthSpec>(
 ) {
     for old_custody_column_sidecar in data_columns.as_mut_slice() {
         let old_column_sidecar = old_custody_column_sidecar.as_data_column();
-        let new_column_sidecar = Arc::new(DataColumnSidecar::<E> {
-            index: old_column_sidecar.index,
-            column: old_column_sidecar.column.clone(),
-            kzg_commitments: old_column_sidecar.kzg_commitments.clone(),
-            kzg_proofs: old_column_sidecar.kzg_proofs.clone(),
+        let new_column_sidecar = Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+            index: *old_column_sidecar.index(),
+            column: old_column_sidecar.column().clone(),
+            kzg_commitments: old_column_sidecar.kzg_commitments().clone(),
+            kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
             signed_block_header: signed_block.signed_block_header(),
             kzg_commitments_inclusion_proof: signed_block
                 .message()
                 .body()
                 .kzg_commitments_merkle_proof()
                 .unwrap(),
-        });
+        }));
         *old_custody_column_sidecar = CustodyDataColumn::from_asserted_custody(new_column_sidecar);
     }
 }
@@ -1299,20 +1299,8 @@ async fn verify_and_process_gossip_data_sidecars(
     data_sidecars: DataSidecars<E>,
 ) {
     match data_sidecars {
-        DataSidecars::Blobs(blob_sidecars) => {
-            for blob_sidecar in blob_sidecars {
-                let blob_index = blob_sidecar.index;
-                let gossip_verified = harness
-                    .chain
-                    .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
-                    .expect("should obtain gossip verified blob");
-
-                harness
-                    .chain
-                    .process_gossip_blob(gossip_verified)
-                    .await
-                    .expect("should import valid gossip verified blob");
-            }
+        DataSidecars::Blobs(_blob_sidecars) => {
+            panic!("We dont support blobs anymore");
         }
         DataSidecars::DataColumns(column_sidecars) => {
             let gossip_verified = column_sidecars
@@ -1364,12 +1352,9 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
-    if let Some((kzg_proofs, blobs)) = blobs1 {
+    if let Some((_, _)) = blobs1 {
         harness
-            .process_gossip_columns(
-                verified_block.block(),
-                Some(get_custody_columns(&tester, block.slot())),
-            )
+            .process_gossip_columns(verified_block.block(), None)
             .await;
     }
     harness

@@ -1671,9 +1671,6 @@ pub async fn block_seen_on_gossip_with_columns() {
         blobs.0.len()
     );
 
-    let partial_kzg_proofs = [*blobs.0.first().unwrap()];
-    let partial_blobs = [blobs.1.first().unwrap().clone()];
-
     // Simulate the block being seen on gossip.
     block
         .clone()
@@ -1817,7 +1814,7 @@ async fn columns_seen_on_gossip_without_block_and_no_http_columns() {
 
     let state_a = tester.harness.get_current_state();
     let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
-    let (kzg_proofs, blobs) = blobs.expect("should have some blobs");
+    let (_, blobs) = blobs.expect("should have some blobs");
     assert!(!blobs.is_empty());
 
     // Simulate the blobs being seen on gossip.
@@ -1889,9 +1886,8 @@ async fn slashable_columns_seen_on_gossip_cause_failure() {
 
     let state_a = tester.harness.get_current_state();
     let ((block_a, blobs_a), _) = tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, _), _) = tester.harness.make_block(state_a, slot_b).await;
     let (kzg_proofs_a, blobs_a) = blobs_a.expect("should have some blobs");
-    let (kzg_proofs_b, blobs_b) = blobs_b.expect("should have some blobs");
 
     // Simulate the blobs of block B being seen on gossip.
     tester

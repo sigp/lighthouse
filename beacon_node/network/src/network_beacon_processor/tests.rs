@@ -10,7 +10,7 @@ use crate::{
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::custody_context::NodeCustodyType;
-use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
+use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
@@ -39,12 +39,14 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
-    DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
-    SubnetId,
+    AttesterSlashing, BlobSidecar, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
+    EthSpec, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+};
+use types::{
+    BlobSidecarListDeneb,
+    data::{BlobIdentifier, FixedBlobSidecarList},
 };
 
 type E = MainnetEthSpec;
@@ -64,7 +66,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<BlobSidecarList<E>>,
+    next_blobs: Option<BlobSidecarListDeneb<E>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
@@ -309,7 +311,7 @@ impl TestRig {
                 )
                 .unwrap()
                 .into_iter()
-                .filter(|c| sampling_indices.contains(&c.index))
+                .filter(|c| sampling_indices.contains(c.index()))
                 .collect::<Vec<_>>();
 
                 (None, Some(custody_columns))
@@ -363,22 +365,6 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn enqueue_gossip_blob(&self, blob_index: usize) {
-        if let Some(blobs) = self.next_blobs.as_ref() {
-            let blob = blobs.get(blob_index).unwrap();
-            self.network_beacon_processor
-                .send_gossip_blob_sidecar(
-                    junk_message_id(),
-                    junk_peer_id(),
-                    Client::default(),
-                    blob.index,
-                    blob.clone(),
-                    Duration::from_secs(0),
-                )
-                .unwrap();
-        }
-    }
-
     pub fn enqueue_gossip_data_columns(&self, col_index: usize) {
         if let Some(data_columns) = self.next_data_columns.as_ref() {
             let data_column = data_columns.get(col_index).unwrap();
@@ -386,7 +372,7 @@ impl TestRig {
                 .send_gossip_data_column_sidecar(
                     junk_message_id(),
                     junk_peer_id(),
-                    DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
+                    DataColumnSubnetId::from_column_index(*data_column.index(), &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
                 )
@@ -1022,13 +1008,6 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
-
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
@@ -1115,8 +1094,8 @@ async fn accept_processed_gossip_data_columns_without_import() {
         .into_iter()
         .map(|data_column| {
             let subnet_id =
-                DataColumnSubnetId::from_column_index(data_column.index, &rig.chain.spec);
-            validate_data_column_sidecar_for_gossip::<_, DoNotObserve>(
+                DataColumnSubnetId::from_column_index(*data_column.index(), &rig.chain.spec);
+            validate_data_column_sidecar_for_gossip_fulu::<_, DoNotObserve>(
                 data_column,
                 subnet_id,
                 &rig.chain,
@@ -1166,13 +1145,6 @@ async fn import_gossip_block_at_current_slot() {
 
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
-
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
@@ -1240,10 +1212,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar);
@@ -1326,10 +1294,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar)
@@ -1948,7 +1912,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
         } = next
         {
             if let Some(column) = data_column {
-                received_columns.push(column.index);
+                received_columns.push(*column.index());
             } else {
                 break;
             }
