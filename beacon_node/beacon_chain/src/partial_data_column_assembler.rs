@@ -1,11 +1,12 @@
-use crate::data_column_verification::KzgVerifiedCustodyPartialDataColumn;
 use lru::LruCache;
 use parking_lot::RwLock;
+use parking_lot::lock_api::RwLockReadGuard;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use std::ops::Deref;
 use std::sync::Arc;
-use types::partial_data_column_sidecar::PartialDataColumn;
-use types::{ColumnIndex, DataColumnSidecar, EthSpec, Hash256, KzgCommitments, Slot};
+use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
+use types::{ColumnIndex, DataColumnSidecar, EthSpec, Hash256};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {
@@ -15,26 +16,17 @@ pub struct PartialDataColumnAssembler<E: EthSpec> {
 
 /// Tracks partial columns being assembled for a single block
 struct PartialAssembly<E: EthSpec> {
-    #[allow(dead_code)]
-    block_root: Hash256,
-    slot: Slot,
-    kzg_commitments: KzgCommitments<E>,
+    header: PartialDataColumnHeader<E>,
     /// Map of column_index -> partial column being assembled
     columns: HashMap<ColumnIndex, Arc<PartialDataColumn<E>>>,
 }
 
 /// Result of merging a partial column
-pub enum PartialMergeResult<E: EthSpec> {
-    /// Merge was successful but column is still incomplete
-    Incomplete {
-        updated_partial: Arc<PartialDataColumn<E>>,
-    },
-    /// Merge completed the column
-    Completed {
-        full_column: Arc<DataColumnSidecar<E>>,
-        /// The updated partial for publishing (same as full but as partial type)
-        updated_partial: Arc<PartialDataColumn<E>>,
-    },
+pub struct PartialMergeResult<E: EthSpec> {
+    /// Merge that completed the column
+    pub full_columns: Vec<Arc<DataColumnSidecar<E>>>,
+    /// The updated partials for publishing
+    pub updated_partials: Vec<Arc<PartialDataColumn<E>>>,
 }
 
 impl<E: EthSpec> PartialDataColumnAssembler<E> {
@@ -44,98 +36,85 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         }
     }
 
-    /// Initialize assembler with columns from engine getBlobsV3 response.
-    /// Returns immediately complete columns and partials that need gossip propagation.
-    pub fn init_with_engine_blobs(
-        &self,
-        block_root: Hash256,
-        slot: Slot,
-        kzg_commitments: KzgCommitments<E>,
-        custody_columns: Vec<KzgVerifiedCustodyPartialDataColumn<E>>,
-    ) -> InitResult<E> {
-        let mut result = InitResult {
-            complete_columns: vec![],
-            incomplete_partials: vec![],
-        };
+    pub fn init<T>(&self, block_root: Hash256, header: T) -> Result<bool, T::Error>
+    where
+        T: TryInto<PartialDataColumnHeader<E>>,
+    {
+        let assemblies = self.assemblies.write();
 
-        let mut assembly = PartialAssembly {
-            block_root,
-            slot,
-            kzg_commitments: kzg_commitments.clone(),
+        if assemblies.contains(&block_root) {
+            return Ok(false);
+        }
+
+        let header = header.try_into()?;
+
+        let assembly = PartialAssembly {
+            header,
             columns: HashMap::new(),
         };
 
-        for custody_col in custody_columns {
-            let partial = custody_col.into_inner();
-            let column_index = partial.index;
+        self.assemblies.write().put(block_root, assembly);
 
-            // Check if this partial is already complete
-            if partial.sidecar.is_complete() {
-                // Convert to full column
-                if let Some(full) = Self::partial_to_full(&partial, &kzg_commitments) {
-                    result.complete_columns.push(full);
-                    continue;
-                }
-            }
-
-            // Store incomplete partial
-            let partial = Arc::new(partial);
-            result.incomplete_partials.push(partial.clone());
-            assembly.columns.insert(column_index, partial);
-        }
-
-        // Only cache if we have incomplete columns
-        if !assembly.columns.is_empty() {
-            self.assemblies.write().put(block_root, assembly);
-        }
-
-        result
+        Ok(true)
     }
 
     /// Merge a received partial column into the assembly.
     /// Returns the merge result indicating if column is now complete.
-    pub fn merge_partial(
+    pub fn merge_partials(
         &self,
         block_root: Hash256,
-        partial: PartialDataColumn<E>,
+        partials: Vec<PartialDataColumn<E>>,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies.get_mut(&block_root)?;
-
-        let column_index = partial.index;
-
-        let merged = if let Some(existing) = assembly.columns.get(&column_index) {
-            // Merge with existing partial
-            let merged_sidecar = existing.sidecar.merge(&partial.sidecar)?;
-            Arc::new(PartialDataColumn {
-                block_root: existing.block_root,
-                index: existing.index,
-                sidecar: merged_sidecar,
+        let assembly = assemblies
+            .try_get_or_insert_mut(block_root, || {
+                partials
+                    .iter()
+                    .filter_map(|partial| partial.sidecar.header.first())
+                    .next()
+                    .map(|header| PartialAssembly {
+                        header: header.clone(),
+                        columns: HashMap::new(),
+                    })
+                    .ok_or(())
             })
-        } else {
-            // First time seeing this column index for this block
-            Arc::new(partial.clone())
-        };
+            .ok()?;
 
-        // Check if merged column is now complete
-        if merged.sidecar.is_complete() {
-            // Remove from assembly since it's complete
-            assembly.columns.remove(&column_index);
+        let mut full_columns = Vec::new();
+        let mut updated_partials = Vec::new();
 
-            // Convert to full column
-            if let Some(full_column) = Self::partial_to_full(&merged, &assembly.kzg_commitments) {
-                return Some(PartialMergeResult::Completed {
-                    full_column,
-                    updated_partial: merged,
-                });
+        for partial in partials {
+            let column_index = partial.index;
+
+            let merged = if let Some(existing) = assembly.columns.get(&column_index) {
+                // Merge with existing partial
+                let Some(merged_sidecar) = existing.sidecar.merge(&partial.sidecar) else {
+                    continue;
+                };
+                PartialDataColumn {
+                    block_root: existing.block_root,
+                    index: existing.index,
+                    sidecar: merged_sidecar,
+                }
+            } else {
+                // First time seeing this column index for this block
+                partial
+            };
+
+            // Check if merged column is now complete by trying to convert into full
+            if let Some(full_column) = merged.try_clone_full() {
+                full_columns.push(Arc::new(full_column));
             }
+
+            // Update assembly with merged partial
+            let merged = Arc::new(merged);
+            assembly.columns.insert(column_index, merged.clone());
+            updated_partials.push(merged);
         }
 
-        // Update assembly with merged partial
-        assembly.columns.insert(column_index, merged.clone());
-
-        Some(PartialMergeResult::Incomplete {
-            updated_partial: merged,
+        Some(PartialMergeResult {
+            full_columns,
+            updated_partials,
         })
     }
 
@@ -153,12 +132,15 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .cloned()
     }
 
-    /// Get commitments for a block if we have an active assembly
-    pub fn get_commitments(&self, block_root: &Hash256) -> Option<KzgCommitments<E>> {
-        self.assemblies
-            .read()
-            .peek(block_root)
-            .map(|assembly| assembly.kzg_commitments.clone())
+    /// Get header for a block if we have an active assembly
+    pub fn get_header(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<impl Deref<Target = PartialDataColumnHeader<E>>> {
+        RwLockReadGuard::try_map(self.assemblies.read(), |assemblies| {
+            assemblies.peek(block_root).map(|a| &a.header)
+        })
+        .ok()
     }
 
     /// Check if we have an assembly for this block
@@ -177,7 +159,14 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         let mut to_remove = vec![];
 
         for (root, assembly) in assemblies.iter() {
-            if assembly.slot.epoch(E::slots_per_epoch()) < cutoff_epoch {
+            if assembly
+                .header
+                .signed_block_header
+                .message
+                .slot
+                .epoch(E::slots_per_epoch())
+                < cutoff_epoch
+            {
                 to_remove.push(*root);
             }
         }
@@ -185,32 +174,6 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         for root in to_remove {
             assemblies.pop(&root);
         }
-    }
-
-    /// Convert a complete partial to a full DataColumnSidecar
-    fn partial_to_full(
-        partial: &PartialDataColumn<E>,
-        kzg_commitments: &KzgCommitments<E>,
-    ) -> Option<Arc<DataColumnSidecar<E>>> {
-        // Use the as_full method - requires a block for signed header
-        // For now we'll construct it manually since we have all the data
-        if !partial.sidecar.is_complete() {
-            return None;
-        }
-
-        let expected = partial.sidecar.cells_present_bitmap.len();
-        if partial.sidecar.column.len() != expected
-            || partial.sidecar.kzg_proofs.len() != expected
-            || kzg_commitments.len() != expected
-        {
-            return None;
-        }
-
-        // We need the signed block header and inclusion proof which requires the full block
-        // For the assembler, we'll return None here and require callers to use the
-        // VerifiablePartialDataColumn::as_full method with the actual block
-        // This is handled in the merge flow where we have access to the block
-        None
     }
 
     /// Get cache size for metrics

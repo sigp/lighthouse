@@ -26,8 +26,8 @@ use crate::data_availability_checker::{
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
 use crate::data_column_verification::{
-    GossipDataColumnError, GossipVerifiedDataColumn, KzgVerifiedPartialDataColumn,
-    validate_partial_data_column_sidecar_for_gossip,
+    GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedPartialDataColumnHeader,
+    KzgVerifiedPartialDataColumn, validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -137,7 +137,7 @@ use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace
 use tree_hash::TreeHash;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
-use types::partial_data_column_sidecar::PartialDataColumn;
+use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -340,6 +340,7 @@ struct PartialBeaconBlock<E: EthSpec> {
 pub enum BlockProcessStatus<E: EthSpec> {
     /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
     Unknown,
+    /// Only the header
     /// Block is currently processing but not yet validated.
     NotValidated(Arc<SignedBeaconBlock<E>>, BlockImportSource),
     /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
@@ -2198,6 +2199,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn verify_partial_data_column_header_for_gossip(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        data_column_header: PartialDataColumnHeader<T::EthSpec>,
+    ) -> Result<GossipVerifiedPartialDataColumnHeader<T::EthSpec>, GossipDataColumnError> {
+        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        if let Some(cached_header) = self
+            .data_availability_checker
+            .partial_assembler()
+            .get_header(&block_root)
+        {
+            return if *cached_header == data_column_header {
+                metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES);
+                Ok(GossipVerifiedPartialDataColumnHeader::new_from_cached(
+                    data_column_header,
+                ))
+            } else {
+                Err(GossipDataColumnError::PartialHeaderMismatches)
+            };
+        }
+
+        GossipVerifiedPartialDataColumnHeader::new(block_root, data_column_header, self).inspect(
+            |_| {
+                metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
+            },
+        )
+    }
+
     #[instrument(skip_all, level = "trace")]
     pub fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
@@ -3117,18 +3147,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let merge_result = self
             .data_availability_checker
             .partial_assembler()
-            .merge_partial(block_root, partial)
+            .merge_partials(block_root, vec![partial])
             .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
 
         // If we completed a column, process it through the DA checker
-        if let crate::partial_data_column_assembler::PartialMergeResult::Completed {
-            ref full_column,
-            ..
-        } = merge_result
-        {
+        if !merge_result.full_columns.is_empty() {
             let availability = self
                 .data_availability_checker
-                .put_full_data_columns(block_root, vec![full_column.clone()])?;
+                .put_full_data_columns(block_root, merge_result.full_columns.clone())?;
 
             // If we achieved full availability, process it
             if let Availability::Available(available_block) = availability {

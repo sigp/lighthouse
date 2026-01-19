@@ -17,8 +17,9 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::{debug, instrument};
+use tree_hash::TreeHash;
 use types::data::ColumnIndex;
-use types::partial_data_column_sidecar::PartialDataColumn;
+use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
     SignedBeaconBlockHeader, Slot,
@@ -172,6 +173,19 @@ pub enum GossipDataColumnError {
     MaxBlobsPerBlockExceeded {
         max_blobs_per_block: usize,
         commitments_len: usize,
+    },
+    /// The partial data column header does not match the valid one we have already cached.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    PartialHeaderMismatches,
+    /// The partial data column header block root does not match the group id.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    PartialHeaderIncorrectRoot {
+        group_id: Hash256,
+        header_hash: Hash256,
     },
 }
 
@@ -389,19 +403,88 @@ impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
     }
 
     /// Returns the slot of this partial data column.
-    ///
-    /// # Panics
-    /// Panics if the header is not present. The header is guaranteed to be present
-    /// for columns that have passed gossip validation.
     pub fn slot(&self) -> Slot {
         self.data
             .sidecar
             .header
             .first()
-            .expect("Header must be present for gossip-validated partial columns")
+            .expect("Header must be present for validated partial columns")
             .signed_block_header
             .message
             .slot
+    }
+}
+
+/// Wrapper over a `PartialDataColumnHeader` for which we have completed gossip verification.
+#[derive(Debug, Educe, Clone)]
+#[educe(PartialEq, Eq)]
+pub struct GossipVerifiedPartialDataColumnHeader<E: EthSpec> {
+    header: PartialDataColumnHeader<E>,
+    cached: bool,
+}
+
+impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
+    pub fn new<T: BeaconChainTypes<EthSpec = E>>(
+        group_id: Hash256,
+        header: PartialDataColumnHeader<E>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, GossipDataColumnError> {
+        let column_slot = header.signed_block_header.message.slot;
+        if header.kzg_commitments.is_empty() {
+            return Err(GossipDataColumnError::UnexpectedDataColumn);
+        }
+
+        let header_hash = header.signed_block_header.message.canonical_root();
+        if group_id != header_hash {
+            return Err(GossipDataColumnError::PartialHeaderIncorrectRoot {
+                group_id,
+                header_hash,
+            });
+        }
+
+        verify_sidecar_not_from_future_slot(chain, column_slot)?;
+        verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
+        verify_partial_column_header_inclusion_proof(&header)?;
+        let parent_block = verify_parent_block_and_finalized_descendant(
+            header.signed_block_header.message.parent_root,
+            chain,
+        )?;
+        verify_slot_higher_than_parent(&parent_block, column_slot)?;
+        verify_proposer_and_signature(&header.signed_block_header, &parent_block, chain)?;
+
+        chain
+            .observed_slashable
+            .write()
+            .observe_slashable(
+                column_slot,
+                header.signed_block_header.message.proposer_index,
+                header_hash,
+            )
+            .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+
+        Ok(Self {
+            header,
+            cached: false,
+        })
+    }
+
+    pub fn new_from_cached(header: PartialDataColumnHeader<E>) -> Self {
+        Self {
+            header,
+            cached: true,
+        }
+    }
+
+    pub fn as_inner(&self) -> &PartialDataColumnHeader<E> {
+        &self.header
+    }
+
+    pub fn into_inner(self) -> PartialDataColumnHeader<E> {
+        self.header
+    }
+
+    pub fn was_cached(&self) -> bool {
+        self.cached
     }
 }
 
@@ -614,9 +697,10 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     }
 
     verify_column_inclusion_proof(&data_column)?;
-    let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
+    let parent_block =
+        verify_parent_block_and_finalized_descendant(data_column.block_parent_root(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
-    verify_proposer_and_signature(&data_column, &parent_block, chain)?;
+    verify_proposer_and_signature(&data_column.signed_block_header, &parent_block, chain)?;
     let kzg = &chain.kzg;
     let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
         .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
@@ -745,6 +829,17 @@ fn verify_column_inclusion_proof<E: EthSpec>(
     Ok(())
 }
 
+fn verify_partial_column_header_inclusion_proof<E: EthSpec>(
+    header: &PartialDataColumnHeader<E>,
+) -> Result<(), GossipDataColumnError> {
+    let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION);
+    if !header.verify_inclusion_proof() {
+        return Err(GossipDataColumnError::InvalidInclusionProof);
+    }
+
+    Ok(())
+}
+
 fn verify_slot_higher_than_parent(
     parent_block: &Block,
     data_column_slot: Slot,
@@ -759,14 +854,13 @@ fn verify_slot_higher_than_parent(
 }
 
 fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
-    data_column: Arc<DataColumnSidecar<T::EthSpec>>,
+    block_parent_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<ProtoBlock, GossipDataColumnError> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
 
     // We have already verified that the column is past finalization, so we can
     // just check fork choice for the block's parent.
-    let block_parent_root = data_column.block_parent_root();
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
         return Err(GossipDataColumnError::ParentUnknown {
             parent_root: block_parent_root,
@@ -783,16 +877,15 @@ fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
 }
 
 fn verify_proposer_and_signature<T: BeaconChainTypes>(
-    data_column: &DataColumnSidecar<T::EthSpec>,
+    signed_block_header: &SignedBeaconBlockHeader,
     parent_block: &ProtoBlock,
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
-    let column_slot = data_column.slot();
+    let column_slot = signed_block_header.message.slot;
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
     let column_epoch = column_slot.epoch(slots_per_epoch);
-    let column_index = data_column.index;
-    let block_root = data_column.block_root();
-    let block_parent_root = data_column.block_parent_root();
+    let block_root = signed_block_header.message.tree_hash_root();
+    let block_parent_root = signed_block_header.message.parent_root;
 
     let proposer_shuffling_root =
         parent_block.proposer_shuffling_root_for_child_block(column_epoch, &chain.spec);
@@ -804,7 +897,6 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
         || {
             debug!(
                 %block_root,
-                index = %column_index,
                 "Proposer shuffling cache miss for column verification"
             );
             chain
@@ -831,7 +923,6 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
         let pubkey = pubkey_cache
             .get(proposer_index)
             .ok_or_else(|| GossipDataColumnError::UnknownValidator(proposer_index as u64))?;
-        let signed_block_header = &data_column.signed_block_header;
         signed_block_header.verify_signature::<T::EthSpec>(
             pubkey,
             &fork,
@@ -844,7 +935,7 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
         return Err(GossipDataColumnError::ProposalSignatureInvalid);
     }
 
-    let column_proposer_index = data_column.block_proposer_index();
+    let column_proposer_index = signed_block_header.message.proposer_index;
     if proposer_index != column_proposer_index as usize {
         return Err(GossipDataColumnError::ProposerIndexMismatch {
             sidecar: column_proposer_index as usize,

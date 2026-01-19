@@ -260,11 +260,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .process_gossip_dangling_partial_data_column_sidecar(
-                    peer_id,
-                    column_sidecar,
-                    seen_timestamp,
-                )
+                .process_gossip_partial_data_column_sidecar(peer_id, column_sidecar, seen_timestamp)
                 .await
         };
 

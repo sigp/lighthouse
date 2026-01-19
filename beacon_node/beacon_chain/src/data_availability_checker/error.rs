@@ -21,6 +21,7 @@ pub enum Error {
     ParentStateMissing(Hash256),
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
+    PartialAssemblerError(BeaconStateError),
     SlotClockError,
 }
 
@@ -44,6 +45,7 @@ impl Error {
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
+            | Error::PartialAssemblerError(_)
             | Error::SlotClockError => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }

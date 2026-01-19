@@ -344,39 +344,44 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     }
 
     // Initialize the partial assembler with the columns from the engine
-    let kzg_commitments = block
-        .message()
-        .body()
-        .blob_kzg_commitments()
-        .map_err(FetchEngineBlobError::BeaconStateError)?
-        .clone();
+    let assembler = chain_adapter.partial_assembler();
+    assembler
+        .init(block_root, block.as_ref())
+        .map_err(FetchEngineBlobError::BeaconStateError)?;
 
-    let init_result = chain_adapter.partial_assembler().init_with_engine_blobs(
-        block_root,
-        block.slot(),
-        kzg_commitments,
-        custody_columns_to_import,
-    );
+    let merge_result = assembler
+        .merge_partials(
+            block_root,
+            custody_columns_to_import
+                .into_iter()
+                .map(|c| c.into_inner())
+                .collect(),
+        )
+        .ok_or_else(|| {
+            FetchEngineBlobError::InternalError(
+                "merging partial failed immediately after initialization".to_string(),
+            )
+        })?;
 
     // Publish complete columns and incomplete partials
-    if !init_result.complete_columns.is_empty() {
+    if !merge_result.full_columns.is_empty() {
         publish_fn(EngineGetBlobsOutput::CompleteColumns(
-            init_result.complete_columns.clone(),
+            merge_result.full_columns.clone(),
         ));
     }
-    if !init_result.incomplete_partials.is_empty() {
+    if !merge_result.updated_partials.is_empty() {
         publish_fn(EngineGetBlobsOutput::PartialColumns(
-            init_result.incomplete_partials.clone(),
+            merge_result.updated_partials,
         ));
     }
 
     // Process complete columns through DA checker
-    let availability_processing_status = if !init_result.complete_columns.is_empty() {
+    let availability_processing_status = if !merge_result.full_columns.is_empty() {
         chain_adapter
             .process_engine_blobs(
                 block.slot(),
                 block_root,
-                EngineGetBlobsOutput::CompleteColumns(init_result.complete_columns),
+                EngineGetBlobsOutput::CompleteColumns(merge_result.full_columns),
             )
             .await?
     } else {

@@ -1,12 +1,17 @@
 use crate::test_utils::TestRandom;
-use crate::{Cell, ColumnIndex, EthSpec, Hash256, KzgCommitments, SignedBeaconBlockHeader};
+use crate::{
+    BLOB_KZG_COMMITMENTS_INDEX, BeaconStateError, Cell, ColumnIndex, DataColumnSidecar, EthSpec,
+    Hash256, KzgCommitments, SignedBeaconBlock, SignedBeaconBlockHeader,
+};
 use educe::Educe;
 use kzg::KzgProof;
+use merkle_proof::verify_merkle_proof;
 use ssz::{BitList, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use typenum::U1;
 
@@ -191,6 +196,36 @@ pub struct PartialDataColumnHeader<E: EthSpec> {
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 }
 
+impl<E: EthSpec> PartialDataColumnHeader<E> {
+    pub fn verify_inclusion_proof(&self) -> bool {
+        let blob_kzg_commitments_root = self.kzg_commitments.tree_hash_root();
+
+        verify_merkle_proof(
+            blob_kzg_commitments_root,
+            &self.kzg_commitments_inclusion_proof,
+            E::kzg_commitments_inclusion_proof_depth(),
+            BLOB_KZG_COMMITMENTS_INDEX,
+            self.signed_block_header.message.body_root,
+        )
+    }
+}
+
+impl<E: EthSpec> TryFrom<&SignedBeaconBlock<E>> for PartialDataColumnHeader<E> {
+    type Error = BeaconStateError;
+
+    fn try_from(block: &SignedBeaconBlock<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            kzg_commitments: block.message().body().blob_kzg_commitments()?.clone(),
+            signed_block_header: block.signed_block_header(),
+            kzg_commitments_inclusion_proof: block
+                .message()
+                .body()
+                .kzg_commitments_merkle_proof()?
+                .clone(),
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartialDataColumn<E: EthSpec> {
     pub block_root: Hash256,
@@ -207,6 +242,31 @@ impl<E: EthSpec> PartialDataColumn<E> {
             sidecar: self.sidecar.clone_filter(filter)?,
             block_root: self.block_root,
             index: self.index,
+        })
+    }
+
+    pub fn try_clone_full(&self) -> Option<DataColumnSidecar<E>> {
+        if !self.sidecar.is_complete() {
+            return None;
+        }
+        let Some(header) = self.sidecar.header.first() else {
+            return None;
+        };
+
+        Some(DataColumnSidecar {
+            index: self.index,
+            column: VariableList::new(
+                self.sidecar
+                    .column
+                    .iter()
+                    .map(|cell| cell.as_ref().clone())
+                    .collect(),
+            )
+            .expect("Same bounds"),
+            kzg_commitments: header.kzg_commitments.clone(),
+            kzg_proofs: self.sidecar.kzg_proofs.clone(),
+            signed_block_header: header.signed_block_header.clone(),
+            kzg_commitments_inclusion_proof: header.kzg_commitments_inclusion_proof.clone(),
         })
     }
 }

@@ -9,7 +9,6 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{
     GossipDataColumnError, GossipVerifiedDataColumn, KzgVerifiedPartialDataColumn,
 };
-use beacon_chain::partial_data_column_assembler::PartialMergeResult;
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -34,6 +33,7 @@ use logging::crit;
 use operation_pool::ReceivedPreCapella;
 use slot_clock::SlotClock;
 use ssz::Encode;
+use ssz_types::VariableList;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -42,11 +42,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
-    Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
+    Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, ColumnIndex,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -769,6 +770,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
                     }
+                    GossipDataColumnError::PartialHeaderMismatches
+                    | GossipDataColumnError::PartialHeaderIncorrectRoot { .. } => {
+                        error!(error = ?err, "Unexpected error during full column verification");
+                    }
                 }
             }
         }
@@ -779,104 +784,57 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(block_root = ?column_sidecar.block_root, index = column_sidecar.index),
+        fields(block_root = ?column.block_root, index = column.index),
     )]
-    pub async fn process_gossip_dangling_partial_data_column_sidecar(
+    pub async fn process_gossip_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: PartialDataColumn<T::EthSpec>,
+        mut column: PartialDataColumn<T::EthSpec>,
         seen_duration: Duration,
     ) {
-        // TODO(dknopik): add check and cache for header
+        let slot = if let Some(header) = column.sidecar.header.first() {
+            // Header was sent, so it is required to be valid
+            match self
+                .chain
+                .verify_partial_data_column_header_for_gossip(column.block_root, header.clone())
+            {
+                Ok(verified) => {
+                    if !verified.was_cached() {
+                        self.chain
+                            .data_availability_checker
+                            .put_partial_data_column_header(verified.into_inner())
+                        // TODO(dknopik): trigger getBlobsV3
+                    }
+                }
+                Err(err) => {
+                    self.handle_partial_verification_error(
+                        peer_id,
+                        err,
+                        column.block_root,
+                        column.index,
+                    );
+                    return;
+                }
+            }
+            header.signed_block_header.message.slot
+        } else {
+            // There is no header, so we check if we have a cached one to use
+            let Some(header) = self
+                .chain
+                .data_availability_checker
+                .partial_assembler()
+                .get_header(&column.block_root)
+            else {
+                error!(block=%column.block_root, index=%column.index, "Received partial column while not having header stored");
+                return;
+            };
+            let slot = header.signed_block_header.message.slot;
+            column.sidecar.header = VariableList::repeat_full((*header).clone());
+            slot
+        };
 
-        // TODO(dknopik): make this more elegant with above todo
-        let slot = column_sidecar
-            .sidecar
-            .header
-            .first()
-            .unwrap()
-            .signed_block_header
-            .message
-            .slot;
-
-        self.process_gossip_verifiable_partial_data_column_sidecar(
-            peer_id,
-            column_sidecar,
-            slot,
-            seen_duration,
-        )
-        .await;
-    }
-
-    /*fn handle_dangling_partial_data_column_sidecar_missing_block(
-        self: &Arc<Self>,
-        peer_id: PeerId,
-        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
-        seen_duration: Duration,
-        allow_reprocess: bool,
-    ) {
-        // TODO(dknopik): is this method of checking adequate?...
-        if self
-            .chain
-            .store
-            .block_exists(&column_sidecar.block_root)
-            .unwrap_or(false)
-        {
-            debug!("Received partial for already imported block");
-            return;
-        }
-        if !allow_reprocess {
-            debug!("Not reprocessing");
-            return;
-        }
-        debug!("Received partial while not having block");
-        metrics::inc_counter(
-            &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_CACHED_TOTAL,
-        );
-        // TODO(dknopik): self.send_sync_message() ?
-        let cloned_self = self.clone();
-        if self
-            .beacon_processor_send
-            .try_send(WorkEvent {
-                drop_during_sync: false,
-                work: Work::Reprocess(ReprocessQueueMessage::UnknownPartialColumn(
-                    QueuedPartialColumn {
-                        beacon_block_root: column_sidecar.block_root,
-                        process_fn: Box::pin(async move {
-                            cloned_self
-                                .process_gossip_dangling_partial_data_column_sidecar(
-                                    peer_id,
-                                    column_sidecar,
-                                    seen_duration,
-                                    false,
-                                )
-                                .await;
-                        }),
-                    },
-                )),
-            })
-            .is_err()
-        {
-            error!("Failed to send attestation for re-processing")
-        }
-    }*/
-
-    #[instrument(
-        name = SPAN_PROCESS_GOSSIP_PARTIAL_DATA_COLUMN,
-        parent = None,
-        level = "debug",
-        skip_all,
-        fields(slot = %slot, block_root = ?column_sidecar.block_root, index = column_sidecar.index),
-    )]
-    pub async fn process_gossip_verifiable_partial_data_column_sidecar(
-        self: &Arc<Self>,
-        peer_id: PeerId,
-        column_sidecar: PartialDataColumn<T::EthSpec>,
-        slot: Slot,
-        seen_duration: Duration,
-    ) {
-        let block_root = column_sidecar.block_root;
-        let index = column_sidecar.index;
+        let block_root = column.block_root;
+        let index = column.index;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
@@ -885,7 +843,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         match self
             .chain
-            .verify_partial_data_column_sidecar_for_gossip(column_sidecar)
+            .verify_partial_data_column_sidecar_for_gossip(column)
         {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
@@ -922,97 +880,117 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .await
             }
             Err(err) => {
-                match err {
-                    GossipDataColumnError::PriorKnownUnpublished => {
-                        debug!(
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
-                        );
-                        // TODO(dknopik): Joao
-                        //self.propagate_validation_result(
-                        //    message_id,
-                        //    peer_id,
-                        //    MessageAcceptance::Accept,
-                        //);
-                    }
-                    // ParentUnknown can't really happen, so we treat it like an internal error
-                    GossipDataColumnError::ParentUnknown { .. }
-                    | GossipDataColumnError::PubkeyCacheTimeout
-                    | GossipDataColumnError::BeaconChainError(_) => {
-                        crit!(
-                            error = ?err,
-                            "Internal error when verifying column sidecar"
-                        )
-                    }
-                    GossipDataColumnError::ProposalSignatureInvalid
-                    | GossipDataColumnError::UnknownValidator(_)
-                    | GossipDataColumnError::ProposerIndexMismatch { .. }
-                    | GossipDataColumnError::IsNotLaterThanParent { .. }
-                    | GossipDataColumnError::InvalidSubnetId { .. }
-                    | GossipDataColumnError::InvalidInclusionProof
-                    | GossipDataColumnError::InvalidKzgProof { .. }
-                    | GossipDataColumnError::UnexpectedDataColumn
-                    | GossipDataColumnError::InvalidColumnIndex(_)
-                    | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
-                    | GossipDataColumnError::InconsistentCommitmentsLength { .. }
-                    | GossipDataColumnError::InconsistentProofsLength { .. }
-                    | GossipDataColumnError::NotFinalizedDescendant { .. } => {
-                        debug!(
-                            error = ?err,
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Could not verify partial column for gossip. Rejecting the column sidecar"
-                        );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "gossip_data_column_low",
-                        );
-                        // TODO(dknopik): Joao
-                        //self.propagate_validation_result(
-                        //    message_id,
-                        //    peer_id,
-                        //    MessageAcceptance::Reject,
-                        //);
-                    }
-                    GossipDataColumnError::PriorKnown { .. } => {
-                        // Data column is available via either the EL or reconstruction.
-                        // Do not penalise the peer.
-                        // Gossip filter should filter any duplicates received after this.
-                        debug!(
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Received already available column sidecar. Ignoring the column sidecar"
-                        )
-                    }
-                    GossipDataColumnError::FutureSlot { .. }
-                    | GossipDataColumnError::PastFinalizedSlot { .. } => {
-                        debug!(
-                            error = ?err,
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Could not verify column sidecar for gossip. Ignoring the column sidecar"
-                        );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::HighToleranceError,
-                            "gossip_data_column_high",
-                        );
-                        // TODO(dknopik): Joao
-                        //self.propagate_validation_result(
-                        //    message_id,
-                        //    peer_id,
-                        //    MessageAcceptance::Ignore,
-                        //);
-                    }
-                }
+                self.handle_partial_verification_error(peer_id, err, block_root, index);
+            }
+        }
+    }
+
+    fn handle_partial_verification_error(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        err: GossipDataColumnError,
+        block_root: Hash256,
+        index: ColumnIndex,
+    ) {
+        match err {
+            GossipDataColumnError::PriorKnownUnpublished => {
+                debug!(
+                    %block_root,
+                    %index,
+                    "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
+                );
+                // TODO(dknopik): Joao
+                //self.propagate_validation_result(
+                //    message_id,
+                //    peer_id,
+                //    MessageAcceptance::Accept,
+                //);
+            }
+            // ParentUnknown can't really happen, so we treat it like an internal error
+            GossipDataColumnError::ParentUnknown { .. }
+            | GossipDataColumnError::PubkeyCacheTimeout
+            | GossipDataColumnError::BeaconChainError(_) => {
+                crit!(
+                    error = ?err,
+                    "Internal error when verifying column sidecar"
+                )
+            }
+            GossipDataColumnError::ProposalSignatureInvalid
+            | GossipDataColumnError::UnknownValidator(_)
+            | GossipDataColumnError::ProposerIndexMismatch { .. }
+            | GossipDataColumnError::IsNotLaterThanParent { .. }
+            | GossipDataColumnError::InvalidSubnetId { .. }
+            | GossipDataColumnError::InvalidInclusionProof
+            | GossipDataColumnError::InvalidKzgProof { .. }
+            | GossipDataColumnError::UnexpectedDataColumn
+            | GossipDataColumnError::InvalidColumnIndex(_)
+            | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
+            | GossipDataColumnError::InconsistentCommitmentsLength { .. }
+            | GossipDataColumnError::InconsistentProofsLength { .. }
+            | GossipDataColumnError::NotFinalizedDescendant { .. } => {
+                debug!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Could not verify partial column for gossip. Rejecting the column sidecar"
+                );
+                // Prevent recurring behaviour by penalizing the peer slightly.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_data_column_low",
+                );
+                // TODO(dknopik): Joao
+                //self.propagate_validation_result(
+                //    message_id,
+                //    peer_id,
+                //    MessageAcceptance::Reject,
+                //);
+            }
+            GossipDataColumnError::PriorKnown { .. } => {
+                // Data column is available via either the EL or reconstruction.
+                // Do not penalise the peer.
+                // Gossip filter should filter any duplicates received after this.
+                debug!(
+                    %block_root,
+                    %index,
+                    "Received already available column sidecar. Ignoring the column sidecar"
+                )
+            }
+            GossipDataColumnError::FutureSlot { .. }
+            | GossipDataColumnError::PastFinalizedSlot { .. } => {
+                debug!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Could not verify column sidecar for gossip. Ignoring the column sidecar"
+                );
+                // Prevent recurring behaviour by penalizing the peer slightly.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "gossip_data_column_high",
+                );
+                // TODO(dknopik): Joao
+                //self.propagate_validation_result(
+                //    message_id,
+                //    peer_id,
+                //    MessageAcceptance::Ignore,
+                //);
+            }
+            GossipDataColumnError::PartialHeaderMismatches
+            | GossipDataColumnError::PartialHeaderIncorrectRoot { .. } => {
+                debug!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Could not verify partial column header"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_data_column_high",
+                );
             }
         }
     }
@@ -1394,50 +1372,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_gossip_partial_data_column(verified_partial)
             .await;
 
-        match &result {
+        match result {
             Ok(merge_result) => {
-                match merge_result {
-                    PartialMergeResult::Completed {
-                        full_column,
-                        updated_partial,
-                    } => {
-                        debug!(
-                            %block_root,
-                            index = data_column_index,
-                            "Partial data column completed to full column"
-                        );
+                if !merge_result.full_columns.is_empty() {
+                    debug!(
+                        %block_root,
+                        index = data_column_index,
+                        "Partial data column completed to full column"
+                    );
 
+                    for full_column in merge_result.full_columns {
                         // Publish both the updated partial and the full column
                         let subnet = DataColumnSubnetId::from_column_index(
                             full_column.index,
                             &self.chain.spec,
                         );
-                        self.send_network_message(NetworkMessage::PublishPartial {
-                            columns: vec![updated_partial.clone()],
-                        });
                         self.send_network_message(NetworkMessage::Publish {
                             messages: vec![PubsubMessage::DataColumnSidecar(Box::new((
                                 subnet,
                                 full_column.clone(),
                             )))],
                         });
-
-                        // Check if block is now fully available
-                        // This is handled in process_gossip_partial_data_column
-                    }
-                    PartialMergeResult::Incomplete { updated_partial } => {
-                        trace!(
-                            %block_root,
-                            index = data_column_index,
-                            "Partial data column merged but column still incomplete"
-                        );
-
-                        // Publish the updated partial
-                        self.send_network_message(NetworkMessage::PublishPartial {
-                            columns: vec![updated_partial.clone()],
-                        });
                     }
                 }
+
+                self.send_network_message(NetworkMessage::PublishPartial {
+                    columns: merge_result.updated_partials,
+                });
+
+                // Check if block is now fully available
+                // This is handled in process_gossip_partial_data_column
 
                 metrics::set_gauge(
                     &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
@@ -1452,14 +1416,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Error processing partial data column"
                 );
             }
-        }
-
-        // Notify sync if block was imported
-        if result.is_ok() {
-            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported: false, // Will be true if completed in the chain method
-            });
         }
     }
 
