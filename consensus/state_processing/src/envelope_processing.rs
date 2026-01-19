@@ -237,8 +237,6 @@ pub fn envelope_processing<E: EthSpec>(
     let amount = payment.withdrawal.amount;
     if amount > 0 {
         let exit_queue_epoch = state.compute_exit_epoch_and_update_churn(amount, spec)?;
-        payment.withdrawal.withdrawable_epoch =
-            exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
         state
             .builder_pending_withdrawals_mut()?
             .push(payment.withdrawal)

@@ -555,7 +555,6 @@ fn process_builder_pending_payments<E: EthSpec>(
                 exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
 
             let mut withdrawal = payment.withdrawal.clone();
-            withdrawal.withdrawable_epoch = withdrawable_epoch;
             state.builder_pending_withdrawals_mut()?.push(withdrawal)?;
             Ok(())
         })?;

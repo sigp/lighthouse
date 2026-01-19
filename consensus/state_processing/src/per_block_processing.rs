@@ -832,7 +832,6 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
                 fee_recipient: bid.fee_recipient,
                 amount,
                 builder_index,
-                withdrawable_epoch: spec.far_future_epoch,
             },
         };
 
