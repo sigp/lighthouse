@@ -5,7 +5,7 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use if_watch::{IpNet, tokio::IfWatcher};
+use if_watch::{IpNet, smol::IfWatcher};
 use libp2p::Multiaddr;
 use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
@@ -262,9 +262,20 @@ impl Config {
     /// A helper function to check if the local host has a globally routeable IPv6 address. If so,
     /// returns true.
     pub fn is_ipv6_supported() -> bool {
-        let Ok(watcher) = IfWatcher::new() else {
+        let Ok(mut watcher) = IfWatcher::new() else {
             return false;
         };
+
+        // Hack to poll for addresses.
+        let mut ctx = std::task::Context::from_waker(futures::task::noop_waker_ref());
+
+        // Ensure all addresses are added.
+        loop {
+            match watcher.poll_if_event(&mut ctx) {
+                std::task::Poll::Ready(Ok(_)) => continue,
+                _ => break,
+            }
+        }
 
         watcher
             .iter()
