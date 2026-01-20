@@ -291,66 +291,6 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
 /// Alias for backwards compatibility
 pub type GossipVerifiedFullDataColumn<T> = GossipVerifiedDataColumn<T>;
 
-/// A wrapper around a `VerifiablePartialDataColumn` that indicates it has been approved for
-/// re-gossiping on the p2p network.
-#[derive(Debug, Clone)]
-pub struct GossipVerifiedPartialDataColumn<T: BeaconChainTypes, O: ObservationStrategy = Observe> {
-    block_root: Hash256,
-    data_column: KzgVerifiedPartialDataColumn<T::EthSpec>,
-    _phantom: PhantomData<O>,
-}
-
-impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedPartialDataColumn<T, O> {
-    pub fn new(
-        column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
-        chain: &BeaconChain<T>,
-    ) -> Result<Self, GossipDataColumnError> {
-        validate_partial_data_column_sidecar_for_gossip(column_sidecar, chain)
-    }
-
-    /// Create a `GossipVerifiedPartialDataColumn` for testing ONLY.
-    pub fn __new_for_testing(column_sidecar: Arc<PartialDataColumn<T::EthSpec>>) -> Self {
-        Self {
-            block_root: column_sidecar.block_root,
-            data_column: KzgVerifiedPartialDataColumn::__new_for_testing(column_sidecar),
-            _phantom: Default::default(),
-        }
-    }
-
-    pub fn as_data_column(&self) -> &PartialDataColumn<T::EthSpec> {
-        self.data_column.as_data_column()
-    }
-
-    /// This is cheap as we're calling clone on an Arc
-    pub fn clone_data_column(&self) -> Arc<PartialDataColumn<T::EthSpec>> {
-        self.data_column.clone_data_column()
-    }
-
-    pub fn block_root(&self) -> Hash256 {
-        self.block_root
-    }
-
-    pub fn slot(&self) -> Slot {
-        self.data_column
-            .as_data_column()
-            .sidecar
-            .header
-            .first()
-            .expect("This was verified, so we have the header")
-            .signed_block_header
-            .message
-            .slot
-    }
-
-    pub fn index(&self) -> ColumnIndex {
-        self.data_column.index()
-    }
-
-    pub fn into_inner(self) -> KzgVerifiedPartialDataColumn<T::EthSpec> {
-        self.data_column
-    }
-}
-
 /// Wrapper over a `DataColumnSidecar` for which we have completed kzg verification.
 #[derive(Debug, Educe, Clone)]
 #[educe(PartialEq, Eq)]
@@ -443,6 +383,26 @@ impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
 
     pub fn index(&self) -> ColumnIndex {
         self.data.index
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.data.block_root
+    }
+
+    /// Returns the slot of this partial data column.
+    ///
+    /// # Panics
+    /// Panics if the header is not present. The header is guaranteed to be present
+    /// for columns that have passed gossip validation.
+    pub fn slot(&self) -> Slot {
+        self.data
+            .sidecar
+            .header
+            .first()
+            .expect("Header must be present for gossip-validated partial columns")
+            .signed_block_header
+            .message
+            .slot
     }
 }
 
@@ -688,13 +648,10 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
 }
 
 #[instrument(skip_all, level = "debug")]
-pub fn validate_partial_data_column_sidecar_for_gossip<
-    T: BeaconChainTypes,
-    O: ObservationStrategy,
->(
+pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     data_column: Arc<PartialDataColumn<T::EthSpec>>,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedPartialDataColumn<T, O>, GossipDataColumnError> {
+) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipDataColumnError> {
     let block_root = data_column.block_root;
 
     let filtered_column = if let Some(missing_cells) = chain
@@ -718,14 +675,8 @@ pub fn validate_partial_data_column_sidecar_for_gossip<
     // gossip accepted block
 
     let kzg = &chain.kzg;
-    let kzg_verified_data_column = verify_kzg_for_partial_data_column(filtered_column, kzg)
-        .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
-
-    Ok(GossipVerifiedPartialDataColumn {
-        block_root,
-        data_column: kzg_verified_data_column,
-        _phantom: PhantomData,
-    })
+    verify_kzg_for_partial_data_column(filtered_column, kzg)
+        .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))
 }
 
 /// Verify if the data column sidecar is valid.

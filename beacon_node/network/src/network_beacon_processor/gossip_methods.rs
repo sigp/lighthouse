@@ -7,7 +7,7 @@ use crate::{
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{
-    GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedPartialDataColumn,
+    GossipDataColumnError, GossipVerifiedDataColumn, KzgVerifiedPartialDataColumn,
 };
 use beacon_chain::partial_data_column_assembler::PartialMergeResult;
 use beacon_chain::store::Error;
@@ -1382,7 +1382,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     async fn process_gossip_verified_partial_data_column(
         self: &Arc<Self>,
         _peer_id: PeerId,
-        verified_partial: GossipVerifiedPartialDataColumn<T>,
+        verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
         _seen_duration: Duration,
     ) {
         let processing_start_time = Instant::now();
