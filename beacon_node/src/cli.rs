@@ -359,15 +359,6 @@ pub fn cli_app() -> Command {
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot.")
                 .display_order(0)
         )
-        .arg(
-            Arg::new("libp2p-addresses")
-                .long("libp2p-addresses")
-                .value_name("MULTIADDR")
-                .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
-                       without an ENR.")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
         // NOTE: This is hide because it is primarily a developer feature for testnets and
         // debugging. We remove it from the list to avoid clutter.
         .arg(

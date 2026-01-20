@@ -573,11 +573,6 @@ impl<E: EthSpec> Network<E> {
             };
         };
 
-        // attempt to connect to user-input libp2p nodes
-        for multiaddr in &config.libp2p_nodes {
-            dial(multiaddr.clone());
-        }
-
         // attempt to connect to any specified boot-nodes
         let mut boot_nodes = config.boot_nodes_enr.clone();
         boot_nodes.dedup();

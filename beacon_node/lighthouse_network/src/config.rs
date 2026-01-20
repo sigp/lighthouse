@@ -73,9 +73,6 @@ pub struct Config {
     /// List of nodes to initially connect to, on Multiaddr format.
     pub boot_nodes_multiaddr: Vec<Multiaddr>,
 
-    /// List of libp2p nodes to initially connect to.
-    pub libp2p_nodes: Vec<Multiaddr>,
-
     /// List of trusted libp2p nodes which are not scored and marked as explicit.
     pub trusted_peers: Vec<PeerIdSerialized>,
 
@@ -343,7 +340,6 @@ impl Default for Config {
             discv5_config,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
-            libp2p_nodes: vec![],
             trusted_peers: vec![],
             disable_peer_scoring: false,
             client_version: lighthouse_version::version_with_platform(),
