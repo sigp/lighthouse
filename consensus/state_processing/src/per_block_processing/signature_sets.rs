@@ -318,9 +318,11 @@ where
         );
     }
 
-    let domain = spec.compute_domain(
+    let epoch = indexed_payload_attestation.data.slot.epoch(E::slots_per_epoch());
+    let domain = spec.get_domain(
+        epoch,
         Domain::PTCAttester,
-        spec.genesis_fork_version,
+        &state.fork(),
         state.genesis_validators_root(),
     );
 

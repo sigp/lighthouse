@@ -1248,7 +1248,7 @@ impl ChainSpec {
             fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
             fulu_fork_epoch: None,
             // Gloas
-            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id

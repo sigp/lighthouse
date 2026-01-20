@@ -503,7 +503,10 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name.electra_enabled()
+        // TODO(EIP-7732): Gloas deposit_request tests require builder deposit functionality
+        // (apply_deposit_for_builder, add_builder_to_registry) which is not yet implemented.
+        // https://github.com/sigp/lighthouse/issues/XXXX
+        fork_name.electra_enabled() && fork_name != ForkName::Gloas
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
