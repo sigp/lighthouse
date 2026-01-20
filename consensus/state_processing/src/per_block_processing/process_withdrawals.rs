@@ -82,7 +82,7 @@ pub mod capella {
     ) -> Result<(), BlockProcessingError> {
         // check if capella enabled because this function will run on the merge block where the fork is technically still Bellatrix
         if state.fork_name_unchecked().capella_enabled() {
-            let (expected_withdrawals, _, partial_withdrawals_count) =
+            let (expected_withdrawals, _, partial_withdrawals_count, _) =
                 get_expected_withdrawals(state, spec)?;
 
             let expected_root = expected_withdrawals.tree_hash_root();
@@ -127,7 +127,7 @@ pub mod gloas {
             return Ok(());
         }
 
-        let (expected_withdrawals, builder_withdrawals_count, partial_withdrawals_count) =
+        let (expected_withdrawals, builder_withdrawals_count, partial_withdrawals_count, _) =
             get_expected_withdrawals(state, spec)?;
 
         for withdrawal in expected_withdrawals.iter() {

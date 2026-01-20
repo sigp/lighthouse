@@ -659,6 +659,77 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
     Ok(Some(processed_count))
 }
 
+/// Get withdrawals from the validator sweep.
+///
+/// This function iterates through validators starting from `next_withdrawal_validator_index`
+/// and adds full or partial withdrawals for eligible validators.
+///
+/// https://ethereum.github.io/consensus-specs/specs/capella/beacon-chain/#new-get_validators_sweep_withdrawals
+pub fn get_validators_sweep_withdrawals<E: EthSpec>(
+    state: &BeaconState<E>,
+    withdrawal_index: &mut u64,
+    withdrawals: &mut Vec<Withdrawal>,
+    spec: &ChainSpec,
+) -> Result<u64, BlockProcessingError> {
+    let epoch = state.current_epoch();
+    let fork_name = state.fork_name_unchecked();
+    let mut validator_index = state.next_withdrawal_validator_index()?;
+    let validators_limit = std::cmp::min(
+        state.validators().len() as u64,
+        spec.max_validators_per_withdrawals_sweep,
+    );
+    let withdrawals_limit = E::max_withdrawals_per_payload();
+
+    // There must be at least one space reserved for validator sweep withdrawals
+    block_verify!(
+        withdrawals.len() < withdrawals_limit,
+        BlockProcessingError::WithdrawalsLimitExceeded {
+            limit: withdrawals_limit,
+            prior_withdrawals: withdrawals.len()
+        }
+    );
+
+    let mut processed_count: u64 = 0;
+
+    for _ in 0..validators_limit {
+        if withdrawals.len() >= withdrawals_limit {
+            break;
+        }
+
+        let validator = state.get_validator(validator_index as usize)?;
+        let balance = get_balance_after_withdrawals(state, validator_index, withdrawals)?;
+
+        if validator.is_fully_withdrawable_validator(balance, epoch, spec, fork_name) {
+            withdrawals.push(Withdrawal {
+                index: *withdrawal_index,
+                validator_index,
+                address: validator
+                    .get_execution_withdrawal_address(spec, fork_name)
+                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
+                amount: balance,
+            });
+            withdrawal_index.safe_add_assign(1)?;
+        } else if validator.is_partially_withdrawable_validator(balance, spec, fork_name) {
+            withdrawals.push(Withdrawal {
+                index: *withdrawal_index,
+                validator_index,
+                address: validator
+                    .get_execution_withdrawal_address(spec, fork_name)
+                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
+                amount: balance.safe_sub(validator.get_max_effective_balance(spec, fork_name))?,
+            });
+            withdrawal_index.safe_add_assign(1)?;
+        }
+
+        validator_index = validator_index
+            .safe_add(1)?
+            .safe_rem(state.validators().len() as u64)?;
+        processed_count.safe_add_assign(1)?;
+    }
+
+    Ok(processed_count)
+}
+
 /// Compute the next batch of withdrawals which should be included in a block.
 ///
 /// https://ethereum.github.io/consensus-specs/specs/gloas/beacon-chain/#modified-get_expected_withdrawals
@@ -666,13 +737,9 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<(Withdrawals<E>, Option<usize>, Option<usize>), BlockProcessingError> {
-    let epoch = state.current_epoch();
+) -> Result<(Withdrawals<E>, Option<usize>, Option<usize>, u64), BlockProcessingError> {
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut withdrawals = Vec::<Withdrawal>::with_capacity(E::max_withdrawals_per_payload());
-    let fork_name = state.fork_name_unchecked();
-
-    let mut validator_index = state.next_withdrawal_validator_index()?;
 
     // [New in Gloas:EIP7732]
     // Get builder withdrawals
@@ -684,53 +751,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     let processed_partial_withdrawals_count =
         get_pending_partial_withdrawals(state, &mut withdrawal_index, &mut withdrawals, spec)?;
 
-    let bound = std::cmp::min(
-        state.validators().len() as u64,
-        spec.max_validators_per_withdrawals_sweep,
-    );
-    for _ in 0..bound {
-        let validator = state.get_validator(validator_index as usize)?;
-        let partially_withdrawn_balance = withdrawals
-            .iter()
-            .filter_map(|withdrawal| {
-                (withdrawal.validator_index == validator_index).then_some(withdrawal.amount)
-            })
-            .safe_sum()?;
-        let balance = state
-            .balances()
-            .get(validator_index as usize)
-            .ok_or(BeaconStateError::BalancesOutOfBounds(
-                validator_index as usize,
-            ))?
-            .safe_sub(partially_withdrawn_balance)?;
-        if validator.is_fully_withdrawable_validator(balance, epoch, spec, fork_name) {
-            withdrawals.push(Withdrawal {
-                index: withdrawal_index,
-                validator_index,
-                address: validator
-                    .get_execution_withdrawal_address(spec, state.fork_name_unchecked())
-                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance,
-            });
-            withdrawal_index.safe_add_assign(1)?;
-        } else if validator.is_partially_withdrawable_validator(balance, spec, fork_name) {
-            withdrawals.push(Withdrawal {
-                index: withdrawal_index,
-                validator_index,
-                address: validator
-                    .get_execution_withdrawal_address(spec, state.fork_name_unchecked())
-                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance.safe_sub(validator.get_max_effective_balance(spec, fork_name))?,
-            });
-            withdrawal_index.safe_add_assign(1)?;
-        }
-        if withdrawals.len() == E::max_withdrawals_per_payload() {
-            break;
-        }
-        validator_index = validator_index
-            .safe_add(1)?
-            .safe_rem(state.validators().len() as u64)?;
-    }
+    // Get validators sweep withdrawals
+    let processed_validators_sweep_count =
+        get_validators_sweep_withdrawals(state, &mut withdrawal_index, &mut withdrawals, spec)?;
 
     Ok((
         withdrawals
@@ -738,6 +761,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
             .map_err(BlockProcessingError::SszTypesError)?,
         processed_builder_withdrawals_count,
         processed_partial_withdrawals_count,
+        processed_validators_sweep_count,
     ))
 }
 
