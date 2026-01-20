@@ -1,8 +1,8 @@
 use crate::EpochProcessingError;
 use milhouse::List;
 use types::attestation::ParticipationFlags;
-use types::beacon_state::BeaconState;
-use types::eth_spec::EthSpec;
+use types::core::EthSpec;
+use types::state::BeaconState;
 
 pub fn process_participation_flag_updates<E: EthSpec>(
     state: &mut BeaconState<E>,

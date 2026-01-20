@@ -8,7 +8,7 @@ use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};
 use types::{
     BeaconBlock, BeaconBlockFulu, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
-    MainnetEthSpec, SignedBeaconBlock, beacon_block_body::KzgCommitments,
+    MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
 };
 
 fn create_test_block_and_blobs<E: EthSpec>(
