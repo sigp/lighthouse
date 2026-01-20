@@ -109,19 +109,6 @@ pub trait ValidatorStore: Send + Sync {
         attestations: Vec<(PublicKeyBytes, usize, Attestation<Self::E>)>,
     ) -> impl Future<Output = Result<Vec<Attestation<Self::E>>, Error<Self::Error>>> + Send;
 
-    fn sign_attestation_no_checks(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        validator_committee_position: usize,
-        attestation: &mut Attestation<Self::E>,
-    ) -> impl Future<Output = Result<(), Error<Self::Error>>> + Send;
-
-    #[allow(clippy::type_complexity)]
-    fn check_and_insert_attestations(
-        &self,
-        attestations: Vec<(Attestation<Self::E>, PublicKeyBytes)>,
-    ) -> Result<Vec<(Attestation<Self::E>, PublicKeyBytes)>, Error<Self::Error>>;
-
     fn sign_validator_registration_data(
         &self,
         validator_registration_data: ValidatorRegistrationData,

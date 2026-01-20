@@ -557,6 +557,126 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             signature,
         })
     }
+
+    #[instrument(skip_all)]
+    async fn sign_attestation_no_checks(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        validator_committee_position: usize,
+        attestation: &mut Attestation<E>,
+    ) -> Result<(), Error> {
+        // Get the signing method and check doppelganger protection.
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+        // Sign the attestation.
+        let signing_epoch = attestation.data().target.epoch;
+        let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::AttestationData(attestation.data()),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+        attestation
+            .add_signature(&signature, validator_committee_position)
+            .map_err(Error::UnableToSignAttestation)?;
+
+        Ok(())
+    }
+
+    #[instrument(
+        name = "store_check_and_insert_attestations",
+        level = "debug",
+        skip_all
+    )]
+    fn check_and_insert_attestations(
+        &self,
+        attestations: Vec<(Attestation<E>, PublicKeyBytes)>,
+    ) -> Result<Vec<(Attestation<E>, PublicKeyBytes)>, Error> {
+        let mut safe_attestations = vec![];
+        let mut attestations_to_check = vec![];
+
+        // Split attestations into de-facto safe attestations (checked by web3signer's slashing
+        // protection) and ones requiring checking against the slashing protection DB.
+        for (attestation, validator_pubkey) in &attestations {
+            let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
+            let signing_epoch = attestation.data().target.epoch;
+            let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+            let domain_hash = signing_context.domain_hash(&self.spec);
+
+            let check_slashability = if signing_method
+                .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+            {
+                CheckSlashability::Yes
+            } else {
+                CheckSlashability::No
+            };
+            attestations_to_check.push((
+                attestation.data(),
+                validator_pubkey,
+                domain_hash,
+                check_slashability,
+            ));
+        }
+
+        // Batch check the attestations against the slashing protection DB while preserving the
+        // order so we can zip the results against the original vec.
+        //
+        // If the DB transaction fails then we consider the entire batch slashable and discard it.
+        let results = self
+            .slashing_protection
+            .check_and_insert_attestations(&attestations_to_check)
+            .map_err(Error::Slashable)?;
+
+        for ((attestation, validator_pubkey), slashing_status) in
+            attestations.into_iter().zip(results.into_iter())
+        {
+            match slashing_status {
+                Ok(Safe::Valid) => {
+                    safe_attestations.push((attestation, validator_pubkey));
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::SUCCESS],
+                    );
+                }
+                Ok(Safe::SameData) => {
+                    warn!("Skipping previously signed attestation");
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::SAME_DATA],
+                    );
+                }
+                Err(NotSafe::UnregisteredValidator(pk)) => {
+                    warn!(
+                        msg = "Carefully consider running with --init-slashing-protection (see --help)",
+                        public_key = ?pk,
+                        "Not signing attestation for unregistered validator"
+                    );
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::UNREGISTERED],
+                    );
+                }
+                Err(e) => {
+                    // FIXME(sproul): remove attestation data + make this error less scary
+                    crit!(
+                        attestation = format!("{:?}", attestation.data()),
+                        error = format!("{:?}", e),
+                        "Not signing slashable attestation"
+                    );
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::SLASHABLE],
+                    );
+                }
+            }
+        }
+
+        Ok(safe_attestations)
+    }
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorStore<T, E> {
@@ -804,126 +924,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         // Check slashing protection and insert into database.
         let safe_attestations = self.check_and_insert_attestations(signed_attestations)?;
         Ok(safe_attestations.into_iter().map(|(a, _)| a).collect())
-    }
-
-    #[instrument(skip_all)]
-    async fn sign_attestation_no_checks(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        validator_committee_position: usize,
-        attestation: &mut Attestation<E>,
-    ) -> Result<(), Error> {
-        // Get the signing method and check doppelganger protection.
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-
-        // Sign the attestation.
-        let signing_epoch = attestation.data().target.epoch;
-        let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
-
-        let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::AttestationData(attestation.data()),
-                signing_context,
-                &self.spec,
-                &self.task_executor,
-            )
-            .await?;
-        attestation
-            .add_signature(&signature, validator_committee_position)
-            .map_err(Error::UnableToSignAttestation)?;
-
-        Ok(())
-    }
-
-    #[instrument(
-        name = "store_check_and_insert_attestations",
-        level = "debug",
-        skip_all
-    )]
-    fn check_and_insert_attestations(
-        &self,
-        attestations: Vec<(Attestation<E>, PublicKeyBytes)>,
-    ) -> Result<Vec<(Attestation<E>, PublicKeyBytes)>, Error> {
-        let mut safe_attestations = vec![];
-        let mut attestations_to_check = vec![];
-
-        // Split attestations into de-facto safe attestations (checked by web3signer's slashing
-        // protection) and ones requiring checking against the slashing protection DB.
-        for (attestation, validator_pubkey) in &attestations {
-            let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
-            let signing_epoch = attestation.data().target.epoch;
-            let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
-            let domain_hash = signing_context.domain_hash(&self.spec);
-
-            let check_slashability = if signing_method
-                .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
-            {
-                CheckSlashability::Yes
-            } else {
-                CheckSlashability::No
-            };
-            attestations_to_check.push((
-                attestation.data(),
-                validator_pubkey,
-                domain_hash,
-                check_slashability,
-            ));
-        }
-
-        // Batch check the attestations against the slashing protection DB while preserving the
-        // order so we can zip the results against the original vec.
-        //
-        // If the DB transaction fails then we consider the entire batch slashable and discard it.
-        let results = self
-            .slashing_protection
-            .check_and_insert_attestations(&attestations_to_check)
-            .map_err(Error::Slashable)?;
-
-        for ((attestation, validator_pubkey), slashing_status) in
-            attestations.into_iter().zip(results.into_iter())
-        {
-            match slashing_status {
-                Ok(Safe::Valid) => {
-                    safe_attestations.push((attestation, validator_pubkey));
-                    validator_metrics::inc_counter_vec(
-                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                        &[validator_metrics::SUCCESS],
-                    );
-                }
-                Ok(Safe::SameData) => {
-                    warn!("Skipping previously signed attestation");
-                    validator_metrics::inc_counter_vec(
-                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                        &[validator_metrics::SAME_DATA],
-                    );
-                }
-                Err(NotSafe::UnregisteredValidator(pk)) => {
-                    warn!(
-                        msg = "Carefully consider running with --init-slashing-protection (see --help)",
-                        public_key = ?pk,
-                        "Not signing attestation for unregistered validator"
-                    );
-                    validator_metrics::inc_counter_vec(
-                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                        &[validator_metrics::UNREGISTERED],
-                    );
-                }
-                Err(e) => {
-                    // FIXME(sproul): remove attestation data + make this error less scary
-                    crit!(
-                        attestation = format!("{:?}", attestation.data()),
-                        error = format!("{:?}", e),
-                        "Not signing slashable attestation"
-                    );
-                    validator_metrics::inc_counter_vec(
-                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                        &[validator_metrics::SLASHABLE],
-                    );
-                }
-            }
-        }
-
-        Ok(safe_attestations)
     }
 
     async fn sign_validator_registration_data(
