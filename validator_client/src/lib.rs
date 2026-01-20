@@ -184,8 +184,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         }
 
         // Check for all validators' fee recipient
-        validator_defs
-            .check_all_fee_recipients(config.validator_store.fee_recipient)?;
+        validator_defs.check_all_fee_recipients(config.validator_store.fee_recipient)?;
 
         let validators = InitializedValidators::from_definitions(
             validator_defs,

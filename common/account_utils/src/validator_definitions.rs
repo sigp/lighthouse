@@ -431,14 +431,14 @@ impl ValidatorDefinitions {
             .iter()
             .filter_map(|def| def.check_fee_recipient(global_fee_recipient))
             .collect();
-    
+
         if !missing.is_empty() {
             let pubkeys = missing
                 .iter()
                 .map(|pk| pk.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            
+
             return Err(format!(
                 "The following validators are missing a `suggested_fee_recipient`: {}. \
                  Fix this by adding a `suggested_fee_recipient` in your \
@@ -447,7 +447,7 @@ impl ValidatorDefinitions {
                 pubkeys
             ));
         }
-    
+
         // Friendly reminder for users using the fallback flag
         if global_fee_recipient.is_some() {
             let count = self
@@ -463,7 +463,7 @@ impl ValidatorDefinitions {
                 );
             }
         }
-    
+
         Ok(())
     }
 }
@@ -541,8 +541,8 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     use bls::Keypair;
+    use std::str::FromStr;
 
     #[test]
     fn voting_keystore_filename_lighthouse() {
@@ -787,7 +787,8 @@ mod tests {
         };
 
         // Should return None since global fee recipient is set
-        let global_fee = Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
+        let global_fee =
+            Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
         let check_result = def.check_fee_recipient(global_fee);
         assert!(check_result.is_none());
     }
@@ -884,7 +885,7 @@ mod tests {
         };
 
         let defs = ValidatorDefinitions::from(vec![def1, def2]);
-        
+
         // Should fail because both defs have no fee recipient and no global fee recipient is set
         let result = defs.check_all_fee_recipients(None);
         assert!(result.is_err());
@@ -907,7 +908,9 @@ mod tests {
             voting_public_key: keypair.pk.clone(),
             description: String::new(),
             graffiti: None,
-            suggested_fee_recipient: Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap()),
+            suggested_fee_recipient: Some(
+                Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap(),
+            ),
             gas_limit: None,
             builder_proposals: None,
             builder_boost_factor: None,
@@ -924,7 +927,9 @@ mod tests {
             voting_public_key: keypair.pk.clone(),
             description: String::new(),
             graffiti: None,
-            suggested_fee_recipient: Some(Address::from_str("0xb2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap()),
+            suggested_fee_recipient: Some(
+                Address::from_str("0xb2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap(),
+            ),
             gas_limit: None,
             builder_proposals: None,
             builder_boost_factor: None,
@@ -937,7 +942,7 @@ mod tests {
         };
 
         let defs = ValidatorDefinitions::from(vec![def1, def2]);
-        
+
         // Should pass - all validators have fee recipients
         assert!(defs.check_all_fee_recipients(None).is_ok());
     }
@@ -982,7 +987,8 @@ mod tests {
         let defs = ValidatorDefinitions::from(vec![def1, def2]);
 
         // Should pass - global fee recipient is set
-        let global_fee = Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
+        let global_fee =
+            Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
         assert!(defs.check_all_fee_recipients(global_fee).is_ok());
     }
 }
