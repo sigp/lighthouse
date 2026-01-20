@@ -661,11 +661,12 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                     );
                 }
                 Err(e) => {
-                    // FIXME(sproul): remove attestation data + make this error less scary
-                    crit!(
-                        attestation = format!("{:?}", attestation.data()),
-                        error = format!("{:?}", e),
-                        "Not signing slashable attestation"
+                    warn!(
+                        slot = %attestation.data().slot,
+                        block_root = ?attestation.data().beacon_block_root,
+                        public_key = ?validator_pubkey,
+                        error = ?e,
+                        "Skipping signing of slashable attestation"
                     );
                     validator_metrics::inc_counter_vec(
                         &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
