@@ -2,6 +2,7 @@ use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition}
 use bls::{PublicKeyBytes, Signature};
 use doppelganger_service::DoppelgangerService;
 use eth2::types::PublishBlockRequest;
+use futures::future::join_all;
 use initialized_validators::InitializedValidators;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
@@ -747,22 +748,71 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         }
     }
 
+    async fn sign_attestations(
+        &self,
+        mut attestations: Vec<(PublicKeyBytes, usize, Attestation<Self::E>)>,
+    ) -> Result<Vec<Attestation<E>>, Error> {
+        // Sign all attestations concurrently.
+        let signing_futures =
+            attestations
+                .iter_mut()
+                .map(|(pubkey, validator_committee_index, attestation)| {
+                    let pubkey = *pubkey;
+                    let validator_committee_index = *validator_committee_index;
+                    async move {
+                        self.sign_attestation_no_checks(
+                            pubkey,
+                            validator_committee_index,
+                            attestation,
+                        )
+                        .await
+                        .map(|_| pubkey)
+                    }
+                });
+
+        // Execute all signing in parallel.
+        let results: Vec<_> = join_all(signing_futures).await;
+
+        // Collect successfully signed attestations and log errors.
+        let mut signed_attestations = Vec::new();
+        for (result, (pubkey, _, attestation)) in results.into_iter().zip(attestations.into_iter())
+        {
+            match result {
+                Ok(_) => {
+                    signed_attestations.push((attestation, pubkey));
+                }
+                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                    warn!(
+                        info = "a validator may have recently been removed from this VC",
+                        ?pubkey,
+                        "Missing pubkey for attestation"
+                    );
+                }
+                Err(e) => {
+                    crit!(
+                        error = ?e,
+                        "Failed to sign attestation"
+                    );
+                }
+            }
+        }
+
+        if signed_attestations.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Check slashing protection and insert into database.
+        let safe_attestations = self.check_and_insert_attestations(signed_attestations)?;
+        Ok(safe_attestations.into_iter().map(|(a, _)| a).collect())
+    }
+
     #[instrument(skip_all)]
-    async fn sign_attestation(
+    async fn sign_attestation_no_checks(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
-        current_epoch: Epoch,
     ) -> Result<(), Error> {
-        // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
-        if attestation.data().target.epoch > current_epoch {
-            return Err(Error::GreaterThanCurrentEpoch {
-                epoch: attestation.data().target.epoch,
-                current_epoch,
-            });
-        }
-
         // Get the signing method and check doppelganger protection.
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
 

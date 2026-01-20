@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
-use tracing::{Instrument, Span, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
@@ -383,97 +383,76 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .ok_or("Unable to determine current slot from clock")?
             .epoch(S::E::slots_per_epoch());
 
-        // Create futures to produce signed `Attestation` objects.
-        let attestation_data_ref = &attestation_data;
-        let signing_futures = validator_duties.iter().map(|duty_and_proof| {
-            async move {
-                let duty = &duty_and_proof.duty;
-                let attestation_data = attestation_data_ref;
+        // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
+        if attestation_data.target.epoch > current_epoch {
+            return Err(format!(
+                "Attestation target epoch {} is higher than current epoch {}",
+                attestation_data.target.epoch, current_epoch
+            ));
+        }
 
-                // Ensure that the attestation matches the duties.
-                if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
+        // Create attestations for each validator duty.
+        let mut attestations_to_sign = Vec::with_capacity(validator_duties.len());
+        let mut validator_indices = Vec::with_capacity(validator_duties.len());
+
+        for duty_and_proof in validator_duties {
+            let duty = &duty_and_proof.duty;
+
+            // Ensure that the attestation matches the duties.
+            if !duty.match_attestation_data::<S::E>(&attestation_data, &self.chain_spec) {
+                crit!(
+                    validator = ?duty.pubkey,
+                    duty_slot = %duty.slot,
+                    attestation_slot = %attestation_data.slot,
+                    duty_index = duty.committee_index,
+                    attestation_index = attestation_data.index,
+                    "Inconsistent validator duties during signing"
+                );
+                continue;
+            }
+
+            let attestation = match Attestation::empty_for_signing(
+                duty.committee_index,
+                duty.committee_length as usize,
+                attestation_data.slot,
+                attestation_data.beacon_block_root,
+                attestation_data.source,
+                attestation_data.target,
+                &self.chain_spec,
+            ) {
+                Ok(attestation) => attestation,
+                Err(err) => {
                     crit!(
                         validator = ?duty.pubkey,
-                        duty_slot = %duty.slot,
-                        attestation_slot = %attestation_data.slot,
-                        duty_index = duty.committee_index,
-                        attestation_index = attestation_data.index,
-                        "Inconsistent validator duties during signing"
+                        ?duty,
+                        ?err,
+                        "Invalid validator duties during signing"
                     );
-                    return None;
+                    continue;
                 }
+            };
 
-                let mut attestation = match Attestation::empty_for_signing(
-                    duty.committee_index,
-                    duty.committee_length as usize,
-                    attestation_data.slot,
-                    attestation_data.beacon_block_root,
-                    attestation_data.source,
-                    attestation_data.target,
-                    &self.chain_spec,
-                ) {
-                    Ok(attestation) => attestation,
-                    Err(err) => {
-                        crit!(
-                            validator = ?duty.pubkey,
-                            ?duty,
-                            ?err,
-                            "Invalid validator duties during signing"
-                        );
-                        return None;
-                    }
-                };
+            attestations_to_sign.push((
+                duty.pubkey,
+                duty.validator_committee_index as usize,
+                attestation,
+            ));
+            validator_indices.push(duty.validator_index);
+        }
 
-                match self
-                    .validator_store
-                    .sign_attestation(
-                        duty.pubkey,
-                        duty.validator_committee_index as usize,
-                        &mut attestation,
-                        current_epoch,
-                    )
-                    .await
-                {
-                    Ok(()) => Some(((attestation, duty.pubkey), duty.validator_index)),
-                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                        // A pubkey can be missing when a validator was recently
-                        // removed via the API.
-                        warn!(
-                            info = "a validator may have recently been removed from this VC",
-                            pubkey = ?pubkey,
-                            validator = ?duty.pubkey,
-                            slot = slot.as_u64(),
-                            "Missing pubkey for attestation"
-                        );
-                        None
-                    }
-                    Err(e) => {
-                        crit!(
-                            error = ?e,
-                            validator = ?duty.pubkey,
-                            slot = slot.as_u64(),
-                            "Failed to sign attestation"
-                        );
-                        None
-                    }
-                }
-            }
-            .instrument(Span::current())
-        });
+        if attestations_to_sign.is_empty() {
+            warn!("No valid attestations to sign");
+            return Ok(());
+        }
 
-        // Execute all the futures in parallel, collecting any successful results.
-        let (signed_attestations, ref validator_indices): (Vec<_>, Vec<_>) =
-            join_all(signing_futures)
-                .instrument(info_span!(
-                    "sign_attestations",
-                    count = validator_duties.len()
-                ))
-                .await
-                .into_iter()
-                .flatten()
-                .unzip();
+        // Sign and check all attestations (includes slashing protection).
+        let safe_attestations = self
+            .validator_store
+            .sign_attestations(attestations_to_sign)
+            .await
+            .map_err(|e| format!("Failed to sign attestations: {e:?}"))?;
 
-        if signed_attestations.is_empty() {
+        if safe_attestations.is_empty() {
             warn!("No attestations were published");
             return Ok(());
         }
@@ -481,26 +460,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .chain_spec
             .fork_name_at_slot::<S::E>(attestation_data.slot);
 
-        // Check slashing protection in a blocking thread (this is I/O bound).
-        let service = self.clone();
-        let safe_attestations = self
-            .inner
-            .executor
-            .spawn_blocking_handle(
-                move || {
-                    service
-                        .validator_store
-                        .check_and_insert_attestations(signed_attestations)
-                },
-                "check_and_insert_attestations",
-            )
-            .ok_or("shutting down")?
-            .await
-            .map_err(|e| format!("thread error checking slashability: {e:?}"))?
-            .map_err(|e| format!("error checking slashability: {e:?}"))?;
         let safe_attestations = &safe_attestations;
 
         // Post the attestations to the BN.
+        let validator_indices_ref = &validator_indices;
         match self
             .beacon_nodes
             .request(ApiTopic::Attestations, |beacon_node| async move {
@@ -511,8 +474,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
                 let single_attestations = safe_attestations
                     .iter()
-                    .zip(validator_indices)
-                    .filter_map(|((a, _), i)| {
+                    .zip(validator_indices_ref)
+                    .filter_map(|(a, i)| {
                         match a.to_single_attestation_with_attester_index(*i) {
                             Ok(a) => Some(a),
                             Err(e) => {

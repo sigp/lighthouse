@@ -1099,20 +1099,15 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(keystores.len()));
 
         // Sign attestations on VC1.
-        for (validator_index, mut attestation) in first_vc_attestations {
+        for (validator_index, attestation) in first_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data().target.epoch;
-            tester1
-                .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
-                .await
-                .unwrap();
             let safe_attestations = tester1
                 .validator_store
-                .check_and_insert_attestations(vec![(attestation.clone(), public_key)])
+                .sign_attestations(vec![(public_key, 0, attestation.clone())])
+                .await
                 .unwrap();
             assert_eq!(safe_attestations.len(), 1);
-            assert_eq!(safe_attestations, vec![(attestation, public_key)]);
+            assert_eq!(safe_attestations, vec![attestation]);
         }
 
         // Delete the selected keys from VC1.
@@ -1184,27 +1179,24 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(import_indices.len()));
 
         // Sign attestations on the second VC.
-        for (validator_index, mut attestation, should_succeed) in second_vc_attestations {
+        for (validator_index, attestation, should_succeed) in second_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data().target.epoch;
-            if tester2
+            let result = tester2
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
-                .await
-                .is_err()
-            {
-                // Doppelganger protected.
-                assert!(!should_succeed);
-                continue;
-            }
-            let safe_attestations = tester2
-                .validator_store
-                .check_and_insert_attestations(vec![(attestation.clone(), public_key)])
-                .unwrap();
-            if should_succeed {
-                assert_eq!(safe_attestations[0], (attestation, public_key));
-            } else {
-                assert!(safe_attestations.is_empty());
+                .sign_attestations(vec![(public_key, 0, attestation.clone())])
+                .await;
+            match result {
+                Ok(safe_attestations) => {
+                    if should_succeed {
+                        assert_eq!(safe_attestations, vec![attestation]);
+                    } else {
+                        assert!(safe_attestations.is_empty());
+                    }
+                }
+                Err(_) => {
+                    // Doppelganger protected or other error.
+                    assert!(!should_succeed);
+                }
             }
         }
     })
@@ -1330,10 +1322,10 @@ async fn delete_concurrent_with_signing() {
 
         let handle = handle.spawn(async move {
             for j in 0..num_attestations {
-                let mut att = make_attestation(j, j + 1);
+                let att = make_attestation(j, j + 1);
                 for public_key in thread_pubkeys.iter() {
                     let _ = validator_store
-                        .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
+                        .sign_attestations(vec![(*public_key, 0, att.clone())])
                         .await;
                 }
             }

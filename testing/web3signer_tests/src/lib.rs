@@ -605,12 +605,13 @@ mod tests {
         })
         .await
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
-            let mut attestation = get_attestation();
+            let attestation = get_attestation();
             validator_store
-                .sign_attestation(pubkey, 0, &mut attestation, Epoch::new(0))
+                .sign_attestations(vec![(pubkey, 0, attestation)])
                 .await
-                .unwrap();
-            attestation
+                .unwrap()
+                .pop()
+                .unwrap()
         })
         .await
         .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
@@ -820,8 +821,6 @@ mod tests {
             block
         };
 
-        let current_epoch = Epoch::new(5);
-
         TestingRig::new(
             network,
             slashing_protection_config,
@@ -830,21 +829,23 @@ mod tests {
         )
         .await
         .assert_signatures_match("first_attestation", |pubkey, validator_store| async move {
-            let mut attestation = first_attestation();
+            let attestation = first_attestation();
             validator_store
-                .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                .sign_attestations(vec![(pubkey, 0, attestation)])
                 .await
-                .unwrap();
-            attestation
+                .unwrap()
+                .pop()
+                .unwrap()
         })
         .await
         .assert_slashable_message_should_sign(
             "double_vote_attestation",
             move |pubkey, validator_store| async move {
-                let mut attestation = double_vote_attestation();
+                let attestation = double_vote_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestations(vec![(pubkey, 0, attestation)])
                     .await
+                    .map(|_| ())
             },
             slashable_message_should_sign,
         )
@@ -852,10 +853,11 @@ mod tests {
         .assert_slashable_message_should_sign(
             "surrounding_attestation",
             move |pubkey, validator_store| async move {
-                let mut attestation = surrounding_attestation();
+                let attestation = surrounding_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestations(vec![(pubkey, 0, attestation)])
                     .await
+                    .map(|_| ())
             },
             slashable_message_should_sign,
         )
@@ -863,10 +865,11 @@ mod tests {
         .assert_slashable_message_should_sign(
             "surrounded_attestation",
             move |pubkey, validator_store| async move {
-                let mut attestation = surrounded_attestation();
+                let attestation = surrounded_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestations(vec![(pubkey, 0, attestation)])
                     .await
+                    .map(|_| ())
             },
             slashable_message_should_sign,
         )
