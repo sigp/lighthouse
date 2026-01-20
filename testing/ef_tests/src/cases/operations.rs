@@ -46,7 +46,7 @@ struct ExecutionMetadata {
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<E: EthSpec> {
-    payload: FullPayload<E>,
+    payload: ExecutionPayload<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -419,9 +419,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         ssz_decode_file_with(path, |bytes| {
             ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
         })
-        .map(|payload| WithdrawalsPayload {
-            payload: payload.into(),
-        })
+        .map(|payload| WithdrawalsPayload { payload })
     }
 
     fn apply_to(
@@ -433,9 +431,10 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         if state.fork_name_unchecked().gloas_enabled() {
             process_withdrawals::gloas::process_withdrawals(state, spec)
         } else {
+            let full_payload = FullPayload::from(self.payload.clone());
             process_withdrawals::capella::process_withdrawals::<_, FullPayload<_>>(
                 state,
-                self.payload.to_ref(),
+                full_payload.to_ref(),
                 spec,
             )
         }

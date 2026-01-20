@@ -94,6 +94,11 @@ pub enum BlockProcessingError {
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
+    /// This should be unreachable unless there's a logical flaw in the spec for withdrawals.
+    WithdrawalsLimitExceeded {
+        limit: usize,
+        prior_withdrawals: usize,
+    },
     PendingAttestationInElectra,
     ExecutionPayloadBidInvalid {
         reason: ExecutionPayloadBidInvalid,
