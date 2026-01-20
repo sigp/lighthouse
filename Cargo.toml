@@ -156,8 +156,6 @@ fork_choice = { path = "consensus/fork_choice" }
 fs2 = "0.4"
 futures = "0.3"
 genesis = { path = "beacon_node/genesis" }
-# This is tracking the sigp-gossipsub branch on sigp/rust-libp2p commit: Aug 20 2025
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "5acdf89a65d64098f9346efa5769e57bcd19dea9", "features" = ["metrics"] }
 graffiti_file = { path = "validator_client/graffiti_file" }
 hashlink = "0.9.0"
 health_metrics = { path = "common/health_metrics" }
@@ -168,6 +166,20 @@ initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.10"
 kzg = { path = "crypto/kzg" }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features = false, features = [
+    "identify",
+    "yamux",
+    "noise",
+    "dns",
+    "tcp",
+    "tokio",
+    "secp256k1",
+    "macros",
+    "metrics",
+    "quic",
+    "upnp",
+    "gossipsub",
+] }
 libsecp256k1 = "0.7"
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_tracing = { path = "beacon_node/lighthouse_tracing" }

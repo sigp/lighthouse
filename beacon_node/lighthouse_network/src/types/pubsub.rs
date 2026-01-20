@@ -2,6 +2,7 @@
 
 use crate::TopicHash;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use libp2p::gossipsub;
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};

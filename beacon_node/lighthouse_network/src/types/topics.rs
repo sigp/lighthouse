@@ -1,4 +1,4 @@
-use gossipsub::{IdentTopic as Topic, TopicHash};
+use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use strum::AsRefStr;
