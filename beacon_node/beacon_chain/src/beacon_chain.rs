@@ -3235,6 +3235,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Reject RPC columns referencing unknown parents. Otherwise we allow potentially invalid data
         // into the da_checker, where invalid = descendant of invalid blocks.
         // Note: custody_columns should have at least one item and all items have the same parent root.
+        // TODO(gloas) ensure this check is no longer relevant post gloas
         if let Some(parent_root) = custody_columns
             .iter()
             .filter_map(|c| match c.as_ref() {
@@ -3562,6 +3563,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         if let Some(slasher) = self.slasher.as_ref() {
             for data_column in &data_columns {
+                // TODO(gloas) no block header post-gloas, what should we do here
                 if let DataColumnSidecar::Fulu(c) = data_column.as_data_column() {
                     slasher.accept_block_header(c.signed_block_header.clone());
                 }
@@ -3642,6 +3644,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .put_kzg_verified_blobs(block_root, blobs)?
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
+                // TODO(gloas) verify that this check is no longer relevant for gloas
                 self.check_data_column_sidecar_header_signature_and_slashability(
                     block_root,
                     data_columns
@@ -3668,6 +3671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        // TODO(gloas) ensure that this check is no longer relevant post gloas
         self.check_data_column_sidecar_header_signature_and_slashability(
             block_root,
             custody_columns.iter().filter_map(|c| match c.as_ref() {
