@@ -1107,7 +1107,8 @@ async fn generic_migration_test(
                 .await
                 .unwrap();
             assert_eq!(safe_attestations.len(), 1);
-            assert_eq!(safe_attestations, vec![attestation]);
+            // Compare data only, ignoring signatures which are added during signing.
+            assert_eq!(safe_attestations[0].data(), attestation.data());
         }
 
         // Delete the selected keys from VC1.
@@ -1188,7 +1189,9 @@ async fn generic_migration_test(
             match result {
                 Ok(safe_attestations) => {
                     if should_succeed {
-                        assert_eq!(safe_attestations, vec![attestation]);
+                        // Compare data only, ignoring signatures which are added during signing.
+                        assert_eq!(safe_attestations.len(), 1);
+                        assert_eq!(safe_attestations[0].data(), attestation.data());
                     } else {
                         assert!(safe_attestations.is_empty());
                     }
