@@ -52,7 +52,7 @@ pub struct Config {
 /// Number of epochs of slashing protection history to keep.
 ///
 /// This acts as a maximum safe-guard against clock drift.
-const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
+const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 1;
 
 /// Currently used as the default gas limit in execution clients.
 ///
