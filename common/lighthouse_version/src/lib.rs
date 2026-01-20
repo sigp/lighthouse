@@ -1,49 +1,25 @@
-use git_version::git_version;
 use std::env::consts;
 
 /// Returns the current version of this build of Lighthouse.
 ///
-/// A plus-sign (`+`) is appended to the git commit if the tree is dirty.
 /// Commit hash is omitted if the sources don't include git information.
 ///
 /// ## Example
 ///
-/// `Lighthouse/v1.5.1-67da032+`
-pub const VERSION: &str = git_version!(
-    args = [
-        "--always",
-        "--dirty=+",
-        "--abbrev=7",
-        // NOTE: using --match instead of --exclude for compatibility with old Git
-        "--match=thiswillnevermatchlol"
-    ],
-    prefix = "Lighthouse/v8.0.0-rc.2-",
-    fallback = "Lighthouse/v8.0.0-rc.2"
-);
+/// `Lighthouse/v8.0.0-67da032`
+pub const VERSION: &str = env!("GIT_VERSION");
 
 /// Returns the first eight characters of the latest commit hash for this build.
 ///
 /// No indication is given if the tree is dirty. This is part of the standard
 /// for reporting the client version to the execution engine.
-pub const COMMIT_PREFIX: &str = git_version!(
-    args = [
-        "--always",
-        "--abbrev=8",
-        // NOTE: using --match instead of --exclude for compatibility with old Git
-        "--match=thiswillnevermatchlol"
-    ],
-    prefix = "",
-    suffix = "",
-    cargo_prefix = "",
-    cargo_suffix = "",
-    fallback = "00000000"
-);
+pub const COMMIT_PREFIX: &str = env!("GIT_COMMIT_PREFIX");
 
 /// Returns `VERSION`, but with platform information appended to the end.
 ///
 /// ## Example
 ///
-/// `Lighthouse/v1.5.1-67da032+/x86_64-linux`
+/// `Lighthouse/v8.0.0-67da032/x86_64-linux`
 pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, consts::ARCH, consts::OS)
 }
@@ -52,16 +28,16 @@ pub fn version_with_platform() -> String {
 ///
 /// ## Example
 ///
-/// `1.5.1`
+/// `8.0.0`
 pub fn version() -> &'static str {
-    "8.0.0-rc.2"
+    env!("SEMANTIC_VERSION")
 }
 
 /// Returns the name of the current client running.
 ///
 /// This will usually be "Lighthouse"
 pub fn client_name() -> &'static str {
-    "Lighthouse"
+    env!("CLIENT_NAME")
 }
 
 #[cfg(test)]
@@ -72,7 +48,7 @@ mod test {
     #[test]
     fn version_formatting() {
         let re = Regex::new(
-            r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta).[0-9])?(-[[:xdigit:]]{7})?\+?$",
+            r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta)\.[0-9])?(-[[:xdigit:]]{7})?$",
         )
         .unwrap();
         assert!(
@@ -90,5 +66,15 @@ mod test {
             "semantic version doesn't match regex: {}",
             version()
         );
+    }
+
+    #[test]
+    fn client_name_is_lighthouse() {
+        assert_eq!(client_name(), "Lighthouse");
+    }
+
+    #[test]
+    fn version_contains_semantic_version() {
+        assert!(VERSION.contains(version()));
     }
 }
