@@ -82,7 +82,7 @@ pub mod capella {
     ) -> Result<(), BlockProcessingError> {
         // check if capella enabled because this function will run on the merge block where the fork is technically still Bellatrix
         if state.fork_name_unchecked().capella_enabled() {
-            let (expected_withdrawals, _, partial_withdrawals_count, _) =
+            let (expected_withdrawals, _, partial_withdrawals_count, _, _) =
                 get_expected_withdrawals(state, spec)?;
 
             let expected_root = expected_withdrawals.tree_hash_root();
@@ -127,8 +127,14 @@ pub mod gloas {
             return Ok(());
         }
 
-        let (expected_withdrawals, builder_withdrawals_count, partial_withdrawals_count, _) =
-            get_expected_withdrawals(state, spec)?;
+        // TODO(EIP-7732): Use processed_builders_sweep_count to call update_next_withdrawal_builder_index
+        let (
+            expected_withdrawals,
+            builder_withdrawals_count,
+            partial_withdrawals_count,
+            _processed_builders_sweep_count,
+            _,
+        ) = get_expected_withdrawals(state, spec)?;
 
         for withdrawal in expected_withdrawals.iter() {
             decrease_balance(
@@ -157,6 +163,9 @@ pub mod gloas {
 
             *state.builder_pending_withdrawals_mut()? = List::new(updated_builder_withdrawals)?;
         }
+
+        // [New in Gloas:EIP7732] update_payload_expected_withdrawals
+        *state.payload_expected_withdrawals_mut()? = List::new(expected_withdrawals.to_vec())?;
 
         process_withdrawals_common(state, expected_withdrawals, partial_withdrawals_count, spec)?;
 

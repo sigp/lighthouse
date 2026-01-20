@@ -68,6 +68,7 @@ pub enum BeaconStateError {
     EpochOutOfBounds,
     SlotOutOfBounds,
     UnknownValidator(usize),
+    UnknownBuilder(u64),
     UnableToDetermineProducer,
     InvalidBitfield,
     EmptyCommittee,

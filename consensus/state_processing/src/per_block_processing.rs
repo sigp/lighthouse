@@ -659,6 +659,70 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
     Ok(Some(processed_count))
 }
 
+/// Get withdrawals from the builders sweep.
+///
+/// This function iterates through builders starting from `next_withdrawal_builder_index`
+/// and adds withdrawals for builders whose withdrawable_epoch has been reached and have balance.
+///
+/// https://ethereum.github.io/consensus-specs/specs/gloas/beacon-chain/#new-get_builders_sweep_withdrawals
+pub fn get_builders_sweep_withdrawals<E: EthSpec>(
+    state: &BeaconState<E>,
+    withdrawal_index: &mut u64,
+    withdrawals: &mut Vec<Withdrawal>,
+) -> Result<Option<u64>, BlockProcessingError> {
+    let Ok(builders) = state.builders() else {
+        // Pre-Gloas, nothing to do.
+        return Ok(None);
+    };
+
+    if builders.is_empty() {
+        return Ok(Some(0));
+    }
+
+    let epoch = state.current_epoch();
+    let builders_limit = std::cmp::min(builders.len(), E::max_builders_per_withdrawals_sweep());
+    // Reserve one slot for validator sweep withdrawals
+    let withdrawals_limit = E::max_withdrawals_per_payload().saturating_sub(1);
+
+    block_verify!(
+        withdrawals.len() <= withdrawals_limit,
+        BlockProcessingError::WithdrawalsLimitExceeded {
+            limit: withdrawals_limit,
+            prior_withdrawals: withdrawals.len()
+        }
+    );
+
+    let mut processed_count: u64 = 0;
+    let mut builder_index = state.next_withdrawal_builder_index()?;
+
+    for _ in 0..builders_limit {
+        if withdrawals.len() >= withdrawals_limit {
+            break;
+        }
+
+        let builder = builders
+            .get(builder_index as usize)
+            .ok_or(BeaconStateError::UnknownBuilder(builder_index))?;
+
+        if builder.withdrawable_epoch <= epoch && builder.balance > 0 {
+            withdrawals.push(Withdrawal {
+                index: *withdrawal_index,
+                validator_index: convert_builder_index_to_validator_index(builder_index),
+                address: builder.execution_address,
+                amount: builder.balance,
+            });
+            withdrawal_index.safe_add_assign(1)?;
+        }
+
+        builder_index = builder_index
+            .safe_add(1)?
+            .safe_rem(builders.len() as u64)?;
+        processed_count.safe_add_assign(1)?;
+    }
+
+    Ok(Some(processed_count))
+}
+
 /// Get withdrawals from the validator sweep.
 ///
 /// This function iterates through validators starting from `next_withdrawal_validator_index`
@@ -737,7 +801,7 @@ pub fn get_validators_sweep_withdrawals<E: EthSpec>(
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<(Withdrawals<E>, Option<usize>, Option<usize>, u64), BlockProcessingError> {
+) -> Result<(Withdrawals<E>, Option<usize>, Option<usize>, Option<u64>, u64), BlockProcessingError> {
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut withdrawals = Vec::<Withdrawal>::with_capacity(E::max_withdrawals_per_payload());
 
@@ -751,6 +815,11 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     let processed_partial_withdrawals_count =
         get_pending_partial_withdrawals(state, &mut withdrawal_index, &mut withdrawals, spec)?;
 
+    // [New in Gloas:EIP7732]
+    // Get builders sweep withdrawals
+    let processed_builders_sweep_count =
+        get_builders_sweep_withdrawals(state, &mut withdrawal_index, &mut withdrawals)?;
+
     // Get validators sweep withdrawals
     let processed_validators_sweep_count =
         get_validators_sweep_withdrawals(state, &mut withdrawal_index, &mut withdrawals, spec)?;
@@ -761,6 +830,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
             .map_err(BlockProcessingError::SszTypesError)?,
         processed_builder_withdrawals_count,
         processed_partial_withdrawals_count,
+        processed_builders_sweep_count,
         processed_validators_sweep_count,
     ))
 }
