@@ -652,6 +652,11 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
     fn handler_name(&self) -> String {
         "finality".into()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // TODO(EIP-7732): Gloas finality tests require full block processing which is not yet complete
+        fork_name != ForkName::Gloas
+    }
 }
 
 pub struct ForkChoiceHandler<E> {
@@ -696,6 +701,12 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
         // Tests are no longer generated for the base/phase0 specification.
         if fork_name == ForkName::Base {
+            return false;
+        }
+
+        // TODO(EIP-7732): Gloas fork choice not yet implemented
+        // https://github.com/sigp/lighthouse/issues/XXXX
+        if fork_name == ForkName::Gloas {
             return false;
         }
 
