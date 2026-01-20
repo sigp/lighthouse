@@ -38,7 +38,7 @@ use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
-use types::data::partial_data_column_sidecar::DanglingPartialDataColumn;
+use types::data::partial_data_column_sidecar::PartialDataColumn;
 use types::{
     EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
@@ -86,7 +86,7 @@ pub enum NetworkMessage<E: EthSpec> {
     Publish { messages: Vec<PubsubMessage<E>> },
     /// Publish partial data column sidecars via the partial gossipsub protocol.
     PublishPartial {
-        columns: Vec<Arc<DanglingPartialDataColumn<E>>>,
+        columns: Vec<Arc<PartialDataColumn<E>>>,
     },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {

@@ -1,5 +1,5 @@
 use crate::data::partial_data_column_sidecar::CellBitmap;
-use crate::data::partial_data_column_sidecar::DanglingPartialDataColumn;
+use crate::data::partial_data_column_sidecar::PartialDataColumn;
 use crate::data::partial_data_column_sidecar::PartialDataColumnSidecar;
 use std::sync::Arc;
 
@@ -136,7 +136,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
     }
 
     /// Convert this full data column into a verifiable partial data column.
-    pub fn into_partial(self) -> DanglingPartialDataColumn<E> {
+    pub fn into_partial(self) -> PartialDataColumn<E> {
         let cell_count = self.column.len();
         let mut bitmap =
             CellBitmap::<E>::with_capacity(cell_count).expect("our column has the same bound");
@@ -156,7 +156,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             .try_into()
             .expect("our column has the same bound");
 
-        DanglingPartialDataColumn {
+        PartialDataColumn {
             block_root,
             index: self.index,
             sidecar: PartialDataColumnSidecar {

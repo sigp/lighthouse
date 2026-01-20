@@ -57,7 +57,7 @@ use beacon_processor::{
         ReprocessQueueMessage,
     },
 };
-use types::partial_data_column_sidecar::DanglingPartialDataColumn;
+use types::partial_data_column_sidecar::PartialDataColumn;
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -784,7 +784,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_gossip_dangling_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
+        column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
         seen_duration: Duration,
     ) {
         // TODO(dknopik): add check and cache for header
@@ -871,7 +871,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_gossip_verifiable_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
+        column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
         slot: Slot,
         seen_duration: Duration,
     ) {

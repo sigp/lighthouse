@@ -28,7 +28,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
-use types::partial_data_column_sidecar::DanglingPartialDataColumn;
+use types::partial_data_column_sidecar::PartialDataColumn;
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -254,7 +254,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_gossip_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
+        column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();

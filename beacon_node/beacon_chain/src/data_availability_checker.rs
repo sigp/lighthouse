@@ -42,7 +42,7 @@ use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::DataColumnSidecar;
 use types::new_non_zero_usize;
-use types::partial_data_column_sidecar::DanglingPartialDataColumn;
+use types::partial_data_column_sidecar::PartialDataColumn;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
@@ -229,7 +229,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn determine_missing_cells_partial(
         &self,
         block_root: &Hash256,
-        data_column: &DanglingPartialDataColumn<T::EthSpec>,
+        data_column: &PartialDataColumn<T::EthSpec>,
     ) -> Option<Vec<usize>> {
         let column_index = data_column.index;
 
@@ -969,7 +969,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 /// Returns cells from the incoming column that aren't in the cached partial, or None on data conflict.
 fn compare_full_to_partial<E: EthSpec>(
     incoming_cell_count: usize,
-    cached_partial: &DanglingPartialDataColumn<E>,
+    cached_partial: &PartialDataColumn<E>,
 ) -> Option<Vec<usize>> {
     let cached_bitmap = &cached_partial.sidecar.cells_present_bitmap;
 
@@ -998,8 +998,8 @@ fn compare_full_to_partial<E: EthSpec>(
 /// Compare an incoming partial column against a cached partial.
 /// Returns cells from the incoming column that aren't in the cached partial, or None on data conflict.
 fn compare_partial_to_partial<E: EthSpec>(
-    incoming: &DanglingPartialDataColumn<E>,
-    cached_partial: &DanglingPartialDataColumn<E>,
+    incoming: &PartialDataColumn<E>,
+    cached_partial: &PartialDataColumn<E>,
 ) -> Option<Vec<usize>> {
     let incoming_bitmap = &incoming.sidecar.cells_present_bitmap;
     let cached_bitmap = &cached_partial.sidecar.cells_present_bitmap;

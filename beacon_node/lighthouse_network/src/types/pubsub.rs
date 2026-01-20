@@ -6,9 +6,7 @@ use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use types::data::partial_data_column_sidecar::{
-    DanglingPartialDataColumn, PartialDataColumnSidecar,
-};
+use types::data::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnSidecar};
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
@@ -426,14 +424,14 @@ pub fn decode_partial<E: EthSpec>(
     topic: &GossipTopic,
     group: &[u8],
     data: &[u8],
-) -> Result<Arc<DanglingPartialDataColumn<E>>, String> {
+) -> Result<Arc<PartialDataColumn<E>>, String> {
     match topic.kind() {
         GossipKind::DataColumnSidecar(id) => {
             let block_root = Hash256::from_ssz_bytes(group)
                 .map_err(|e| format!("Error decoding group: {:?}", e))?;
             let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
                 .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
-            let data_column = DanglingPartialDataColumn {
+            let data_column = PartialDataColumn {
                 block_root,
                 // Partial messages are spec'd under the assumption that there is one column per subnet.
                 index: **id,

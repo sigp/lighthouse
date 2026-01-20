@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use types::EthSpec;
-use types::data::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
+use types::data::partial_data_column_sidecar::{CellBitmap, PartialDataColumn};
 use types::partial_data_column_sidecar::PartialDataColumnSidecar;
 
 pub type HeaderSentSet = Arc<Mutex<HashSet<PeerId>>>;
@@ -16,14 +16,14 @@ pub struct NoHeaderInColumnError;
 
 #[derive(Debug, Clone)]
 pub struct OutgoingPartialColumn<E: EthSpec> {
-    pub partial_column: Arc<DanglingPartialDataColumn<E>>,
+    pub partial_column: Arc<PartialDataColumn<E>>,
     pub header_message: Vec<u8>,
     pub header_sent_set: HeaderSentSet,
 }
 
 impl<E: EthSpec> OutgoingPartialColumn<E> {
     pub fn new(
-        partial_column: Arc<DanglingPartialDataColumn<E>>,
+        partial_column: Arc<PartialDataColumn<E>>,
         header_sent_set: HeaderSentSet,
     ) -> Result<Self, NoHeaderInColumnError> {
         let Some(header) = partial_column.sidecar.header.first().cloned() else {

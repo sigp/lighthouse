@@ -191,20 +191,19 @@ pub struct PartialDataColumnHeader<E: EthSpec> {
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 }
 
-// TODO(dknopik): Name?
 #[derive(Debug, Clone, PartialEq)]
-pub struct DanglingPartialDataColumn<E: EthSpec> {
+pub struct PartialDataColumn<E: EthSpec> {
     pub block_root: Hash256,
     pub index: ColumnIndex,
     pub sidecar: PartialDataColumnSidecar<E>,
 }
 
-impl<E: EthSpec> DanglingPartialDataColumn<E> {
+impl<E: EthSpec> PartialDataColumn<E> {
     pub fn clone_filter<F>(&self, filter: F) -> Option<Self>
     where
         F: Fn(usize) -> bool,
     {
-        Some(DanglingPartialDataColumn {
+        Some(PartialDataColumn {
             sidecar: self.sidecar.clone_filter(filter)?,
             block_root: self.block_root,
             index: self.index,

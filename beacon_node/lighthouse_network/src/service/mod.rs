@@ -43,7 +43,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
-use types::data::partial_data_column_sidecar::{CellBitmap, DanglingPartialDataColumn};
+use types::data::partial_data_column_sidecar::{CellBitmap, PartialDataColumn};
 use types::{ChainSpec, ForkName};
 use types::{
     DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
@@ -111,7 +111,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// The peer from which we received this message.
         source: PeerId,
         /// The partial column data.
-        column: Arc<DanglingPartialDataColumn<E>>,
+        column: Arc<PartialDataColumn<E>>,
     },
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
@@ -913,7 +913,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes partial data column sidecars to the gossipsub network.
-    pub fn publish_partial(&mut self, columns: Vec<Arc<DanglingPartialDataColumn<E>>>) {
+    pub fn publish_partial(&mut self, columns: Vec<Arc<PartialDataColumn<E>>>) {
         for column in columns {
             let subnet =
                 DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);

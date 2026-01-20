@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
-use types::data::partial_data_column_sidecar::DanglingPartialDataColumn;
+use types::data::partial_data_column_sidecar::PartialDataColumn;
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
@@ -71,7 +71,7 @@ pub enum RouterMessage<E: EthSpec> {
     /// by the beacon chain after successful verification.
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
     /// A partial data column sidecar has been received via gossipsub partial protocol.
-    PartialDataColumnSidecar(PeerId, Arc<DanglingPartialDataColumn<E>>),
+    PartialDataColumnSidecar(PeerId, Arc<PartialDataColumn<E>>),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
     /// The peer has an updated custody group count from METADATA.

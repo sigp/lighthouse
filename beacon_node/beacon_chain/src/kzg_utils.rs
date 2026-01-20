@@ -8,9 +8,7 @@ use std::sync::Arc;
 use tracing::instrument;
 use types::data::{Cell, DataColumn, DataColumnSidecarError};
 use types::kzg_ext::KzgCommitments;
-use types::partial_data_column_sidecar::{
-    CellBitmap, DanglingPartialDataColumn, PartialDataColumnHeader,
-};
+use types::partial_data_column_sidecar::{CellBitmap, PartialDataColumn, PartialDataColumnHeader};
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
     EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock, SignedBeaconBlockHeader,
@@ -102,7 +100,7 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
 /// Partial columns may have missing cells, indicated by a bitmap. We only verify present cells.
 pub fn validate_partial_data_columns<'a, E: EthSpec>(
     kzg: &Kzg,
-    data_column_iter: impl Iterator<Item = &'a Arc<DanglingPartialDataColumn<E>>>,
+    data_column_iter: impl Iterator<Item = &'a Arc<PartialDataColumn<E>>>,
 ) -> Result<(), (Option<u64>, KzgError)> {
     let mut cells = Vec::new();
     let mut proofs = Vec::new();
@@ -289,7 +287,7 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     kzg: &Kzg,
     spec: &ChainSpec,
-) -> Result<Vec<Arc<DanglingPartialDataColumn<E>>>, DataColumnSidecarError> {
+) -> Result<Vec<Arc<PartialDataColumn<E>>>, DataColumnSidecarError> {
     if blobs_and_proofs.is_empty() {
         return Ok(vec![]);
     }
@@ -425,7 +423,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
     signed_block_header: SignedBeaconBlockHeader,
     blob_cells_and_proofs_vec: Vec<Option<CellsAndKzgProofs>>,
     spec: &ChainSpec,
-) -> Result<Vec<Arc<DanglingPartialDataColumn<E>>>, String> {
+) -> Result<Vec<Arc<PartialDataColumn<E>>>, String> {
     let number_of_columns = E::number_of_columns();
     let max_blobs_per_block = spec
         .max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch()))
@@ -477,12 +475,12 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
         }
     }
 
-    let sidecars: Result<Vec<Arc<DanglingPartialDataColumn<E>>>, String> = columns
+    let sidecars: Result<Vec<Arc<PartialDataColumn<E>>>, String> = columns
         .into_iter()
         .zip(column_kzg_proofs)
         .enumerate()
         .map(|(index, (col, proofs))| {
-            let column = DanglingPartialDataColumn {
+            let column = PartialDataColumn {
                 block_root: signed_block_header.message.canonical_root(),
                 index: index as u64,
                 sidecar: types::partial_data_column_sidecar::PartialDataColumnSidecar {
