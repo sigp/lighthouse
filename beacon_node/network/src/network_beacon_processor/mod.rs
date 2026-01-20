@@ -32,7 +32,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -500,9 +500,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         batch_id: CustodyBackfillBatchId,
         data_columns: DataColumnSidecarList<T::EthSpec>,
+        expected_cgc: u64,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move || processor.process_historic_data_columns(batch_id, data_columns);
+        let process_fn =
+            move || processor.process_historic_data_columns(batch_id, data_columns, expected_cgc);
 
         let work = Work::ChainSegmentBackfill(Box::new(process_fn));
 
@@ -866,6 +868,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %block_root,
                     "Reconstruction not required for block"
                 );
+            }
+            Err(BlockError::DuplicateFullyImported(_)) => {
+                debug!("Block already imported in parallel with reconstruction");
             }
             Err(e) => {
                 error!(

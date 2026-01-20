@@ -8,6 +8,9 @@ pub const SPAN_PRODUCE_BLOCK_V2: &str = "produce_block_v2";
 pub const SPAN_PRODUCE_BLOCK_V3: &str = "produce_block_v3";
 pub const SPAN_PUBLISH_BLOCK: &str = "publish_block";
 
+/// Root span names for attestation production
+pub const SPAN_PRODUCE_UNAGGREGATED_ATTESTATION: &str = "produce_unaggregated_attestation";
+
 /// Data Availability checker span identifiers
 pub const SPAN_PENDING_COMPONENTS: &str = "pending_components";
 

@@ -33,8 +33,7 @@ use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
-use types::blob_sidecar::BlobSidecarError;
-use types::data_column_sidecar::DataColumnSidecarError;
+use types::data::{BlobSidecarError, DataColumnSidecarError};
 use types::{
     BeaconStateError, Blob, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, KzgProofs,
     SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
@@ -247,12 +246,23 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
 
     metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
     debug!(num_expected_blobs, "Fetching blobs from the EL");
+
+    // Track request count and duration for standardized metrics
+    inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V2_REQUESTS_TOTAL);
+    let _timer =
+        metrics::start_timer(&metrics::BEACON_ENGINE_GET_BLOBS_V2_REQUEST_DURATION_SECONDS);
+
     let response = chain_adapter
         .get_blobs_v2(versioned_hashes)
         .await
         .inspect_err(|_| {
             inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
         })?;
+
+    drop(_timer);
+
+    // Track successful response
+    inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V2_RESPONSES_TOTAL);
 
     let Some(blobs_and_proofs) = response else {
         debug!(num_expected_blobs, "No blobs fetched from the EL");

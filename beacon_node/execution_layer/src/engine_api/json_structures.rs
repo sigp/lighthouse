@@ -5,11 +5,9 @@ use ssz::{Decode, TryFromIter};
 use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::BlobsList;
-use types::execution_requests::{
-    ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests,
-};
+use types::data::BlobsList;
+use types::execution::{ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests};
+use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -1101,10 +1099,10 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
 
 #[cfg(test)]
 mod tests {
+    use bls::{PublicKeyBytes, SignatureBytes};
     use ssz::Encode;
     use types::{
-        ConsolidationRequest, DepositRequest, MainnetEthSpec, PublicKeyBytes, RequestType,
-        SignatureBytes, WithdrawalRequest,
+        ConsolidationRequest, DepositRequest, MainnetEthSpec, RequestType, WithdrawalRequest,
     };
 
     use super::*;

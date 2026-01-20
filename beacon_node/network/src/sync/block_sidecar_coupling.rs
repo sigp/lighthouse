@@ -7,11 +7,12 @@ use lighthouse_network::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
 };
+use ssz_types::RuntimeVariableList;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{Span, debug};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, RuntimeVariableList, SignedBeaconBlock,
+    Hash256, SignedBeaconBlock,
 };
 
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
@@ -356,7 +357,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 // we request the data from.
                 // If there are duplicated indices, its likely a peer sending us the same index multiple times.
                 // However we can still proceed even if there are extra columns, just log an error.
-                tracing::debug!(?block_root, ?index, "Repeated column for block_root");
+                debug!(?block_root, ?index, "Repeated column for block_root");
                 continue;
             }
         }
@@ -407,7 +408,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 if !data_columns_by_index.is_empty() {
                     let remaining_indices = data_columns_by_index.keys().collect::<Vec<_>>();
                     // log the error but don't return an error, we can still progress with extra columns.
-                    tracing::debug!(
+                    debug!(
                         ?block_root,
                         ?remaining_indices,
                         "Not all columns consumed for block"
@@ -427,7 +428,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
             // log the error but don't return an error, we can still progress with responses.
             // this is most likely an internal error with overrequesting or a client bug.
-            tracing::debug!(?remaining_roots, "Not all columns consumed for block");
+            debug!(?remaining_roots, "Not all columns consumed for block");
         }
 
         Ok(rpc_blocks)
@@ -517,11 +518,10 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
-        let spec = test_spec::<E>();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
-                generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng, &spec)
+                generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng)
                     .0
                     .into()
             })
@@ -540,19 +540,13 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let spec = test_spec::<E>();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
                 // Always generate some blobs.
-                generate_rand_block_and_blobs::<E>(
-                    ForkName::Deneb,
-                    NumBlobs::Number(3),
-                    &mut rng,
-                    &spec,
-                )
-                .0
-                .into()
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng)
+                    .0
+                    .into()
             })
             .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
 

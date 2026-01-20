@@ -1,4 +1,5 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
@@ -10,6 +11,7 @@ use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueM
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
+use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
@@ -20,8 +22,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, ForkName,
-    Hash256, MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
 };
 
 type E = MainnetEthSpec;
@@ -59,7 +61,10 @@ async fn state_by_root_pruned_from_fork_choice() {
     type E = MinimalEthSpec;
 
     let validator_count = 24;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
+    // Issue is that this test does block production via `extend_chain_with_sync` which expects to be able to use `state.latest_execution_payload_header` during block production, but Gloas uses `latest_execution_bid` instead
+    // This will be resolved in a subsequent block processing PR
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
@@ -76,6 +81,7 @@ async fn state_by_root_pruned_from_fork_choice() {
         None,
         Default::default(),
         false,
+        NodeCustodyType::Fullnode,
     )
     .await;
 
@@ -398,7 +404,10 @@ pub async fn proposer_boost_re_org_test(
     assert!(head_slot > 0);
 
     // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
+    // Issue is that `get_validator_blocks_v3` below expects to be able to use `state.latest_execution_payload_header` during `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload`, but gloas will no longer support this state field
+    // This will be resolved in a subsequent block processing PR
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = Uint256::from(1);
 
     // Ensure there are enough validators to have `attesters_per_slot`.
@@ -433,6 +442,7 @@ pub async fn proposer_boost_re_org_test(
         })),
         Default::default(),
         false,
+        NodeCustodyType::Fullnode,
     )
     .await;
     let harness = &tester.harness;
@@ -636,7 +646,7 @@ pub async fn proposer_boost_re_org_test(
         .into();
     let (unsigned_block_type, _) = tester
         .client
-        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None)
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None, None)
         .await
         .unwrap();
 
@@ -1017,10 +1027,9 @@ async fn proposer_duties_with_gossip_tolerance() {
     assert_eq!(
         proposer_duties_tolerant_current_epoch.dependent_root,
         head_state
-            .proposer_shuffling_decision_root_at_epoch(
+            .legacy_proposer_shuffling_decision_root_at_epoch(
                 tolerant_current_epoch,
                 head_block_root,
-                spec
             )
             .unwrap()
     );
@@ -1048,6 +1057,68 @@ async fn proposer_duties_with_gossip_tolerance() {
         proposer_duties_tolerant_current_epoch,
         proposer_duties_current_epoch
     );
+}
+
+// Test that a request to `lighthouse/custody/backfill` succeeds by verifying that `CustodyContext` and `DataColumnCustodyInfo`
+// have been updated with the correct values.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lighthouse_restart_custody_backfill() {
+    let spec = test_spec::<E>();
+
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    let validator_count = 24;
+
+    let tester = InteractiveTester::<E>::new_supernode(Some(spec), validator_count).await;
+    let harness = &tester.harness;
+    let spec = &harness.spec;
+    let client = &tester.client;
+    let min_cgc = spec.custody_requirement;
+    let max_cgc = spec.number_of_custody_groups;
+
+    let num_blocks = 2 * E::slots_per_epoch();
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
+
+    assert_eq!(cgc_at_head, max_cgc);
+    assert_eq!(earliest_data_column_epoch, None);
+
+    custody_context
+        .update_and_backfill_custody_count_at_epoch(harness.chain.epoch().unwrap(), cgc_at_head);
+    client.post_lighthouse_custody_backfill().await.unwrap();
+
+    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let cgc_at_previous_epoch =
+        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1, spec);
+    let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
+
+    // `DataColumnCustodyInfo` should have been updated to the head epoch
+    assert_eq!(
+        earliest_data_column_epoch,
+        Some(harness.chain.epoch().unwrap() + 1)
+    );
+    // Cgc requirements should have stayed the same at head
+    assert_eq!(cgc_at_head, max_cgc);
+    // Cgc requirements at the previous epoch should be `min_cgc`
+    // This allows for custody backfill to re-fetch columns for this epoch.
+    assert_eq!(cgc_at_previous_epoch, min_cgc);
 }
 
 // Test that a request for next epoch proposer duties suceeds when the current slot clock is within

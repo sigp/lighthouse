@@ -24,7 +24,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -481,7 +481,12 @@ fn run_execution_jwt_secret_key_is_persisted() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoint.as_ref().unwrap().full.to_string(),
+                config
+                    .execution_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
                 "http://localhost:8551/"
             );
             let mut file_jwt_secret_key = String::new();
@@ -532,7 +537,12 @@ fn bellatrix_jwt_secrets_flag() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoint.as_ref().unwrap().full.to_string(),
+                config
+                    .execution_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
                 "http://localhost:8551/"
             );
             assert_eq!(

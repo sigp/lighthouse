@@ -9,10 +9,12 @@ edition = { workspace = true }
 [dev-dependencies]
 account_utils = { workspace = true }
 async-channel = { workspace = true }
+bls = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 eth2_keystore = { workspace = true }
 eth2_network_config = { workspace = true }
+fixed_bytes = { workspace = true }
 futures = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_validator_store = { workspace = true }
@@ -24,6 +26,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
+ssz_types = { workspace = true }
 task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

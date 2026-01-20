@@ -1,13 +1,15 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
+pub use types::*;
+
 use crate::{
     CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
     EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
-use enr::{CombinedKey, Enr};
+use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
+use context_deserialize::ContextDeserialize;
 use mediatype::{MediaType, MediaTypeList, names};
-use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -18,10 +20,18 @@ use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use superstruct::superstruct;
+
+#[cfg(test)]
 use test_random_derive::TestRandom;
-use types::beacon_block_body::KzgCommitments;
+#[cfg(test)]
 use types::test_utils::TestRandom;
-pub use types::*;
+
+// TODO(mac): Temporary module and re-export hack to expose old `consensus/types` via `eth2/types`.
+pub use crate::beacon_response::*;
+pub mod beacon_response {
+    pub use crate::beacon_response::*;
+}
 
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
@@ -552,9 +562,9 @@ pub struct ChainHeadData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentityData {
     pub peer_id: String,
-    pub enr: Enr<CombinedKey>,
-    pub p2p_addresses: Vec<Multiaddr>,
-    pub discovery_addresses: Vec<Multiaddr>,
+    pub enr: String,
+    pub p2p_addresses: Vec<String>,
+    pub discovery_addresses: Vec<String>,
     pub metadata: MetaData,
 }
 
@@ -742,12 +752,20 @@ pub struct ProposerData {
     pub slot: Slot,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, Default, Debug)]
+pub enum GraffitiPolicy {
+    #[default]
+    PreserveUserGraffiti,
+    AppendClientVersions,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
     pub skip_randao_verification: SkipRandaoVerification,
     pub builder_boost_factor: Option<u64>,
+    pub graffiti_policy: Option<GraffitiPolicy>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -1520,6 +1538,21 @@ pub struct ForkChoiceNode {
     pub weight: u64,
     pub validity: Option<String>,
     pub execution_block_hash: Option<Hash256>,
+    pub extra_data: ForkChoiceExtraData,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForkChoiceExtraData {
+    pub target_root: Hash256,
+    pub justified_root: Hash256,
+    pub finalized_root: Hash256,
+    pub unrealized_justified_root: Option<Hash256>,
+    pub unrealized_finalized_root: Option<Hash256>,
+    pub unrealized_justified_epoch: Option<Epoch>,
+    pub unrealized_finalized_epoch: Option<Epoch>,
+    pub execution_status: String,
+    pub best_child: Option<Hash256>,
+    pub best_descendant: Option<Hash256>,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -2188,7 +2221,8 @@ pub enum ContentType {
     Ssz,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[cfg_attr(test, derive(TestRandom))]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,

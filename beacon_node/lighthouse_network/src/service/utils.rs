@@ -3,11 +3,10 @@ use crate::rpc::{MetaData, MetaDataV2, MetaDataV3};
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind};
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
-use gossipsub;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::identity::{Keypair, secp256k1};
 use libp2p::metrics::Registry;
-use libp2p::{PeerId, Transport, core, noise, yamux};
+use libp2p::{PeerId, Transport, core, gossipsub, noise, yamux};
 use ssz::Decode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -41,7 +40,7 @@ pub fn build_transport(
     quic_support: bool,
 ) -> std::io::Result<BoxedTransport> {
     // mplex config
-    let mut mplex_config = libp2p_mplex::MplexConfig::new();
+    let mut mplex_config = libp2p_mplex::Config::new();
     mplex_config.set_max_buffer_size(256);
     mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
 
