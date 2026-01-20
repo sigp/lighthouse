@@ -714,9 +714,7 @@ pub fn get_builders_sweep_withdrawals<E: EthSpec>(
             withdrawal_index.safe_add_assign(1)?;
         }
 
-        builder_index = builder_index
-            .safe_add(1)?
-            .safe_rem(builders.len() as u64)?;
+        builder_index = builder_index.safe_add(1)?.safe_rem(builders.len() as u64)?;
         processed_count.safe_add_assign(1)?;
     }
 
@@ -801,7 +799,16 @@ pub fn get_validators_sweep_withdrawals<E: EthSpec>(
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<(Withdrawals<E>, Option<usize>, Option<usize>, Option<u64>, u64), BlockProcessingError> {
+) -> Result<
+    (
+        Withdrawals<E>,
+        Option<usize>,
+        Option<usize>,
+        Option<u64>,
+        u64,
+    ),
+    BlockProcessingError,
+> {
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut withdrawals = Vec::<Withdrawal>::with_capacity(E::max_withdrawals_per_payload());
 

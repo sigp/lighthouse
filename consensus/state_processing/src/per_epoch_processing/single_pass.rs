@@ -551,10 +551,10 @@ fn process_builder_pending_payments<E: EthSpec>(
         .try_for_each(|payment| -> Result<(), Error> {
             let exit_queue_epoch =
                 state.compute_exit_epoch_and_update_churn(payment.withdrawal.amount, spec)?;
-            let withdrawable_epoch =
+            let _withdrawable_epoch =
                 exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
 
-            let mut withdrawal = payment.withdrawal.clone();
+            let withdrawal = payment.withdrawal.clone();
             state.builder_pending_withdrawals_mut()?.push(withdrawal)?;
             Ok(())
         })?;

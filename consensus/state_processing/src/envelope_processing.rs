@@ -227,7 +227,7 @@ pub fn envelope_processing<E: EthSpec>(
     let payment_index = E::slots_per_epoch()
         .safe_add(state.slot().as_u64().safe_rem(E::slots_per_epoch())?)?
         as usize;
-    let mut payment = state
+    let payment = state
         .builder_pending_payments()?
         .get(payment_index)
         .ok_or(EnvelopeProcessingError::BuilderPaymentIndexOutOfBounds(
@@ -236,7 +236,7 @@ pub fn envelope_processing<E: EthSpec>(
         .clone();
     let amount = payment.withdrawal.amount;
     if amount > 0 {
-        let exit_queue_epoch = state.compute_exit_epoch_and_update_churn(amount, spec)?;
+        let _exit_queue_epoch = state.compute_exit_epoch_and_update_churn(amount, spec)?;
         state
             .builder_pending_withdrawals_mut()?
             .push(payment.withdrawal)
