@@ -241,8 +241,12 @@ mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
     use types::state::HistoricalSummary;
     use types::{
-        AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
-        LightClientBootstrapAltair, PendingDeposit, PendingPartialWithdrawal, WithdrawalRequest, *,
+        AttesterSlashingBase, AttesterSlashingElectra, Builder, BuilderPendingPayment,
+        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadBid,
+        ExecutionPayloadEnvelope, IndexedPayloadAttestation, LightClientBootstrapAltair,
+        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
+        PendingPartialWithdrawal, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+        WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -368,6 +372,8 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
         SszStaticHandler::<BeaconBlockBodyFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
+        SszStaticHandler::<BeaconBlockBodyGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only().run();
+        SszStaticHandler::<BeaconBlockBodyGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only().run();
     }
 
     // Altair and later
@@ -720,6 +726,81 @@ mod ssz_static {
         SszStaticHandler::<ExecutionRequests<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
             .run();
         SszStaticHandler::<ExecutionRequests<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+            .run();
+    }
+
+    // Gloas and later
+    #[test]
+    fn builder() {
+        SszStaticHandler::<Builder, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<Builder, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn builder_pending_payment() {
+        SszStaticHandler::<BuilderPendingPayment, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<BuilderPendingPayment, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn builder_pending_withdrawal() {
+        SszStaticHandler::<BuilderPendingWithdrawal, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<BuilderPendingWithdrawal, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn payload_attestation_data() {
+        SszStaticHandler::<PayloadAttestationData, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<PayloadAttestationData, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn payload_attestation() {
+        SszStaticHandler::<PayloadAttestation<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<PayloadAttestation<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+            .run();
+    }
+
+    #[test]
+    fn payload_attestation_message() {
+        SszStaticHandler::<PayloadAttestationMessage, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<PayloadAttestationMessage, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn indexed_payload_attestation() {
+        SszStaticHandler::<IndexedPayloadAttestation<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<IndexedPayloadAttestation<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+            .run();
+    }
+
+    #[test]
+    fn execution_payload_bid() {
+        SszStaticHandler::<ExecutionPayloadBid, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<ExecutionPayloadBid, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn signed_execution_payload_bid() {
+        SszStaticHandler::<SignedExecutionPayloadBid, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBid, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    #[test]
+    fn execution_payload_envelope() {
+        SszStaticHandler::<ExecutionPayloadEnvelope<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<ExecutionPayloadEnvelope<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+            .run();
+    }
+
+    #[test]
+    fn signed_execution_payload_envelope() {
+        SszStaticHandler::<SignedExecutionPayloadEnvelope<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<SignedExecutionPayloadEnvelope<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
             .run();
     }
 }
