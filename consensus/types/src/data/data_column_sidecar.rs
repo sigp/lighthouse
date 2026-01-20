@@ -146,12 +146,22 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                 .expect("The correct size is initialized right above");
         }
 
+        let block_root = self.block_root();
+
+        let column = self
+            .column
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("our column has the same bound");
+
         DanglingPartialDataColumn {
-            block_root: self.block_root(),
+            block_root,
             index: self.index,
             sidecar: PartialDataColumnSidecar {
                 cells_present_bitmap: bitmap,
-                column: self.column,
+                column,
                 kzg_proofs: self.kzg_proofs,
                 header: VariableList::repeat_full(PartialDataColumnHeader {
                     kzg_commitments: self.kzg_commitments.clone(),

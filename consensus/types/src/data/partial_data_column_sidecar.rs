@@ -1,13 +1,11 @@
 use crate::test_utils::TestRandom;
-use crate::{
-    Cell, ColumnIndex, DataColumn, DataColumnSidecar, EthSpec, Hash256, KzgCommitments,
-    SignedBeaconBlockHeader,
-};
+use crate::{Cell, ColumnIndex, EthSpec, Hash256, KzgCommitments, SignedBeaconBlockHeader};
 use educe::Educe;
 use kzg::KzgProof;
 use ssz::{BitList, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
+use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 use typenum::U1;
@@ -23,7 +21,7 @@ pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub cells_present_bitmap: CellBitmap<E>,
-    pub column: DataColumn<E>,
+    pub column: VariableList<Arc<Cell<E>>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     pub header: VariableList<PartialDataColumnHeader<E>, U1>,
 }
@@ -33,7 +31,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
         // min size is one cell
         Self {
             cells_present_bitmap: BitList::with_capacity(1).unwrap(),
-            column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
+            column: VariableList::new(vec![Arc::new(Cell::<E>::default())]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
             header: VariableList::new(vec![]).unwrap(),
         }
@@ -45,7 +43,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
         // min size is one cell
         Self {
             cells_present_bitmap: BitList::with_capacity(block_blobs).unwrap(),
-            column: VariableList::new(vec![Cell::<E>::default(); present_blobs]).unwrap(),
+            column: VariableList::new(vec![Default::default(); present_blobs]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty(); present_blobs]).unwrap(),
             header: VariableList::new(vec![]).unwrap(), // header is not being sent on cell push
         }
@@ -56,7 +54,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
     pub fn max_size(max_blobs_per_block: usize) -> usize {
         Self {
             cells_present_bitmap: BitList::with_capacity(max_blobs_per_block).unwrap(),
-            column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
+            column: VariableList::new(vec![Default::default(); max_blobs_per_block]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
             header: VariableList::new(vec![]).unwrap(), // header is not being sent on cell push
         }
@@ -177,33 +175,6 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
                 other.header.clone()
             },
         })
-    }
-}
-
-// TODO(dknopik): More specific error cases - e.g. internal inconsistency
-pub struct MissingCellError;
-
-impl<E: EthSpec> From<DataColumnSidecar<E>> for PartialDataColumnSidecar<E> {
-    fn from(value: DataColumnSidecar<E>) -> Self {
-        // Create a bitmap with all cells marked as present
-        let mut cells_present_bitmap = BitList::with_capacity(value.column.len())
-            .expect("Bitmap and cell list are both bounded by `MaxBlobCommitmentsPerBlock`");
-        for idx in 0..value.column.len() {
-            cells_present_bitmap.set(idx, true).expect(
-                "Bitmap was created with column length, so we should be able to push a value",
-            );
-        }
-
-        Self {
-            cells_present_bitmap,
-            column: value.column,
-            kzg_proofs: value.kzg_proofs,
-            header: VariableList::repeat_full(PartialDataColumnHeader {
-                kzg_commitments: value.kzg_commitments,
-                signed_block_header: value.signed_block_header,
-                kzg_commitments_inclusion_proof: value.kzg_commitments_inclusion_proof,
-            }),
-        }
     }
 }
 

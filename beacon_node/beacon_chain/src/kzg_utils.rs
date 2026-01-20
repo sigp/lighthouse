@@ -472,7 +472,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                 .get_mut(col)
                 .ok_or(format!("Missing data column proofs at index {col}"))?;
 
-            column.push(cell.clone());
+            column.push(Arc::new(cell));
             column_proofs.push(*proof);
         }
     }
@@ -487,7 +487,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                 index: index as u64,
                 sidecar: types::partial_data_column_sidecar::PartialDataColumnSidecar {
                     cells_present_bitmap: bitmap.clone(),
-                    column: DataColumn::<E>::try_from(col)
+                    column: VariableList::try_from(col)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                     kzg_proofs: VariableList::try_from(proofs)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
