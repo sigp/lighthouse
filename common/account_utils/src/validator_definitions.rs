@@ -441,7 +441,7 @@ impl ValidatorDefinitions {
 
             return Err(format!(
                 "The following validators are missing a `suggested_fee_recipient`: {}. \
-                 Fix this by adding a `suggested_fee_recipient` in your \
+                 Fix this by adding a `suggested_fee_recipient` in the \
                  `validator_definitions.yml` or by supplying a fallback fee \
                  recipient via the `--suggested-fee-recipient` flag.",
                 pubkeys
@@ -458,7 +458,7 @@ impl ValidatorDefinitions {
             if count > 0 {
                 info!(
                     "The fallback --suggested-fee-recipient is being used for {} validator(s). \
-                     Consider setting the fee recipient for each validator individually via `validator_definitions.yml`.",
+                     You may alternatively set the fee recipient for each validator individually via `validator_definitions.yml`.",
                     count
                 );
             }
