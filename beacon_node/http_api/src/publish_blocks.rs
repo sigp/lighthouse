@@ -515,7 +515,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         data_column_sidecars.shuffle(&mut **chain.rng.lock());
         let dropped_indices = data_column_sidecars
             .drain(columns_to_keep..)
-            .map(|d| d.index)
+            .map(|d| *d.index())
             .collect::<Vec<_>>();
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }

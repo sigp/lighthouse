@@ -889,7 +889,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         );
                     }
                     // TODO(gloas) support gloas data column variant
-                    DataColumnSidecar::Gloas(_) => Err(GossipDataColumnError::InvalidVariant),
+                    DataColumnSidecar::Gloas(_) => {
+                        error!("Gloas variant not yet supported")
+                    }
                 }
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {

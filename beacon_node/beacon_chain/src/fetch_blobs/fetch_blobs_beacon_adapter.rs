@@ -1,5 +1,4 @@
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
-use crate::observed_block_producers::ProposalKey;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use kzg::Kzg;

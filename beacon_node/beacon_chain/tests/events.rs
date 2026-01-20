@@ -1,3 +1,4 @@
+use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,

@@ -667,6 +667,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
+                    GossipDataColumnError::InvalidVariant => {
+                        // TODO(gloas) we should probably penalize the peer here
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Invalid gossip data column variant."
+                        )
+                    }
                     GossipDataColumnError::PriorKnownUnpublished => {
                         debug!(
                             %slot,
