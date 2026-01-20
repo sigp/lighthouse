@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Slot};
+use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -22,6 +22,7 @@ pub enum Error {
 pub trait ObservableDataSidecar {
     fn slot(&self) -> Slot;
     fn index(&self) -> u64;
+    fn beacon_block_root(&self) -> Hash256;
     fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize;
 }
 
@@ -32,6 +33,10 @@ impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
 
     fn index(&self) -> u64 {
         self.index
+    }
+
+    fn beacon_block_root(&self) -> Hash256 {
+        self.block_root()
     }
 
     fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize {
@@ -48,8 +53,27 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
         *self.index()
     }
 
+    fn beacon_block_root(&self) -> Hash256 {
+        self.block_root()
+    }
+
     fn max_num_of_items(_spec: &ChainSpec, _slot: Slot) -> usize {
         E::number_of_columns()
+    }
+}
+
+#[derive(Hash, PartialEq, Eq)]
+pub struct ObservationKey {
+    pub beacon_block_root: Hash256,
+    pub slot: Slot,
+}
+
+impl ObservationKey {
+    pub fn new(beacon_block_root: Hash256, slot: Slot) -> Self {
+        Self {
+            beacon_block_root,
+            slot,
+        }
     }
 }
 
@@ -63,8 +87,8 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
 /// like checking the proposer signature.
 pub struct ObservedDataSidecars<T: ObservableDataSidecar> {
     finalized_slot: Slot,
-    /// Stores all received data indices for a given `slot`.
-    items: HashMap<Slot, HashSet<u64>>,
+    /// Stores all received data indices for a given `ObservationKey`.
+    items: HashMap<ObservationKey, HashSet<u64>>,
     spec: Arc<ChainSpec>,
     _phantom: PhantomData<T>,
 }
@@ -87,9 +111,15 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<bool, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
-        let data_indices = self.items.entry(data_sidecar.slot()).or_insert_with(|| {
-            HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
-        });
+        let data_indices = self
+            .items
+            .entry(ObservationKey {
+                slot: data_sidecar.slot(),
+                beacon_block_root: data_sidecar.beacon_block_root(),
+            })
+            .or_insert_with(|| {
+                HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
+            });
         let did_not_exist = data_indices.insert(data_sidecar.index());
 
         Ok(!did_not_exist)
@@ -100,13 +130,19 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
         self.sanitize_data_sidecar(data_sidecar)?;
         let is_known = self
             .items
-            .get(&data_sidecar.slot())
+            .get(&ObservationKey {
+                slot: data_sidecar.slot(),
+                beacon_block_root: data_sidecar.beacon_block_root(),
+            })
             .is_some_and(|indices| indices.contains(&data_sidecar.index()));
         Ok(is_known)
     }
 
-    pub fn known_for_slot(&self, slot: &Slot) -> Option<&HashSet<u64>> {
-        self.items.get(slot)
+    pub fn known_for_observation_key(
+        &self,
+        observation_key: &ObservationKey,
+    ) -> Option<&HashSet<u64>> {
+        self.items.get(observation_key)
     }
 
     fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {
@@ -131,7 +167,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
         }
 
         self.finalized_slot = finalized_slot;
-        self.items.retain(|k, _| *k > finalized_slot);
+        self.items.retain(|k, _| k.slot > finalized_slot);
     }
 }
 
@@ -210,7 +246,10 @@ mod tests {
 
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(0))
+            .get(&ObservationKey::new(
+                sidecar_a.beacon_block_root(),
+                Slot::new(0),
+            ))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -228,7 +267,10 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(0))
+            .get(&ObservationKey::new(
+                sidecar_a.beacon_block_root(),
+                Slot::new(0),
+            ))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -285,7 +327,10 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(three_epochs))
+            .get(&ObservationKey::new(
+                block_b.beacon_block_root(),
+                Slot::new(three_epochs),
+            ))
             .expect("the three epochs slot should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -309,7 +354,10 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(three_epochs))
+            .get(&ObservationKey::new(
+                block_b.beacon_block_root(),
+                Slot::new(three_epochs),
+            ))
             .expect("the three epochs slot should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -355,7 +403,10 @@ mod tests {
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(0))
+            .get(&ObservationKey::new(
+                sidecar_a.beacon_block_root(),
+                Slot::new(0),
+            ))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -393,7 +444,10 @@ mod tests {
         assert_eq!(cache.items.len(), 2, "two slots should be present");
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(0))
+            .get(&ObservationKey::new(
+                sidecar_b.beacon_block_root(),
+                Slot::new(0),
+            ))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -402,7 +456,10 @@ mod tests {
         );
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(1))
+            .get(&ObservationKey::new(
+                sidecar_b.beacon_block_root(),
+                Slot::new(1),
+            ))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -438,7 +495,10 @@ mod tests {
         assert_eq!(cache.items.len(), 2, "two slots should be present");
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(0))
+            .get(&ObservationKey::new(
+                sidecar_c.beacon_block_root(),
+                Slot::new(0),
+            ))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),
@@ -468,7 +528,10 @@ mod tests {
         );
         let cached_blob_indices = cache
             .items
-            .get(&Slot::new(0))
+            .get(&ObservationKey::new(
+                sidecar_d.beacon_block_root(),
+                Slot::new(0),
+            ))
             .expect("slot zero should be present");
         assert_eq!(
             cached_blob_indices.len(),

@@ -156,7 +156,7 @@ mod get_blobs_v2 {
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         // All data columns already seen on gossip
         mock_adapter
-            .expect_data_column_known_for_slot()
+            .expect_data_column_known_for_observation_key()
             .returning(|_| Some(hashset![0, 1, 2]));
         // No blobs should be processed
         mock_adapter.expect_process_engine_blobs().times(0);
@@ -193,7 +193,7 @@ mod get_blobs_v2 {
         mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         mock_adapter
-            .expect_data_column_known_for_slot()
+            .expect_data_column_known_for_observation_key()
             .returning(|_| None);
         mock_adapter
             .expect_cached_data_column_indexes()
@@ -332,7 +332,7 @@ mod get_blobs_v1 {
             .expect_cached_blob_indexes()
             .returning(|_| None);
         mock_adapter
-            .expect_blobs_known_for_slot()
+            .expect_blobs_known_for_observation_key()
             .returning(|_| None);
         // Returned blobs should be processed
         mock_process_engine_blobs_result(
@@ -427,7 +427,7 @@ mod get_blobs_v1 {
             .expect_cached_blob_indexes()
             .returning(|_| None);
         mock_adapter
-            .expect_blobs_known_for_slot()
+            .expect_blobs_known_for_observation_key()
             .returning(move |_| Some(all_blob_indices.clone()));
 
         // **WHEN**: Trigger `fetch_blobs` on the block
@@ -467,7 +467,7 @@ mod get_blobs_v1 {
             .expect_cached_blob_indexes()
             .returning(|_| None);
         mock_adapter
-            .expect_blobs_known_for_slot()
+            .expect_blobs_known_for_observation_key()
             .returning(|_| None);
         mock_process_engine_blobs_result(
             &mut mock_adapter,
