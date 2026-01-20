@@ -741,7 +741,7 @@ mod tests {
     }
 
     #[test]
-    fn fee_recipient_check_fails_when_missing() {
+    fn fee_recipient_check_enabled_validator_cases() {
         let def = ValidatorDefinition {
             enabled: true,
             voting_public_key: PublicKey::from_str(
@@ -760,36 +760,15 @@ mod tests {
                 voting_keystore_password: None,
             }
         };
+
         // Should return Some(pubkey) when no fee recipient is set
         let check_result = def.check_fee_recipient(None);
         assert!(check_result.is_some());
-    }
-
-    #[test]
-    fn fee_recipient_check_passes_with_global_flag() {
-        let def = ValidatorDefinition {
-            enabled: true,
-            voting_public_key: PublicKey::from_str(
-                "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
-            ).unwrap(),
-            description: String::new(),
-            graffiti: None,
-            suggested_fee_recipient: None,
-            gas_limit: None,
-            builder_proposals: None,
-            builder_boost_factor: None,
-            prefer_builder_proposals: None,
-            signing_definition: SigningDefinition::LocalKeystore {
-                voting_keystore_path: PathBuf::new(),
-                voting_keystore_password_path: None,
-                voting_keystore_password: None,
-            },
-        };
 
         // Should return None since global fee recipient is set
-        let global_fee =
+        let global_fee_recipient =
             Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
-        let check_result = def.check_fee_recipient(global_fee);
+        let check_result = def.check_fee_recipient(global_fee_recipient);
         assert!(check_result.is_none());
     }
 
@@ -828,7 +807,7 @@ mod tests {
             ).unwrap(),
             description: String::new(),
             graffiti: None,
-            suggested_fee_recipient: None,  // No fee recipient
+            suggested_fee_recipient: None,
             gas_limit: None,
             builder_proposals: None,
             builder_boost_factor: None,
@@ -987,8 +966,8 @@ mod tests {
         let defs = ValidatorDefinitions::from(vec![def1, def2]);
 
         // Should pass - global fee recipient is set
-        let global_fee =
+        let global_fee_recipient =
             Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap());
-        assert!(defs.check_all_fee_recipients(global_fee).is_ok());
+        assert!(defs.check_all_fee_recipients(global_fee_recipient).is_ok());
     }
 }
