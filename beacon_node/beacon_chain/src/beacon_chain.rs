@@ -2201,7 +2201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all, level = "trace")]
     pub fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
-        data_column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
+        data_column_sidecar: PartialDataColumn<T::EthSpec>,
     ) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer =
@@ -3113,11 +3113,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Merge the partial into the assembler
-        let partial_arc = verified_partial.clone_data_column();
+        let partial = verified_partial.clone_data_column();
         let merge_result = self
             .data_availability_checker
             .partial_assembler()
-            .merge_partial(block_root, partial_arc)
+            .merge_partial(block_root, partial)
             .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
 
         // If we completed a column, process it through the DA checker

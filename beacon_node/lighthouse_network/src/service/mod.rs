@@ -111,7 +111,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// The peer from which we received this message.
         source: PeerId,
         /// The partial column data.
-        column: Arc<PartialDataColumn<E>>,
+        column: PartialDataColumn<E>,
     },
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),

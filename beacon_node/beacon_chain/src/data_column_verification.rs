@@ -348,36 +348,35 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
 #[derive(Debug, Educe, Clone)]
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedPartialDataColumn<E: EthSpec> {
-    data: Arc<PartialDataColumn<E>>,
+    data: PartialDataColumn<E>,
 }
 
 impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
     pub fn new(
-        data_column: Arc<PartialDataColumn<E>>,
+        data_column: PartialDataColumn<E>,
         kzg: &Kzg,
     ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_partial_data_column(data_column, kzg)
     }
 
     /// Create a `KzgVerifiedPartialDataColumn` for testing ONLY.
-    pub(crate) fn __new_for_testing(data_column: Arc<PartialDataColumn<E>>) -> Self {
+    pub(crate) fn __new_for_testing(data_column: PartialDataColumn<E>) -> Self {
         Self { data: data_column }
     }
 
     /// Mark a partial data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
-    pub fn from_execution_verified(data_column: Arc<PartialDataColumn<E>>) -> Self {
+    pub fn from_execution_verified(data_column: PartialDataColumn<E>) -> Self {
         Self { data: data_column }
     }
 
-    pub fn to_data_column(self) -> Arc<PartialDataColumn<E>> {
+    pub fn to_data_column(self) -> PartialDataColumn<E> {
         self.data
     }
     pub fn as_data_column(&self) -> &PartialDataColumn<E> {
         &self.data
     }
-    /// This is cheap as we're calling clone on an Arc
-    pub fn clone_data_column(&self) -> Arc<PartialDataColumn<E>> {
+    pub fn clone_data_column(&self) -> PartialDataColumn<E> {
         self.data.clone()
     }
 
@@ -486,7 +485,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn into_partial(self) -> KzgVerifiedCustodyPartialDataColumn<E> {
         let column = Arc::try_unwrap(self.data).unwrap_or_else(|column| (*column).clone());
         KzgVerifiedCustodyPartialDataColumn {
-            data: Arc::new(column.into_partial()),
+            data: column.into_partial(),
         }
     }
 
@@ -518,7 +517,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 #[derive(Debug, Educe, Clone)]
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedCustodyPartialDataColumn<E: EthSpec> {
-    data: Arc<PartialDataColumn<E>>,
+    data: PartialDataColumn<E>,
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
@@ -530,16 +529,12 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         }
     }
 
-    pub fn into_inner(self) -> Arc<PartialDataColumn<E>> {
+    pub fn into_inner(self) -> PartialDataColumn<E> {
         self.data
     }
 
     pub fn as_data_column(&self) -> &PartialDataColumn<E> {
         &self.data
-    }
-
-    pub fn clone_arc(&self) -> Arc<PartialDataColumn<E>> {
-        self.data.clone()
     }
 
     pub fn index(&self) -> ColumnIndex {
@@ -565,7 +560,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 /// Returns an error if the kzg verification check fails.
 #[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
-    data_column: Arc<PartialDataColumn<E>>,
+    data_column: PartialDataColumn<E>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedPartialDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
@@ -649,24 +644,22 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
 
 #[instrument(skip_all, level = "debug")]
 pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
-    data_column: Arc<PartialDataColumn<T::EthSpec>>,
+    data_column: PartialDataColumn<T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipDataColumnError> {
     let block_root = data_column.block_root;
 
     let filtered_column = if let Some(missing_cells) = chain
         .data_availability_checker
-        .determine_missing_cells_partial(&block_root, data_column.as_ref())
+        .determine_missing_cells_partial(&block_root, &data_column)
     {
         if missing_cells.is_empty() {
             return Err(GossipDataColumnError::PriorKnownUnpublished);
         }
 
-        Arc::new(
-            data_column
-                .clone_filter(|idx| missing_cells.contains(&idx))
-                .ok_or_else(|| GossipDataColumnError::PriorKnownUnpublished)?,
-        )
+        data_column
+            .clone_filter(|idx| missing_cells.contains(&idx))
+            .ok_or_else(|| GossipDataColumnError::PriorKnownUnpublished)?
     } else {
         data_column
     };

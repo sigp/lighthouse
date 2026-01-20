@@ -254,7 +254,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_gossip_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
+        column_sidecar: PartialDataColumn<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();

@@ -424,7 +424,7 @@ pub fn decode_partial<E: EthSpec>(
     topic: &GossipTopic,
     group: &[u8],
     data: &[u8],
-) -> Result<Arc<PartialDataColumn<E>>, String> {
+) -> Result<PartialDataColumn<E>, String> {
     match topic.kind() {
         GossipKind::DataColumnSidecar(id) => {
             let block_root = Hash256::from_ssz_bytes(group)
@@ -437,7 +437,7 @@ pub fn decode_partial<E: EthSpec>(
                 index: **id,
                 sidecar,
             };
-            Ok(Arc::new(data_column))
+            Ok(data_column)
         }
         other => Err(format!("Partial message unsupported for topic: {other}")),
     }

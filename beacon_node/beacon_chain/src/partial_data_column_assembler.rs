@@ -79,6 +79,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             }
 
             // Store incomplete partial
+            let partial = Arc::new(partial);
             result.incomplete_partials.push(partial.clone());
             assembly.columns.insert(column_index, partial);
         }
@@ -96,7 +97,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn merge_partial(
         &self,
         block_root: Hash256,
-        partial: Arc<PartialDataColumn<E>>,
+        partial: PartialDataColumn<E>,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies.get_mut(&block_root)?;
@@ -113,7 +114,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             })
         } else {
             // First time seeing this column index for this block
-            partial.clone()
+            Arc::new(partial.clone())
         };
 
         // Check if merged column is now complete

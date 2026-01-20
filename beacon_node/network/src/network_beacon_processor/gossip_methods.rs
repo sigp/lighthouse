@@ -784,7 +784,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_gossip_dangling_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
+        column_sidecar: PartialDataColumn<T::EthSpec>,
         seen_duration: Duration,
     ) {
         // TODO(dknopik): add check and cache for header
@@ -871,7 +871,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_gossip_verifiable_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: Arc<PartialDataColumn<T::EthSpec>>,
+        column_sidecar: PartialDataColumn<T::EthSpec>,
         slot: Slot,
         seen_duration: Duration,
     ) {
@@ -885,7 +885,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         match self
             .chain
-            .verify_partial_data_column_sidecar_for_gossip(column_sidecar.clone())
+            .verify_partial_data_column_sidecar_for_gossip(column_sidecar)
         {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
