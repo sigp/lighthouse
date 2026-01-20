@@ -296,6 +296,11 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         self.description.clone()
     }
 
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        // Gloas fork choice not yet implemented
+        fork_name != ForkName::Gloas
+    }
+
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 

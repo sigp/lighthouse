@@ -119,6 +119,12 @@ fn operations_bls_to_execution_change() {
 }
 
 #[test]
+fn operations_payload_attestation() {
+    OperationsHandler::<MinimalEthSpec, PayloadAttestation<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, PayloadAttestation<_>>::default().run();
+}
+
+#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::default().run();
     SanityBlocksHandler::<MainnetEthSpec>::default().run();
