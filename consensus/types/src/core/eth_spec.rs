@@ -548,6 +548,7 @@ impl EthSpec for MinimalEthSpec {
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
+    type PTCSize = U2;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -578,7 +579,6 @@ impl EthSpec for MinimalEthSpec {
         MaxAttestationsElectra,
         MaxDepositRequestsPerPayload,
         MaxWithdrawalRequestsPerPayload,
-        PTCSize,
         MaxPayloadAttestations,
         BuilderRegistryLimit
     });

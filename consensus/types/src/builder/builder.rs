@@ -14,8 +14,10 @@ pub type BuilderIndex = u64;
 )]
 pub struct Builder {
     pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u8")]
     pub version: u8,
     pub execution_address: Address,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub balance: u64,
     pub deposit_epoch: Epoch,
     pub withdrawable_epoch: Epoch,
