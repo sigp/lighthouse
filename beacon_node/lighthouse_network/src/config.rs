@@ -270,11 +270,8 @@ impl Config {
         let mut ctx = std::task::Context::from_waker(futures::task::noop_waker_ref());
 
         // Ensure all addresses are added.
-        loop {
-            match watcher.poll_if_event(&mut ctx) {
-                std::task::Poll::Ready(Ok(_)) => continue,
-                _ => break,
-            }
+        while let std::task::Poll::Ready(Ok(_)) = watcher.poll_if_event(&mut ctx) {
+            continue;
         }
 
         watcher
