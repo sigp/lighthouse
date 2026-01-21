@@ -234,34 +234,29 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 tokio::time::sleep(delay).await;
             }
         }
-        // Publish columns to network first (eager push for builder/producer case)
         publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
-
-        // Add full columns directly to DA checker (not via gossip verification)
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns_indices = chain.sampling_columns_for_epoch(epoch);
-        let sampling_columns: Vec<_> = gossip_verified_columns
+        let sampling_columns = gossip_verified_columns
             .into_iter()
             .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
-            .map(|gv| gv.into_inner().to_data_column())
-            .collect();
+            .collect::<Vec<_>>();
 
         if !sampling_columns.is_empty() {
-            // Add columns directly to DA checker (block producer case)
-            let block_root = block.tree_hash_root();
-            if let Err(e) = chain
-                .data_availability_checker
-                .put_full_data_columns(block_root, sampling_columns)
+            // Importing the columns could trigger block import and network publication in the case
+            // where the block was already seen on gossip.
+            if let Err(e) =
+                Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn)).await
             {
-                let msg = format!("Failed to add data columns to DA checker: {e:?}");
+                let msg = format!("Invalid data column: {e}");
                 return if let BroadcastValidation::Gossip = validation_level {
                     Err(warp_utils::reject::broadcast_without_import(msg))
                 } else {
                     error!(
                         reason = &msg,
-                        "Data column addition failed during block publication"
+                        "Invalid data column during block publication"
                     );
                     Err(warp_utils::reject::custom_bad_request(msg))
                 };
