@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    BeaconState, BeaconStateError, ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Fork, Hash256, SignedRoot, Slot,
+    ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash, ExecutionPayloadEnvelope, Fork, Hash256,
+    SignedRoot, Slot,
 };
 use bls::{PublicKey, Signature};
 use educe::Educe;
@@ -33,37 +33,6 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
         self.message.payload.block_hash
-    }
-
-    /// Verify `self.signature`.
-    ///
-    /// The `parent_state` is the post-state of the beacon block with
-    /// block_root = self.message.beacon_block_root
-    /// TODO(EIP-7732): maybe delete this function later (it is inefficient)
-    pub fn verify_signature_with_state(
-        &self,
-        parent_state: &BeaconState<E>,
-        spec: &ChainSpec,
-    ) -> Result<bool, BeaconStateError> {
-        let proposer_index = parent_state.latest_block_header().proposer_index;
-        let builder_index = self.message.builder_index(proposer_index) as usize;
-        let domain = spec.get_domain(
-            parent_state.current_epoch(),
-            Domain::BeaconBuilder,
-            &parent_state.fork(),
-            parent_state.genesis_validators_root(),
-        );
-        let pubkey = parent_state
-            .validators()
-            .get(builder_index)
-            .and_then(|v| {
-                let pk: Option<PublicKey> = v.pubkey.decompress().ok();
-                pk
-            })
-            .ok_or(BeaconStateError::UnknownValidator(builder_index))?;
-        let message = self.message.signing_root(domain);
-
-        Ok(self.signature.verify(&pubkey, message))
     }
 
     /// Verify `self.signature`.

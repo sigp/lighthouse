@@ -55,15 +55,6 @@ async fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
         .head_beacon_state_cloned()
 }
 
-// TODO(EIP-7732): Add tests for PTC (Payload Timeliness Committee) functions:
-// - get_ptc: Test committee selection, size, balance-weighted selection
-// - get_ptc_attester_seed: Test seed generation and determinism
-// - compute_balance_weighted_selection: Test selection algorithm with various balances
-// - compute_balance_weighted_acceptance: Test acceptance probability
-// These tests require being able to build Gloas states with initialized committee caches,
-// which currently fails due to incomplete Gloas block structure as mentioned here:
-// https://github.com/sigp/lighthouse/pull/8273
-// Similar to existing committee_consistency_test suite for get_beacon_committee.
 async fn test_beacon_proposer_index<E: EthSpec>() {
     let spec = E::default_spec();
 

@@ -1,7 +1,6 @@
 use crate::EthSpec;
 use ssz_types::FixedVector;
 
-/// TODO(EIP-7732): is it easier to return u64 or usize?
 #[derive(Clone, Debug, PartialEq)]
 pub struct PTC<E: EthSpec>(pub FixedVector<usize, E::PTCSize>);
 
