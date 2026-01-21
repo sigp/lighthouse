@@ -1,5 +1,5 @@
 use crate::PeerId;
-use libp2p::gossipsub::{Metadata, Partial, PartialAction, PartialError};
+use libp2p::gossipsub::partial_messages::{Metadata, Partial, PartialAction, PartialError};
 use ssz::{Decode, Encode};
 use std::fmt::Debug;
 use std::sync::Arc;
