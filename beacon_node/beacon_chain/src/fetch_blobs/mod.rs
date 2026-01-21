@@ -345,10 +345,6 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 
     // Initialize the partial assembler with the columns from the engine
     let assembler = chain_adapter.partial_assembler();
-    assembler
-        .init(block_root, block.as_ref())
-        .map_err(FetchEngineBlobError::BeaconStateError)?;
-
     let merge_result = assembler
         .merge_partials(
             block_root,
