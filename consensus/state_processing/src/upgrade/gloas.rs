@@ -1,6 +1,7 @@
 use milhouse::{List, Vector};
 use ssz_types::BitVector;
 use std::mem;
+use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
     EthSpec, ExecutionPayloadBid, Fork,
@@ -91,7 +92,12 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Gloas
         builders: List::default(),
         next_withdrawal_builder_index: 0,
-        execution_payload_availability: BitVector::default(), // All bits set to false initially
+        // All bits set to true per spec:
+        // execution_payload_availability = [0b1 for _ in range(SLOTS_PER_HISTORICAL_ROOT)]
+        execution_payload_availability: BitVector::from_bytes(
+            vec![0xFFu8; E::SlotsPerHistoricalRoot::to_usize() / 8].into(),
+        )
+        .expect("SlotsPerHistoricalRoot is always divisible by 8"),
         builder_pending_payments: Vector::new(vec![
             BuilderPendingPayment::default();
             E::builder_pending_payments_limit()

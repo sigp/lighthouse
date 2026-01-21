@@ -47,6 +47,19 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # TODO(EIP-7732): Gloas execution_payload_bid tests require process_execution_payload_bid
+    # which is not yet implemented.
+    "tests/.*/gloas/operations/execution_payload_bid/.*",
+    # TODO(EIP-7732): Gloas deposit_request tests require builder deposit functionality
+    # (apply_deposit_for_builder, add_builder_to_registry) which is not yet implemented.
+    "tests/.*/gloas/operations/deposit_request/.*",
+    # TODO(EIP-7732): Gloas sanity, transition, random, finality, and fork_choice tests require
+    # full block processing which is not yet complete.
+    "tests/.*/gloas/sanity/.*",
+    "tests/.*/gloas/transition/.*",
+    "tests/.*/gloas/random/.*",
+    "tests/.*/gloas/finality/.*",
+    "tests/.*/gloas/fork_choice/.*",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/fulu/ssz_static/MatrixEntry/.*",
     # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
@@ -59,8 +72,6 @@ excluded_paths = [
     # Ignore full epoch tests for now (just test the sub-transitions).
     "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
-    # Ignore gloas tests for now
-    "tests/.*/gloas/.*",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",

@@ -387,6 +387,30 @@ pub fn process_proposer_slashings<E: EthSpec>(
             verify_proposer_slashing(proposer_slashing, state, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))?;
 
+            // [New in Gloas:EIP7732]
+            // Remove the BuilderPendingPayment corresponding to this proposal
+            // if it is still in the 2-epoch window.
+            let slot = proposer_slashing.signed_header_1.message.slot;
+            let proposal_epoch = slot.epoch(E::slots_per_epoch());
+            let current_epoch = state.current_epoch();
+            let slot_in_epoch = slot.as_u64() % E::slots_per_epoch();
+
+            let payment_index = if proposal_epoch == current_epoch {
+                Some(E::slots_per_epoch() + slot_in_epoch)
+            } else if proposal_epoch == current_epoch.saturating_sub(1u64) {
+                Some(slot_in_epoch)
+            } else {
+                None
+            };
+
+            if let Some(index) = payment_index {
+                if let Ok(builder_pending_payments) = state.builder_pending_payments_mut() {
+                    if let Some(payment) = builder_pending_payments.get_mut(index as usize) {
+                        *payment = BuilderPendingPayment::default();
+                    }
+                }
+            }
+
             slash_validator(
                 state,
                 proposer_slashing.signed_header_1.message.proposer_index as usize,

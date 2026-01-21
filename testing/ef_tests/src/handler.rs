@@ -491,10 +491,11 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
         "blocks".into()
     }
 
-    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // NOTE: v1.1.0-beta.4 doesn't mark the historical blocks test as requiring real crypto, so
         // only run these tests with real crypto for now.
-        cfg!(not(feature = "fake_crypto"))
+        // TODO(EIP-7732): Gloas sanity tests require full block processing which is not yet complete
+        fork_name != ForkName::Gloas && cfg!(not(feature = "fake_crypto"))
     }
 }
 
@@ -519,7 +520,9 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Some sanity tests compute sync committees, which requires real crypto.
-        fork_name == ForkName::Base || cfg!(not(feature = "fake_crypto"))
+        // TODO(EIP-7732): Gloas sanity tests require full block processing which is not yet complete
+        fork_name != ForkName::Gloas
+            && (fork_name == ForkName::Base || cfg!(not(feature = "fake_crypto")))
     }
 }
 
@@ -540,6 +543,11 @@ impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
 
     fn handler_name(&self) -> String {
         "random".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // TODO(EIP-7732): Gloas random tests require full block processing which is not yet complete
+        fork_name != ForkName::Gloas
     }
 }
 
@@ -631,6 +639,11 @@ impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
     fn handler_name(&self) -> String {
         "core".into()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // TODO(EIP-7732): Gloas transition tests require full block processing which is not yet complete
+        fork_name != ForkName::Gloas
+    }
 }
 
 #[derive(Educe)]
@@ -651,6 +664,11 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
 
     fn handler_name(&self) -> String {
         "finality".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // TODO(EIP-7732): Gloas finality tests require full block processing which is not yet complete
+        fork_name != ForkName::Gloas
     }
 }
 
@@ -696,6 +714,12 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
         // Tests are no longer generated for the base/phase0 specification.
         if fork_name == ForkName::Base {
+            return false;
+        }
+
+        // TODO(EIP-7732): Gloas fork choice not yet implemented
+        // https://github.com/sigp/lighthouse/issues/XXXX
+        if fork_name == ForkName::Gloas {
             return false;
         }
 
