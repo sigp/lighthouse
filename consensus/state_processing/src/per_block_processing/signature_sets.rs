@@ -318,7 +318,10 @@ where
         );
     }
 
-    let epoch = indexed_payload_attestation.data.slot.epoch(E::slots_per_epoch());
+    let epoch = indexed_payload_attestation
+        .data
+        .slot
+        .epoch(E::slots_per_epoch());
     let domain = spec.get_domain(
         epoch,
         Domain::PTCAttester,
