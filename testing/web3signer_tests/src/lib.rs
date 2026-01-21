@@ -553,10 +553,7 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(
-                PublicKeyBytes,
-                Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
-            ) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
             R: Future<Output = Result<Vec<Attestation<E>>, lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
