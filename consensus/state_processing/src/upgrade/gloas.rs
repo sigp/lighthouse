@@ -97,7 +97,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         execution_payload_availability: BitVector::from_bytes(
             vec![0xFFu8; E::SlotsPerHistoricalRoot::to_usize() / 8].into(),
         )
-        .expect("SlotsPerHistoricalRoot is always divisible by 8"),
+        .map_err(|_| Error::InvalidBitfield)?,
         builder_pending_payments: Vector::new(vec![
             BuilderPendingPayment::default();
             E::builder_pending_payments_limit()
