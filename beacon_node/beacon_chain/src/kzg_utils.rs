@@ -387,6 +387,8 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
     sidecars
 }
 
+// TODO(gloas) blob reconstruction will fail post gloas. We should just return `Blob`s
+// instead of a `BlobSidecar`. This might require a beacon api spec change as well.
 /// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
 ///
 /// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
