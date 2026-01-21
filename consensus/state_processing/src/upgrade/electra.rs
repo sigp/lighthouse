@@ -82,7 +82,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
     // Ensure early adopters of compounding credentials go through the activation churn
     let validators = post.validators().clone();
     for (index, validator) in validators.iter().enumerate() {
-        if validator.has_compounding_withdrawal_credential(spec, post.fork_name_unchecked()) {
+        if validator.has_compounding_withdrawal_credential(spec) {
             post.queue_excess_active_balance(index, spec)?;
         }
     }

@@ -1412,7 +1412,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
 
     let consolidation_request: ConsolidationRequest = ConsolidationRequest {
         source_address: validator_to_topup
-            .get_execution_withdrawal_address(spec, ForkName::Fulu)
+            .get_execution_withdrawal_address(spec)
             .unwrap(),
         source_pubkey: validator_to_topup.pubkey,
         target_pubkey: validator_to_topup.pubkey,
@@ -1491,7 +1491,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
     let validator = current_epoch_state
         .get_validator(validator_to_topup_index)
         .unwrap();
-    assert!(validator.has_compounding_withdrawal_credential(spec, ForkName::Fulu));
+    assert!(validator.has_compounding_withdrawal_credential(spec));
     assert_eq!(validator.effective_balance, 95_000_000_000);
 
     // The shuffling for the current epoch from `prev_epoch_state` should match the shuffling

@@ -566,7 +566,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                         index: withdrawal_index,
                         validator_index: withdrawal.validator_index,
                         address: validator
-                            .get_execution_withdrawal_address(spec, state.fork_name_unchecked())
+                            .get_execution_withdrawal_address(spec)
                             .ok_or(BeaconStateError::NonExecutionAddressWithdrawalCredential)?,
                         amount: withdrawable_balance,
                     });
@@ -603,7 +603,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 index: withdrawal_index,
                 validator_index,
                 address: validator
-                    .get_execution_withdrawal_address(spec, fork_name)
+                    .get_execution_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance,
             });
@@ -613,7 +613,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 index: withdrawal_index,
                 validator_index,
                 address: validator
-                    .get_execution_withdrawal_address(spec, fork_name)
+                    .get_execution_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance.safe_sub(validator.get_max_effective_balance(spec, fork_name))?,
             });

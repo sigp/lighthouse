@@ -68,7 +68,6 @@ pub enum BeaconStateError {
     EpochOutOfBounds,
     SlotOutOfBounds,
     UnknownValidator(usize),
-    UnknownBuilder(u64),
     UnableToDetermineProducer,
     InvalidBitfield,
     EmptyCommittee,
@@ -170,15 +169,12 @@ pub enum BeaconStateError {
     TotalActiveBalanceDiffUninitialized,
     GeneralizedIndexNotSupported(usize),
     IndexNotSupported(usize),
-    BuilderPendingPaymentsIndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
     NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
-    /// `Attestation.data.index` field is invalid in overloaded data index scenario.
-    BadOverloadedDataIndex(u64),
     InvalidSelectionProof {
         aggregator_index: u64,
     },
@@ -201,8 +197,6 @@ pub enum BeaconStateError {
         i: usize,
     },
     InvalidIndicesCount,
-    PleaseNotifyTheDevs(String),
-    InvalidExecutionPayloadAvailabilityIndex(usize),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -2081,11 +2075,11 @@ impl<E: EthSpec> BeaconState<E> {
             return Ok(true);
         }
 
-        let blockroot = data.beacon_block_root;
-        let slot_blockroot = *self.get_block_root(data.slot)?;
-        let prev_blockroot = *self.get_block_root(data.slot.safe_sub(1)?)?;
+        let block_root = data.beacon_block_root;
+        let slot_block_root = *self.get_block_root(data.slot)?;
+        let prev_block_root = *self.get_block_root(data.slot.safe_sub(1)?)?;
 
-        Ok(blockroot == slot_blockroot && blockroot != prev_blockroot)
+        Ok(block_root == slot_block_root && block_root != prev_block_root)
     }
 
     /// Compute the total active balance cache from scratch.
@@ -2936,7 +2930,8 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
-    /// Get the PTC
+    /// Get the payload timeliness committee for the given `slot`.
+    ///
     /// Requires the committee cache to be initialized.
     /// TODO(EIP-7732): definitely gonna have to cache this..
     pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
@@ -2961,8 +2956,6 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Compute the seed to use for the ptc attester selection at the given `slot`.
-    ///
-    /// Spec v0.12.1
     pub fn get_ptc_attester_seed(
         &self,
         slot: Slot,
@@ -2995,10 +2988,10 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         let mut selected = Vec::with_capacity(size);
-        let mut count = 0usize;
+        let mut i = 0usize;
 
         while selected.len() < size {
-            let mut next_index = count.safe_rem(total)?;
+            let mut next_index = i.safe_rem(total)?;
 
             if shuffle_indices {
                 next_index =
@@ -3010,11 +3003,11 @@ impl<E: EthSpec> BeaconState<E> {
                 .get(next_index)
                 .ok_or(BeaconStateError::InvalidIndicesCount)?;
 
-            if self.compute_balance_weighted_acceptance(*candidate_index, seed, count, spec)? {
+            if self.compute_balance_weighted_acceptance(*candidate_index, seed, i, spec)? {
                 selected.push(*candidate_index);
             }
 
-            count.safe_add_assign(1)?;
+            i.safe_add_assign(1)?;
         }
 
         Ok(selected)
@@ -3036,17 +3029,9 @@ impl<E: EthSpec> BeaconState<E> {
         // Currently, we can't test if making the change would work since the test suite is not ready for gloas.
         let effective_balance = self.get_effective_balance(index)?;
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
-
         let random_value = self.shuffling_random_value(iteration, seed)?;
 
-        // this codepath should technically never be hit pre-gloas, but added this defensively
-        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
-            MAX_RANDOM_VALUE
-        } else {
-            MAX_RANDOM_BYTE
-        };
-
-        Ok(effective_balance.safe_mul(max_random_value)?
+        Ok(effective_balance.safe_mul(MAX_RANDOM_VALUE)?
             >= max_effective_balance.safe_mul(random_value)?)
     }
 }

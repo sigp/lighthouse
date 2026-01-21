@@ -165,41 +165,13 @@ impl Validator {
     }
 
     /// Check if ``validator`` has an 0x02 prefixed "compounding" withdrawal credential.
-    pub fn has_compounding_withdrawal_credential(
-        &self,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> bool {
-        if current_fork.gloas_enabled() {
-            self.has_compounding_withdrawal_credential_gloas(spec)
-        } else {
-            self.has_compounding_withdrawal_credential_electra(spec)
-        }
-    }
-
-    /// Check if ``validator`` has an 0x02 prefixed "compounding" withdrawal credential
-    pub fn has_compounding_withdrawal_credential_electra(&self, spec: &ChainSpec) -> bool {
+    pub fn has_compounding_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
         is_compounding_withdrawal_credential(self.withdrawal_credentials, spec)
-    }
-
-    /// Check if ``validator`` has an 0x02 prefixed "compounding" withdrawal credential or an 0x03 prefixed "builder" withdrawal credential
-    pub fn has_compounding_withdrawal_credential_gloas(&self, spec: &ChainSpec) -> bool {
-        is_compounding_withdrawal_credential(self.withdrawal_credentials, spec)
-            || is_builder_withdrawal_credential(self.withdrawal_credentials, spec)
-    }
-
-    /// Check if ``validator`` has an 0x03 prefixed "builder" withdrawal credential.
-    pub fn has_builder_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
-        is_builder_withdrawal_credential(self.withdrawal_credentials, spec)
     }
 
     /// Get the execution withdrawal address if this validator has one initialized.
-    pub fn get_execution_withdrawal_address(
-        &self,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> Option<Address> {
-        self.has_execution_withdrawal_credential(spec, current_fork)
+    pub fn get_execution_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
+        self.has_execution_withdrawal_credential(spec)
             .then(|| {
                 self.withdrawal_credentials
                     .as_slice()
@@ -230,7 +202,7 @@ impl Validator {
         current_fork: ForkName,
     ) -> bool {
         if current_fork.electra_enabled() {
-            self.is_fully_withdrawable_validator_electra(balance, epoch, spec, current_fork)
+            self.is_fully_withdrawable_validator_electra(balance, epoch, spec)
         } else {
             self.is_fully_withdrawable_validator_capella(balance, epoch, spec)
         }
@@ -254,9 +226,8 @@ impl Validator {
         balance: u64,
         epoch: Epoch,
         spec: &ChainSpec,
-        current_fork: ForkName,
     ) -> bool {
-        self.has_execution_withdrawal_credential(spec, current_fork)
+        self.has_execution_withdrawal_credential(spec)
             && self.withdrawable_epoch <= epoch
             && balance > 0
     }
@@ -296,25 +267,21 @@ impl Validator {
         let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
         let has_max_effective_balance = self.effective_balance == max_effective_balance;
         let has_excess_balance = balance > max_effective_balance;
-        self.has_execution_withdrawal_credential(spec, current_fork)
+        self.has_execution_withdrawal_credential(spec)
             && has_max_effective_balance
             && has_excess_balance
     }
 
     /// Returns `true` if the validator has a 0x01 or 0x02 prefixed withdrawal credential.
-    pub fn has_execution_withdrawal_credential(
-        &self,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> bool {
-        self.has_compounding_withdrawal_credential(spec, current_fork)
+    pub fn has_execution_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        self.has_compounding_withdrawal_credential(spec)
             || self.has_eth1_withdrawal_credential(spec)
     }
 
     /// Returns the max effective balance for a validator in gwei.
     pub fn get_max_effective_balance(&self, spec: &ChainSpec, current_fork: ForkName) -> u64 {
         if current_fork >= ForkName::Electra {
-            if self.has_compounding_withdrawal_credential(spec, current_fork) {
+            if self.has_compounding_withdrawal_credential(spec) {
                 spec.max_effective_balance_electra
             } else {
                 spec.min_activation_balance
@@ -349,15 +316,6 @@ pub fn is_compounding_withdrawal_credential(
         .as_slice()
         .first()
         .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
-        .unwrap_or(false)
-}
-
-/// Check if the withdrawal credential has the builder withdrawal prefix (0x03).
-pub fn is_builder_withdrawal_credential(withdrawal_credentials: Hash256, spec: &ChainSpec) -> bool {
-    withdrawal_credentials
-        .as_slice()
-        .first()
-        .map(|prefix_byte| *prefix_byte == spec.builder_withdrawal_prefix_byte)
         .unwrap_or(false)
 }
 

@@ -582,12 +582,7 @@ impl<E: EthSpec> OperationPool<E> {
                 address_change.signature_is_still_valid(&state.fork())
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
-                        .is_ok_and(|validator| {
-                            !validator.has_execution_withdrawal_credential(
-                                spec,
-                                state.fork_name_unchecked(),
-                            )
-                        })
+                        .is_ok_and(|validator| !validator.has_execution_withdrawal_credential(spec))
             },
             |address_change| address_change.as_inner().clone(),
             E::MaxBlsToExecutionChanges::to_usize(),
