@@ -2651,16 +2651,11 @@ impl<E: EthSpec> BeaconState<E> {
             .map_err(Into::into)
     }
 
-    // TODO(EIP-7732): The consensus spec PR for this change mentions that some EF tests will be needed but haven't been created yet.
-    // We should integrate them once they are available.
-    // https://github.com/ethereum/consensus-specs/pull/4513
     pub fn get_pending_balance_to_withdraw(
         &self,
         validator_index: usize,
     ) -> Result<u64, BeaconStateError> {
         let mut pending_balance = 0;
-
-        // Sum pending partial withdrawals
         for withdrawal in self
             .pending_partial_withdrawals()?
             .iter()
@@ -2668,27 +2663,6 @@ impl<E: EthSpec> BeaconState<E> {
         {
             pending_balance.safe_add_assign(withdrawal.amount)?;
         }
-
-        // Sum builder pending withdrawals
-        if let Ok(builder_pending_withdrawals) = self.builder_pending_withdrawals() {
-            for withdrawal in builder_pending_withdrawals
-                .iter()
-                .filter(|withdrawal| withdrawal.builder_index as usize == validator_index)
-            {
-                pending_balance.safe_add_assign(withdrawal.amount)?;
-            }
-        }
-
-        // Sum builder pending payments
-        if let Ok(builder_pending_payments) = self.builder_pending_payments() {
-            for payment in builder_pending_payments
-                .iter()
-                .filter(|payment| payment.withdrawal.builder_index as usize == validator_index)
-            {
-                pending_balance.safe_add_assign(payment.withdrawal.amount)?;
-            }
-        }
-
         Ok(pending_balance)
     }
 
