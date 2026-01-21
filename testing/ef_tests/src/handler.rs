@@ -387,6 +387,11 @@ where
         T::name().into()
     }
 
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
+    }
+
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }

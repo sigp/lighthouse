@@ -514,9 +514,10 @@ pub fn process_withdrawal_requests<E: EthSpec>(
 
         let validator = state.get_validator(validator_index)?;
         // Verify withdrawal credentials
-        let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
+        let has_correct_credential =
+            validator.has_execution_withdrawal_credential(spec, state.fork_name_unchecked());
         let is_correct_source_address = validator
-            .get_execution_withdrawal_address(spec)
+            .get_execution_withdrawal_address(spec, state.fork_name_unchecked())
             .map(|addr| addr == request.source_address)
             .unwrap_or(false);
 
@@ -561,7 +562,7 @@ pub fn process_withdrawal_requests<E: EthSpec>(
                 .safe_add(pending_balance_to_withdraw)?;
 
         // Only allow partial withdrawals with compounding withdrawal credentials
-        if validator.has_compounding_withdrawal_credential(spec)
+        if validator.has_compounding_withdrawal_credential(spec, state.fork_name_unchecked())
             && has_sufficient_effective_balance
             && has_excess_balance
         {
@@ -730,7 +731,9 @@ pub fn process_consolidation_request<E: EthSpec>(
 
     let source_validator = state.get_validator(source_index)?;
     // Verify the source withdrawal credentials
-    if let Some(withdrawal_address) = source_validator.get_execution_withdrawal_address(spec) {
+    if let Some(withdrawal_address) =
+        source_validator.get_execution_withdrawal_address(spec, state.fork_name_unchecked())
+    {
         if withdrawal_address != consolidation_request.source_address {
             return Ok(());
         }
@@ -741,7 +744,7 @@ pub fn process_consolidation_request<E: EthSpec>(
 
     let target_validator = state.get_validator(target_index)?;
     // Verify the target has compounding withdrawal credentials
-    if !target_validator.has_compounding_withdrawal_credential(spec) {
+    if !target_validator.has_compounding_withdrawal_credential(spec, state.fork_name_unchecked()) {
         return Ok(());
     }
 
