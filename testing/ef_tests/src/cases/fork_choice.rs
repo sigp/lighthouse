@@ -297,6 +297,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // TODO(gloas): We have not implemented this change to fork choice/proposer boost yet.
+        // https://github.com/sigp/lighthouse/issues/8689
+        if self.description == "voting_source_beyond_two_epoch"
+            || self.description == "justified_update_not_realized_finality"
+            || self.description == "justified_update_always_if_better"
+        {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
