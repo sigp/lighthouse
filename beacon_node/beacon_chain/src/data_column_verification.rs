@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::{debug, instrument};
 use types::das_column::DasColumn;
-use types::data_column_sidecar::ColumnIndex;
+use types::data::ColumnIndex;
 use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,

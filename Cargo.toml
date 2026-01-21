@@ -168,6 +168,20 @@ initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.10"
 kzg = { path = "crypto/kzg" }
+libp2p = { git = "https://github.com/jxs/rust-libp2p.git", branch = "gossipsub-partial-messages", default-features = false, features = [
+    "identify",
+    "yamux",
+    "noise",
+    "dns",
+    "tcp",
+    "tokio",
+    "secp256k1",
+    "macros",
+    "metrics",
+    "quic",
+    "upnp",
+    "gossipsub",
+] }
 libsecp256k1 = "0.7"
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_tracing = { path = "beacon_node/lighthouse_tracing" }

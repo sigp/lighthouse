@@ -18,7 +18,7 @@ pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
-use eth2::types::{ForkVersionedResponse, builder_bid::SignedBuilderBid};
+use eth2::types::{ForkVersionedResponse, builder::SignedBuilderBid};
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
@@ -45,10 +45,10 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::beacon_block_body::KzgCommitments;
-use types::builder_bid::BuilderBid;
+use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
-use types::non_zero_usize::new_non_zero_usize;
+use types::kzg_ext::KzgCommitments;
+use types::new_non_zero_usize;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
     SignedBlindedBeaconBlock,

@@ -6,9 +6,9 @@ use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use tracing::instrument;
-use types::beacon_block_body::KzgCommitments;
 use types::das_column::DasColumn;
-use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
+use types::data::{Cell, DataColumn, DataColumnSidecarError};
+use types::kzg_ext::KzgCommitments;
 use types::partial_data_column_sidecar::{
     CellBitmap, DanglingPartialDataColumn, PartialDataColumnSidecar, VerifiablePartialDataColumn,
 };
@@ -584,8 +584,7 @@ mod test {
     use kzg::{Kzg, KzgCommitment, trusted_setup::get_trusted_setup};
     use types::{
         BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
-        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
-        beacon_block_body::KzgCommitments,
+        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
     };
 
     type E = MainnetEthSpec;

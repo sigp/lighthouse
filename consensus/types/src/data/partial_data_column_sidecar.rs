@@ -1,8 +1,8 @@
-use crate::beacon_block_body::KzgCommitments;
 use crate::data::das_column::{CellWithMetadata, DasColumn};
-use crate::data_column_sidecar::{Cell, DataColumn};
 use crate::test_utils::TestRandom;
-use crate::{AbstractExecPayload, ColumnIndex, DataColumnSidecar};
+use crate::{
+    AbstractExecPayload, Cell, ColumnIndex, DataColumn, DataColumnSidecar, KzgCommitments,
+};
 use crate::{EthSpec, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockHeader, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;

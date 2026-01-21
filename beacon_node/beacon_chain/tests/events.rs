@@ -7,7 +7,7 @@ use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::sync::Arc;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, MinimalEthSpec, Slot};
 

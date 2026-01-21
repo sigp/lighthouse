@@ -22,11 +22,11 @@ use crate::types::{
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
-use gossipsub::{
-    Event, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
-    TopicScoreParams,
-};
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
+use libp2p::gossipsub::{
+    self, Event, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+    PublishError, TopicScoreParams,
+};
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;

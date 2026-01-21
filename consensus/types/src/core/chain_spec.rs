@@ -14,10 +14,9 @@ use tree_hash::TreeHash;
 use crate::{
     core::{
         APPLICATION_DOMAIN_BUILDER, Address, ApplicationDomain, EnrForkId, Epoch, EthSpec,
-        EthSpecId, Hash256, MainnetEthSpec, Slot, Uint256,
+        EthSpecId, ExecutionBlockHash, Hash256, MainnetEthSpec, Slot, Uint256,
     },
     data::{BlobIdentifier, DataColumnSubnetId, DataColumnsByRootIdentifier},
-    execution::ExecutionBlockHash,
     fork::{Fork, ForkData, ForkName},
 };
 
@@ -37,6 +36,7 @@ pub enum Domain {
     SyncCommitteeSelectionProof,
     BeaconBuilder,
     PTCAttester,
+    ProposerPreferences,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -131,6 +131,7 @@ pub struct ChainSpec {
     pub(crate) domain_aggregate_and_proof: u32,
     pub(crate) domain_beacon_builder: u32,
     pub(crate) domain_ptc_attester: u32,
+    pub(crate) domain_proposer_preferences: u32,
 
     /*
      * Fork choice
@@ -235,6 +236,7 @@ pub struct ChainSpec {
     pub gloas_fork_epoch: Option<Epoch>,
     pub builder_payment_threshold_numerator: u64,
     pub builder_payment_threshold_denominator: u64,
+    pub min_builder_withdrawability_delay: Epoch,
 
     /*
      * Networking
@@ -501,6 +503,7 @@ impl ChainSpec {
             Domain::AggregateAndProof => self.domain_aggregate_and_proof,
             Domain::BeaconBuilder => self.domain_beacon_builder,
             Domain::PTCAttester => self.domain_ptc_attester,
+            Domain::ProposerPreferences => self.domain_proposer_preferences,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -978,8 +981,9 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_beacon_builder: 0x1B,
+            domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
+            domain_proposer_preferences: 0x0D,
 
             /*
              * Fork choice
@@ -1103,6 +1107,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
+            min_builder_withdrawability_delay: Epoch::new(4096),
 
             /*
              * Network specific
@@ -1243,7 +1248,7 @@ impl ChainSpec {
             fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
             fulu_fork_epoch: None,
             // Gloas
-            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
@@ -1351,8 +1356,9 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_beacon_builder: 0x1B,
+            domain_beacon_builder: 0x0B,
             domain_ptc_attester: 0x0C,
+            domain_proposer_preferences: 0x0D,
 
             /*
              * Fork choice
@@ -1475,6 +1481,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
+            min_builder_withdrawability_delay: Epoch::new(4096),
 
             /*
              * Network specific

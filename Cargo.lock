@@ -4960,7 +4960,6 @@ dependencies = [
  "libp2p-mdns",
  "libp2p-metrics",
  "libp2p-noise",
- "libp2p-plaintext",
  "libp2p-quic",
  "libp2p-swarm",
  "libp2p-tcp",
@@ -5126,6 +5125,7 @@ source = "git+https://github.com/jxs/rust-libp2p.git?branch=gossipsub-partial-me
 dependencies = [
  "futures",
  "libp2p-core",
+ "libp2p-gossipsub",
  "libp2p-identify",
  "libp2p-identity",
  "libp2p-swarm",
@@ -5172,21 +5172,6 @@ dependencies = [
  "tracing",
  "x25519-dalek",
  "zeroize",
-]
-
-[[package]]
-name = "libp2p-plaintext"
-version = "0.43.0"
-source = "git+https://github.com/jxs/rust-libp2p.git?branch=gossipsub-partial-messages#922e5c24ecd029254476f1eb7a740c8705cd49aa"
-dependencies = [
- "asynchronous-codec",
- "bytes",
- "futures",
- "libp2p-core",
- "libp2p-identity",
- "quick-protobuf",
- "quick-protobuf-codec",
- "tracing",
 ]
 
 [[package]]
@@ -6129,7 +6114,7 @@ dependencies = [
  "itertools 0.10.5",
  "k256",
  "kzg",
- "libp2p-gossipsub",
+ "libp2p",
  "lighthouse_network",
  "lighthouse_tracing",
  "logging",

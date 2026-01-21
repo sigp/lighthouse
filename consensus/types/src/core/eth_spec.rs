@@ -7,7 +7,7 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use typenum::{
     U0, U1, U2, U4, U8, U16, U17, U32, U64, U128, U256, U512, U625, U1024, U2048, U4096, U8192,
-    U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728, U1073741824,
+    U16384, U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728, U1073741824,
     U1099511627776, UInt, Unsigned, bit::B0,
 };
 
@@ -123,6 +123,10 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type NumberOfColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type ProposerLookaheadSlots: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
+     * New in Gloas
+     */
+    type BuilderRegistryLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
      * Derived values (set these CAREFULLY)
      */
     /// The length of the `{previous,current}_epoch_attestations` lists.
@@ -175,6 +179,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxPayloadAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BuilderPendingPaymentsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BuilderPendingWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBuildersPerWithdrawalsSweep: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -427,6 +432,16 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn max_payload_attestations() -> usize {
         Self::MaxPayloadAttestations::to_usize()
     }
+
+    /// Returns the `MaxBuildersPerWithdrawalsSweep` constant for this specification.
+    fn max_builders_per_withdrawals_sweep() -> usize {
+        Self::MaxBuildersPerWithdrawalsSweep::to_usize()
+    }
+
+    /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
+    fn payload_timely_threshold() -> usize {
+        Self::PTCSize::to_usize() / 2
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -484,6 +499,7 @@ impl EthSpec for MainnetEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U64; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type BuilderRegistryLimit = U1099511627776;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -500,6 +516,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxPendingDepositsPerEpoch = U16;
     type PTCSize = U512;
     type MaxPayloadAttestations = U4;
+    type MaxBuildersPerWithdrawalsSweep = U16384;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -543,6 +560,8 @@ impl EthSpec for MinimalEthSpec {
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
+    type PTCSize = U2;
+    type MaxBuildersPerWithdrawalsSweep = U16;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -573,8 +592,8 @@ impl EthSpec for MinimalEthSpec {
         MaxAttestationsElectra,
         MaxDepositRequestsPerPayload,
         MaxWithdrawalRequestsPerPayload,
-        PTCSize,
-        MaxPayloadAttestations
+        MaxPayloadAttestations,
+        BuilderRegistryLimit
     });
 
     fn default_spec() -> ChainSpec {
@@ -647,8 +666,10 @@ impl EthSpec for GnosisEthSpec {
     type CellsPerExtBlob = U128;
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
+    type BuilderRegistryLimit = U1099511627776;
     type PTCSize = U512;
     type MaxPayloadAttestations = U2;
+    type MaxBuildersPerWithdrawalsSweep = U16384;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

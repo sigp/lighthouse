@@ -32,7 +32,7 @@ use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 

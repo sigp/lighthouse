@@ -2,12 +2,10 @@
 //! for a beacon spec container, more as more data might be required, such as the partial message
 //! group id alongside a partial message.
 
-use crate::beacon_block_body::KzgCommitments;
 use crate::data::partial_data_column_sidecar::VerifiablePartialDataColumn;
-use crate::data_column_sidecar::{Cell, DataColumn};
 use crate::{
-    ColumnIndex, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
-    Slot,
+    Cell, ColumnIndex, DataColumn, DataColumnSidecar, EthSpec, Hash256, KzgCommitments,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 use kzg::{KzgCommitment, KzgProof};
 use ssz_types::VariableList;

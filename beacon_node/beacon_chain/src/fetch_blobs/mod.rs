@@ -33,9 +33,8 @@ use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
-use types::blob_sidecar::BlobSidecarError;
 use types::das_column::DasColumn;
-use types::data_column_sidecar::DataColumnSidecarError;
+use types::data::{BlobSidecarError, DataColumnSidecarError};
 use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
 use types::{
     BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
