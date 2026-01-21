@@ -46,6 +46,7 @@ pub struct ConfigAndPreset {
     pub extra_fields: HashMap<String, Value>,
 }
 
+
 impl ConfigAndPreset {
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         let mut config = Config::from_chain_spec::<E>(spec);
