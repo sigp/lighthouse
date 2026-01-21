@@ -450,9 +450,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let block = executed_block.as_block();
-        self.partial_assembler
-            .init(block.canonical_root(), block)
-            .map_err(Error::PartialAssemblerError)?;
+        // Ignore error which happens at pre-fulu blocks
+        let _ = self.partial_assembler.init(block.canonical_root(), block);
         self.availability_cache.put_executed_block(executed_block)
     }
 
@@ -464,9 +463,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: BlockImportSource,
     ) -> Result<(), Error> {
-        self.partial_assembler
-            .init(block_root, block.as_ref())
-            .map_err(Error::PartialAssemblerError)?;
+        // Ignore error which happens at pre-fulu blocks
+        let _ = self.partial_assembler.init(block_root, block.as_ref());
         self.availability_cache
             .put_pre_execution_block(block_root, block, source)
     }

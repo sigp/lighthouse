@@ -40,7 +40,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     where
         T: TryInto<PartialDataColumnHeader<E>>,
     {
-        let assemblies = self.assemblies.write();
+        let mut assemblies = self.assemblies.write();
 
         if assemblies.contains(&block_root) {
             return Ok(false);
@@ -53,7 +53,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             columns: HashMap::new(),
         };
 
-        self.assemblies.write().put(block_root, assembly);
+        assemblies.put(block_root, assembly);
 
         Ok(true)
     }
