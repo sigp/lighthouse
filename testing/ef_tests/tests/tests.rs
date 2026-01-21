@@ -660,8 +660,10 @@ mod ssz_static {
 
     #[test]
     fn data_column_sidecar() {
-        SszStaticHandler::<DataColumnSidecarFulu, MinimalEthSpec>::fulu_only().run();
-        SszStaticHandler::<DataColumnSidecarFulu, MainnetEthSpec>::fulu_only().run();
+        SszStaticHandler::<DataColumnSidecarFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
+            .run();
     }
 
     #[test]
