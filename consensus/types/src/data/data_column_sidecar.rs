@@ -29,7 +29,7 @@ use crate::{
 };
 
 pub type ColumnIndex = u64;
-pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>; // TODO(dknopik): Arc<[u8; E::BytesPerCell]> ??? cell level arcing acors the codebase seems reasonable
+pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Identifies a set of data columns associated with a specific beacon block.
