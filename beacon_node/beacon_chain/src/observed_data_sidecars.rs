@@ -126,7 +126,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     }
 
     /// Returns `true` if the `data_sidecar` has already been observed in the cache within the prune window.
-    pub fn proposer_is_known(&self, data_sidecar: &T) -> Result<bool, Error> {
+    pub fn observation_key_is_known(&self, data_sidecar: &T) -> Result<bool, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
         let is_known = self
             .items
@@ -376,7 +376,7 @@ mod tests {
         let sidecar_a = get_blob_sidecar(0, proposer_index_a, 0);
 
         assert_eq!(
-            cache.proposer_is_known(&sidecar_a),
+            cache.observation_key_is_known(&sidecar_a),
             Ok(false),
             "no observation in empty cache"
         );
@@ -388,7 +388,7 @@ mod tests {
         );
 
         assert_eq!(
-            cache.proposer_is_known(&sidecar_a),
+            cache.observation_key_is_known(&sidecar_a),
             Ok(true),
             "observed block is indicated as true"
         );
@@ -420,7 +420,7 @@ mod tests {
         let sidecar_b = get_blob_sidecar(1, proposer_index_b, 0);
 
         assert_eq!(
-            cache.proposer_is_known(&sidecar_b),
+            cache.observation_key_is_known(&sidecar_b),
             Ok(false),
             "no observation for new slot"
         );
@@ -430,7 +430,7 @@ mod tests {
             "can observe proposer for new slot, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_is_known(&sidecar_b),
+            cache.observation_key_is_known(&sidecar_b),
             Ok(true),
             "observed block in slot 1 is indicated as true"
         );
@@ -445,7 +445,7 @@ mod tests {
         let cached_blob_indices = cache
             .items
             .get(&ObservationKey::new(
-                sidecar_b.beacon_block_root(),
+                sidecar_a.beacon_block_root(),
                 Slot::new(0),
             ))
             .expect("slot zero should be present");
@@ -471,7 +471,7 @@ mod tests {
         let sidecar_c = get_blob_sidecar(0, proposer_index_a, 1);
 
         assert_eq!(
-            cache.proposer_is_known(&sidecar_c),
+            cache.observation_key_is_known(&sidecar_c),
             Ok(false),
             "no observation for new index"
         );
@@ -481,7 +481,7 @@ mod tests {
             "can observe new index, indicates sidecar unobserved for new index"
         );
         assert_eq!(
-            cache.proposer_is_known(&sidecar_c),
+            cache.observation_key_is_known(&sidecar_c),
             Ok(true),
             "observed new sidecar is indicated as true"
         );
@@ -496,7 +496,7 @@ mod tests {
         let cached_blob_indices = cache
             .items
             .get(&ObservationKey::new(
-                sidecar_c.beacon_block_root(),
+                sidecar_a.beacon_block_root(),
                 Slot::new(0),
             ))
             .expect("slot zero should be present");
@@ -517,14 +517,14 @@ mod tests {
         };
         sidecar_d.signed_block_header.message.body_root = Hash256::repeat_byte(7);
         assert_eq!(
-            cache.proposer_is_known(&sidecar_d),
-            Ok(true),
-            "there has been an observation for this proposer index"
+            cache.observation_key_is_known(&sidecar_d),
+            Ok(false),
+            "there has not an observation for this block root/slot"
         );
         assert_eq!(
             cache.observe_sidecar(&sidecar_d),
-            Ok(true),
-            "indicates sidecar proposer was observed"
+            Ok(false),
+            "can observe sidecar, indicates sidecar unobserved for new block root"
         );
         let cached_blob_indices = cache
             .items
@@ -532,11 +532,11 @@ mod tests {
                 sidecar_d.beacon_block_root(),
                 Slot::new(0),
             ))
-            .expect("slot zero should be present");
+            .expect("sidecar_d's block root should be present");
         assert_eq!(
             cached_blob_indices.len(),
-            2,
-            "two blob indices should be present in slot 0"
+            1,
+            "one blob index should be present for sidecar_d's block root"
         );
 
         // Try adding an out of bounds index

@@ -451,7 +451,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     if chain
         .observed_blob_sidecars
         .read()
-        .proposer_is_known(&blob_sidecar)
+        .observation_key_is_known(&blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipBlobError::RepeatBlob {

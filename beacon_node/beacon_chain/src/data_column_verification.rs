@@ -620,7 +620,7 @@ fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
     if chain
         .observed_column_sidecars
         .read()
-        .proposer_is_known(column_sidecar)
+        .observation_key_is_known(column_sidecar)
         .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipDataColumnError::PriorKnown {
