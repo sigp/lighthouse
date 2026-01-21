@@ -1,3 +1,12 @@
+- name: ATTESTATION_TIMELINESS_INDEX#gloas
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const ATTESTATION_TIMELINESS_INDEX:
+  spec: |
+    <spec constant_var="ATTESTATION_TIMELINESS_INDEX" fork="gloas" hash="7d373fc8">
+    ATTESTATION_TIMELINESS_INDEX = 0
+    </spec>
+
 - name: BASE_REWARDS_PER_EPOCH#phase0
   sources:
     - file: consensus/types/src/core/chain_spec.rs
@@ -30,6 +39,24 @@
   spec: |
     <spec constant_var="BLS_WITHDRAWAL_PREFIX" fork="phase0" hash="4153ae92">
     BLS_WITHDRAWAL_PREFIX: Bytes1 = '0x00'
+    </spec>
+
+- name: BUILDER_INDEX_FLAG#gloas
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const BUILDER_INDEX_FLAG:
+  spec: |
+    <spec constant_var="BUILDER_INDEX_FLAG" fork="gloas" hash="e9dca70d">
+    BUILDER_INDEX_FLAG: uint64 = 2**40
+    </spec>
+
+- name: BUILDER_INDEX_SELF_BUILD#gloas
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const BUILDER_INDEX_SELF_BUILD:
+  spec: |
+    <spec constant_var="BUILDER_INDEX_SELF_BUILD" fork="gloas" hash="622fd1b5">
+    BUILDER_INDEX_SELF_BUILD: BuilderIndex = UINT64_MAX
     </spec>
 
 - name: BUILDER_PAYMENT_THRESHOLD_DENOMINATOR#gloas
@@ -139,10 +166,13 @@
     </spec>
 
 - name: DOMAIN_BEACON_BUILDER#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: 'pub fn mainnet\(\).*\n(?:.*\n)*?.*domain_beacon_builder:'
+      regex: true
   spec: |
-    <spec constant_var="DOMAIN_BEACON_BUILDER" fork="gloas" hash="31821111">
-    DOMAIN_BEACON_BUILDER: DomainType = '0x1B000000'
+    <spec constant_var="DOMAIN_BEACON_BUILDER" fork="gloas" hash="76709e39">
+    DOMAIN_BEACON_BUILDER: DomainType = '0x0B000000'
     </spec>
 
 - name: DOMAIN_BEACON_PROPOSER#phase0
@@ -185,8 +215,21 @@
     DOMAIN_DEPOSIT: DomainType = '0x03000000'
     </spec>
 
+- name: DOMAIN_PROPOSER_PREFERENCES#gloas
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: 'pub fn mainnet\(\).*\n(?:.*\n)*?.*domain_proposer_preferences:'
+      regex: true
+  spec: |
+    <spec constant_var="DOMAIN_PROPOSER_PREFERENCES" fork="gloas" hash="9377ecfb">
+    DOMAIN_PROPOSER_PREFERENCES: DomainType = '0x0D000000'
+    </spec>
+
 - name: DOMAIN_PTC_ATTESTER#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: 'pub fn mainnet\(\).*\n(?:.*\n)*?.*domain_ptc_attester:'
+      regex: true
   spec: |
     <spec constant_var="DOMAIN_PTC_ATTESTER" fork="gloas" hash="4feba202">
     DOMAIN_PTC_ATTESTER: DomainType = '0x0C000000'
@@ -324,15 +367,6 @@
     GENESIS_SLOT: Slot = 0
     </spec>
 
-- name: INTERVALS_PER_SLOT#phase0
-  sources:
-    - file: consensus/types/src/core/consts.rs
-      search: pub const INTERVALS_PER_SLOT:
-  spec: |
-    <spec constant_var="INTERVALS_PER_SLOT" fork="phase0" hash="3352e419">
-    INTERVALS_PER_SLOT: uint64 = 3
-    </spec>
-
 - name: JUSTIFICATION_BITS_LENGTH#phase0
   sources: []
   spec: |
@@ -382,6 +416,15 @@
     NODE_ID_BITS = 256
     </spec>
 
+- name: NUM_BLOCK_TIMELINESS_DEADLINES#gloas
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const NUM_BLOCK_TIMELINESS_DEADLINES:
+  spec: |
+    <spec constant_var="NUM_BLOCK_TIMELINESS_DEADLINES" fork="gloas" hash="c4e721d9">
+    NUM_BLOCK_TIMELINESS_DEADLINES = 2
+    </spec>
+
 - name: PARTICIPATION_FLAG_WEIGHTS#altair
   sources:
     - file: consensus/types/src/core/consts.rs
@@ -426,6 +469,15 @@
   spec: |
     <spec constant_var="PROPOSER_WEIGHT" fork="altair" hash="4dcb6f6c">
     PROPOSER_WEIGHT: uint64 = 8
+    </spec>
+
+- name: PTC_TIMELINESS_INDEX#gloas
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const PTC_TIMELINESS_INDEX:
+  spec: |
+    <spec constant_var="PTC_TIMELINESS_INDEX" fork="gloas" hash="ffca13bd">
+    PTC_TIMELINESS_INDEX = 1
     </spec>
 
 - name: RANDOM_CHALLENGE_KZG_BATCH_DOMAIN#deneb

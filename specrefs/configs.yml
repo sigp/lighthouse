@@ -44,7 +44,8 @@
 - name: ATTESTATION_DUE_BPS#phase0
   sources:
     - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
-      search: ATTESTATION_DUE_BPS:
+      search: '^ATTESTATION_DUE_BPS:'
+      regex: true
     - file: consensus/types/src/core/chain_spec.rs
       search: 'pub fn mainnet\(\).*\n(?:.*\n)*?.*attestation_due_bps:'
       regex: true
@@ -605,6 +606,15 @@
   spec: |
     <spec config_var="MESSAGE_DOMAIN_VALID_SNAPPY" fork="phase0" hash="a6de155f">
     MESSAGE_DOMAIN_VALID_SNAPPY: DomainType = '0x01000000'
+    </spec>
+
+- name: MIN_BUILDER_WITHDRAWABILITY_DELAY#gloas
+  sources:
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_BUILDER_WITHDRAWABILITY_DELAY:
+  spec: |
+    <spec config_var="MIN_BUILDER_WITHDRAWABILITY_DELAY" fork="gloas" hash="d378428f">
+    MIN_BUILDER_WITHDRAWABILITY_DELAY: uint64 = 4096
     </spec>
 
 - name: MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS#deneb
