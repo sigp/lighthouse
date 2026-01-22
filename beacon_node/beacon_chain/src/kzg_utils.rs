@@ -284,21 +284,13 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
 #[instrument(skip_all, level = "debug", fields(blob_count = blobs_and_proofs.len()))]
 pub fn blobs_to_partial_data_columns<E: EthSpec>(
     blobs_and_proofs: Vec<Option<(&Blob<E>, &[KzgProof])>>,
-    block: &SignedBeaconBlock<E>,
+    header: &PartialDataColumnHeader<E>,
     kzg: &Kzg,
     spec: &ChainSpec,
 ) -> Result<Vec<PartialDataColumn<E>>, DataColumnSidecarError> {
     if blobs_and_proofs.is_empty() {
         return Ok(vec![]);
     }
-
-    let kzg_commitments = block
-        .message()
-        .body()
-        .blob_kzg_commitments()
-        .map_err(|_err| DataColumnSidecarError::PreDeneb)?;
-    let kzg_commitments_inclusion_proof = block.message().body().kzg_commitments_merkle_proof()?;
-    let signed_block_header = block.signed_block_header();
 
     let blob_cells_and_proofs_vec = blobs_and_proofs
         .into_par_iter()
@@ -324,14 +316,8 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
         })
         .collect::<Result<Vec<_>, KzgError>>()?;
 
-    build_partial_data_columns(
-        kzg_commitments.clone(),
-        kzg_commitments_inclusion_proof,
-        signed_block_header,
-        blob_cells_and_proofs_vec,
-        spec,
-    )
-    .map_err(DataColumnSidecarError::BuildSidecarFailed)
+    build_partial_data_columns(header, blob_cells_and_proofs_vec, spec)
+        .map_err(DataColumnSidecarError::BuildSidecarFailed)
 }
 
 pub fn compute_cells<E: EthSpec>(blobs: &[&Blob<E>], kzg: &Kzg) -> Result<Vec<KzgCell>, KzgError> {
@@ -418,16 +404,13 @@ pub(crate) fn build_data_column_sidecars<E: EthSpec>(
 }
 
 pub(crate) fn build_partial_data_columns<E: EthSpec>(
-    kzg_commitments: KzgCommitments<E>,
-    kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
-    signed_block_header: SignedBeaconBlockHeader,
+    header: &PartialDataColumnHeader<E>,
     blob_cells_and_proofs_vec: Vec<Option<CellsAndKzgProofs>>,
     spec: &ChainSpec,
 ) -> Result<Vec<PartialDataColumn<E>>, String> {
     let number_of_columns = E::number_of_columns();
-    let max_blobs_per_block = spec
-        .max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch()))
-        as usize;
+    let max_blobs_per_block =
+        spec.max_blobs_per_block(header.slot().epoch(E::slots_per_epoch())) as usize;
     let mut bitmap =
         CellBitmap::<E>::with_capacity(blob_cells_and_proofs_vec.len()).map_err(|_| {
             format!(
@@ -481,7 +464,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
         .enumerate()
         .map(|(index, (col, proofs))| {
             let column = PartialDataColumn {
-                block_root: signed_block_header.message.canonical_root(),
+                block_root: header.signed_block_header.message.canonical_root(),
                 index: index as u64,
                 sidecar: types::partial_data_column_sidecar::PartialDataColumnSidecar {
                     cells_present_bitmap: bitmap.clone(),
@@ -489,11 +472,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                     kzg_proofs: VariableList::try_from(proofs)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    header: VariableList::repeat_full(PartialDataColumnHeader {
-                        kzg_commitments: kzg_commitments.clone(),
-                        signed_block_header: signed_block_header.clone(),
-                        kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
-                    }),
+                    header: VariableList::repeat_full(header.clone()),
                 },
             };
             Ok(column)
@@ -573,16 +552,9 @@ pub fn reconstruct_blobs<E: EthSpec>(
             let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
             let kzg_proof = KzgProof::empty();
 
-            BlobSidecar::<E>::new_with_existing_proof(
-                row_index,
-                blob,
-                signed_block,
-                first_data_column.signed_block_header.clone(),
-                &first_data_column.kzg_commitments_inclusion_proof,
-                kzg_proof,
-            )
-            .map(Arc::new)
-            .map_err(|e| format!("{e:?}"))
+            BlobSidecar::<E>::new_with_existing_proof(row_index, blob, signed_block, kzg_proof)
+                .map(Arc::new)
+                .map_err(|e| format!("{e:?}"))
         })
         .collect::<Result<Vec<_>, _>>()?;
 

@@ -3147,7 +3147,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let merge_result = self
             .data_availability_checker
             .partial_assembler()
-            .merge_partials(block_root, vec![partial])
+            .merge_partials(block_root, vec![partial], false)
             .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
 
         // If we completed a column, process it through the DA checker

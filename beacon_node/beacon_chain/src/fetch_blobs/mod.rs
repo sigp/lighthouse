@@ -13,7 +13,6 @@ mod fetch_blobs_beacon_adapter;
 mod tests;
 
 use crate::blob_verification::{GossipBlobError, KzgVerifiedBlob};
-use crate::block_verification_types::AsBlock;
 use crate::data_column_verification::{
     KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
 };
@@ -31,16 +30,12 @@ use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndPr
 use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
-use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
 use types::data::{BlobSidecarError, DataColumnSidecarError};
-use types::partial_data_column_sidecar::PartialDataColumn;
-use types::{
-    BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
-    SignedBeaconBlockHeader, VersionedHash,
-};
+use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
+use types::{BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, Hash256, VersionedHash};
 
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
 /// gossip network. The blobs / data columns have not been marked as observed yet, as they may not
@@ -76,14 +71,14 @@ pub enum FetchEngineBlobError {
 pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+    header: &PartialDataColumnHeader<T::EthSpec>,
     custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     fetch_and_process_engine_blobs_inner(
         FetchBlobsBeaconAdapter::new(chain),
         block_root,
-        block,
+        header,
         custody_columns,
         publish_fn,
     )
@@ -95,34 +90,28 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
-    block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+    header: &PartialDataColumnHeader<T::EthSpec>,
     custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
-    let versioned_hashes = if let Some(kzg_commitments) = block
-        .message()
-        .body()
-        .blob_kzg_commitments()
-        .ok()
-        .filter(|blobs| !blobs.is_empty())
-    {
-        kzg_commitments
-            .iter()
-            .map(kzg_commitment_to_versioned_hash)
-            .collect::<Vec<_>>()
-    } else {
+    let versioned_hashes = header
+        .kzg_commitments
+        .iter()
+        .map(kzg_commitment_to_versioned_hash)
+        .collect::<Vec<_>>();
+    if versioned_hashes.is_empty() {
         debug!("Fetch blobs not triggered - none required");
         return Ok(None);
     };
 
     if chain_adapter
         .spec()
-        .is_peer_das_enabled_for_epoch(block.epoch())
+        .is_peer_das_enabled_for_epoch(header.slot().epoch(T::EthSpec::slots_per_epoch()))
     {
         fetch_and_process_blobs_v2_or_v3(
             chain_adapter,
             block_root,
-            block,
+            header,
             versioned_hashes,
             custody_columns,
             publish_fn,
@@ -132,7 +121,7 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         fetch_and_process_blobs_v1(
             chain_adapter,
             block_root,
-            block,
+            header,
             versioned_hashes,
             publish_fn,
         )
@@ -144,7 +133,7 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
 async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    header: &PartialDataColumnHeader<T::EthSpec>,
     versioned_hashes: Vec<VersionedHash>,
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + Sized,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
@@ -182,20 +171,12 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         return Ok(None);
     }
 
-    let (signed_block_header, kzg_commitments_proof) = block
-        .signed_block_header_and_kzg_commitments_proof()
-        .map_err(FetchEngineBlobError::BeaconStateError)?;
+    let mut blob_sidecar_list = build_blob_sidecars(header, response)?;
 
-    let mut blob_sidecar_list = build_blob_sidecars(
-        &block,
-        response,
-        signed_block_header,
-        &kzg_commitments_proof,
-    )?;
-
-    if let Some(observed_blobs) =
-        chain_adapter.blobs_known_for_proposal(block.message().proposer_index(), block.slot())
-    {
+    if let Some(observed_blobs) = chain_adapter.blobs_known_for_proposal(
+        header.signed_block_header.message.proposer_index,
+        header.slot(),
+    ) {
         blob_sidecar_list.retain(|blob| !observed_blobs.contains(&blob.blob_index()));
         if blob_sidecar_list.is_empty() {
             debug!(
@@ -224,7 +205,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
 
     let availability_processing_status = chain_adapter
         .process_engine_blobs(
-            block.slot(),
+            header.slot(),
             block_root,
             EngineGetBlobsOutput::Blobs(blob_sidecar_list),
         )
@@ -237,7 +218,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
 async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    header: &PartialDataColumnHeader<T::EthSpec>,
     versioned_hashes: Vec<VersionedHash>,
     custody_columns_indices: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
@@ -329,7 +310,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     let custody_columns_to_import = compute_custody_columns_to_import(
         &chain_adapter,
         block_root,
-        block.clone(),
+        header,
         blobs_and_proofs,
         custody_columns_indices,
     )
@@ -352,10 +333,11 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
                 .into_iter()
                 .map(|c| c.into_inner())
                 .collect(),
+            true,
         )
         .ok_or_else(|| {
             FetchEngineBlobError::InternalError(
-                "merging partial failed immediately after initialization".to_string(),
+                "Failed to merge partials into assembler".to_string(),
             )
         })?;
 
@@ -375,14 +357,14 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     let availability_processing_status = if !merge_result.full_columns.is_empty() {
         chain_adapter
             .process_engine_blobs(
-                block.slot(),
+                header.slot(),
                 block_root,
                 EngineGetBlobsOutput::CompleteColumns(merge_result.full_columns),
             )
             .await?
     } else {
         // No complete columns yet, still missing components
-        AvailabilityProcessingStatus::MissingComponents(block.slot(), block_root)
+        AvailabilityProcessingStatus::MissingComponents(header.slot(), block_root)
     };
 
     Ok(Some(availability_processing_status))
@@ -392,7 +374,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
     block_root: Hash256,
-    block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+    header: &PartialDataColumnHeader<T::EthSpec>,
     blobs_and_proofs: Vec<BlobAndProofV3<T::EthSpec>>,
     custody_columns_indices: &[ColumnIndex],
 ) -> Result<Vec<KzgVerifiedCustodyPartialDataColumn<T::EthSpec>>, FetchEngineBlobError> {
@@ -400,6 +382,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
     let custody_columns_indices = custody_columns_indices.to_vec();
+    let header = header.clone();
     let current_span = Span::current();
     chain_adapter
         .executor()
@@ -420,7 +403,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     })
                     .collect::<Vec<_>>();
                 let data_columns_result =
-                    blobs_to_partial_data_columns(blob_and_cell_refs, &block, &kzg, &spec)
+                    blobs_to_partial_data_columns(blob_and_cell_refs, &header, &kzg, &spec)
                         .discard_timer_on_break(&mut timer);
                 drop(timer);
 
@@ -442,9 +425,12 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
-                if let Some(observed_columns) = chain_adapter_cloned.data_column_known_for_proposal(
-                    ProposalKey::new(block.message().proposer_index(), block.slot()),
-                ) {
+                if let Some(observed_columns) =
+                    chain_adapter_cloned.data_column_known_for_proposal(ProposalKey::new(
+                        header.signed_block_header.message.proposer_index,
+                        header.slot(),
+                    ))
+                {
                     custody_columns.retain(|col| !observed_columns.contains(&col.index()));
                     if custody_columns.is_empty() {
                         return Ok(vec![]);
@@ -471,10 +457,8 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
 }
 
 fn build_blob_sidecars<E: EthSpec>(
-    block: &Arc<SignedBeaconBlock<E, FullPayload<E>>>,
+    header: &PartialDataColumnHeader<E>,
     response: Vec<Option<BlobAndProofV1<E>>>,
-    signed_block_header: SignedBeaconBlockHeader,
-    kzg_commitments_inclusion_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 ) -> Result<Vec<KzgVerifiedBlob<E>>, FetchEngineBlobError> {
     let mut sidecars = vec![];
     for (index, blob_and_proof) in response
@@ -485,9 +469,7 @@ fn build_blob_sidecars<E: EthSpec>(
         let blob_sidecar = BlobSidecar::new_with_existing_proof(
             index,
             blob_and_proof.blob,
-            block,
-            signed_block_header.clone(),
-            kzg_commitments_inclusion_proof,
+            header.clone(),
             blob_and_proof.proof,
         )
         .map_err(FetchEngineBlobError::BlobSidecarError)?;

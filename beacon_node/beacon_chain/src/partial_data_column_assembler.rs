@@ -17,12 +17,15 @@ pub struct PartialDataColumnAssembler<E: EthSpec> {
 /// Tracks partial columns being assembled for a single block
 struct PartialAssembly<E: EthSpec> {
     header: PartialDataColumnHeader<E>,
+    has_local_blobs: bool,
     /// Map of column_index -> partial column being assembled
     columns: HashMap<ColumnIndex, Arc<PartialDataColumn<E>>>,
 }
 
 /// Result of merging a partial column
 pub struct PartialMergeResult<E: EthSpec> {
+    /// Have local blobs been added yet
+    pub local_blobs: bool,
     /// Merge that completed the column
     pub full_columns: Vec<Arc<DataColumnSidecar<E>>>,
     /// The updated partials for publishing
@@ -36,26 +39,30 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         }
     }
 
-    pub fn init<T>(&self, block_root: Hash256, header: T) -> Result<bool, T::Error>
+    /// Returns true unless the header was already contained or the passed argument failed to convert to a header
+    pub fn init<T>(&self, block_root: Hash256, header: T) -> bool
     where
         T: TryInto<PartialDataColumnHeader<E>>,
     {
         let mut assemblies = self.assemblies.write();
 
         if assemblies.contains(&block_root) {
-            return Ok(false);
+            return false;
         }
 
-        let header = header.try_into()?;
+        let Ok(header) = header.try_into() else {
+            return false;
+        };
 
         let assembly = PartialAssembly {
             header,
+            has_local_blobs: false,
             columns: HashMap::new(),
         };
 
         assemblies.put(block_root, assembly);
 
-        Ok(true)
+        true
     }
 
     /// Merge a received partial column into the assembly.
@@ -64,6 +71,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         &self,
         block_root: Hash256,
         partials: Vec<PartialDataColumn<E>>,
+        local_blobs: bool,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies
@@ -74,6 +82,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     .next()
                     .map(|header| PartialAssembly {
                         header: header.clone(),
+                        has_local_blobs: local_blobs,
                         columns: HashMap::new(),
                     })
                     .ok_or(())
@@ -112,7 +121,12 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             updated_partials.push(merged);
         }
 
+        if local_blobs {
+            assembly.has_local_blobs = true;
+        }
+
         Some(PartialMergeResult {
+            local_blobs: assembly.has_local_blobs,
             full_columns,
             updated_partials,
         })

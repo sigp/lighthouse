@@ -450,8 +450,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let block = executed_block.as_block();
-        // Ignore error which happens at pre-fulu blocks
-        let _ = self.partial_assembler.init(block.canonical_root(), block);
+        self.partial_assembler.init(block.canonical_root(), block);
         self.availability_cache.put_executed_block(executed_block)
     }
 
@@ -463,19 +462,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: BlockImportSource,
     ) -> Result<(), Error> {
-        // Ignore error which happens at pre-fulu blocks
-        let _ = self.partial_assembler.init(block_root, block.as_ref());
+        self.partial_assembler.init(block_root, block.as_ref());
         self.availability_cache
             .put_pre_execution_block(block_root, block, source)
     }
 
     /// Inserts a pre-execution block into the cache.
     /// This does NOT override an existing executed block.
-    pub fn put_partial_data_column_header(&self, header: PartialDataColumnHeader<T::EthSpec>) {
-        let _ = self
-            .partial_assembler
+    /// Returns true if this was the first insertion.
+    pub fn put_partial_data_column_header(
+        &self,
+        header: PartialDataColumnHeader<T::EthSpec>,
+    ) -> bool {
+        self.partial_assembler
             .init(header.signed_block_header.message.canonical_root(), header)
-            .map_err(|e| match e {});
     }
 
     /// Removes a pre-execution block from the cache.

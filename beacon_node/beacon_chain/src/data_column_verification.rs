@@ -420,7 +420,7 @@ impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
 #[educe(PartialEq, Eq)]
 pub struct GossipVerifiedPartialDataColumnHeader<E: EthSpec> {
     header: PartialDataColumnHeader<E>,
-    cached: bool,
+    previously_cached: bool,
 }
 
 impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
@@ -429,7 +429,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         header: PartialDataColumnHeader<E>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        let column_slot = header.signed_block_header.message.slot;
+        let column_slot = header.slot();
         if header.kzg_commitments.is_empty() {
             return Err(GossipDataColumnError::UnexpectedDataColumn);
         }
@@ -452,6 +452,11 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         verify_slot_higher_than_parent(&parent_block, column_slot)?;
         verify_proposer_and_signature(&header.signed_block_header, &parent_block, chain)?;
 
+        // Cache the valid header
+        let newly_cached = chain
+            .data_availability_checker
+            .put_partial_data_column_header(header.clone());
+
         chain
             .observed_slashable
             .write()
@@ -464,14 +469,14 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
 
         Ok(Self {
             header,
-            cached: false,
+            previously_cached: !newly_cached,
         })
     }
 
     pub fn new_from_cached(header: PartialDataColumnHeader<E>) -> Self {
         Self {
             header,
-            cached: true,
+            previously_cached: true,
         }
     }
 
@@ -484,7 +489,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
     }
 
     pub fn was_cached(&self) -> bool {
-        self.cached
+        self.previously_cached
     }
 }
 

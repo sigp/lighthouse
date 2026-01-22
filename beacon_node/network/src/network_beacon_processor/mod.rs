@@ -28,7 +28,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
-use types::partial_data_column_sidecar::PartialDataColumn;
+use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -775,14 +775,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn fetch_engine_blobs_and_publish(
         self: &Arc<Self>,
-        block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+        header: &PartialDataColumnHeader<T::EthSpec>,
         block_root: Hash256,
         publish_blobs: bool,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
         }
-        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
@@ -811,7 +811,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            block.clone(),
+            header,
             custody_columns,
             publish_fn,
         )

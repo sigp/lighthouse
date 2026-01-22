@@ -1,7 +1,8 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    BLOB_KZG_COMMITMENTS_INDEX, BeaconStateError, Cell, ColumnIndex, DataColumnSidecar, EthSpec,
-    Hash256, KzgCommitments, SignedBeaconBlock, SignedBeaconBlockHeader,
+    AbstractExecPayload, BLOB_KZG_COMMITMENTS_INDEX, BeaconStateError, Cell, ColumnIndex,
+    DataColumnSidecar, EthSpec, Hash256, KzgCommitments, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 use educe::Educe;
 use kzg::KzgProof;
@@ -197,6 +198,10 @@ pub struct PartialDataColumnHeader<E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumnHeader<E> {
+    pub fn slot(&self) -> Slot {
+        self.signed_block_header.message.slot
+    }
+
     pub fn verify_inclusion_proof(&self) -> bool {
         let blob_kzg_commitments_root = self.kzg_commitments.tree_hash_root();
 
@@ -210,10 +215,12 @@ impl<E: EthSpec> PartialDataColumnHeader<E> {
     }
 }
 
-impl<E: EthSpec> TryFrom<&SignedBeaconBlock<E>> for PartialDataColumnHeader<E> {
+impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
+    for PartialDataColumnHeader<E>
+{
     type Error = BeaconStateError;
 
-    fn try_from(block: &SignedBeaconBlock<E>) -> Result<Self, Self::Error> {
+    fn try_from(block: &SignedBeaconBlock<E, P>) -> Result<Self, Self::Error> {
         Ok(Self {
             kzg_commitments: block.message().body().blob_kzg_commitments()?.clone(),
             signed_block_header: block.signed_block_header(),

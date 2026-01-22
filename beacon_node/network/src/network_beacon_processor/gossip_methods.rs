@@ -58,7 +58,7 @@ use beacon_processor::{
         ReprocessQueueMessage,
     },
 };
-use types::partial_data_column_sidecar::PartialDataColumn;
+use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -792,19 +792,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         mut column: PartialDataColumn<T::EthSpec>,
         seen_duration: Duration,
     ) {
-        let slot = if let Some(header) = column.sidecar.header.first() {
+        let mut get_blobs = false;
+        let header = if let Some(header) = column.sidecar.header.first() {
             // Header was sent, so it is required to be valid
             match self
                 .chain
                 .verify_partial_data_column_header_for_gossip(column.block_root, header.clone())
             {
                 Ok(verified) => {
-                    if !verified.was_cached() {
-                        self.chain
-                            .data_availability_checker
-                            .put_partial_data_column_header(verified.into_inner())
-                        // TODO(dknopik): trigger getBlobsV3
-                    }
+                    get_blobs = !verified.was_cached();
                 }
                 Err(err) => {
                     self.handle_partial_verification_error(
@@ -816,7 +812,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     return;
                 }
             }
-            header.signed_block_header.message.slot
+            header.clone()
         } else {
             // There is no header, so we check if we have a cached one to use
             let Some(header) = self
@@ -828,13 +824,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 error!(block=%column.block_root, index=%column.index, "Received partial column while not having header stored");
                 return;
             };
-            let slot = header.signed_block_header.message.slot;
             column.sidecar.header = VariableList::repeat_full((*header).clone());
-            slot
+            (*header).clone()
         };
 
         let block_root = column.block_root;
         let index = column.index;
+        let slot = header.slot();
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
@@ -882,6 +878,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(err) => {
                 self.handle_partial_verification_error(peer_id, err, block_root, index);
             }
+        }
+
+        if get_blobs {
+            // We want to publish immediately when this finishes
+            let publish_blobs = true;
+            self.fetch_engine_blobs_and_publish(&header, block_root, publish_blobs)
+                .await
         }
     }
 
@@ -1396,9 +1399,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
 
-                self.send_network_message(NetworkMessage::PublishPartial {
-                    columns: merge_result.updated_partials,
-                });
+                if merge_result.local_blobs || self.chain.config.disable_get_blobs {
+                    self.send_network_message(NetworkMessage::PublishPartial {
+                        columns: merge_result.updated_partials,
+                    });
+                }
 
                 // Check if block is now fully available
                 // This is handled in process_gossip_partial_data_column
@@ -1783,9 +1788,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let current_span = Span::current();
         self.executor.spawn(
             async move {
-                self_clone
-                    .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
-                    .await
+                if let Ok(header) = PartialDataColumnHeader::try_from(block_clone.as_ref()) {
+                    self_clone
+                        .fetch_engine_blobs_and_publish(&header, block_root, publish_blobs)
+                        .await
+                }
             }
             .instrument(current_span),
             "fetch_blobs_gossip",

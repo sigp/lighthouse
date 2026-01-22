@@ -33,6 +33,7 @@ use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use types::data::FixedBlobSidecarList;
 use types::kzg_ext::format_kzg_commitments;
+use types::partial_data_column_sidecar::PartialDataColumnHeader;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -238,9 +239,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Block is valid, we can now attempt fetching blobs from EL using version hashes
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
-                let publish_blobs = false;
-                self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root, publish_blobs)
-                    .await
+                if let Ok(header) = PartialDataColumnHeader::try_from(signed_beacon_block.as_ref())
+                {
+                    let publish_blobs = false;
+                    self.fetch_engine_blobs_and_publish(&header, block_root, publish_blobs)
+                        .await
+                }
             }
             _ => {}
         }

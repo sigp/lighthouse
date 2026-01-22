@@ -25,6 +25,7 @@ type T = EphemeralHarnessType<E>;
 mod get_blobs_v2 {
     use super::*;
     use types::ColumnIndex;
+    use types::partial_data_column_sidecar::PartialDataColumnHeader;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_in_block() {
@@ -44,7 +45,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(block),
+            &(&block).try_into().unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -69,7 +70,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -97,7 +98,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -130,7 +131,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -169,7 +170,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -211,7 +212,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -256,7 +257,8 @@ mod get_blobs_v1 {
     use super::*;
     use crate::block_verification_types::AsBlock;
     use std::collections::HashSet;
-    use types::ColumnIndex;
+    use types::partial_data_column_sidecar::PartialDataColumnHeader;
+    use types::{ColumnIndex, FullPayload};
 
     const ELECTRA_FORK: ForkName = ForkName::Electra;
 
@@ -265,8 +267,10 @@ mod get_blobs_v1 {
         let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK, false);
         let spec = mock_adapter.spec();
         let (publish_fn, _s) = mock_publish_fn();
-        let block_no_blobs =
-            SignedBeaconBlock::from_block(BeaconBlock::empty(spec), Signature::empty());
+        let block_no_blobs = SignedBeaconBlock::<E, FullPayload<E>>::from_block(
+            BeaconBlock::empty(spec),
+            Signature::empty(),
+        );
         let block_root = block_no_blobs.canonical_root();
 
         // Expectations: engine fetch blobs should not be triggered
@@ -277,7 +281,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            Arc::new(block_no_blobs),
+            &PartialDataColumnHeader::try_from(&block_no_blobs).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -304,7 +308,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -350,7 +354,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -390,7 +394,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -438,7 +442,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
@@ -482,7 +486,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            block,
+            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
             &custody_columns,
             publish_fn,
         )
