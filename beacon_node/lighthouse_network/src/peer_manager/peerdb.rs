@@ -15,7 +15,7 @@ use std::{
 };
 use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
-use types::data_column_custody_group::compute_subnets_for_node;
+use types::data::compute_subnets_for_node;
 use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec, Hash256, Slot};
 
 pub mod client;

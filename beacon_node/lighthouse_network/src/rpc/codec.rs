@@ -913,7 +913,8 @@ mod tests {
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
         DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
-        SignedBeaconBlockHeader, Slot, blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
+        SignedBeaconBlockHeader, Slot,
+        data::{BlobIdentifier, Cell},
     };
 
     type Spec = types::MainnetEthSpec;

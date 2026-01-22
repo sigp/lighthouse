@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
 use types::{
-    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeMessage, SyncDuty,
-    SyncSubnetId, slot_data::SlotData,
+    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SlotData, SyncCommitteeMessage,
+    SyncDuty, SyncSubnetId,
 };
 
 /// The struct that is returned to the requesting HTTP client.

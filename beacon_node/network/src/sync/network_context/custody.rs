@@ -6,14 +6,13 @@ use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
-use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tracing::{Span, debug, debug_span, warn};
-use types::{DataColumnSidecar, Hash256, data_column_sidecar::ColumnIndex};
+use types::{DataColumnSidecar, Hash256, data::ColumnIndex};
 use types::{DataColumnSidecarList, EthSpec};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
@@ -69,7 +68,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     ) -> Self {
         let span = debug_span!(
             parent: Span::current(),
-            SPAN_OUTGOING_CUSTODY_REQUEST,
+            "lh_outgoing_custody_request",
             %block_root,
         );
         Self {
