@@ -8,8 +8,8 @@ use state_processing::common::{
 use std::collections::HashMap;
 use types::{
     Attestation, BeaconState, ChainSpec, EthSpec,
-    beacon_state::BeaconStateBase,
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
+    state::BeaconStateBase,
 };
 
 pub const PROPOSER_REWARD_DENOMINATOR: u64 =

@@ -15,7 +15,7 @@ use ssz_derive::{Decode, Encode};
 use std::time::Duration;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
-use types::blob_sidecar::BlobIdentifier;
+use types::data::BlobIdentifier;
 use types::{
     BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
 };

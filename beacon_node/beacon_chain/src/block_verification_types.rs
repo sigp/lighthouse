@@ -7,7 +7,7 @@ use educe::Educe;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use types::blob_sidecar::BlobIdentifier;
+use types::data::BlobIdentifier;
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,

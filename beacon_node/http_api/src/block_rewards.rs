@@ -5,8 +5,8 @@ use state_processing::BlockReplayer;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, warn};
-use types::beacon_block::BlindedBeaconBlock;
-use types::non_zero_usize::new_non_zero_usize;
+use types::block::BlindedBeaconBlock;
+use types::new_non_zero_usize;
 use warp_utils::reject::{beacon_state_error, custom_bad_request, unhandled_error};
 
 const STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(2);

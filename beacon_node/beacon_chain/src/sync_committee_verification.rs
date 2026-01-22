@@ -48,13 +48,13 @@ use strum::AsRefStr;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::ChainSpec;
+use types::SlotData;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::slot_data::SlotData;
 use types::sync_committee::SyncCommitteeError;
 use types::{
     BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    sync_committee_contribution::Error as ContributionError,
+    sync_committee::SyncCommitteeContributionError as ContributionError,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for

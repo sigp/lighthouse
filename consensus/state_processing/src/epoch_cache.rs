@@ -5,7 +5,7 @@ use crate::metrics;
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::SafeArith;
 use tracing::instrument;
-use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
+use types::state::{EpochCache, EpochCacheError, EpochCacheKey};
 use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256};
 
 /// Precursor to an `EpochCache`.
