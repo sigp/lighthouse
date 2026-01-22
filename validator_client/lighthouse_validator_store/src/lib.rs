@@ -558,8 +558,14 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         })
     }
 
-    #[instrument(skip_all)]
-    async fn sign_attestation_no_checks(
+    /// Sign an attestation without performing any slashing protection checks.
+    ///
+    /// THIS METHOD IS DANGEROUS AND SHOULD ONLY BE USED INTERNALLY IMMEDIATELY PRIOR TO A
+    /// SLASHING PROTECTION CHECK. See `slashing_protect_attestations`.
+    ///
+    /// This method DOES perform doppelganger protection checks.
+    #[instrument(level = "debug", skip_all)]
+    async fn sign_attestation_no_slashing_protection(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
@@ -587,20 +593,27 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         Ok(())
     }
 
-    #[instrument(
-        name = "store_check_and_insert_attestations",
-        level = "debug",
-        skip_all
-    )]
-    fn check_and_insert_attestations(
+    /// Provide slashing protection for `attestations`, safely updating the slashing protection DB.
+    ///
+    /// Return a vec of safe attestations which have passed slashing protection. Unsafe attestations
+    /// will be dropped and result in warning logs.
+    ///
+    /// This method SKIPS slashing protection for web3signer validators that have slashing
+    /// protection disabled at the Lighthouse layer. It is up to the user to ensure slashing
+    /// protection is enabled in web3signer instead.
+    #[instrument(level = "debug", skip_all)]
+    fn slashing_protect_attestations(
         &self,
         attestations: Vec<(Attestation<E>, PublicKeyBytes)>,
-    ) -> Result<Vec<(Attestation<E>, PublicKeyBytes)>, Error> {
-        let mut safe_attestations = vec![];
-        let mut attestations_to_check = vec![];
+    ) -> Result<Vec<Attestation<E>>, Error> {
+        let mut safe_attestations = Vec::with_capacity(attestations.len());
+        let mut attestations_to_check = Vec::with_capacity(attestations.len());
 
         // Split attestations into de-facto safe attestations (checked by web3signer's slashing
         // protection) and ones requiring checking against the slashing protection DB.
+        //
+        // All attestations are added to `attestation_to_check`, with skipped attestations having
+        // `CheckSlashability::No`.
         for (attestation, validator_pubkey) in &attestations {
             let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
             let signing_epoch = attestation.data().target.epoch;
@@ -636,7 +649,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         {
             match slashing_status {
                 Ok(Safe::Valid) => {
-                    safe_attestations.push((attestation, validator_pubkey));
+                    safe_attestations.push(attestation);
                     validator_metrics::inc_counter_vec(
                         &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
                         &[validator_metrics::SUCCESS],
@@ -881,13 +894,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                     let pubkey = *pubkey;
                     let validator_committee_index = *validator_committee_index;
                     async move {
-                        self.sign_attestation_no_checks(
+                        self.sign_attestation_no_slashing_protection(
                             pubkey,
                             validator_committee_index,
                             attestation,
                         )
                         .await
-                        .map(|_| pubkey)
                     }
                 });
 
@@ -895,11 +907,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         let results: Vec<_> = join_all(signing_futures).await;
 
         // Collect successfully signed attestations and log errors.
-        let mut signed_attestations = Vec::new();
+        let mut signed_attestations = Vec::with_capacity(attestations.len());
         for (result, (pubkey, _, attestation)) in results.into_iter().zip(attestations.into_iter())
         {
             match result {
-                Ok(_) => {
+                Ok(()) => {
                     signed_attestations.push((attestation, pubkey));
                 }
                 Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
@@ -919,12 +931,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         }
 
         if signed_attestations.is_empty() {
-            return Ok(Vec::new());
+            return Ok(vec![]);
         }
 
         // Check slashing protection and insert into database.
-        let safe_attestations = self.check_and_insert_attestations(signed_attestations)?;
-        Ok(safe_attestations.into_iter().map(|(a, _)| a).collect())
+        let safe_attestations = self.slashing_protect_attestations(signed_attestations)?;
+        Ok(safe_attestations)
     }
 
     async fn sign_validator_registration_data(

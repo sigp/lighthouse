@@ -103,6 +103,9 @@ pub trait ValidatorStore: Send + Sync {
         current_slot: Slot,
     ) -> impl Future<Output = Result<SignedBlock<Self::E>, Error<Self::Error>>> + Send;
 
+    /// Sign a batch of `attestations` and apply slashing protection to them.
+    ///
+    /// Only successfully signed attestations that pass slashing protection are returned.
     #[allow(clippy::type_complexity)]
     fn sign_attestations(
         &self,

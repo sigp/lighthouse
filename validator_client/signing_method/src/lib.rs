@@ -181,6 +181,10 @@ impl SigningMethod {
                 let voting_keypair = voting_keypair.clone();
                 // Spawn a blocking task to produce the signature. This avoids blocking the core
                 // tokio executor.
+                //
+                // We are using the Rayon high-priority pool which uses up to 80% of available
+                // threads. In future we could consider using 90-100% in the VC, seeing as we have
+                // very little other work to do aside from signing.
                 let signature = executor
                     .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
                         voting_keypair.sk.sign(signing_root)

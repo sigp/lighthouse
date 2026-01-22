@@ -1109,6 +1109,8 @@ async fn generic_migration_test(
             assert_eq!(safe_attestations.len(), 1);
             // Compare data only, ignoring signatures which are added during signing.
             assert_eq!(safe_attestations[0].data(), attestation.data());
+            // Check that the signature is non-zero.
+            assert!(!safe_attestations[0].signature().is_infinity());
         }
 
         // Delete the selected keys from VC1.
@@ -1192,6 +1194,8 @@ async fn generic_migration_test(
                         // Compare data only, ignoring signatures which are added during signing.
                         assert_eq!(safe_attestations.len(), 1);
                         assert_eq!(safe_attestations[0].data(), attestation.data());
+                        // Check that the signature is non-zero.
+                        assert!(!safe_attestations[0].signature().is_infinity());
                     } else {
                         assert!(safe_attestations.is_empty());
                     }

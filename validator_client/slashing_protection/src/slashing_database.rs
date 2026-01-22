@@ -194,7 +194,9 @@ impl SlashingDatabase {
         U: From<NotSafe>,
     {
         let mut conn = self.conn_pool.get().map_err(NotSafe::from)?;
-        let txn = conn.transaction().map_err(NotSafe::from)?;
+        let txn = conn
+            .transaction_with_behavior(TransactionBehavior::Exclusive)
+            .map_err(NotSafe::from)?;
         let value = f(&txn)?;
         txn.commit().map_err(NotSafe::from)?;
         Ok(value)
@@ -659,7 +661,7 @@ impl SlashingDatabase {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
 
-        let mut results = vec![];
+        let mut results = Vec::with_capacity(attestations.len());
         for (attestation, validator_pubkey, domain, check_slashability) in attestations {
             match check_slashability {
                 CheckSlashability::No => {
