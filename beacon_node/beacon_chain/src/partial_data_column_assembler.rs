@@ -24,6 +24,8 @@ struct PartialAssembly<E: EthSpec> {
 
 /// Result of merging a partial column
 pub struct PartialMergeResult<E: EthSpec> {
+    /// How many cells were added to the store
+    pub added_cells: usize,
     /// Have local blobs been added yet
     pub local_blobs: bool,
     /// Merge that completed the column
@@ -91,6 +93,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         let mut full_columns = Vec::new();
         let mut updated_partials = Vec::new();
+        let mut added_cells = 0;
 
         for partial in partials {
             let column_index = partial.index;
@@ -100,12 +103,17 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                 let Some(merged_sidecar) = existing.sidecar.merge(&partial.sidecar) else {
                     continue;
                 };
+                added_cells += merged_sidecar
+                    .column
+                    .len()
+                    .saturating_sub(partial.sidecar.column.len());
                 PartialDataColumn {
                     block_root: existing.block_root,
                     index: existing.index,
                     sidecar: merged_sidecar,
                 }
             } else {
+                added_cells += partial.sidecar.column.len();
                 // First time seeing this column index for this block
                 partial
             };
@@ -126,6 +134,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         }
 
         Some(PartialMergeResult {
+            added_cells,
             local_blobs: assembly.has_local_blobs,
             full_columns,
             updated_partials,

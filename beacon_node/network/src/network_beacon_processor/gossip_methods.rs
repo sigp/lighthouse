@@ -1258,6 +1258,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.index();
 
+        // TODO(dknopik): import into assembly and track BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL metric
+
         let result = self
             .chain
             .process_gossip_data_columns(vec![verified_data_column], || Ok(()))

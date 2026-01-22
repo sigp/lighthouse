@@ -1807,9 +1807,8 @@ pub static BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL: LazyLock<Result<IntCounter
     LazyLock::new(|| {
         try_create_int_counter_vec(
             "beacon_partial_message_useful_cells_total",
-            "Total number of successful engine_getBlobsV3 responses from the execution layer \
-            with at least one blob missing",
-            &["index"],
+            "Number of useful cells received via a partial message",
+            &["column_index"],
         )
     });
 
@@ -1817,9 +1816,8 @@ pub static BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL: LazyLock<Result<IntCount
     LazyLock::new(|| {
         try_create_int_counter_vec(
             "beacon_partial_message_cells_received_total",
-            "Total number of successful engine_getBlobsV3 responses from the execution layer \
-            with at least one blob missing",
-            &["index"],
+            "Number of total cells received via a partial message",
+            &["column_index"],
         )
     });
 
@@ -1827,9 +1825,8 @@ pub static BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL: LazyLock<Result<IntCounter
     LazyLock::new(|| {
         try_create_int_counter_vec(
             "beacon_useful_full_columns_received_total",
-            "Total number of successful engine_getBlobsV3 responses from the execution layer \
-            with at least one blob missing",
-            &["index"],
+            "Number of useful full columns (any cell being useful) received",
+            &["column_index"],
         )
     });
 
@@ -1837,9 +1834,8 @@ pub static BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL: LazyLock<Result<IntC
     LazyLock::new(|| {
         try_create_int_counter_vec(
             "beacon_partial_message_column_completions_total",
-            "Total number of successful engine_getBlobsV3 responses from the execution layer \
-            with at least one blob missing",
-            &["index"],
+            "How often the partial message first completed the column",
+            &["column_index"],
         )
     });
 

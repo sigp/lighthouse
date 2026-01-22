@@ -3132,6 +3132,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     {
         let block_root = verified_partial.block_root();
         let slot = verified_partial.slot();
+        let partial = verified_partial.to_data_column();
+        let index_str = partial.index.to_string();
+        metrics::inc_counter_vec_by(
+            &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
+            &[index_str.as_str()],
+            partial.sidecar.column.len() as u64,
+        );
 
         // If this block has already been imported to forkchoice it must have been available
         if self
@@ -3143,15 +3150,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Merge the partial into the assembler
-        let partial = verified_partial.clone_data_column();
         let merge_result = self
             .data_availability_checker
             .partial_assembler()
             .merge_partials(block_root, vec![partial], false)
             .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
 
+        metrics::inc_counter_vec_by(
+            &metrics::BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL,
+            &[index_str.as_str()],
+            merge_result.added_cells as u64,
+        );
+
         // If we completed a column, process it through the DA checker
         if !merge_result.full_columns.is_empty() {
+            metrics::inc_counter_vec_by(
+                &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
+                &[index_str.as_str()],
+                merge_result.full_columns.len() as u64,
+            );
+
             let availability = self
                 .data_availability_checker
                 .put_full_data_columns(block_root, merge_result.full_columns.clone())?;
