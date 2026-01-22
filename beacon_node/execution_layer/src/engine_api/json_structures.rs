@@ -1020,12 +1020,24 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(
+        derive(Clone, Debug, Serialize, Deserialize),
+        serde(bound = "E: EthSpec", rename_all = "camelCase")
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBody<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    #[superstruct(only(V2))]
+    #[serde(with = "optional_hex_var_list")]
+    pub block_access_list: Option<VariableList<u8, E::MaxBytesPerTransaction>>,
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -1046,6 +1058,30 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBody
         Ok(Self {
             transactions: value.transactions,
             withdrawals: value.withdrawals.map(withdrawals_to_json).transpose()?,
+        })
+    }
+}
+
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: JsonExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(withdrawals_from_json).transpose()?,
+            block_access_list: value.block_access_list,
+        })
+    }
+}
+
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(withdrawals_to_json).transpose()?,
+            block_access_list: value.block_access_list,
         })
     }
 }
@@ -1087,6 +1123,50 @@ pub mod serde_logs_bloom {
 
         FixedVector::new(vec)
             .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
+    }
+}
+
+/// Serializes an optional hex variable list field (e.g., blockAccessList in EIP-7928).
+/// JSON `null` maps to `None`, hex string maps to `Some(VariableList<u8, N>)`.
+pub mod optional_hex_var_list {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S, N>(
+        opt_bytes: &Option<VariableList<u8, N>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        N: Unsigned,
+    {
+        match opt_bytes {
+            Some(bytes) => {
+                let mut hex_string: String = "0x".to_string();
+                hex_string.push_str(&hex::encode(&bytes[..]));
+                serializer.serialize_str(&hex_string)
+            }
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D, N>(deserializer: D) -> Result<Option<VariableList<u8, N>>, D::Error>
+    where
+        D: Deserializer<'de>,
+        N: Unsigned,
+    {
+        let opt: Option<String> = Option::deserialize(deserializer)?;
+        match opt {
+            Some(hex_str) => {
+                let hex_str = hex_str.strip_prefix("0x").unwrap_or(&hex_str);
+                let bytes = hex::decode(hex_str)
+                    .map_err(|e| serde::de::Error::custom(format!("invalid hex: {:?}", e)))?;
+                VariableList::new(bytes)
+                    .map(Some)
+                    .map_err(|e| serde::de::Error::custom(format!("invalid var list: {:?}", e)))
+            }
+            None => Ok(None),
+        }
     }
 }
 

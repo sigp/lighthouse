@@ -3,7 +3,8 @@ use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2,
     ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
     ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
     ENGINE_NEW_PAYLOAD_V5,
@@ -425,10 +426,18 @@ impl<E: EthSpec> GetPayloadResponse<E> {
     }
 }
 
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Clone, Debug)),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
 #[derive(Clone, Debug)]
-pub struct ExecutionPayloadBodyV1<E: EthSpec> {
+pub struct ExecutionPayloadBody<E: EthSpec> {
     pub transactions: Transactions<E>,
     pub withdrawals: Option<Withdrawals<E>>,
+    #[superstruct(only(V2))]
+    pub block_access_list: Option<VariableList<u8, E::MaxBytesPerTransaction>>,
 }
 
 impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
@@ -608,6 +617,195 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
     }
 }
 
+impl<E: EthSpec> ExecutionPayloadBodyV2<E> {
+    pub fn to_payload(
+        self,
+        header: ExecutionPayloadHeader<E>,
+    ) -> Result<ExecutionPayload<E>, String> {
+        match header {
+            ExecutionPayloadHeader::Bellatrix(header) => {
+                if self.withdrawals.is_some() {
+                    return Err(format!(
+                        "block {} is bellatrix but payload body has withdrawals",
+                        header.block_hash
+                    ));
+                }
+                Ok(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
+                    parent_hash: header.parent_hash,
+                    fee_recipient: header.fee_recipient,
+                    state_root: header.state_root,
+                    receipts_root: header.receipts_root,
+                    logs_bloom: header.logs_bloom,
+                    prev_randao: header.prev_randao,
+                    block_number: header.block_number,
+                    gas_limit: header.gas_limit,
+                    gas_used: header.gas_used,
+                    timestamp: header.timestamp,
+                    extra_data: header.extra_data,
+                    base_fee_per_gas: header.base_fee_per_gas,
+                    block_hash: header.block_hash,
+                    transactions: self.transactions,
+                }))
+            }
+            ExecutionPayloadHeader::Capella(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Deneb(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Electra(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Fulu(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Fulu(ExecutionPayloadFulu {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Gloas(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Gloas(ExecutionPayloadGloas {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                        // V2 provides block_access_list from EL; use empty if not present
+                        block_access_list: self
+                            .block_access_list
+                            .unwrap_or_else(VariableList::empty),
+                        slot_number: header.slot_number,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+        }
+    }
+}
+
+impl<E: EthSpec> ExecutionPayloadBody<E> {
+    pub fn to_payload(
+        self,
+        header: ExecutionPayloadHeader<E>,
+    ) -> Result<ExecutionPayload<E>, String> {
+        match self {
+            ExecutionPayloadBody::V1(body) => body.to_payload(header),
+            ExecutionPayloadBody::V2(body) => body.to_payload(header),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct EngineCapabilities {
     pub new_payload_v1: bool,
@@ -620,7 +818,9 @@ pub struct EngineCapabilities {
     pub forkchoice_updated_v3: bool,
     pub forkchoice_updated_v4: bool,
     pub get_payload_bodies_by_hash_v1: bool,
+    pub get_payload_bodies_by_hash_v2: bool,
     pub get_payload_bodies_by_range_v1: bool,
+    pub get_payload_bodies_by_range_v2: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
@@ -665,8 +865,14 @@ impl EngineCapabilities {
         if self.get_payload_bodies_by_hash_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
         }
+        if self.get_payload_bodies_by_hash_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2);
+        }
         if self.get_payload_bodies_by_range_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
+        }
+        if self.get_payload_bodies_by_range_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2);
         }
         if self.get_payload_v1 {
             response.push(ENGINE_GET_PAYLOAD_V1);

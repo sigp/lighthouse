@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus, metrics};
-use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
+use execution_layer::{ExecutionLayer, ExecutionPayloadBody};
 use logging::crit;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -58,7 +58,7 @@ struct BodiesByRange<E: EthSpec> {
 struct BlockParts<E: EthSpec> {
     blinded_block: Box<SignedBlindedBeaconBlock<E>>,
     header: Box<ExecutionPayloadHeader<E>>,
-    body: Option<Box<ExecutionPayloadBodyV1<E>>>,
+    body: Option<Box<ExecutionPayloadBody<E>>>,
 }
 
 impl<E: EthSpec> BlockParts<E> {
@@ -634,7 +634,9 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             .map_err(BeaconChainError::EngineGetCapabilititesFailed)
         {
             Ok(engine_capabilities) => {
-                if engine_capabilities.get_payload_bodies_by_range_v1 {
+                if engine_capabilities.get_payload_bodies_by_range_v2
+                    || engine_capabilities.get_payload_bodies_by_range_v1
+                {
                     self.stream_blocks(block_roots, sender).await;
                 } else {
                     // use the fallback method
