@@ -8,7 +8,7 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
-use ssz_types::{RuntimeVariableList, VariableList};
+use ssz_types::RuntimeVariableList;
 use tree_hash::TreeHash;
 
 use crate::{
@@ -16,7 +16,6 @@ use crate::{
         APPLICATION_DOMAIN_BUILDER, Address, ApplicationDomain, EnrForkId, Epoch, EthSpec,
         EthSpecId, ExecutionBlockHash, Hash256, MainnetEthSpec, Slot, Uint256,
     },
-    data::{BlobIdentifier, DataColumnSubnetId, DataColumnsByRootIdentifier},
     fork::{Fork, ForkData, ForkName},
 };
 
@@ -821,10 +820,6 @@ impl ChainSpec {
             ),
             _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
         }
-    }
-
-    pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
-        (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
     }
 
     /// Worst-case compressed length for a given payload of size n when using snappy.
@@ -2110,37 +2105,22 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     .len()
 }
 
-fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
-    let max_request_blob_sidecars = max_request_blob_sidecars as usize;
-    let empty_blob_identifier = BlobIdentifier {
-        block_root: Hash256::zero(),
-        index: 0,
-    };
-
-    RuntimeVariableList::<BlobIdentifier>::new(
-        vec![empty_blob_identifier; max_request_blob_sidecars],
-        max_request_blob_sidecars,
-    )
-    .expect("creating a RuntimeVariableList of size `max_request_blob_sidecars` should succeed")
-    .as_ssz_bytes()
-    .len()
+pub(crate) fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
+    (max_request_blob_sidecars as usize)
+        .safe_mul(40)
+        .expect("should not overflow")
 }
 
-fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) -> usize {
-    let max_request_blocks = max_request_blocks as usize;
-
-    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
-        block_root: Hash256::zero(),
-        columns: VariableList::repeat_full(0),
-    };
-
-    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
-        vec![empty_data_columns_by_root_id; max_request_blocks],
-        max_request_blocks,
-    )
-    .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
-    .as_ssz_bytes()
-    .len()
+pub(crate) fn max_data_columns_by_root_request_common<E: EthSpec>(
+    max_request_blocks: u64,
+) -> usize {
+    let bytes_per_element = 8_usize
+        .safe_mul(E::number_of_columns())
+        .and_then(|b| b.safe_add(40))
+        .expect("should not overflow");
+    (max_request_blocks as usize)
+        .safe_mul(bytes_per_element)
+        .expect("should not overflow")
 }
 
 fn default_max_blocks_by_root_request() -> usize {
