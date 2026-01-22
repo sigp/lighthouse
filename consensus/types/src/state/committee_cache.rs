@@ -79,7 +79,13 @@ impl CommitteeCache {
             .saturating_sub(spec.min_seed_lookahead)
             .saturating_sub(1u64);
 
-        if reqd_randao_epoch < state.min_randao_epoch() || epoch > state.current_epoch() + 1 {
+        if reqd_randao_epoch < state.min_randao_epoch()
+            || epoch
+                > state
+                    .current_epoch()
+                    .safe_add(1)
+                    .map_err(BeaconStateError::ArithError)?
+        {
             return Err(BeaconStateError::EpochOutOfBounds);
         }
 
