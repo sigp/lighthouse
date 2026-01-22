@@ -21,7 +21,7 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch,
+    BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
     EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
@@ -80,11 +80,10 @@ const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 /// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
 /// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
-    complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
-    slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
+    slot_clock: T::SlotClock,
     spec: Arc<ChainSpec>,
 }
 
@@ -119,11 +118,10 @@ impl<E: EthSpec> Debug for Availability<E> {
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
-        complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
@@ -133,7 +131,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             spec.clone(),
         )?;
         Ok(Self {
-            complete_blob_backfill,
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
@@ -142,7 +139,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
         &self.custody_context
     }
 
@@ -374,8 +371,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         available_block: &AvailableBlock<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {
-        let block_data_required = self.blobs_required_for_block(&available_block.block)
-            || self.data_columns_required_for_block(&available_block.block);
+        let block_data_required = self
+            .custody_context
+            .blobs_required_for_block(&available_block.block)
+            || self
+                .custody_context
+                .data_columns_required_for_block(&available_block.block);
         match available_block.data() {
             AvailableBlockData::NoData => {
                 if block_data_required {
@@ -411,7 +412,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<(), AvailabilityCheckError> {
         let all_blobs = available_blocks
             .iter()
-            .filter(|available_block| self.blobs_required_for_block(&available_block.block))
+            .filter(|available_block| {
+                self.custody_context
+                    .blobs_required_for_block(&available_block.block)
+            })
             // this clone is cheap as it's cloning an Arc
             .filter_map(|available_block| available_block.blob_data.blobs())
             .flatten()
@@ -425,15 +429,22 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         let all_data_columns = available_blocks
             .iter()
-            .filter(|available_block| self.data_columns_required_for_block(&available_block.block))
+            .filter(|available_block| {
+                self.custody_context
+                    .data_columns_required_for_block(&available_block.block)
+            })
             // this clone is cheap as it's cloning an Arc
             .filter_map(|available_block| available_block.blob_data.data_columns())
             .flatten()
             .collect::<Vec<_>>();
 
         for available_block in available_blocks {
-            let block_data_required = self.blobs_required_for_block(&available_block.block)
-                || self.data_columns_required_for_block(&available_block.block);
+            let block_data_required = self
+                .custody_context
+                .blobs_required_for_block(&available_block.block)
+                || self
+                    .custody_context
+                    .data_columns_required_for_block(&available_block.block);
             if let AvailableBlockData::NoData = available_block.data()
                 && block_data_required
             {
@@ -453,49 +464,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         Ok(())
-    }
-
-    /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
-    /// If the epoch is from prior to the data availability boundary, no blobs are required.
-    pub fn blobs_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && !self.spec.is_peer_das_enabled_for_epoch(epoch)
-    }
-
-    /// Determines the data column requirements for an epoch.
-    /// - If the epoch is pre-peerdas, no data columns are required.
-    /// - If the epoch is from prior to the data availability boundary, no data columns are required.
-    pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
-    }
-
-    /// See `Self::blobs_required_for_epoch`
-    fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0 && self.blobs_required_for_epoch(block.epoch())
-    }
-
-    /// See `Self::data_columns_required_for_epoch`
-    fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
-    }
-
-    /// The epoch at which we require a data availability check in block processing.
-    /// `None` if the `Deneb` fork is disabled.
-    pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        let fork_epoch = self.spec.deneb_fork_epoch?;
-
-        if self.complete_blob_backfill {
-            Some(fork_epoch)
-        } else {
-            let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
-            self.spec
-                .min_epoch_data_availability_boundary(current_epoch)
-        }
-    }
-
-    /// Returns true if the given epoch lies within the da boundary and false otherwise.
-    pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
-        self.data_availability_boundary()
-            .is_some_and(|da_epoch| block_epoch >= da_epoch)
     }
 
     /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.
@@ -780,15 +748,15 @@ impl<E: EthSpec> AvailableBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
-        da_checker: &DataAvailabilityChecker<T>,
+        custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
         // Ensure block availability
-        let blobs_required = da_checker.blobs_required_for_block(&block);
-        let columns_required = da_checker.data_columns_required_for_block(&block);
+        let blobs_required = custody_context.blobs_required_for_block(&block);
+        let columns_required = custody_context.data_columns_required_for_block(&block);
 
         match &block_data {
             AvailableBlockData::NoData => {
@@ -830,8 +798,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
                 }
 
-                let mut column_indices = da_checker
-                    .custody_context
+                let mut column_indices = custody_context
                     .custody_columns_for_epoch(Some(block.epoch()), &spec)
                     .iter()
                     .collect::<HashSet<_>>();
@@ -952,7 +919,7 @@ mod test {
     use std::time::Duration;
     use store::HotColdDB;
     use types::data::DataColumn;
-    use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
+    use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, ForkName, MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;
@@ -1149,9 +1116,14 @@ mod test {
                 };
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                let da_checker = Arc::new(new_da_checker(spec.clone()));
-                RpcBlock::new(Arc::new(block), Some(block_data), &da_checker, spec.clone())
-                    .expect("should create RPC block with custody columns")
+                let custody_context = Arc::new(new_custody_context(spec.clone()));
+                RpcBlock::new(
+                    Arc::new(block),
+                    Some(block_data),
+                    &custody_context,
+                    spec.clone(),
+                )
+                .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();
 
@@ -1270,18 +1242,28 @@ mod test {
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
+            slot_clock.clone(),
             ordered_custody_column_indices,
-            &spec,
+            false,
+            spec.clone(),
         ));
-        let complete_blob_backfill = false;
-        DataAvailabilityChecker::new(
-            complete_blob_backfill,
-            slot_clock,
-            kzg,
-            store,
-            custody_context,
-            spec,
+        DataAvailabilityChecker::new(slot_clock, kzg, store, custody_context, spec)
+            .expect("should initialise data availability checker")
+    }
+
+    fn new_custody_context(spec: Arc<ChainSpec>) -> CustodyContext<T> {
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(spec.seconds_per_slot),
+        );
+        let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+        CustodyContext::new(
+            NodeCustodyType::Fullnode,
+            slot_clock.clone(),
+            ordered_custody_column_indices,
+            false,
+            spec.clone(),
         )
-        .expect("should initialise data availability checker")
     }
 }

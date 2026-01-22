@@ -2284,7 +2284,11 @@ mod deneb_only {
             let block = RpcBlock::new(
                 block,
                 None,
-                &self.rig.harness.chain.data_availability_checker,
+                self.rig
+                    .harness
+                    .chain
+                    .data_availability_checker
+                    .custody_context(),
                 self.rig.harness.chain.spec.clone(),
             )
             .unwrap();

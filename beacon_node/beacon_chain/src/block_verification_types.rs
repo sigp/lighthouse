@@ -1,8 +1,8 @@
-use crate::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{
     AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
-use crate::{BeaconChainTypes, PayloadVerificationOutcome};
+use crate::{BeaconChainTypes, CustodyContext, PayloadVerificationOutcome};
 use educe::Educe;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
@@ -93,7 +93,7 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
         block_data: Option<AvailableBlockData<E>>,
-        da_checker: &DataAvailabilityChecker<T>,
+        custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where
@@ -101,7 +101,10 @@ impl<E: EthSpec> RpcBlock<E> {
     {
         match block_data {
             Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
-                block, block_data, da_checker, spec,
+                block,
+                block_data,
+                custody_context,
+                spec,
             )?)),
             None => Ok(RpcBlock::BlockOnly {
                 block_root: block.canonical_root(),

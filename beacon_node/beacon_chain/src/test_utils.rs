@@ -212,6 +212,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
     spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
     spec
 }
+
 pub fn test_da_checker<E: EthSpec>(
     spec: Arc<ChainSpec>,
 ) -> DataAvailabilityChecker<EphemeralHarnessType<E>> {
@@ -223,21 +224,35 @@ pub fn test_da_checker<E: EthSpec>(
     let kzg = get_kzg(&spec);
     let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+    let complete_blob_backfill = false;
     let custody_context = Arc::new(CustodyContext::new(
         NodeCustodyType::Fullnode,
+        slot_clock.clone(),
         ordered_custody_column_indices,
-        &spec,
-    ));
-    let complete_blob_backfill = false;
-    DataAvailabilityChecker::new(
         complete_blob_backfill,
-        slot_clock,
-        kzg,
-        store,
-        custody_context,
-        spec,
+        spec.clone(),
+    ));
+    DataAvailabilityChecker::new(slot_clock, kzg, store, custody_context, spec)
+        .expect("should initialise data availability checker")
+}
+
+pub fn test_custody_context<E: EthSpec>(
+    spec: Arc<ChainSpec>,
+) -> CustodyContext<EphemeralHarnessType<E>> {
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(0),
+        Duration::from_secs(spec.seconds_per_slot),
+    );
+    let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
+    let complete_blob_backfill = false;
+    CustodyContext::new(
+        NodeCustodyType::Fullnode,
+        slot_clock.clone(),
+        ordered_custody_column_indices,
+        complete_blob_backfill,
+        spec.clone(),
     )
-    .expect("should initialise data availability checker")
 }
 
 pub struct Builder<T: BeaconChainTypes> {
@@ -2482,7 +2497,7 @@ where
             return RpcBlock::new(
                 block,
                 Some(AvailableBlockData::NoData),
-                &self.chain.data_availability_checker,
+                self.chain.data_availability_checker.custody_context(),
                 self.chain.spec.clone(),
             )
             .unwrap();
@@ -2496,7 +2511,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &self.chain.data_availability_checker,
+                self.chain.data_availability_checker.custody_context(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2511,7 +2526,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &self.chain.data_availability_checker,
+                self.chain.data_availability_checker.custody_context(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2542,14 +2557,14 @@ where
                     RpcBlock::new(
                         block,
                         Some(block_data),
-                        &self.chain.data_availability_checker,
+                        self.chain.data_availability_checker.custody_context(),
                         self.chain.spec.clone(),
                     )?
                 } else {
                     RpcBlock::new(
                         block,
                         None,
-                        &self.chain.data_availability_checker,
+                        self.chain.data_availability_checker.custody_context(),
                         self.chain.spec.clone(),
                     )?
                 }
@@ -2557,14 +2572,14 @@ where
                 RpcBlock::new(
                     block,
                     Some(AvailableBlockData::NoData),
-                    &self.chain.data_availability_checker,
+                    self.chain.data_availability_checker.custody_context(),
                     self.chain.spec.clone(),
                 )?
             } else {
                 RpcBlock::new(
                     block,
                     None,
-                    &self.chain.data_availability_checker,
+                    self.chain.data_availability_checker.custody_context(),
                     self.chain.spec.clone(),
                 )?
             }
@@ -2585,14 +2600,14 @@ where
                 RpcBlock::new(
                     block,
                     Some(block_data),
-                    &self.chain.data_availability_checker,
+                    self.chain.data_availability_checker.custody_context(),
                     self.chain.spec.clone(),
                 )?
             } else {
                 RpcBlock::new(
                     block,
                     None,
-                    &self.chain.data_availability_checker,
+                    self.chain.data_availability_checker.custody_context(),
                     self.chain.spec.clone(),
                 )?
             }

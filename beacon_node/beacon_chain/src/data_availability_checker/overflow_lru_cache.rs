@@ -402,7 +402,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// This cache holds a limited number of states in memory and reconstructs them
     /// from disk when necessary. This is necessary until we merge tree-states
     state_cache: StateLRUCache<T>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -419,7 +419,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -833,13 +833,15 @@ mod test {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
+    use slot_clock::{SlotClock, TestingSlotClock};
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
+    use std::time::Duration;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::{debug_span, info};
-    use types::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
+    use types::{Slot, new_non_zero_usize};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
     const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
@@ -1012,6 +1014,7 @@ mod test {
     where
         E: EthSpec,
         T: BeaconChainTypes<
+                SlotClock = TestingSlotClock,
                 HotStore = BeaconNodeBackend<E>,
                 ColdStore = BeaconNodeBackend<E>,
                 EthSpec = E,
@@ -1023,10 +1026,19 @@ mod test {
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
+
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_millis(spec.slot_duration_ms),
+        );
+
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
+            slot_clock,
             generate_data_column_indices_rand_order::<E>(),
-            &spec,
+            false,
+            spec.clone(),
         ));
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(

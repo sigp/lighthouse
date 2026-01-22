@@ -453,7 +453,7 @@ fn build_rpc_block(
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &chain.data_availability_checker,
+                chain.data_availability_checker.custody_context(),
                 chain.spec.clone(),
             )
             .unwrap()
@@ -468,7 +468,7 @@ fn build_rpc_block(
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &chain.data_availability_checker,
+                chain.data_availability_checker.custody_context(),
                 chain.spec.clone(),
             )
             .unwrap()
@@ -477,7 +477,7 @@ fn build_rpc_block(
         None => RpcBlock::new(
             block,
             Some(AvailableBlockData::NoData),
-            &chain.data_availability_checker,
+            chain.data_availability_checker.custody_context(),
             chain.spec.clone(),
         )
         .unwrap(),

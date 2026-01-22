@@ -3202,7 +3202,7 @@ async fn weak_subjectivity_sync_test(
             AvailableBlock::new(
                 Arc::new(corrupt_block),
                 data,
-                &beacon_chain.data_availability_checker,
+                beacon_chain.data_availability_checker.custody_context(),
                 Arc::new(spec),
             )
             .expect("available block")
@@ -3709,7 +3709,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let invalid_fork_rpc_block = RpcBlock::new(
         invalid_fork_block.clone(),
         None,
-        &harness.chain.data_availability_checker,
+        harness.chain.data_availability_checker.custody_context(),
         harness.spec.clone(),
     )
     .unwrap();
@@ -3731,7 +3731,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let valid_fork_rpc_block = RpcBlock::new(
         valid_fork_block.clone(),
         None,
-        &harness.chain.data_availability_checker,
+        harness.chain.data_availability_checker.custody_context(),
         harness.spec.clone(),
     )
     .unwrap();
