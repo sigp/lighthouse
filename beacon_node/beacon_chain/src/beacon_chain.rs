@@ -3277,17 +3277,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let imported_data_columns = self
                 .data_availability_checker
-                .get_data_columns(*block_root)
+                .cached_data_column_indexes(block_root)
                 .unwrap_or_default();
+            let new_data_columns =
+                data_columns_iter.filter(|b| !imported_data_columns.contains(&b.index));
 
-            let new_data_columns_indices = data_columns_iter.map(|c| c.index).collect::<Vec<_>>();
-
-            for data_column in imported_data_columns
-                .into_iter()
-                .filter(|c| new_data_columns_indices.contains(&c.index))
-            {
+            for data_column in new_data_columns {
                 event_handler.register(EventKind::DataColumnSidecar(
-                    SseDataColumnSidecar::from_data_column_sidecar(data_column.as_ref()),
+                    SseDataColumnSidecar::from_data_column_sidecar(data_column),
                 ));
             }
         }
