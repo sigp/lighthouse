@@ -6,9 +6,9 @@ use ssz_types::VariableList;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
-use types::EthSpec;
 use types::data::partial_data_column_sidecar::{CellBitmap, PartialDataColumn};
 use types::partial_data_column_sidecar::PartialDataColumnSidecar;
+use types::{EthSpec, Hash256};
 
 pub type HeaderSentSet = Arc<Mutex<HashSet<PeerId>>>;
 
@@ -102,7 +102,10 @@ impl<E: EthSpec> From<CellBitmap<E>> for CellBitmapMetadata<E> {
 
 impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
     fn group_id(&self) -> Vec<u8> {
-        self.partial_column.block_root.as_slice().to_vec()
+        let mut group_id = Vec::with_capacity(Hash256::len_bytes() + 1);
+        group_id.push(0);
+        group_id.extend_from_slice(self.partial_column.block_root.as_slice());
+        group_id
     }
 
     fn metadata(&self) -> Vec<u8> {

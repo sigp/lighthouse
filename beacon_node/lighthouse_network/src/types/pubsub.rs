@@ -427,7 +427,10 @@ pub fn decode_partial<E: EthSpec>(
 ) -> Result<PartialDataColumn<E>, String> {
     match topic.kind() {
         GossipKind::DataColumnSidecar(id) => {
-            let block_root = Hash256::from_ssz_bytes(group)
+            if group.first() != Some(&0) {
+                return Err(format!("Unknown data column format: {:?}", group.first()));
+            }
+            let block_root = Hash256::from_ssz_bytes(&group[1..])
                 .map_err(|e| format!("Error decoding group: {:?}", e))?;
             let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
                 .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
