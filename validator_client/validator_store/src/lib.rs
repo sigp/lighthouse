@@ -22,6 +22,7 @@ pub enum Error<T> {
     GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
     UnableToSignAttestation(AttestationError),
     SpecificError(T),
+    ExecutorError,
     Middleware(String),
 }
 
@@ -108,7 +109,7 @@ pub trait ValidatorStore: Send + Sync {
     /// Only successfully signed attestations that pass slashing protection are returned.
     #[allow(clippy::type_complexity)]
     fn sign_attestations(
-        &self,
+        self: &Arc<Self>,
         attestations: Vec<(PublicKeyBytes, usize, Attestation<Self::E>)>,
     ) -> impl Future<Output = Result<Vec<Attestation<Self::E>>, Error<Self::Error>>> + Send;
 

@@ -883,7 +883,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     }
 
     async fn sign_attestations(
-        &self,
+        self: &Arc<Self>,
         mut attestations: Vec<(PublicKeyBytes, usize, Attestation<Self::E>)>,
     ) -> Result<Vec<Attestation<E>>, Error> {
         // Sign all attestations concurrently.
@@ -934,8 +934,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             return Ok(vec![]);
         }
 
-        // Check slashing protection and insert into database.
-        let safe_attestations = self.slashing_protect_attestations(signed_attestations)?;
+        // Check slashing protection and insert into database. Use a dedicated blocking thread
+        // to avoid clogging the async executor with blocking database I/O.
+        let validator_store = self.clone();
+        let safe_attestations = self
+            .task_executor
+            .spawn_blocking_handle(
+                move || validator_store.slashing_protect_attestations(signed_attestations),
+                "slashing_protect_attestations",
+            )
+            .ok_or(Error::ExecutorError)?
+            .await
+            .map_err(|_| Error::ExecutorError)??;
         Ok(safe_attestations)
     }
 
