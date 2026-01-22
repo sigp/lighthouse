@@ -12,7 +12,6 @@ use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
-use lighthouse_tracing::SPAN_SYNCING_CHAIN;
 use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::hash::{Hash, Hasher};
@@ -161,7 +160,7 @@ pub enum ChainSyncingState {
 impl<T: BeaconChainTypes> SyncingChain<T> {
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_SYNCING_CHAIN,
+        name = "lh_syncing_chain",
         parent = None,
         level="debug",
         skip_all,
