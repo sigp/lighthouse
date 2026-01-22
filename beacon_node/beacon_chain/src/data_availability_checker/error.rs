@@ -22,7 +22,6 @@ pub enum Error {
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
-    InvalidFork,
     InvalidAvailableBlockData,
 }
 
@@ -47,7 +46,6 @@ impl Error {
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError
-            | Error::InvalidFork
             | Error::InvalidAvailableBlockData => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
