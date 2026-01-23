@@ -371,7 +371,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         available_block: &AvailableBlock<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {
-        let blob_data_required = self.blobs_required_for_block(&available_block.block)
+        let blob_data_required = self.blobs_required_for_block(&available_block.block);
         let column_data_required = self.data_columns_required_for_block(&available_block.block);
         
         match available_block.data().to_owned() {
