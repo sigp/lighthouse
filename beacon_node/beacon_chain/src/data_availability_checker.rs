@@ -401,9 +401,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Performs batch kzg verification for a vector of `AvailableBlocks`. This is more efficient than
     /// calling `verify_kzg_for_available_block` in a loop.
-    ///
-    /// WARNING: This function assumes all required blobs are already present, it does NOT
-    ///          check if there are any missing blobs.
     #[instrument(skip_all)]
     pub fn batch_verify_kzg_for_available_blocks(
         &self,
