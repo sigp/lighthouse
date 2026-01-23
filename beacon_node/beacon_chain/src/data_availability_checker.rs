@@ -409,40 +409,32 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         available_blocks: &Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<(), AvailabilityCheckError> {
-        let all_blobs = available_blocks
-            .iter()
-            .filter(|available_block| self.blobs_required_for_block(&available_block.block))
-            // this clone is cheap as it's cloning an Arc
-            .filter_map(|available_block| available_block.blob_data.blobs())
-            .flatten()
-            .collect::<Vec<_>>();
+        let mut all_blobs = Vec::new();
+        let mut all_data_columns = Vec::new();
+
+        for available_block in available_blocks {
+            let blob_data_required = self.blobs_required_for_block(&available_block.block);
+            let column_data_required = self.data_columns_required_for_block(&available_block.block);
+
+            match available_block.data().to_owned() {
+                AvailableBlockData::NoData if column_data_required => {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
+                }
+                AvailableBlockData::NoData if blob_data_required => {
+                    return Err(AvailabilityCheckError::MissingBlobs);
+                }
+                AvailableBlockData::Blobs(blobs) if blob_data_required => all_blobs.extend(blobs),
+                AvailableBlockData::DataColumns(columns) if column_data_required => all_data_columns.extend(columns),
+                _ => return Err(AvailabilityCheckError::Unexpected(format!("An unexpected error occurred during kzg verification blobs_len: {:?}, data_columns_len: {:?}, 
+                    blob_data_required: {:?}, column_data_required: {:?}", available_block.data().blobs_len(), available_block.data().data_columns_len(), blob_data_required, column_data_required)
+                ))
+            }
+        }
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {
             verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
-        }
-
-        let all_data_columns = available_blocks
-            .iter()
-            .filter(|available_block| self.data_columns_required_for_block(&available_block.block))
-            // this clone is cheap as it's cloning an Arc
-            .filter_map(|available_block| available_block.blob_data.data_columns())
-            .flatten()
-            .collect::<Vec<_>>();
-
-        for available_block in available_blocks {
-            let block_data_required = self.blobs_required_for_block(&available_block.block)
-                || self.data_columns_required_for_block(&available_block.block);
-            if let AvailableBlockData::NoData = available_block.data()
-                && block_data_required
-            {
-                if available_block.block.fork_name_unchecked().fulu_enabled() {
-                    return Err(AvailabilityCheckError::MissingCustodyColumns);
-                } else {
-                    return Err(AvailabilityCheckError::MissingBlobs);
-                }
-            }
         }
 
         // verify kzg for all data columns at once
