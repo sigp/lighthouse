@@ -381,6 +381,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             AvailableBlockData::NoData if blob_data_required => {
                 return Err(AvailabilityCheckError::MissingBlobs);
             }
+            AvailableBlockData::NoData => {}
             AvailableBlockData::Blobs(blobs) if blob_data_required => {
                 verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
@@ -418,6 +419,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 AvailableBlockData::NoData if blob_data_required => {
                     return Err(AvailabilityCheckError::MissingBlobs);
                 }
+                AvailableBlockData::NoData => {},
                 AvailableBlockData::Blobs(blobs) if blob_data_required => all_blobs.extend(blobs),
                 AvailableBlockData::DataColumns(columns) if column_data_required => all_data_columns.extend(columns),
                 _ => return Err(AvailabilityCheckError::Unexpected(format!("An unexpected error occurred during batch kzg verification blobs_len: {:?}, data_columns_len: {:?}, 
