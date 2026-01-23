@@ -366,10 +366,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .remove_pre_execution_block(block_root);
     }
 
-    /// Verifies kzg commitments for an `AvailableBlock`.`
-    ///
-    /// WARNING: This function assumes all required blobs are already present, it does NOT
-    ///          check if there are any missing blobs.
+    /// Verifies kzg commitments for an `AvailableBlock`.
     pub fn verify_kzg_for_available_block(
         &self,
         available_block: &AvailableBlock<T::EthSpec>,
