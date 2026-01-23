@@ -608,6 +608,18 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
     // Generate selection proofs for each validator at each slot, one slot at a time.
     for slot in (start_slot..=pre_compute_slot.as_u64()).map(Slot::new) {
         let mut futures_unordered = FuturesUnordered::new();
+        if !duties_service
+            .sync_duties
+            .selection_proof_config
+            .parallel_sign
+        {
+            debug!(
+                period = sync_committee_period,
+                %current_slot,
+                %pre_compute_slot,
+                "Calculating sync selection proofs"
+            );
+        }
 
         for (validator_start_slot, duty) in pre_compute_duties {
             if slot < *validator_start_slot {
@@ -670,6 +682,12 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                             .proofs
                             .write()
                             .insert((proof_slot, subnet_id), proof);
+                    } else {
+                        debug!(
+                            validator_index,
+                            period = sync_committee_period,
+                            "Missing sync duty to update"
+                        );
                     }
                 }
                 Ok(false) => {} // Not an aggregator
