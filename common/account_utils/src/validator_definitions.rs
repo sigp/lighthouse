@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::fs::{self, File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
-use tracing::{error, info};
+use tracing::{debug, error};
 use types::{Address, graffiti::GraffitiString};
 use validator_dir::VOTING_KEYSTORE_FILE;
 use zeroize::Zeroizing;
