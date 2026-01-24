@@ -2105,21 +2105,40 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     .len()
 }
 
+// Simplified function which precomputes the size of a `List` of `BlobIdentifiers`.
 pub(crate) fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
+    // BlobIdentifier is a fixed-size struct with two fields:
+    // - block_root: Hash256 (32 bytes)
+    // - index: u64 (8 bytes)
+    // Total per element: 32 + 8 = 40 bytes
+    // Since BlobIdentifier is fixed-size, the outer List does not add any byte overhead.
+    let blob_identifier_ssz_size = 40_usize;
+
     (max_request_blob_sidecars as usize)
-        .safe_mul(40)
+        .safe_mul(blob_identifier_ssz_size)
         .expect("should not overflow")
 }
 
+// Simplified function which precomputes the size of a `List` of `DataColumnIdentifiers`.
 pub(crate) fn max_data_columns_by_root_request_common<E: EthSpec>(
     max_request_blocks: u64,
 ) -> usize {
-    let bytes_per_element = 8_usize
+    // DataColumnsByRootIdentifier is a variable-size struct with two fields:
+    // - block_root: Hash256 (32 bytes)
+    // - columns: List<ColumnIndex, NumberOfColumns> (4 byte offset + n × 8 bytes)
+    // Since DataColumnsByRootIdentifier is variable-size, the outer List adds a
+    // 4-byte offset per element.
+    // Total per element: 4 (outer offset) + 32 (block_root) + 4 (columns offset) + n × 8
+    let column_index_ssz_size = 8_usize;
+    let ssz_fixed_size = 40_usize;
+
+    let data_columns_by_root_identifier_ssz_size = column_index_ssz_size
         .safe_mul(E::number_of_columns())
-        .and_then(|b| b.safe_add(40))
+        .and_then(|b| b.safe_add(ssz_fixed_size))
         .expect("should not overflow");
+
     (max_request_blocks as usize)
-        .safe_mul(bytes_per_element)
+        .safe_mul(data_columns_by_root_identifier_ssz_size)
         .expect("should not overflow")
 }
 
