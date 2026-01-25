@@ -741,7 +741,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .data_availability_checker
             .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
-            Ok(()) => {},
+            Ok(()) => {}
             Err(e) => match e {
                 AvailabilityCheckError::StoreError(_) => {
                     return (
