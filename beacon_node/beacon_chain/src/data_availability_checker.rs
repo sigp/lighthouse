@@ -371,31 +371,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         available_block: &AvailableBlock<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {
-        let blob_data_required = self.blobs_required_for_block(&available_block.block);
-        let column_data_required = self.data_columns_required_for_block(&available_block.block);
-
-        match available_block.data().to_owned() {
-            AvailableBlockData::NoData if column_data_required => {
-                return Err(AvailabilityCheckError::MissingCustodyColumns);
-            }
-            AvailableBlockData::NoData if blob_data_required => {
-                return Err(AvailabilityCheckError::MissingBlobs);
-            }
-            AvailableBlockData::NoData => {}
-            AvailableBlockData::Blobs(blobs) if blob_data_required => {
-                verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidBlobs)?;
-            },
-            AvailableBlockData::DataColumns(columns) if column_data_required => {
+        match available_block.data() {
+            AvailableBlockData::NoData => Ok(()),
+            AvailableBlockData::Blobs(blobs) => verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidBlobs),
+            AvailableBlockData::DataColumns(columns) => {
                 verify_kzg_for_data_column_list(columns.iter(), &self.kzg)
-                    .map_err(AvailabilityCheckError::InvalidColumn)?;
-            },
-            _ => return Err(AvailabilityCheckError::Unexpected(format!("An unexpected error occurred during kzg verification blobs_len: {:?}, data_columns_len: {:?}, 
-                blob_data_required: {:?}, column_data_required: {:?}", available_block.data().blobs_len(), available_block.data().data_columns_len(), blob_data_required, column_data_required)
-            ))
+                    .map_err(AvailabilityCheckError::InvalidColumn)
+            }
         }
-
-        Ok(())
     }
 
     /// Performs batch kzg verification for a vector of `AvailableBlocks`. This is more efficient than
@@ -403,40 +387,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     #[instrument(skip_all)]
     pub fn batch_verify_kzg_for_available_blocks(
         &self,
-        available_blocks: &Vec<AvailableBlock<T::EthSpec>>,
+        available_blocks: &[AvailableBlock<T::EthSpec>],
     ) -> Result<(), AvailabilityCheckError> {
         let mut all_blobs = Vec::new();
         let mut all_data_columns = Vec::new();
 
         for available_block in available_blocks {
-            let blob_data_required = self.blobs_required_for_block(&available_block.block);
-            let column_data_required = self.data_columns_required_for_block(&available_block.block);
-
             match available_block.data().to_owned() {
-                AvailableBlockData::NoData if column_data_required => {
-                    return Err(AvailabilityCheckError::MissingCustodyColumns);
-                }
-                AvailableBlockData::NoData if blob_data_required => {
-                    return Err(AvailabilityCheckError::MissingBlobs);
-                }
-                AvailableBlockData::NoData => {},
-                AvailableBlockData::Blobs(blobs) if blob_data_required => all_blobs.extend(blobs),
-                AvailableBlockData::DataColumns(columns) if column_data_required => all_data_columns.extend(columns),
-                _ => return Err(AvailabilityCheckError::Unexpected(format!("An unexpected error occurred during batch kzg verification blobs_len: {:?}, data_columns_len: {:?}, 
-                    blob_data_required: {:?}, column_data_required: {:?}", available_block.data().blobs_len(), available_block.data().data_columns_len(), blob_data_required, column_data_required)
-                ))
+                AvailableBlockData::NoData => {}
+                AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs),
+                AvailableBlockData::DataColumns(columns) => all_data_columns.extend(columns),
             }
         }
 
-        // verify kzg for all blobs at once
         if !all_blobs.is_empty() {
             verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
         }
 
-        // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
-            // Attributes fault to the specific peer that sent an invalid column
             verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
