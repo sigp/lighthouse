@@ -415,7 +415,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of blob sidecars seen over the gossip network.
     pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of column sidecars seen over the gossip network.
-    pub observed_column_sidecars: RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
+    pub observed_column_sidecars:
+        RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -3563,7 +3564,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         if let Some(slasher) = self.slasher.as_ref() {
             for data_column in &data_columns {
-                // TODO(gloas) no block header post-gloas, what should we do here
+                // TODO(gloas) different gossip checks in gloas
+                // https://github.com/ethereum/consensus-specs/blob/81458afc6aad6985c533785c8d2860d87a993241/specs/gloas/p2p-interface.md?plain=1#L385
                 if let DataColumnSidecar::Fulu(c) = data_column.as_data_column() {
                     slasher.accept_block_header(c.signed_block_header.clone());
                 }

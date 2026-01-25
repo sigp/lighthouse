@@ -15,14 +15,17 @@ type BeaconBlockRoot = Hash256;
 pub enum Error {
     /// The slot of the provided `ObservableDataSidecar` is prior to finalization and should not have been provided
     /// to this function. This is an internal error.
-    FinalizedDataSidecar { slot: Slot, finalized_slot: Slot },
+    FinalizedDataSidecar {
+        slot: Slot,
+        finalized_slot: Slot,
+    },
     /// The data sidecar contains an invalid index, the data sidecar is invalid.
     /// Note: The invalid data should have been caught and flagged as an error much before reaching
     /// here.
     InvalidDataIndex(u64),
 
     // An unexpected data sidecar variant was received
-    UnexpectedVariant
+    UnexpectedVariant,
 }
 
 pub trait ObservableDataSidecar {
@@ -84,7 +87,10 @@ pub enum ObservationKey {
 }
 
 impl ObservationKey {
-    pub fn new<T: ObservableDataSidecar, E: EthSpec>(sidecar: &T, spec: &ChainSpec) -> Result<Self, Error> {
+    pub fn new<T: ObservableDataSidecar, E: EthSpec>(
+        sidecar: &T,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
         let slot = sidecar.slot();
 
         if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
@@ -94,22 +100,10 @@ impl ObservationKey {
         }
     }
 
-    /// Create an observation key for lookup when we only have block_root and slot.
-    /// This is only valid for gloas and later forks where observations are keyed by block_root.
-    /// Returns `None` if the slot is pre-gloas (where observations are keyed by proposer_index).
-    pub fn from_block_root<E: EthSpec>(
-        block_root: BeaconBlockRoot,
+    pub fn new_proposer_key(
+        proposer_index: Option<ValidatorIndex>,
         slot: Slot,
-        spec: &ChainSpec,
-    ) -> Option<Self> {
-        if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            Some(Self::new_block_root_key(block_root, slot))
-        } else {
-            None
-        }
-    }
-
-    fn new_proposer_key(proposer_index: Option<ValidatorIndex>, slot: Slot) -> Result<Self, Error> {
+    ) -> Result<Self, Error> {
         if let Some(proposer_index) = proposer_index {
             Ok(Self::ProposerKey((proposer_index, slot)))
         } else {
@@ -117,7 +111,7 @@ impl ObservationKey {
         }
     }
 
-    fn new_block_root_key(beacon_block_root: BeaconBlockRoot, slot: Slot) -> Self {
+    pub fn new_block_root_key(beacon_block_root: BeaconBlockRoot, slot: Slot) -> Self {
         Self::BlockRootKey((beacon_block_root, slot))
     }
 
@@ -165,12 +159,9 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
 
         let observation_key = ObservationKey::new::<T, E>(data_sidecar, &self.spec)?;
 
-        let data_indices = self
-            .items
-            .entry(observation_key)
-            .or_insert_with(|| {
-                HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
-            });
+        let data_indices = self.items.entry(observation_key).or_insert_with(|| {
+            HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
+        });
         let did_not_exist = data_indices.insert(data_sidecar.index());
 
         Ok(!did_not_exist)
@@ -179,8 +170,8 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
     /// Returns `true` if the `data_sidecar` has already been observed in the cache within the prune window.
     pub fn observation_key_is_known(&self, data_sidecar: &T) -> Result<bool, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
-       
-       let observation_key = ObservationKey::new::<T, E>(data_sidecar, &self.spec)?;
+
+        let observation_key = ObservationKey::new::<T, E>(data_sidecar, &self.spec)?;
 
         let is_known = self
             .items
@@ -294,10 +285,8 @@ mod tests {
             "only one (validator_index, slot) tuple should be present"
         );
 
-        let observation_key = &ObservationKey::new::<BlobSidecar<E>, E>(
-            sidecar_a.as_ref(),
-            &spec,
-        ).unwrap();
+        let observation_key =
+            &ObservationKey::new::<BlobSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
 
         let cached_blob_indices = cache
             .items
@@ -315,10 +304,8 @@ mod tests {
 
         cache.prune(Slot::new(0));
 
-        let observation_key = ObservationKey::new::<BlobSidecar<E>, E>(
-            sidecar_a.as_ref(),
-            &spec,
-        ).unwrap();
+        let observation_key =
+            ObservationKey::new::<BlobSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
@@ -378,10 +365,8 @@ mod tests {
             "can insert non-finalized block"
         );
 
-        let observation_key = ObservationKey::new::<BlobSidecar<E>, E>(
-            block_b.as_ref(),
-            &spec,
-        ).unwrap();
+        let observation_key =
+            ObservationKey::new::<BlobSidecar<E>, E>(block_b.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache
@@ -407,10 +392,8 @@ mod tests {
             "finalized slot is updated"
         );
 
-        let observation_key = ObservationKey::new::<BlobSidecar<E>, E>(
-            block_b.as_ref(),
-            &spec,
-        ).unwrap();
+        let observation_key =
+            ObservationKey::new::<BlobSidecar<E>, E>(block_b.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
         let cached_blob_indices = cache

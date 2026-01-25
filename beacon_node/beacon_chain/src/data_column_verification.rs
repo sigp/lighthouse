@@ -2,7 +2,9 @@ use crate::block_verification::{
     BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
-use crate::observed_data_sidecars::{Error as ObservedDataSidecarsError, ObservationStrategy, Observe};
+use crate::observed_data_sidecars::{
+    Error as ObservedDataSidecarsError, ObservationStrategy, Observe,
+};
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
 use fork_choice::ProtoBlock;
@@ -621,7 +623,9 @@ fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
         .observed_column_sidecars
         .read()
         .observation_key_is_known(column_sidecar)
-        .map_err(|e: ObservedDataSidecarsError| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
+        .map_err(|e: ObservedDataSidecarsError| {
+            GossipDataColumnError::BeaconChainError(Box::new(e.into()))
+        })?
     {
         return Err(GossipDataColumnError::PriorKnown {
             slot: column_sidecar.slot(),
@@ -821,7 +825,9 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
         .observed_column_sidecars
         .write()
         .observe_sidecar(data_column_sidecar)
-        .map_err(|e: ObservedDataSidecarsError| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
+        .map_err(|e: ObservedDataSidecarsError| {
+            GossipDataColumnError::BeaconChainError(Box::new(e.into()))
+        })?
     {
         return Err(GossipDataColumnError::PriorKnown {
             slot: data_column_sidecar.slot(),

@@ -193,12 +193,10 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         &kzg_commitments_proof,
     )?;
 
-    if let Some(observed_blobs) = ObservationKey::from_block_root::<T::EthSpec>(
-        block_root,
-        block.slot(),
-        chain_adapter.spec(),
-    )
-    .and_then(|key| chain_adapter.blobs_known_for_observation_key(key))
+    if let Some(observed_blobs) =
+        ObservationKey::new_proposer_key(Some(block.message().proposer_index()), block.slot())
+            .ok()
+            .and_then(|key| chain_adapter.blobs_known_for_observation_key(key))
     {
         blob_sidecar_list.retain(|blob| !observed_blobs.contains(&blob.blob_index()));
         if blob_sidecar_list.is_empty() {
@@ -395,11 +393,20 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
-                if let Some(observed_columns) =
-                    ObservationKey::from_block_root::<T::EthSpec>(block_root, block.slot(), &spec)
-                        .and_then(|key| {
-                            chain_adapter_cloned.data_column_known_for_observation_key(key)
-                        })
+                let observation_key = if spec
+                    .fork_name_at_slot::<T::EthSpec>(block.slot())
+                    .gloas_enabled()
+                {
+                    Some(ObservationKey::new_block_root_key(block_root, block.slot()))
+                } else {
+                    ObservationKey::new_proposer_key(
+                        Some(block.message().proposer_index()),
+                        block.slot(),
+                    )
+                    .ok()
+                };
+                if let Some(observed_columns) = observation_key
+                    .and_then(|key| chain_adapter_cloned.data_column_known_for_observation_key(key))
                 {
                     custody_columns.retain(|col| !observed_columns.contains(&col.index()));
                     if custody_columns.is_empty() {
