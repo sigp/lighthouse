@@ -589,6 +589,13 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             None
         };
 
+        // Start preparation service before genesis so that CGC registrations
+        // are in place by the time the first block arrives.
+        self.preparation_service
+            .clone()
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start preparation service: {}", e))?;
+
         // Wait until genesis has occurred.
         wait_for_genesis(self.genesis_time).await?;
 
@@ -608,11 +615,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
-
-        self.preparation_service
-            .clone()
-            .start_update_service(&self.context.eth2_config.spec)
-            .map_err(|e| format!("Unable to start preparation service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(

@@ -110,13 +110,18 @@ impl ValidatorRegistrations {
         // If registering the new validator increased the total validator "units", then
         // add a new entry for the current epoch
         if Some(validator_custody_requirement) > self.latest_validator_custody_requirement() {
-            // Apply the change from the next epoch after adding some delay buffer to ensure
-            // the node has enough time to subscribe to subnets etc, and to avoid having
-            // inconsistent column counts within an epoch.
-            let effective_delay_slots =
-                CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.seconds_per_slot;
-            let effective_epoch =
-                (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
+            let effective_epoch = if current_slot == Slot::new(0) {
+                // Pre-genesis or at genesis: apply immediately.
+                // No blocks exist yet, so no inconsistency risk.
+                Epoch::new(0)
+            } else {
+                // Apply the change from the next epoch after adding some delay buffer to ensure
+                // the node has enough time to subscribe to subnets etc, and to avoid having
+                // inconsistent column counts within an epoch.
+                let effective_delay_slots =
+                    CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.seconds_per_slot;
+                (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1
+            };
             self.epoch_validator_custody_requirements
                 .insert(effective_epoch, validator_custody_requirement);
             Some((effective_epoch, validator_custody_requirement))
@@ -1539,5 +1544,44 @@ mod tests {
                 final_cgc,
             );
         }
+    }
+
+    #[test]
+    fn register_validators_at_genesis_slot_applies_immediately() {
+        let spec = E::default_spec();
+        let custody_context = CustodyContext::<E>::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<E>(),
+            &spec,
+        );
+        let validator_custody_units = 10u64;
+
+        let cgc_changed = custody_context.register_validators(
+            vec![(
+                0,
+                validator_custody_units * spec.balance_per_additional_custody_group,
+            )],
+            Slot::new(0),
+            &spec,
+        );
+
+        // At genesis slot, CGC should apply at epoch 0 (immediately).
+        let cgc_changed = cgc_changed.expect("CGC should change at genesis slot");
+        assert_eq!(
+            cgc_changed.effective_epoch,
+            Epoch::new(0),
+            "effective_epoch should be 0 at genesis slot"
+        );
+        assert_eq!(
+            cgc_changed.new_custody_group_count, validator_custody_units,
+            "new CGC should match validator custody units"
+        );
+
+        // Verify CGC is effective at epoch 0
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
+            validator_custody_units,
+            "sampling at epoch 0 should use the new CGC"
+        );
     }
 }
