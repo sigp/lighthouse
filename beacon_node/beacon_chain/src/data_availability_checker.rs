@@ -726,15 +726,19 @@ pub struct AvailableBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
-    /// Constructs an `RpcBlock` from a block and optional data.
-    /// - If `block_data` is `Some`, constructs `FullyAvailable` variant after validation
-    /// - If `block_data` is `None`, constructs `BlockOnly` variant (used for lookups)
+    /// Constructs an `AvailableBlock` from a block and blob data.
+    ///
+    /// This function validates that:
+    /// - Block data is not provided when not required (pre-Deneb or past DA boundary)
+    /// - Required blobs are present and match the expected count
+    /// - Required custody columns are complete based on the node's custody requirements
+    /// - KZG commitments in blobs match those in the block
     ///
     /// Returns `AvailabilityCheckError` if:
-    /// - `block_data` contains data not required by the block
-    /// - Required `block_data` is missing
-    /// - Blob count doesn't match expected
-    /// - Custody columns are incomplete
+    /// - `InvalidAvailableBlockData`: Block data is provided but not required
+    /// - `MissingBlobs`: Block requires blobs but they are missing or incomplete
+    /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete
+    /// - `KzgCommitmentMismatch`: Blob KZG commitment doesn't match block commitment
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
