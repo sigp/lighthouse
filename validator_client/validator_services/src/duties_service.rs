@@ -1349,7 +1349,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             // parallel_sign for distributed case; Otherwise, sign serially in non-distributed (normal) case
             if duties_service.selection_proof_config.parallel_sign {
-                let is_first_slot_of_epoch = current_slot % S::E::slots_per_epoch() == 0;
+                // using lookahead_slot so that VC will call the endpoint 1 slot in advance
+                let is_first_slot_of_epoch = lookahead_slot % S::E::slots_per_epoch() == 0;
 
                 // Fetch a vector of BeaconCommitteeSelection only at the first slot of an epoch
                 if is_first_slot_of_epoch || call_selection_endpoint {
