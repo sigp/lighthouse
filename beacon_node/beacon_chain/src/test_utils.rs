@@ -230,21 +230,25 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec(), false);
+            let spec = builder.get_spec();
+            let header = generate_genesis_header::<E>(spec, false);
             let genesis_state = genesis_state_builder
-                .set_opt_execution_payload_header(header)
+                .set_opt_execution_payload_header(header.clone())
                 .build_genesis_state(
                     &validator_keypairs,
                     HARNESS_GENESIS_TIME,
                     Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                    builder.get_spec(),
+                    spec,
                 )
                 .expect("should generate interop state");
-            assert!(
-                state_processing::per_block_processing::is_merge_transition_complete(
-                    &genesis_state
-                )
-            );
+            // For post-Bellatrix forks, verify the merge is complete at genesis
+            if header.is_some() {
+                assert!(
+                    state_processing::per_block_processing::is_merge_transition_complete(
+                        &genesis_state
+                    )
+                );
+            }
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")

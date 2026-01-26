@@ -22,7 +22,6 @@ use ethers_core::types::Transaction as EthersTransaction;
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
-use lru::LruCache;
 pub use payload_status::PayloadStatus;
 use payload_status::process_payload_status;
 use sensitive_url::SensitiveUrl;
@@ -32,7 +31,6 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -47,7 +45,6 @@ use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
-use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
@@ -74,10 +71,6 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
-
-/// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
-/// in an LRU cache to avoid redundant lookups. This is the size of that cache.
-const EXECUTION_BLOCKS_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -431,7 +424,6 @@ struct Inner<E: EthSpec> {
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
-    execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
@@ -542,7 +534,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
             proposers: RwLock::new(HashMap::new()),
-            execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             payload_cache: PayloadCache::default(),
             last_new_payload_errored: RwLock::new(false),
@@ -633,12 +624,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await?
             .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
         Ok(block.total_difficulty)
-    }
-    /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn execution_blocks(
-        &self,
-    ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
-        self.inner.execution_blocks.lock().await
     }
 
     /// Gives access to a channel containing if the last engine state is online or not.
@@ -1579,208 +1564,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         metrics::expose_execution_layer_info(&versions);
 
         Ok(versions)
-    }
-
-    /// Used during block production to determine if the merge has been triggered.
-    ///
-    /// ## Specification
-    ///
-    /// `get_terminal_pow_block_hash`
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
-    pub async fn get_terminal_pow_block_hash(
-        &self,
-        spec: &ChainSpec,
-        timestamp: u64,
-    ) -> Result<Option<ExecutionBlockHash>, Error> {
-        let _timer = metrics::start_timer_vec(
-            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-            &[metrics::GET_TERMINAL_POW_BLOCK_HASH],
-        );
-
-        let hash_opt = self
-            .engine()
-            .request(|engine| async move {
-                let terminal_block_hash = spec.terminal_block_hash;
-                if terminal_block_hash != ExecutionBlockHash::zero() {
-                    if self
-                        .get_pow_block(engine, terminal_block_hash)
-                        .await?
-                        .is_some()
-                    {
-                        return Ok(Some(terminal_block_hash));
-                    } else {
-                        return Ok(None);
-                    }
-                }
-
-                let block = self.get_pow_block_at_total_difficulty(engine, spec).await?;
-                if let Some(pow_block) = block {
-                    // If `terminal_block.timestamp == transition_block.timestamp`,
-                    // we violate the invariant that a block's timestamp must be
-                    // strictly greater than its parent's timestamp.
-                    // The execution layer will reject a fcu call with such payload
-                    // attributes leading to a missed block.
-                    // Hence, we return `None` in such a case.
-                    if pow_block.timestamp >= timestamp {
-                        return Ok(None);
-                    }
-                }
-                Ok(block.map(|b| b.block_hash))
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)?;
-
-        if let Some(hash) = &hash_opt {
-            info!(
-                terminal_block_hash_override = ?spec.terminal_block_hash,
-                terminal_total_difficulty = ?spec.terminal_total_difficulty,
-                block_hash = ?hash,
-                "Found terminal block hash"
-            );
-        }
-
-        Ok(hash_opt)
-    }
-
-    /// This function should remain internal. External users should use
-    /// `self.get_terminal_pow_block` instead, since it checks against the terminal block hash
-    /// override.
-    ///
-    /// ## Specification
-    ///
-    /// `get_pow_block_at_terminal_total_difficulty`
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
-    async fn get_pow_block_at_total_difficulty(
-        &self,
-        engine: &Engine,
-        spec: &ChainSpec,
-    ) -> Result<Option<ExecutionBlock>, ApiError> {
-        let mut block = engine
-            .api
-            .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
-            .await?
-            .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
-
-        self.execution_blocks().await.put(block.block_hash, block);
-
-        loop {
-            let block_reached_ttd =
-                block.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
-            if block_reached_ttd {
-                if block.parent_hash == ExecutionBlockHash::zero() {
-                    return Ok(Some(block));
-                }
-                let parent = self
-                    .get_pow_block(engine, block.parent_hash)
-                    .await?
-                    .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
-                let parent_reached_ttd =
-                    parent.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
-
-                if block_reached_ttd && !parent_reached_ttd {
-                    return Ok(Some(block));
-                } else {
-                    block = parent;
-                }
-            } else {
-                return Ok(None);
-            }
-        }
-    }
-
-    /// Used during block verification to check that a block correctly triggers the merge.
-    ///
-    /// ## Returns
-    ///
-    /// - `Some(true)` if the given `block_hash` is the terminal proof-of-work block.
-    /// - `Some(false)` if the given `block_hash` is certainly *not* the terminal proof-of-work
-    ///   block.
-    /// - `None` if the `block_hash` or its parent were not present on the execution engine.
-    /// - `Err(_)` if there was an error connecting to the execution engine.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Terminal, if any node indicates it is terminal.
-    /// - Not terminal, if any node indicates it is non-terminal.
-    /// - Block not found, if any node cannot find the block.
-    /// - An error, if all nodes return an error.
-    ///
-    /// ## Specification
-    ///
-    /// `is_valid_terminal_pow_block`
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/fork-choice.md
-    pub async fn is_valid_terminal_pow_block_hash(
-        &self,
-        block_hash: ExecutionBlockHash,
-        spec: &ChainSpec,
-    ) -> Result<Option<bool>, Error> {
-        let _timer = metrics::start_timer_vec(
-            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-            &[metrics::IS_VALID_TERMINAL_POW_BLOCK_HASH],
-        );
-
-        self.engine()
-            .request(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await?
-                    && let Some(pow_parent) =
-                        self.get_pow_block(engine, pow_block.parent_hash).await?
-                {
-                    return Ok(Some(
-                        self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
-                    ));
-                }
-                Ok(None)
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
-    /// This function should remain internal.
-    ///
-    /// External users should use `self.is_valid_terminal_pow_block_hash`.
-    fn is_valid_terminal_pow_block(
-        &self,
-        block: ExecutionBlock,
-        parent: ExecutionBlock,
-        spec: &ChainSpec,
-    ) -> bool {
-        let is_total_difficulty_reached =
-            block.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
-        let is_parent_total_difficulty_valid = parent
-            .total_difficulty
-            .is_some_and(|td| td < spec.terminal_total_difficulty);
-        is_total_difficulty_reached && is_parent_total_difficulty_valid
-    }
-
-    /// Maps to the `eth_getBlockByHash` JSON-RPC call.
-    async fn get_pow_block(
-        &self,
-        engine: &Engine,
-        hash: ExecutionBlockHash,
-    ) -> Result<Option<ExecutionBlock>, ApiError> {
-        if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
-            // The block was in the cache, no need to request it from the execution
-            // engine.
-            return Ok(Some(cached));
-        }
-
-        // The block was *not* in the cache, request it from the execution
-        // engine and cache it for future reference.
-        if let Some(block) = engine.api.get_block_by_hash(hash).await? {
-            self.execution_blocks().await.put(hash, block);
-            Ok(Some(block))
-        } else {
-            Ok(None)
-        }
     }
 
     pub async fn get_payload_bodies_by_hash(

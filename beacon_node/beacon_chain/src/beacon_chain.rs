@@ -10,7 +10,6 @@ use crate::beacon_proposer_cache::{
 };
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
-use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
@@ -3479,28 +3478,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // Log the PoS pandas if a merge transition just occurred.
-        if payload_verification_outcome.is_valid_merge_transition_block {
-            info!("{}", POS_PANDA_BANNER);
-            info!(slot = %block.slot(), "Proof of Stake Activated");
-            info!(
-                terminal_pow_block_hash = ?block
-                .message()
-                .execution_payload()?
-                .parent_hash()
-                .into_root(),
-            );
-            info!(
-                merge_transition_block_root = ?block.message().tree_hash_root(),
-            );
-            info!(
-                merge_transition_execution_hash = ?block
-                .message()
-                .execution_payload()?
-                .block_hash()
-                .into_root(),
-            );
-        }
         Ok(ExecutedBlock::new(
             block,
             import_data,

@@ -968,7 +968,6 @@ mod test {
 
         let payload_verification_outcome = PayloadVerificationOutcome {
             payload_verification_status: PayloadVerificationStatus::Verified,
-            is_valid_merge_transition_block: false,
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
@@ -1323,7 +1322,6 @@ mod pending_components_tests {
             },
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
-                is_valid_merge_transition_block: false,
             },
         };
         (block.into(), blobs, invalid_blobs)
