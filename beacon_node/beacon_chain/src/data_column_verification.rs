@@ -3,7 +3,7 @@ use crate::block_verification::{
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{
-    Error as ObservedDataSidecarsError, ObservationStrategy, Observe,
+    Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
@@ -130,14 +130,13 @@ pub enum GossipDataColumnError {
     ///
     /// The column sidecar is invalid and the peer is faulty
     InvalidInclusionProof,
-    /// A column has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
-    /// over gossip or no gossip sources.
+    /// A column has already been seen for the given observation key and index.
     ///
     /// ## Peer scoring
     ///
     /// The peer isn't faulty, but we do not forward it over gossip.
     PriorKnown {
-        slot: Slot,
+        observation_key: ObservationKey,
         index: ColumnIndex,
     },
     /// A column has already been processed from non-gossip source and have not yet been seen on
@@ -619,7 +618,7 @@ fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     column_sidecar: &DataColumnSidecar<T::EthSpec>,
 ) -> Result<(), GossipDataColumnError> {
-    if chain
+    if let Some(observation_key) = chain
         .observed_column_sidecars
         .read()
         .observation_key_is_known(column_sidecar)
@@ -628,7 +627,7 @@ fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
         })?
     {
         return Err(GossipDataColumnError::PriorKnown {
-            slot: column_sidecar.slot(),
+            observation_key,
             index: *column_sidecar.index(),
         });
     }
@@ -821,7 +820,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
     // allow retrieval of potentially valid blocks over rpc, but try to punish the proposer for
     // signing invalid messages. Issue for more background
     // https://github.com/ethereum/consensus-specs/issues/3261
-    if chain
+    if let Some(observation_key) = chain
         .observed_column_sidecars
         .write()
         .observe_sidecar(data_column_sidecar)
@@ -830,7 +829,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
         })?
     {
         return Err(GossipDataColumnError::PriorKnown {
-            slot: data_column_sidecar.slot(),
+            observation_key,
             index: *data_column_sidecar.index(),
         });
     }

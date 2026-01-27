@@ -455,6 +455,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
         .read()
         .observation_key_is_known(&blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
+        .is_some()
     {
         return Err(GossipBlobError::RepeatBlob {
             proposer: blob_proposer_index,
@@ -598,6 +599,7 @@ pub fn observe_gossip_blob<T: BeaconChainTypes>(
         .map_err(|e: ObservedDataSidecarsError| {
             GossipBlobError::BeaconChainError(Box::new(e.into()))
         })?
+        .is_some()
     {
         return Err(GossipBlobError::RepeatBlob {
             proposer: blob_sidecar.block_proposer_index(),

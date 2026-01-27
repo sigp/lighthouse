@@ -80,7 +80,7 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
     }
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum ObservationKey {
     ProposerKey((ValidatorIndex, Slot)),
     BlockRootKey((BeaconBlockRoot, Slot)),
@@ -160,24 +160,32 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
     }
 
     /// Observe the `data_sidecar` at `ObservationKey`.
-    /// This will update `self` so future calls to it indicate that this `data_sidecar` is known.
+    /// Observes the sidecar, returning `Some(key)` if it was already known, `None` if newly added.
+    ///
+    /// This will update `self` so future calls indicate that this `data_sidecar` is known.
     /// TODO(gloas) ensure we provide proper documentation for the post-gloas case
     /// Pre-gloas the supplied `data_sidecar` **MUST** have completed proposer signature verification.
-    pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<bool, Error> {
+    pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<Option<ObservationKey>, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
         let observation_key = ObservationKey::new::<T, E>(data_sidecar, &self.spec)?;
 
-        let data_indices = self.items.entry(observation_key).or_insert_with(|| {
-            HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
-        });
+        let data_indices = self
+            .items
+            .entry(observation_key.clone())
+            .or_insert_with(|| {
+                HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
+            });
         let did_not_exist = data_indices.insert(data_sidecar.index());
 
-        Ok(!did_not_exist)
+        Ok((!did_not_exist).then_some(observation_key))
     }
 
-    /// Returns `true` if the `data_sidecar` has already been observed in the cache within the prune window.
-    pub fn observation_key_is_known(&self, data_sidecar: &T) -> Result<bool, Error> {
+    /// Returns `Some(key)` if the sidecar has already been observed, `None` otherwise.
+    pub fn observation_key_is_known(
+        &self,
+        data_sidecar: &T,
+    ) -> Result<Option<ObservationKey>, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
         let observation_key = ObservationKey::new::<T, E>(data_sidecar, &self.spec)?;
@@ -186,7 +194,8 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
             .items
             .get(&observation_key)
             .is_some_and(|indices| indices.contains(&data_sidecar.index()));
-        Ok(is_known)
+
+        Ok(is_known.then_some(observation_key))
     }
 
     pub fn known_for_observation_key(
@@ -280,7 +289,9 @@ mod tests {
         let sidecar_a = get_blob_sidecar(0, proposer_index_a, 0);
 
         assert_eq!(
-            cache.observe_sidecar(sidecar_a.as_ref()),
+            cache
+                .observe_sidecar(sidecar_a.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
@@ -371,7 +382,7 @@ mod tests {
         let block_b = get_blob_sidecar(three_epochs, proposer_index_b, 0);
 
         assert_eq!(
-            cache.observe_sidecar(block_b.as_ref()),
+            cache.observe_sidecar(block_b.as_ref()).map(|o| o.is_some()),
             Ok(false),
             "can insert non-finalized block"
         );
@@ -428,25 +439,33 @@ mod tests {
         let sidecar_a = get_blob_sidecar(0, proposer_index_a, 0);
 
         assert_eq!(
-            cache.observation_key_is_known(sidecar_a.as_ref()),
+            cache
+                .observation_key_is_known(sidecar_a.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "no observation in empty cache"
         );
 
         assert_eq!(
-            cache.observe_sidecar(sidecar_a.as_ref()),
+            cache
+                .observe_sidecar(sidecar_a.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
 
         assert_eq!(
-            cache.observation_key_is_known(sidecar_a.as_ref()),
+            cache
+                .observation_key_is_known(sidecar_a.as_ref())
+                .map(|o| o.is_some()),
             Ok(true),
             "observed block is indicated as true"
         );
 
         assert_eq!(
-            cache.observe_sidecar(sidecar_a.as_ref()),
+            cache
+                .observe_sidecar(sidecar_a.as_ref())
+                .map(|o| o.is_some()),
             Ok(true),
             "observing again indicates true"
         );
@@ -469,22 +488,30 @@ mod tests {
         let sidecar_b = get_blob_sidecar(1, proposer_index_b, 0);
 
         assert_eq!(
-            cache.observation_key_is_known(sidecar_b.as_ref()),
+            cache
+                .observation_key_is_known(sidecar_b.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "no observation for new slot"
         );
         assert_eq!(
-            cache.observe_sidecar(sidecar_b.as_ref()),
+            cache
+                .observe_sidecar(sidecar_b.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "can observe proposer for new slot, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.observation_key_is_known(sidecar_b.as_ref()),
+            cache
+                .observation_key_is_known(sidecar_b.as_ref())
+                .map(|o| o.is_some()),
             Ok(true),
             "observed block in slot 1 is indicated as true"
         );
         assert_eq!(
-            cache.observe_sidecar(sidecar_b.as_ref()),
+            cache
+                .observe_sidecar(sidecar_b.as_ref())
+                .map(|o| o.is_some()),
             Ok(true),
             "observing slot 1 again indicates true"
         );
@@ -514,22 +541,30 @@ mod tests {
         let sidecar_c = get_blob_sidecar(0, proposer_index_a, 1);
 
         assert_eq!(
-            cache.observation_key_is_known(sidecar_c.as_ref()),
+            cache
+                .observation_key_is_known(sidecar_c.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "no observation for new index"
         );
         assert_eq!(
-            cache.observe_sidecar(sidecar_c.as_ref()),
+            cache
+                .observe_sidecar(sidecar_c.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "can observe new index, indicates sidecar unobserved for new index"
         );
         assert_eq!(
-            cache.observation_key_is_known(sidecar_c.as_ref()),
+            cache
+                .observation_key_is_known(sidecar_c.as_ref())
+                .map(|o| o.is_some()),
             Ok(true),
             "observed new sidecar is indicated as true"
         );
         assert_eq!(
-            cache.observe_sidecar(sidecar_c.as_ref()),
+            cache
+                .observe_sidecar(sidecar_c.as_ref())
+                .map(|o| o.is_some()),
             Ok(true),
             "observing new sidecar again indicates true"
         );
@@ -551,12 +586,16 @@ mod tests {
         let proposer_index_c = 422;
         let sidecar_d = get_blob_sidecar(0, proposer_index_c, 0);
         assert_eq!(
-            cache.observation_key_is_known(sidecar_d.as_ref()),
+            cache
+                .observation_key_is_known(sidecar_d.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "no observation for new proposer"
         );
         assert_eq!(
-            cache.observe_sidecar(sidecar_d.as_ref()),
+            cache
+                .observe_sidecar(sidecar_d.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
             "can observe sidecar, indicates sidecar unobserved for new proposer"
         );
