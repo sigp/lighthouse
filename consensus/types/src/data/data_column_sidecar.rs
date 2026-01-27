@@ -39,11 +39,6 @@ pub struct DataColumnsByRootIdentifier<E: EthSpec> {
 
 pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Error {
-    IncorrectStateVariant,
-}
-
 #[superstruct(
     variants(Fulu, Gloas),
     variant_attributes(
@@ -68,8 +63,8 @@ pub enum Error {
         )
     ),
     ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
-    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+    cast_error(ty = "DataColumnSidecarError", expr = "DataColumnSidecarError::IncorrectStateVariant"),
+    partial_getter_error(ty = "DataColumnSidecarError", expr = "DataColumnSidecarError::IncorrectStateVariant")
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -251,6 +246,7 @@ pub enum DataColumnSidecarError {
     SszError(SszError),
     BuildSidecarFailed(String),
     InvalidCellProofLength { expected: usize, actual: usize },
+    IncorrectStateVariant
 }
 
 impl From<ArithError> for DataColumnSidecarError {
