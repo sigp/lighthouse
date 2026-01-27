@@ -242,8 +242,8 @@ mod ssz_static {
     use types::state::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DataColumnSidecarFulu,
-        DepositRequest, LightClientBootstrapAltair, PendingDeposit, PendingPartialWithdrawal,
-        WithdrawalRequest, *,
+        DataColumnSidecarGloas, DepositRequest, LightClientBootstrapAltair, PendingDeposit,
+        PendingPartialWithdrawal, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -663,6 +663,10 @@ mod ssz_static {
         SszStaticHandler::<DataColumnSidecarFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only()
             .run();
         SszStaticHandler::<DataColumnSidecarFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
     }
 
