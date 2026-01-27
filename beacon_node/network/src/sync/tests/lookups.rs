@@ -19,6 +19,7 @@ use beacon_chain::{
     PayloadVerificationOutcome, PayloadVerificationStatus,
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
+    custody_context::NodeCustodyType,
     data_availability_checker::Availability,
     test_utils::{
         BeaconChainHarness, EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
@@ -58,6 +59,7 @@ impl TestRig {
         let spec = test_spec::<E>();
 
         // Initialise a new beacon chain
+        // SemiSupernode ensures enough columns are stored for sampling + custody validation for RpcBlock
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(Arc::new(spec))
             .deterministic_keypairs(1)
@@ -68,6 +70,7 @@ impl TestRig {
                 Duration::from_secs(0),
                 Duration::from_secs(12),
             ))
+            .node_custody_type(NodeCustodyType::SemiSupernode)
             .build();
 
         let chain = harness.chain.clone();
