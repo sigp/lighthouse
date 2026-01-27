@@ -1347,12 +1347,12 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
             );
 
-            // parallel_sign for distributed case; Otherwise, sign serially in non-distributed (normal) case
-            if duties_service.selection_proof_config.parallel_sign {
+            // for distributed case that uses the selections_endpoint
+            if duties_service.selection_proof_config.selections_endpoint {
                 // Using lookahead_slot to determine if it is the first slot of an epoch
                 let is_lookahead_slot_epoch_start = lookahead_slot % S::E::slots_per_epoch() == 0;
 
-                // Call the selection endpoint only at the first slot of an epoch
+                // Call the selection endpoint only at the first slot of an epoch or it errors
                 if is_lookahead_slot_epoch_start || call_selection_endpoint {
                     let beacon_committee_selections =
                         make_beacon_committee_selection(&duties_service, &duties).await;
@@ -1404,6 +1404,35 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                         ))
                     };
 
+                    let mut attesters = duties_service.attesters.write();
+                    // if process_duty_and_proof returns false, exit the loop
+                    if !process_duty_and_proof::<S>(
+                        &mut attesters,
+                        result,
+                        dependent_root,
+                        current_slot,
+                    ) {
+                        return;
+                    }
+                }
+            }
+            // parallel_sign for distributed case; Otherwise, sign serially in non-distributed (normal) case
+            else if duties_service.selection_proof_config.parallel_sign {
+                let mut duty_and_proof_results = relevant_duties
+                    .into_values()
+                    .flatten()
+                    .map(|duty| async {
+                        let opt_selection_proof = make_selection_proof(
+                            &duty,
+                            duties_service.validator_store.as_ref(),
+                            &duties_service.spec,
+                        )
+                        .await?;
+                        Ok((duty, opt_selection_proof))
+                    })
+                    .collect::<FuturesUnordered<_>>();
+
+                while let Some(result) = duty_and_proof_results.next().await {
                     let mut attesters = duties_service.attesters.write();
                     // if process_duty_and_proof returns false, exit the loop
                     if !process_duty_and_proof::<S>(
