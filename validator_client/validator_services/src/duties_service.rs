@@ -1349,11 +1349,11 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             // parallel_sign for distributed case; Otherwise, sign serially in non-distributed (normal) case
             if duties_service.selection_proof_config.parallel_sign {
-                // using lookahead_slot so that VC will call the endpoint 1 slot in advance
-                let is_first_slot_of_epoch = lookahead_slot % S::E::slots_per_epoch() == 0;
+                // Using lookahead_slot to determine if it is the first slot of an epoch
+                let is_lookahead_slot_epoch_start = lookahead_slot % S::E::slots_per_epoch() == 0;
 
-                // Fetch a vector of BeaconCommitteeSelection only at the first slot of an epoch
-                if is_first_slot_of_epoch || call_selection_endpoint {
+                // Call the selection endpoint only at the first slot of an epoch
+                if is_lookahead_slot_epoch_start || call_selection_endpoint {
                     let beacon_committee_selections =
                         make_beacon_committee_selection(&duties_service, &duties).await;
 
@@ -1364,7 +1364,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                                 error = ?e,
                                 "Failed to fetch selection proofs"
                             );
-                            // if calling the endpoint fails, change to true so that it will retry the next slot
+                            // If calling the endpoint fails, change to true so that it will retry the next slot
                             call_selection_endpoint = true;
                             continue;
                         }
@@ -1384,28 +1384,24 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 for duty in relevant_duties.into_values().flatten() {
                     let key = (duty.validator_index, duty.slot);
 
-                    let mut result_hashmap = HashMap::new();
-                    if let Some(selection_proof) = selection_hashmap.remove(&key) {
+                    let result = if let Some(selection_proof) = selection_hashmap.remove(&key) {
                         match selection_proof
                             .is_aggregator(duty.committee_length as usize, &duties_service.spec)
                             .map_err(Error::<S::Error>::InvalidModulo)
                         {
                             // Aggregator, store the selection_proof in result_hashmap
-                            Ok(true) => result_hashmap.insert(key, selection_proof),
+                            Ok(true) => Ok((duty, Some(selection_proof))),
                             // Not an aggregator, do nothing and continue
                             Ok(false) => continue,
                             Err(_) => return,
-                        };
-                    }
-
-                    let result = match result_hashmap.get(&key) {
-                        Some(selection) => Ok((duty, Some(selection.clone()))),
-                        None => Err(Error::FailedToProduceSelectionProof(
+                        }
+                    } else {
+                        Err(Error::FailedToProduceSelectionProof(
                             ValidatorStoreError::Middleware(format!(
                                 "Missing selection proof for validator {} slot {}",
                                 duty.validator_index, duty.slot
                             )),
-                        )),
+                        ))
                     };
 
                     let mut attesters = duties_service.attesters.write();
