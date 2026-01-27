@@ -120,14 +120,19 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         bytes: &[u8],
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
-        if fork_name.gloas_enabled() {
-            Ok(DataColumnSidecar::Gloas(
+        match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => Err(ssz::DecodeError::NoMatchingVariant),
+            ForkName::Fulu => Ok(DataColumnSidecar::Gloas(
                 DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
-            ))
-        } else {
-            Ok(DataColumnSidecar::Fulu(
+            )),
+            ForkName::Gloas => Ok(DataColumnSidecar::Fulu(
                 DataColumnSidecarFulu::from_ssz_bytes(bytes)?,
-            ))
+            )),
         }
     }
 }
@@ -246,7 +251,7 @@ pub enum DataColumnSidecarError {
     SszError(SszError),
     BuildSidecarFailed(String),
     InvalidCellProofLength { expected: usize, actual: usize },
-    IncorrectStateVariant
+    IncorrectStateVariant,
 }
 
 impl From<ArithError> for DataColumnSidecarError {
