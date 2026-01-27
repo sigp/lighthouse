@@ -452,7 +452,7 @@ impl<E: EthSpec> CustodyContext<E> {
     /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
     pub fn num_of_data_columns_to_sample(&self, epoch: Option<Epoch>, spec: &ChainSpec) -> usize {
         let custody_group_count = if let Some(epoch) = epoch {
-           self.custody_group_count_at_epoch(epoch, spec)
+            self.custody_group_count_at_epoch(epoch, spec)
         } else {
             self.custody_group_count_at_head(spec)
         };
@@ -477,7 +477,11 @@ impl<E: EthSpec> CustodyContext<E> {
     ///
     /// # Returns
     /// A slice of ordered column indices that should be sampled for this epoch based on the node's custody configuration
-    pub fn sampling_columns_for_epoch(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> &[ColumnIndex] {
+    pub fn sampling_columns_for_epoch(
+        &self,
+        epoch_opt: Option<Epoch>,
+        spec: &ChainSpec,
+    ) -> &[ColumnIndex] {
         let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch_opt, spec);
         &self.ordered_custody_column_indices[..num_of_columns_to_sample]
     }

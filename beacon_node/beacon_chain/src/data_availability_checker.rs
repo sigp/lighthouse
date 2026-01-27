@@ -522,9 +522,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             ));
         };
 
-        let columns_to_sample = self
-            .custody_context()
-            .sampling_columns_for_epoch(Some(slot.epoch(T::EthSpec::slots_per_epoch())), &self.spec);
+        let columns_to_sample = self.custody_context().sampling_columns_for_epoch(
+            Some(slot.epoch(T::EthSpec::slots_per_epoch())),
+            &self.spec,
+        );
 
         // We only need to import and publish columns that we need to sample
         // and columns that we haven't already received
@@ -1149,7 +1150,8 @@ mod test {
             Slot::new(0),
             &spec,
         );
-        let sampling_requirement = custody_context.num_of_data_columns_to_sample(Some(epoch), &spec);
+        let sampling_requirement =
+            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec);
         assert_eq!(
             sampling_requirement, 65,
             "sampling requirement should be 65"
