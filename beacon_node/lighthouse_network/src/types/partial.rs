@@ -6,6 +6,7 @@ use ssz_types::VariableList;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
+use tracing::debug;
 use types::data::partial_data_column_sidecar::{CellBitmap, PartialDataColumn};
 use types::partial_data_column_sidecar::PartialDataColumnSidecar;
 use types::{EthSpec, Hash256};
@@ -129,6 +130,13 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                         Box::new(CellBitmapMetadata::<E>::Unknown) as Box<dyn Metadata>,
                     )
                 });
+                debug!(
+                    peer=%peer_id,
+                    group_id=%self.partial_column.block_root,
+                    column_index=self.partial_column.index,
+                    sending_header=send.is_some(),
+                    "Partial send: No metadata"
+                );
 
                 Ok(PartialAction { need: false, send })
             }
@@ -146,6 +154,14 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                     .sidecar
                     .with_missing_cells(&peer_has)
                     .map(|sidecar| {
+                        debug!(
+                            peer=%peer_id,
+                            group_id=%self.partial_column.block_root,
+                            column_index=self.partial_column.index,
+                            metadata=%peer_has,
+                            sending=%sidecar.cells_present_bitmap,
+                            "Partial send: Sending"
+                        );
                         (
                             sidecar.as_ssz_bytes(),
                             Box::new(CellBitmapMetadata::<E>::from(
@@ -153,6 +169,16 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                             )) as Box<dyn Metadata + 'static>,
                         )
                     });
+
+                if send.is_none() {
+                    debug!(
+                        peer=%peer_id,
+                        group_id=%self.partial_column.block_root,
+                        column_index=self.partial_column.index,
+                        metadata=%peer_has,
+                        "Partial send: Nothing to send"
+                    );
+                }
 
                 Ok(PartialAction { need, send })
             }
