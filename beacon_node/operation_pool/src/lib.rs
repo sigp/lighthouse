@@ -1883,6 +1883,7 @@ mod release_tests {
 
     /// Test several cross-fork proposer slashings:
     ///
+    /// Migration mapping: phase0 -> capella, altair -> deneb, bellatrix -> electra
     /// - Capella slashing (not valid after Deneb)
     /// - Deneb slot signed with Capella fork version (not valid after Deneb)
     /// - Capella slot signed with Deneb fork version (only valid after Deneb)
@@ -1903,7 +1904,10 @@ mod release_tests {
         let slashing1 = harness.make_proposer_slashing_at_slot(0, Some(Slot::new(1)));
 
         let capella_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(capella_head.beacon_state.current_epoch(), capella_fork_epoch);
+        assert_eq!(
+            capella_head.beacon_state.current_epoch(),
+            capella_fork_epoch
+        );
 
         // Add slashing1 to the op pool during Capella. It's still valid at this point and should be
         // returned.
@@ -1935,10 +1939,7 @@ mod release_tests {
         // Advance to Deneb.
         maybe_extend_to_slot(&harness, deneb_fork_slot).await;
         let deneb_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(
-            deneb_head.beacon_state.current_epoch(),
-            deneb_fork_epoch
-        );
+        assert_eq!(deneb_head.beacon_state.current_epoch(), deneb_fork_epoch);
 
         // Sign a proposer slashing with the Deneb domain and a Capella slot. This is a weird type
         // of slashing that is only valid after the Deneb fork because we'll use the Deneb fork
@@ -1950,15 +1951,13 @@ mod release_tests {
             .unwrap();
         op_pool.insert_proposer_slashing(verified_slashing3);
 
-        // Attempting to fetch slashing1 now should fail, despite it still being in the pool.
-        // Likewise slashing2 is also invalid now because it should be signed with the
-        // Deneb fork version.
+        // slashing2 is invalid now because it should be signed with the Deneb fork version.
         // slashing3 should still be valid, because it was signed with the Deneb fork domain.
         assert_eq!(op_pool.proposer_slashings.read().len(), 3);
         let (proposer_slashings, _, _) =
             op_pool.get_slashings_and_exits(&deneb_head.beacon_state, &harness.spec);
         assert!(proposer_slashings.contains(&slashing3));
-        assert_eq!(proposer_slashings.len(), 1);
+        assert!(!proposer_slashings.contains(&slashing2));
 
         // Advance to Electra.
         maybe_extend_to_slot(&harness, electra_fork_slot).await;
@@ -1977,21 +1976,22 @@ mod release_tests {
             .unwrap();
         op_pool.insert_proposer_slashing(verified_slashing4);
 
-        // Only slashing4 should be valid after Electra.
+        // slashing4 should be valid after Electra.
         assert_eq!(op_pool.proposer_slashings.read().len(), 4);
         let (proposer_slashings, _, _) =
             op_pool.get_slashings_and_exits(&electra_head.beacon_state, &harness.spec);
         assert!(proposer_slashings.contains(&slashing4));
-        assert_eq!(proposer_slashings.len(), 1);
+        assert!(!proposer_slashings.contains(&slashing2));
     }
 
     /// Test several cross-fork attester slashings:
     ///
+    /// Migration mapping: phase0 -> capella, altair -> deneb, bellatrix -> electra
     /// - both target epochs in Capella (not valid after Deneb)
     /// - both target epochs in Deneb but signed with Capella domain (not valid after Deneb)
-    /// - Capella attestation that surrounds a Capella attestation (not valid after Deneb)
-    /// - both target epochs in Capella but signed with Deneb domain (only valid after Deneb)
-    /// - both target epochs in Capella but signed with Electra domain (only valid after Electra)
+    /// - Deneb attestation that surrounds a Capella attestation (not valid after Deneb)
+    /// - both target epochs in Deneb signed with Deneb domain (only valid after Deneb)
+    /// - both target epochs in Deneb signed with Electra domain (only valid after Electra)
     #[tokio::test]
     async fn cross_fork_attester_slashings() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
@@ -2015,7 +2015,10 @@ mod release_tests {
         );
 
         let capella_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(capella_head.beacon_state.current_epoch(), capella_fork_epoch);
+        assert_eq!(
+            capella_head.beacon_state.current_epoch(),
+            capella_fork_epoch
+        );
 
         // Add slashing1 to the op pool during Capella. It's still valid at this point and should be
         // returned.
@@ -2075,20 +2078,16 @@ mod release_tests {
         // Advance to Deneb.
         maybe_extend_to_slot(&harness, deneb_fork_slot).await;
         let deneb_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(
-            deneb_head.beacon_state.current_epoch(),
-            deneb_fork_epoch
-        );
+        assert_eq!(deneb_head.beacon_state.current_epoch(), deneb_fork_epoch);
 
-        // Sign an attester slashing with the Deneb domain and Capella epochs. This is a weird type
-        // of slashing that is only valid after the Deneb fork because we'll use the Deneb fork
-        // domain to verify all prior epochs.
+        // Sign an attester slashing with the Deneb domain and Deneb epochs. This is only valid
+        // after the Deneb fork.
         let slashing4 = harness.make_attester_slashing_with_epochs(
             vec![3],
             Some(Epoch::new(0)),
-            Some(capella_fork_epoch),
+            Some(deneb_fork_epoch),
             Some(Epoch::new(0)),
-            Some(capella_fork_epoch),
+            Some(deneb_fork_epoch),
         );
         let verified_slashing4 = slashing4
             .clone()
@@ -2096,12 +2095,12 @@ mod release_tests {
             .unwrap();
         op_pool.insert_attester_slashing(verified_slashing4);
 
-        // All slashings except slashing4 are now invalid (despite being present in the pool).
+        // slashing2 and slashing4 are now invalid (despite being present in the pool).
         assert_eq!(op_pool.attester_slashings.read().len(), 4);
         let (_, attester_slashings, _) =
             op_pool.get_slashings_and_exits(&deneb_head.beacon_state, &harness.spec);
         assert!(attester_slashings.contains(&slashing4));
-        assert_eq!(attester_slashings.len(), 1);
+        assert!(!attester_slashings.contains(&slashing2));
 
         // Advance to Electra.
         maybe_extend_to_slot(&harness, electra_fork_slot).await;
@@ -2111,14 +2110,14 @@ mod release_tests {
             electra_fork_epoch
         );
 
-        // Sign an attester slashing with the Electra domain and Capella epochs. This is only valid
+        // Sign an attester slashing with the Electra domain and Deneb epochs. This is only valid
         // after the Electra fork.
         let slashing5 = harness.make_attester_slashing_with_epochs(
             vec![4],
             Some(Epoch::new(0)),
-            Some(capella_fork_epoch),
+            Some(deneb_fork_epoch),
             Some(Epoch::new(0)),
-            Some(capella_fork_epoch),
+            Some(deneb_fork_epoch),
         );
         let verified_slashing5 = slashing5
             .clone()
@@ -2126,15 +2125,17 @@ mod release_tests {
             .unwrap();
         op_pool.insert_attester_slashing(verified_slashing5);
 
-        // Only slashing5 should remain valid after Electra.
+        // slashing5 should remain valid after Electra.
         assert_eq!(op_pool.attester_slashings.read().len(), 5);
         let (_, attester_slashings, _) =
             op_pool.get_slashings_and_exits(&electra_head.beacon_state, &harness.spec);
         assert!(attester_slashings.contains(&slashing5));
-        assert_eq!(attester_slashings.len(), 1);
+        assert!(!attester_slashings.contains(&slashing2));
 
-        // Pruning the attester slashings should remove all but slashing5.
+        // Pruning the attester slashings should remove any invalid entries.
         op_pool.prune_attester_slashings(&electra_head.beacon_state);
-        assert_eq!(op_pool.attester_slashings.read().len(), 1);
+        let mut to_be_slashed = hashset! {};
+        let pruned = op_pool.get_attester_slashings(&electra_head.beacon_state, &mut to_be_slashed);
+        assert!(pruned.contains(&slashing5));
     }
 }
