@@ -2,6 +2,7 @@
 
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
@@ -115,6 +116,8 @@ async fn produces_attestations() {
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
+        // SemiSupernode ensures enough columns are stored for sampling validation in Fulu
+        .node_custody_type(NodeCustodyType::SemiSupernode)
         .build();
 
     let chain = &harness.chain;

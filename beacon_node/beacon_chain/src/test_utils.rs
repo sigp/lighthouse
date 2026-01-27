@@ -214,6 +214,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
 }
 pub fn test_da_checker<E: EthSpec>(
     spec: Arc<ChainSpec>,
+    node_custody_type: NodeCustodyType,
 ) -> DataAvailabilityChecker<EphemeralHarnessType<E>> {
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
@@ -224,7 +225,7 @@ pub fn test_da_checker<E: EthSpec>(
     let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
     let custody_context = Arc::new(CustodyContext::new(
-        NodeCustodyType::Fullnode,
+        node_custody_type,
         ordered_custody_column_indices,
         &spec,
     ));
