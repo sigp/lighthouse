@@ -178,7 +178,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
             // TODO(EIP-7732): process execution payload bid
         } else {
-            withdrawals::capella::process_withdrawals::<E, Payload>(
+            withdrawals::capella_electra::process_withdrawals::<E, Payload>(
                 state,
                 body.execution_payload()?,
                 spec,

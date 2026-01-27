@@ -421,7 +421,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
             withdrawals::gloas::process_withdrawals(state, spec)
         } else {
             let full_payload = FullPayload::from(self.payload.clone());
-            withdrawals::capella::process_withdrawals::<_, FullPayload<_>>(
+            withdrawals::capella_electra::process_withdrawals::<_, FullPayload<_>>(
                 state,
                 full_payload.to_ref(),
                 spec,

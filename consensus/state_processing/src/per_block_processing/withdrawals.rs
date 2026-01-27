@@ -432,8 +432,7 @@ pub fn apply_withdrawals<E: EthSpec>(
     Ok(())
 }
 
-// TODO(gloas): rename to capella_electra
-pub mod capella {
+pub mod capella_electra {
     use super::*;
 
     /// Apply withdrawals to the state.
