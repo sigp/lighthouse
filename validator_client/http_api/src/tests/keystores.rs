@@ -1103,14 +1103,14 @@ async fn generic_migration_test(
             let public_key = keystore_pubkey(&keystores[validator_index]);
             let safe_attestations = tester1
                 .validator_store
-                .sign_attestations(vec![(public_key, 0, attestation.clone())])
+                .sign_attestations(vec![(0, public_key, 0, attestation.clone())])
                 .await
                 .unwrap();
             assert_eq!(safe_attestations.len(), 1);
             // Compare data only, ignoring signatures which are added during signing.
-            assert_eq!(safe_attestations[0].data(), attestation.data());
+            assert_eq!(safe_attestations[0].1.data(), attestation.data());
             // Check that the signature is non-zero.
-            assert!(!safe_attestations[0].signature().is_infinity());
+            assert!(!safe_attestations[0].1.signature().is_infinity());
         }
 
         // Delete the selected keys from VC1.
@@ -1186,16 +1186,16 @@ async fn generic_migration_test(
             let public_key = keystore_pubkey(&keystores[validator_index]);
             let result = tester2
                 .validator_store
-                .sign_attestations(vec![(public_key, 0, attestation.clone())])
+                .sign_attestations(vec![(0, public_key, 0, attestation.clone())])
                 .await;
             match result {
                 Ok(safe_attestations) => {
                     if should_succeed {
                         // Compare data only, ignoring signatures which are added during signing.
                         assert_eq!(safe_attestations.len(), 1);
-                        assert_eq!(safe_attestations[0].data(), attestation.data());
+                        assert_eq!(safe_attestations[0].1.data(), attestation.data());
                         // Check that the signature is non-zero.
-                        assert!(!safe_attestations[0].signature().is_infinity());
+                        assert!(!safe_attestations[0].1.signature().is_infinity());
                     } else {
                         assert!(safe_attestations.is_empty());
                     }
@@ -1330,9 +1330,14 @@ async fn delete_concurrent_with_signing() {
         let handle = handle.spawn(async move {
             for j in 0..num_attestations {
                 let att = make_attestation(j, j + 1);
-                for public_key in thread_pubkeys.iter() {
+                for (validator_index, public_key) in thread_pubkeys.iter().enumerate() {
                     let _ = validator_store
-                        .sign_attestations(vec![(*public_key, 0, att.clone())])
+                        .sign_attestations(vec![(
+                            validator_index as u64,
+                            *public_key,
+                            0,
+                            att.clone(),
+                        )])
                         .await;
                 }
             }

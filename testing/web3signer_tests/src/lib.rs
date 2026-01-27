@@ -554,7 +554,9 @@ mod tests {
         ) -> Self
         where
             F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<Output = Result<Vec<Attestation<E>>, lighthouse_validator_store::Error>>,
+            R: Future<
+                Output = Result<Vec<(u64, Attestation<E>)>, lighthouse_validator_store::Error>,
+            >,
         {
             for validator_rig in &self.validator_rigs {
                 let result =
@@ -657,11 +659,12 @@ mod tests {
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
             let attestation = get_attestation();
             validator_store
-                .sign_attestations(vec![(pubkey, 0, attestation)])
+                .sign_attestations(vec![(0, pubkey, 0, attestation)])
                 .await
                 .unwrap()
                 .pop()
                 .unwrap()
+                .1
         })
         .await
         .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
@@ -881,11 +884,12 @@ mod tests {
         .assert_signatures_match("first_attestation", |pubkey, validator_store| async move {
             let attestation = first_attestation();
             validator_store
-                .sign_attestations(vec![(pubkey, 0, attestation)])
+                .sign_attestations(vec![(0, pubkey, 0, attestation)])
                 .await
                 .unwrap()
                 .pop()
                 .unwrap()
+                .1
         })
         .await
         .assert_slashable_attestation_should_sign(
@@ -893,7 +897,7 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let attestation = double_vote_attestation();
                 validator_store
-                    .sign_attestations(vec![(pubkey, 0, attestation)])
+                    .sign_attestations(vec![(0, pubkey, 0, attestation)])
                     .await
             },
             slashable_message_should_sign,
@@ -904,7 +908,7 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let attestation = surrounding_attestation();
                 validator_store
-                    .sign_attestations(vec![(pubkey, 0, attestation)])
+                    .sign_attestations(vec![(0, pubkey, 0, attestation)])
                     .await
             },
             slashable_message_should_sign,
@@ -915,7 +919,7 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let attestation = surrounded_attestation();
                 validator_store
-                    .sign_attestations(vec![(pubkey, 0, attestation)])
+                    .sign_attestations(vec![(0, pubkey, 0, attestation)])
                     .await
             },
             slashable_message_should_sign,

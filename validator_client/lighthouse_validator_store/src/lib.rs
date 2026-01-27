@@ -604,8 +604,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     #[instrument(level = "debug", skip_all)]
     fn slashing_protect_attestations(
         &self,
-        attestations: Vec<(Attestation<E>, PublicKeyBytes)>,
-    ) -> Result<Vec<Attestation<E>>, Error> {
+        attestations: Vec<(u64, Attestation<E>, PublicKeyBytes)>,
+    ) -> Result<Vec<(u64, Attestation<E>)>, Error> {
         let mut safe_attestations = Vec::with_capacity(attestations.len());
         let mut attestations_to_check = Vec::with_capacity(attestations.len());
 
@@ -614,7 +614,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         //
         // All attestations are added to `attestation_to_check`, with skipped attestations having
         // `CheckSlashability::No`.
-        for (attestation, validator_pubkey) in &attestations {
+        for (_, attestation, validator_pubkey) in &attestations {
             let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
             let signing_epoch = attestation.data().target.epoch;
             let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
@@ -644,12 +644,12 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             .check_and_insert_attestations(&attestations_to_check)
             .map_err(Error::Slashable)?;
 
-        for ((attestation, validator_pubkey), slashing_status) in
+        for ((validator_index, attestation, validator_pubkey), slashing_status) in
             attestations.into_iter().zip(results.into_iter())
         {
             match slashing_status {
                 Ok(Safe::Valid) => {
-                    safe_attestations.push(attestation);
+                    safe_attestations.push((validator_index, attestation));
                     validator_metrics::inc_counter_vec(
                         &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
                         &[validator_metrics::SUCCESS],
@@ -884,13 +884,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
     async fn sign_attestations(
         self: &Arc<Self>,
-        mut attestations: Vec<(PublicKeyBytes, usize, Attestation<Self::E>)>,
-    ) -> Result<Vec<Attestation<E>>, Error> {
+        mut attestations: Vec<(u64, PublicKeyBytes, usize, Attestation<Self::E>)>,
+    ) -> Result<Vec<(u64, Attestation<E>)>, Error> {
         // Sign all attestations concurrently.
         let signing_futures =
             attestations
                 .iter_mut()
-                .map(|(pubkey, validator_committee_index, attestation)| {
+                .map(|(_, pubkey, validator_committee_index, attestation)| {
                     let pubkey = *pubkey;
                     let validator_committee_index = *validator_committee_index;
                     async move {
@@ -908,11 +908,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
         // Collect successfully signed attestations and log errors.
         let mut signed_attestations = Vec::with_capacity(attestations.len());
-        for (result, (pubkey, _, attestation)) in results.into_iter().zip(attestations.into_iter())
+        for (result, (validator_index, pubkey, _, attestation)) in
+            results.into_iter().zip(attestations.into_iter())
         {
             match result {
                 Ok(()) => {
-                    signed_attestations.push((attestation, pubkey));
+                    signed_attestations.push((validator_index, attestation, pubkey));
                 }
                 Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                     warn!(

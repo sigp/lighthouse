@@ -393,7 +393,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         // Create attestations for each validator duty.
         let mut attestations_to_sign = Vec::with_capacity(validator_duties.len());
-        let mut validator_indices = Vec::with_capacity(validator_duties.len());
 
         for duty_and_proof in validator_duties {
             let duty = &duty_and_proof.duty;
@@ -433,11 +432,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             };
 
             attestations_to_sign.push((
+                duty.validator_index,
                 duty.pubkey,
                 duty.validator_committee_index as usize,
                 attestation,
             ));
-            validator_indices.push(duty.validator_index);
         }
 
         if attestations_to_sign.is_empty() {
@@ -460,10 +459,34 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .chain_spec
             .fork_name_at_slot::<S::E>(attestation_data.slot);
 
-        let safe_attestations = &safe_attestations;
+        let single_attestations = safe_attestations
+            .iter()
+            .filter_map(|(i, a)| {
+                match a.to_single_attestation_with_attester_index(*i) {
+                    Ok(a) => Some(a),
+                    Err(e) => {
+                        // This shouldn't happen unless BN and VC are out of sync with
+                        // respect to the Electra fork.
+                        error!(
+                            error = ?e,
+                            committee_index = attestation_data.index,
+                            slot = slot.as_u64(),
+                            "type" = "unaggregated",
+                            "Unable to convert to SingleAttestation"
+                        );
+                        None
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        let single_attestations = &single_attestations;
+        let validator_indices = single_attestations
+            .iter()
+            .map(|att| att.attester_index)
+            .collect::<Vec<_>>();
+        let published_count = single_attestations.len();
 
         // Post the attestations to the BN.
-        let validator_indices_ref = &validator_indices;
         match self
             .beacon_nodes
             .request(ApiTopic::Attestations, |beacon_node| async move {
@@ -472,40 +495,18 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     &[validator_metrics::ATTESTATIONS_HTTP_POST],
                 );
 
-                let single_attestations = safe_attestations
-                    .iter()
-                    .zip(validator_indices_ref)
-                    .filter_map(|(a, i)| {
-                        match a.to_single_attestation_with_attester_index(*i) {
-                            Ok(a) => Some(a),
-                            Err(e) => {
-                                // This shouldn't happen unless BN and VC are out of sync with
-                                // respect to the Electra fork.
-                                error!(
-                                    error = ?e,
-                                    committee_index = attestation_data.index,
-                                    slot = slot.as_u64(),
-                                    "type" = "unaggregated",
-                                    "Unable to convert to SingleAttestation"
-                                );
-                                None
-                            }
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
                 beacon_node
-                    .post_beacon_pool_attestations_v2::<S::E>(single_attestations, fork_name)
+                    .post_beacon_pool_attestations_v2::<S::E>(
+                        single_attestations.clone(),
+                        fork_name,
+                    )
                     .await
             })
-            .instrument(info_span!(
-                "publish_attestations",
-                count = safe_attestations.len()
-            ))
+            .instrument(info_span!("publish_attestations", count = published_count))
             .await
         {
             Ok(()) => info!(
-                count = safe_attestations.len(),
+                count = published_count,
                 validator_indices = ?validator_indices,
                 head_block = ?attestation_data.beacon_block_root,
                 committee_index = attestation_data.index,
