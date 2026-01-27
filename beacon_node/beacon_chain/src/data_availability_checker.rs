@@ -961,7 +961,7 @@ mod test {
             &spec,
         );
         let block_root = Hash256::random();
-        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let custody_columns = custody_context.sampling_columns_for_epoch(None, &spec);
         let requested_columns = &custody_columns[..10];
         da_checker
             .put_rpc_custody_columns(
@@ -1040,7 +1040,7 @@ mod test {
             &spec,
         );
         let block_root = Hash256::random();
-        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let custody_columns = custody_context.sampling_columns_for_epoch(None, &spec);
         let requested_columns = &custody_columns[..10];
         let gossip_columns = data_columns
             .into_iter()
@@ -1170,7 +1170,7 @@ mod test {
 
         // Add 64 columns to the da checker (enough to be able to reconstruct)
         // Order by all_column_indices_ordered, then take first 64
-        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let custody_columns = custody_context.sampling_columns_for_epoch(None, &spec);
         let custody_columns = custody_columns
             .iter()
             .filter_map(|&col_idx| data_columns.iter().find(|d| d.index == col_idx).cloned())
