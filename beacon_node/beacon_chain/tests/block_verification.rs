@@ -10,8 +10,8 @@ use beacon_chain::{
     },
 };
 use beacon_chain::{
-    BeaconSnapshot, BlockError, ChainConfig, IntoExecutionPendingBlock,
-    InvalidSignature, NotifyExecutionLayer,
+    BeaconSnapshot, BlockError, ChainConfig, IntoExecutionPendingBlock, InvalidSignature,
+    NotifyExecutionLayer,
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;

@@ -86,15 +86,9 @@ pub async fn gossip_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
-        format!(
-            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-        )
-    } else {
-        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-        // block.
-        format!("BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}")
-    };
+    let expected_error_msg = format!(
+        "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+    );
 
     assert_server_message_error(error_response, expected_error_msg);
 }
@@ -283,15 +277,9 @@ pub async fn consensus_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
-        format!(
-            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-        )
-    } else {
-        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-        // block.
-        format!("BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}")
-    };
+    let expected_error_msg = format!(
+        "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+    );
 
     assert_server_message_error(error_response, expected_error_msg);
 }
@@ -520,15 +508,9 @@ pub async fn equivocation_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
-        format!(
-            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-        )
-    } else {
-        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-        // block.
-        format!("BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}")
-    };
+    let expected_error_msg = format!(
+        "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+    );
 
     assert_server_message_error(error_response, expected_error_msg);
 }
@@ -848,13 +830,9 @@ pub async fn blinded_gossip_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
-        format!(
-            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-        )
-    } else {
-        format!("BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}")
-    };
+    let expected_error_msg = format!(
+        "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+    );
 
     assert_server_message_error(error_response, expected_error_msg);
 }
@@ -1070,7 +1048,9 @@ pub async fn blinded_consensus_invalid() {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
         assert_server_message_error(
             error_response,
-            format!("BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"),
+            format!(
+                "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+            ),
         );
     }
 }
@@ -1253,7 +1233,9 @@ pub async fn blinded_equivocation_invalid() {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
         assert_server_message_error(
             error_response,
-            format!("BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"),
+            format!(
+                "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+            ),
         );
     }
 }

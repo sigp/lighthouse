@@ -141,7 +141,6 @@ impl InvalidPayloadRig {
         payload_attributes
     }
 
-
     async fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) -> Vec<Hash256> {
         let mut roots = Vec::with_capacity(num_blocks as usize);
         for _ in 0..num_blocks {

@@ -838,8 +838,8 @@ mod test {
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::{debug_span, info};
-    use types::new_non_zero_usize;
     use types::MinimalEthSpec;
+    use types::new_non_zero_usize;
 
     const LOW_VALIDATOR_COUNT: usize = 32;
     const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
