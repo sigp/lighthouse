@@ -408,12 +408,6 @@ where
     }
 
     pub fn spec_or_default(mut self, spec: Option<Arc<ChainSpec>>) -> Self {
-        if let Some(spec) = &spec {
-            assert!(
-                spec.bellatrix_fork_epoch.unwrap() <= 0,
-                "all tests must start from Bellatrix or later"
-            );
-        }
         self.spec = Some(spec.unwrap_or_else(|| Arc::new(test_spec::<E>())));
         self
     }

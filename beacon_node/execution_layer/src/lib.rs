@@ -2063,7 +2063,6 @@ mod test {
     async fn produce_three_valid_pos_execution_blocks() {
         let runtime = TestRuntime::default();
         MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_terminal_block()
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()

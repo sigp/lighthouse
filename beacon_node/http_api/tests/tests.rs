@@ -142,15 +142,6 @@ impl ApiTester {
             .import_all_data_columns(config.import_all_data_columns)
             .build();
 
-        harness
-            .mock_execution_layer
-            .as_ref()
-            .unwrap()
-            .server
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
-
         harness.advance_slot();
 
         for _ in 0..CHAIN_LENGTH {

@@ -294,22 +294,6 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         assert_eq!(head_execution_block.parent_hash(), parent_hash);
     }
 
-    pub fn move_to_block_prior_to_terminal_block(self) -> Self {
-        self.server
-            .execution_block_generator()
-            .move_to_block_prior_to_terminal_block()
-            .unwrap();
-        self
-    }
-
-    pub fn move_to_terminal_block(self) -> Self {
-        self.server
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
-        self
-    }
-
     pub fn produce_forked_pow_block(self) -> (Self, ExecutionBlockHash) {
         let head_block = self
             .server

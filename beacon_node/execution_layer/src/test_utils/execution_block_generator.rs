@@ -291,21 +291,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             .and_then(|block| block.as_execution_payload())
     }
 
-    // FIXME(sproul): delete
-    pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-
-    // FIXME(sproul): delete
-    pub fn move_to_terminal_block(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-
-    // FIXME(sproul): delete
-    pub fn move_to_pow_block(&mut self, _target_block: u64) -> Result<(), String> {
-        Ok(())
-    }
-
     pub fn drop_all_blocks(&mut self) {
         self.blocks = <_>::default();
         self.block_hashes = <_>::default();
@@ -869,7 +854,8 @@ pub fn generate_genesis_header<E: EthSpec>(
     let empty_transactions_root = Transactions::<E>::empty().tree_hash_root();
     match genesis_fork {
         ForkName::Base | ForkName::Altair => {
-            panic!("only post-Bellatrix merged networks are supported")
+            // Pre-Bellatrix forks have no execution payload
+            None
         }
         ForkName::Bellatrix => {
             let mut header = ExecutionPayloadHeader::Bellatrix(<_>::default());
