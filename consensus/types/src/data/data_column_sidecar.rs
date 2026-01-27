@@ -170,3 +170,43 @@ impl From<SszError> for DataColumnSidecarError {
         Self::SszError(e)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{MainnetEthSpec, max_data_columns_by_root_request_common};
+    use fixed_bytes::FixedBytesExtended;
+    use ssz_types::RuntimeVariableList;
+
+    // This is the "correct" implementation of max_data_columns_by_root_request.
+    // This test ensures that the simplified implementation doesn't deviate from it.
+    fn max_data_columns_by_root_request_implementation<E: EthSpec>(
+        max_request_blocks: u64,
+    ) -> usize {
+        let max_request_blocks = max_request_blocks as usize;
+
+        let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
+            block_root: Hash256::zero(),
+            columns: VariableList::repeat_full(0),
+        };
+
+        RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
+            vec![empty_data_columns_by_root_id; max_request_blocks],
+            max_request_blocks,
+        )
+        .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
+        .as_ssz_bytes()
+        .len()
+    }
+
+    #[test]
+    fn max_data_columns_by_root_request_matches_simplified() {
+        for n in [0, 1, 2, 8, 16, 32, 64, 128, 256, 512, 1024] {
+            assert_eq!(
+                max_data_columns_by_root_request_common::<MainnetEthSpec>(n),
+                max_data_columns_by_root_request_implementation::<MainnetEthSpec>(n),
+                "Mismatch at n={n}"
+            );
+        }
+    }
+}
