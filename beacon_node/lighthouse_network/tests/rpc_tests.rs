@@ -1259,34 +1259,27 @@ fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
         // build the receiver future
         let receiver_future = async {
             loop {
-                match receiver.next_event().await {
-                    NetworkEvent::RequestReceived {
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    inbound_request_id,
+                    request_type,
+                } = receiver.next_event().await
+                    && request_type == rpc_request
+                {
+                    // send the response
+                    info!("Receiver got request");
+
+                    for _ in 0..messages_to_send {
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                        info!("Sending message");
+                    }
+                    // send the stream termination
+                    receiver.send_response(
                         peer_id,
                         inbound_request_id,
-                        request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            info!("Receiver got request");
-
-                            for _ in 0..messages_to_send {
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                                info!("Sending message");
-                            }
-                            // send the stream termination
-                            receiver.send_response(
-                                peer_id,
-                                inbound_request_id,
-                                Response::DataColumnsByRange(None),
-                            );
-                            info!("Send stream term");
-                        }
-                    }
-                    _ => {} // Ignore other events
+                        Response::DataColumnsByRange(None),
+                    );
+                    info!("Send stream term");
                 }
             }
         }
