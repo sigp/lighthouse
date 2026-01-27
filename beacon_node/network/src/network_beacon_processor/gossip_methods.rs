@@ -34,10 +34,12 @@ use store::hot_cold_store::HotColdDBError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
+    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PayloadAttestationMessage,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -3211,5 +3213,67 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             write_file(block_path, &block.as_ssz_bytes());
             write_file(error_path, error.to_string().as_bytes());
         }
+    }
+
+    pub async fn process_gossip_execution_payload(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload: SignedExecutionPayloadEnvelope<T::EthSpec>,
+    ) {
+        // TODO(EIP-7732): Implement proper execution payload envelope gossip processing.
+        // This should integrate with the envelope_verification.rs module once it's implemented.
+
+        trace!(
+            %peer_id,
+            builder_index = execution_payload.message.builder_index,
+            slot = %execution_payload.message.slot,
+            beacon_block_root = %execution_payload.message.beacon_block_root,
+            "Processing execution payload envelope"
+        );
+
+        // For now, ignore all envelopes since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    }
+
+    pub fn process_gossip_execution_payload_bid(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        payload_bid: SignedExecutionPayloadBid,
+    ) {
+        // TODO(EIP-7732): Implement proper payload bid gossip processing.
+        // This should integrate with a payload execution bid verification module once it's implemented.
+
+        trace!(
+            %peer_id,
+            slot = %payload_bid.message.slot,
+            value = %payload_bid.message.value,
+            "Processing execution payload bid"
+        );
+
+        // For now, ignore all payload bids since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    }
+
+    pub fn process_gossip_payload_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        payload_attestation_message: PayloadAttestationMessage,
+    ) {
+        // TODO(EIP-7732): Implement proper payload attestation message gossip processing.
+        // This should integrate with a payload_attestation_verification.rs module once it's implemented.
+
+        trace!(
+            %peer_id,
+            validator_index = payload_attestation_message.validator_index,
+            slot = %payload_attestation_message.data.slot,
+            beacon_block_root = %payload_attestation_message.data.beacon_block_root,
+            "Processing payload attestation message"
+        );
+
+        // For now, ignore all payload attestation messages since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
     }
 }
