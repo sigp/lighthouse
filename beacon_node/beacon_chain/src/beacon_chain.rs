@@ -3207,6 +3207,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    // TODO(gloas) we need a separate code path for gloas. See TODO's below.
     pub async fn process_rpc_custody_columns(
         self: &Arc<Self>,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
@@ -3224,6 +3225,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its columns again.
+        // TODO(gloas) the block will be available in fork choice for gloas. This does not indicate availability
+        // anymore.
         if self
             .canonical_head
             .fork_choice_read_lock()
