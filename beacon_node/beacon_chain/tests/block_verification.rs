@@ -10,20 +10,14 @@ use beacon_chain::{
     },
 };
 use beacon_chain::{
-    BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
+    BeaconSnapshot, BlockError, ChainConfig, IntoExecutionPendingBlock,
     InvalidSignature, NotifyExecutionLayer,
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
-use state_processing::{
-    BlockProcessingError, ConsensusContext, VerifyBlockRoot,
-    common::{attesting_indices_base, attesting_indices_electra},
-    per_block_processing::{BlockSignatureStrategy, per_block_processing},
-    per_slot_processing,
-};
-use std::marker::PhantomData;
+use state_processing::common::{attesting_indices_base, attesting_indices_electra};
 use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
