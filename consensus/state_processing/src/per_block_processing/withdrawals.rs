@@ -358,15 +358,15 @@ fn update_next_withdrawal_builder_index<E: EthSpec>(
     state: &mut BeaconState<E>,
     processed_builders_sweep_count_opt: Option<u64>,
 ) -> Result<(), BlockProcessingError> {
-    if let Some(processed_builders_sweep_count) = processed_builders_sweep_count_opt {
-        if !state.builders()?.is_empty() {
-            // Update the next builder index to start the next withdrawal sweep
-            let next_index = state
-                .next_withdrawal_builder_index()?
-                .safe_add(processed_builders_sweep_count)?;
-            let next_builder_index = next_index.safe_rem(state.builders()?.len() as u64)?;
-            *state.next_withdrawal_builder_index_mut()? = next_builder_index;
-        }
+    if let Some(processed_builders_sweep_count) = processed_builders_sweep_count_opt
+        && !state.builders()?.is_empty()
+    {
+        // Update the next builder index to start the next withdrawal sweep
+        let next_index = state
+            .next_withdrawal_builder_index()?
+            .safe_add(processed_builders_sweep_count)?;
+        let next_builder_index = next_index.safe_rem(state.builders()?.len() as u64)?;
+        *state.next_withdrawal_builder_index_mut()? = next_builder_index;
     }
     Ok(())
 }
