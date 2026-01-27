@@ -1657,7 +1657,7 @@ pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS: LazyLock<Resu
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-            "beacon_partial_data_column_sidecar_header_processing_successes_total",
+            "beacon_partial_data_column_sidecar_header_processing_dupes_total",
             "Number of partial data column sidecars verified for gossip (excluding dupes)",
         )
     });
