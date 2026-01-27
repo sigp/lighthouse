@@ -34,12 +34,12 @@ use store::hot_cold_store::HotColdDBError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, PayloadAttestationMessage,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, PayloadAttestationMessage, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
-    block::BlockImportSource,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -3274,6 +3274,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // For now, ignore all payload attestation messages since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    }
+
+    pub fn process_gossip_proposer_preferences(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_preferences: SignedProposerPreferences,
+    ) {
+        // TODO(EIP-7732): Implement proper proposer preferences gossip processing.
+
+        trace!(
+            %peer_id,
+            validator_index = proposer_preferences.message.validator_index,
+            slot = %proposer_preferences.message.proposal_slot,
+            "Processing proposer preferences"
+        );
+
+        // For now, ignore all proposer preferences since verification is not implemented
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
     }
 }

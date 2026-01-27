@@ -138,6 +138,7 @@ pub struct BeaconProcessorQueueLengths {
     gossip_execution_payload_queue: usize,
     gossip_execution_payload_bid_queue: usize,
     gossip_payload_attestation_queue: usize,
+    gossip_proposer_preferences_queue: usize,
     lc_bootstrap_queue: usize,
     lc_rpc_optimistic_update_queue: usize,
     lc_rpc_finality_update_queue: usize,
@@ -211,6 +212,8 @@ impl BeaconProcessorQueueLengths {
             // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
             // TODO(EIP-7732): verify if this is preferable queue length or otherwise
             gossip_payload_attestation_queue: 1536,
+            // TODO(EIP-7732): verify if this is preferable queue length
+            gossip_proposer_preferences_queue: 1024,
             lc_gossip_finality_update_queue: 1024,
             lc_gossip_optimistic_update_queue: 1024,
             lc_bootstrap_queue: 1024,
@@ -258,6 +261,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub gossip_execution_payload_queue: FifoQueue<Work<E>>,
     pub gossip_execution_payload_bid_queue: FifoQueue<Work<E>>,
     pub gossip_payload_attestation_queue: FifoQueue<Work<E>>,
+    pub gossip_proposer_preferences_queue: FifoQueue<Work<E>>,
     pub lc_gossip_finality_update_queue: FifoQueue<Work<E>>,
     pub lc_gossip_optimistic_update_queue: FifoQueue<Work<E>>,
     pub lc_bootstrap_queue: FifoQueue<Work<E>>,
@@ -329,6 +333,8 @@ impl<E: EthSpec> WorkQueues<E> {
             FifoQueue::new(queue_lengths.gossip_execution_payload_bid_queue);
         let gossip_payload_attestation_queue =
             FifoQueue::new(queue_lengths.gossip_payload_attestation_queue);
+        let gossip_proposer_preferences_queue =
+            FifoQueue::new(queue_lengths.gossip_proposer_preferences_queue);
 
         let lc_gossip_optimistic_update_queue =
             FifoQueue::new(queue_lengths.lc_gossip_optimistic_update_queue);
@@ -380,6 +386,7 @@ impl<E: EthSpec> WorkQueues<E> {
             gossip_execution_payload_queue,
             gossip_execution_payload_bid_queue,
             gossip_payload_attestation_queue,
+            gossip_proposer_preferences_queue,
             lc_gossip_optimistic_update_queue,
             lc_gossip_finality_update_queue,
             lc_bootstrap_queue,

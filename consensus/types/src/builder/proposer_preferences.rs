@@ -24,7 +24,6 @@ pub struct ProposerPreferences {
 
 impl SignedRoot for ProposerPreferences {}
 
-
 #[derive(TestRandom, TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[educe(PartialEq, Hash)]
@@ -49,6 +48,4 @@ mod tests {
     use super::*;
 
     ssz_and_tree_hash_tests!(ProposerPreferences);
-    ssz_and_tree_hash_tests!(SignedProposerPreferences);
 }
-

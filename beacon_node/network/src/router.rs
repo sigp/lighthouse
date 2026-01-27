@@ -518,6 +518,17 @@ impl<T: BeaconChainTypes> Router<T> {
                         ),
                 )
             }
+            PubsubMessage::ProposerPreferences(proposer_preferences) => {
+                trace!(%peer_id, "Received signed proposer preferences");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_proposer_preferences(
+                            message_id,
+                            peer_id,
+                            proposer_preferences,
+                        ),
+                )
+            }
         }
     }
 

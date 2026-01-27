@@ -16,8 +16,8 @@ use types::{
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
     SignedBeaconBlockGloas, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedVoluntaryExit,
-    SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,6 +50,8 @@ pub enum PubsubMessage<E: EthSpec> {
     PayloadAttestation(Box<PayloadAttestationMessage>),
     /// Gossipsub message providing notification of a signed execution payload bid.
     ExecutionPayloadBid(Box<SignedExecutionPayloadBid>),
+    /// Gossipsub message providing notification of signed proposer preferences.
+    ProposerPreferences(Box<SignedProposerPreferences>),
     /// Gossipsub message providing notification of a light client finality update.
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
@@ -156,6 +158,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::ExecutionPayload(_) => GossipKind::ExecutionPayload,
             PubsubMessage::PayloadAttestation(_) => GossipKind::PayloadAttestation,
             PubsubMessage::ExecutionPayloadBid(_) => GossipKind::ExecutionPayloadBid,
+            PubsubMessage::ProposerPreferences(_) => GossipKind::ProposerPreferences,
             PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
             PubsubMessage::LightClientOptimisticUpdate(_) => {
                 GossipKind::LightClientOptimisticUpdate
@@ -382,6 +385,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                             payload_attestation,
                         )))
                     }
+                    GossipKind::ProposerPreferences => {
+                        let proposer_preferences = SignedProposerPreferences::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::ProposerPreferences(Box::new(
+                            proposer_preferences,
+                        )))
+                    }
                     GossipKind::LightClientFinalityUpdate => {
                         let light_client_finality_update = match fork_context
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
@@ -447,6 +457,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::ExecutionPayload(data) => data.as_ssz_bytes(),
             PubsubMessage::PayloadAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::ExecutionPayloadBid(data) => data.as_ssz_bytes(),
+            PubsubMessage::ProposerPreferences(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
@@ -525,6 +536,13 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                     f,
                     "Execution payload bid: slot: {:?} value: {:?}",
                     data.message.slot, data.message.value
+                )
+            }
+            PubsubMessage::ProposerPreferences(data) => {
+                write!(
+                    f,
+                    "Proposer preferences: slot: {:?}, validator_index: {:?}",
+                    data.message.proposal_slot, data.message.validator_index
                 )
             }
             PubsubMessage::LightClientFinalityUpdate(_data) => {

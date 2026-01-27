@@ -412,6 +412,7 @@ pub enum Work<E: EthSpec> {
     GossipExecutionPayload(AsyncFn),
     GossipExecutionPayloadBid(BlockingFn),
     GossipPayloadAttestation(BlockingFn),
+    GossipProposerPreferences(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
@@ -467,6 +468,7 @@ pub enum WorkType {
     GossipExecutionPayload,
     GossipExecutionPayloadBid,
     GossipPayloadAttestation,
+    GossipProposerPreferences,
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
@@ -505,6 +507,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipExecutionPayload(_) => WorkType::GossipExecutionPayload,
             Work::GossipExecutionPayloadBid(_) => WorkType::GossipExecutionPayloadBid,
             Work::GossipPayloadAttestation(_) => WorkType::GossipPayloadAttestation,
+            Work::GossipProposerPreferences(_) => WorkType::GossipProposerPreferences,
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
@@ -940,6 +943,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.gossip_execution_payload_bid_queue.pop()
                         {
                             Some(item)
+                        // Check proposer preferences.
+                        } else if let Some(item) =
+                            work_queues.gossip_proposer_preferences_queue.pop()
+                        {
+                            Some(item)
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
                         // and BlocksByRoot)
@@ -1176,6 +1184,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipPayloadAttestation { .. } => work_queues
                                 .gossip_payload_attestation_queue
                                 .push(work, work_id),
+                            Work::GossipProposerPreferences { .. } => work_queues
+                                .gossip_proposer_preferences_queue
+                                .push(work, work_id),
                             Work::BlobsByRootsRequest { .. } => {
                                 work_queues.blob_broots_queue.push(work, work_id)
                             }
@@ -1270,6 +1281,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::GossipPayloadAttestation => {
                             work_queues.gossip_payload_attestation_queue.len()
+                        }
+                        WorkType::GossipProposerPreferences => {
+                            work_queues.gossip_proposer_preferences_queue.len()
                         }
                         WorkType::LightClientBootstrapRequest => {
                             work_queues.lc_bootstrap_queue.len()
@@ -1461,6 +1475,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipBlsToExecutionChange(process_fn)
             | Work::GossipExecutionPayloadBid(process_fn)
             | Work::GossipPayloadAttestation(process_fn)
+            | Work::GossipProposerPreferences(process_fn)
             | Work::LightClientBootstrapRequest(process_fn)
             | Work::LightClientOptimisticUpdateRequest(process_fn)
             | Work::LightClientFinalityUpdateRequest(process_fn)
