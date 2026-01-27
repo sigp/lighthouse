@@ -1389,7 +1389,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                             .is_aggregator(duty.committee_length as usize, &duties_service.spec)
                             .map_err(Error::<S::Error>::InvalidModulo)
                         {
-                            // Aggregator, store the selection_proof in result_hashmap
+                            // Aggregator, return the result
                             Ok(true) => Ok((duty, Some(selection_proof))),
                             // Not an aggregator, do nothing and continue
                             Ok(false) => continue,
@@ -1416,7 +1416,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                     }
                 }
             }
-            // parallel_sign for distributed case; Otherwise, sign serially in non-distributed (normal) case
+            // For distributed case that uses parallel_sign
             else if duties_service.selection_proof_config.parallel_sign {
                 let mut duty_and_proof_results = relevant_duties
                     .into_values()
