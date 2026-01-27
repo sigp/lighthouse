@@ -937,7 +937,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.unknown_block_attestation_queue.pop()
                         {
                             Some(item)
-                        // Check execution payload bids. Most proposers will equest bids directly from builders
+                        // Check execution payload bids. Most proposers will request bids directly from builders
                         // instead of receiving them over gossip.
                         } else if let Some(item) =
                             work_queues.gossip_execution_payload_bid_queue.pop()
