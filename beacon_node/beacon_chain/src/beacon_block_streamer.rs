@@ -686,7 +686,6 @@ mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
-    use execution_layer::test_utils::Block;
     use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
     use std::sync::LazyLock;

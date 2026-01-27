@@ -46,7 +46,6 @@ use tree_hash::TreeHash;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
-use types::new_non_zero_usize;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
     SignedBlindedBeaconBlock,
