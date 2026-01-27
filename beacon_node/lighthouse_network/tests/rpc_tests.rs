@@ -952,9 +952,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     })
 }
 
-#[test]
-#[allow(clippy::single_match)]
-fn test_tcp_columns_by_root_chunked_rpc() {
+fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -963,15 +961,17 @@ fn test_tcp_columns_by_root_chunked_rpc() {
     let messages_to_send = 32 * num_of_columns;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
-    let slot = 320u64.into();
-    let current_fork_name = spec.fork_name_at_slot::<E>(slot);
+    let slot = spec
+        .fork_epoch(fork_name)
+        .expect("fork must be scheduled")
+        .start_slot(E::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            current_fork_name,
+            fork_name,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -981,7 +981,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
 
         // DataColumnsByRootRequest Request
 
-        let max_request_blocks = spec.max_request_blocks(current_fork_name);
+        let max_request_blocks = spec.max_request_blocks(fork_name);
         let req = DataColumnsByRootRequest::new(
             vec![
                 DataColumnsByRootIdentifier {
@@ -1000,7 +1000,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         let req_decoded = DataColumnsByRootRequest {
             data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
                 &req_bytes,
-                spec.max_request_blocks(current_fork_name),
+                spec.max_request_blocks(fork_name),
             )
             .unwrap(),
         };
@@ -1008,7 +1008,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         let rpc_request = RequestType::DataColumnsByRoot(req);
 
         // DataColumnsByRoot Response
-        let data_column = if current_fork_name.gloas_enabled() {
+        let data_column = if fork_name.gloas_enabled() {
             Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
                 index: 1,
                 slot,
@@ -1135,7 +1135,17 @@ fn test_tcp_columns_by_root_chunked_rpc() {
 
 #[test]
 #[allow(clippy::single_match)]
-fn test_tcp_columns_by_range_chunked_rpc() {
+fn test_tcp_columns_by_root_chunked_rpc_fulu() {
+    test_tcp_columns_by_root_chunked_rpc_for_fork(ForkName::Fulu);
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_root_chunked_rpc_gloas() {
+    test_tcp_columns_by_root_chunked_rpc_for_fork(ForkName::Gloas);
+}
+
+fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -1144,15 +1154,17 @@ fn test_tcp_columns_by_range_chunked_rpc() {
     let messages_to_send = 32;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
-    let slot: Slot = 320u64.into();
-    let current_fork_name = spec.fork_name_at_slot::<E>(slot);
+    let slot = spec
+        .fork_epoch(fork_name)
+        .expect("fork must be scheduled")
+        .start_slot(E::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            current_fork_name,
+            fork_name,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -1168,7 +1180,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
         });
 
         // DataColumnsByRange Response
-        let data_column = if current_fork_name.gloas_enabled() {
+        let data_column = if fork_name.gloas_enabled() {
             Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
                 index: 1,
                 slot,
@@ -1287,6 +1299,18 @@ fn test_tcp_columns_by_range_chunked_rpc() {
             }
         }
     })
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_range_chunked_rpc_fulu() {
+    test_tcp_columns_by_range_chunked_rpc_for_fork(ForkName::Fulu);
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_range_chunked_rpc_gloas() {
+    test_tcp_columns_by_range_chunked_rpc_for_fork(ForkName::Gloas);
 }
 
 // Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received
