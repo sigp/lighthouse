@@ -21,11 +21,6 @@ use beacon_processor::{
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
-use lighthouse_tracing::{
-    SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS, SPAN_PROCESS_CHAIN_SEGMENT,
-    SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL, SPAN_PROCESS_RPC_BLOBS, SPAN_PROCESS_RPC_BLOCK,
-    SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
-};
 use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
@@ -108,7 +103,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_PROCESS_RPC_BLOCK,
+        name = "lh_process_rpc_block",
         parent = None,
         level = "debug",
         skip_all,
@@ -280,7 +275,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to process a list of blobs received from a direct RPC request.
     #[instrument(
-        name = SPAN_PROCESS_RPC_BLOBS,
+        name = "lh_process_rpc_blobs",
         parent = None,
         level = "debug",
         skip_all,
@@ -368,7 +363,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[instrument(
-        name = SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
+        name = "lh_process_rpc_custody_columns",
         parent = None,
         level = "debug",
         skip_all,
@@ -448,7 +443,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         expected_cgc: u64,
     ) {
         let _guard = debug_span!(
-            SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS,
+            "lh_custody_backfill_sync_import_columns",
             epoch = %batch_id.epoch,
             columns_received_count = downloaded_columns.len()
         )
@@ -543,7 +538,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     #[instrument(
-        name = SPAN_PROCESS_CHAIN_SEGMENT,
+        name = "lh_process_chain_segment",
         parent = None,
         level = "debug",
         skip_all,
@@ -624,7 +619,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     #[instrument(
-        name = SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL,
+        name = "lh_process_chain_segment_backfill",
         parent = None,
         level = "debug",
         skip_all,
