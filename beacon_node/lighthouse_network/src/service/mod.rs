@@ -875,6 +875,12 @@ impl<E: EthSpec> Network<E> {
                                 "Attempted to publish duplicate message"
                             );
                         }
+                        PublishError::NoPeersSubscribedToTopic if topic.kind().supports_partial_messages() => {
+                            debug!(
+                                kind = %topic.kind(),
+                                "No peers supporting full messages"
+                            );
+                        }
                         ref e => {
                             warn!(
                                 error = ?e,
