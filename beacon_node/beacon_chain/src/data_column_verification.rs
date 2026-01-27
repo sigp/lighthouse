@@ -245,17 +245,6 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         }
     }
 
-    /// Construct a `GossipVerifiedBlob` that is assumed to be valid.
-    ///
-    /// This should ONLY be used for testing.
-    pub fn __assumed_valid(column: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
-        Self {
-            block_root: column.block_root(),
-            data_column: KzgVerifiedDataColumn { data: column },
-            _phantom: PhantomData,
-        }
-    }
-
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for block production ONLY.
     /// When publishing a block constructed locally, the EL will have already verified the cell proofs.
     /// When publishing a block constructed externally, there will be no columns here.
@@ -856,6 +845,7 @@ mod test {
 
     type E = MainnetEthSpec;
 
+    // TODO(gloas) make this generic over gloas/fulu
     #[tokio::test]
     async fn test_validate_data_column_sidecar_for_gossip_fulu() {
         // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
@@ -880,6 +870,7 @@ mod test {
         data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
     }
 
+    // TODO(gloas) make this generic over gloas/fulu
     #[tokio::test]
     async fn test_new_for_block_publishing_fulu() {
         // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
@@ -902,6 +893,7 @@ mod test {
         data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
     }
 
+    // TODO(gloas) make this generic over gloas/fulu
     async fn empty_data_column_sidecars_fails_validation_fulu<D>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
         verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,

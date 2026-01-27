@@ -559,6 +559,7 @@ mod test {
 
     // Loading and initializing PeerDAS KZG is expensive and slow, so we group the tests together
     // only load it once.
+    // TODO(Gloas) make this generic over fulu/gloas, or write a separate function for Gloas
     #[test]
     fn test_build_data_columns_sidecars() {
         let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
