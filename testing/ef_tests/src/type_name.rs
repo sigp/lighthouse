@@ -1,5 +1,5 @@
 //! Mapping from types to canonical string identifiers used in testing.
-use types::historical_summary::HistoricalSummary;
+use types::state::HistoricalSummary;
 use types::*;
 
 pub trait TypeName {

@@ -153,14 +153,13 @@ fn verify_checksum(bytes: &[u8], expected_checksum: &str) {
 
 /// Returns the directory that will be used to store the deposit contract ABI.
 fn abi_dir() -> PathBuf {
-    let base = env::var("CARGO_MANIFEST_DIR")
-        .expect("should know manifest dir")
+    let base = env::var("OUT_DIR")
+        .expect("should know out dir")
         .parse::<PathBuf>()
-        .expect("should parse manifest dir as path")
-        .join("contracts");
+        .expect("should parse out dir as path");
 
     std::fs::create_dir_all(base.clone())
-        .expect("should be able to create abi directory in manifest");
+        .expect("should be able to create abi directory in out dir");
 
     base
 }

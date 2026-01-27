@@ -5,7 +5,7 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use libp2p::Multiaddr;
+use libp2p::{Multiaddr, gossipsub};
 use local_ip_address::local_ipv6;
 use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
@@ -93,9 +93,6 @@ pub struct Config {
 
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
-
-    /// Subscribe to all data column subnets for the duration of the runtime.
-    pub subscribe_all_data_column_subnets: bool,
 
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
@@ -355,7 +352,6 @@ impl Default for Config {
             upnp_enabled: true,
             network_load: 3,
             private: false,
-            subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             shutdown_after_sync: false,

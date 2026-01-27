@@ -16,6 +16,7 @@ use beacon_chain::{
         VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
     },
     blob_verification::GossipVerifiedBlob,
+    custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
 use execution_layer::{PayloadStatusV1, json_structures::JsonPayloadStatusV1Status};
@@ -296,6 +297,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // TODO(gloas): We have not implemented this change to fork choice/proposer boost yet.
+        // https://github.com/sigp/lighthouse/issues/8689
+        if self.description == "voting_source_beyond_two_epoch"
+            || self.description == "justified_update_not_realized_finality"
+            || self.description == "justified_update_always_if_better"
+        {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
@@ -436,7 +446,7 @@ impl<E: EthSpec> Tester<E> {
             .genesis_state_ephemeral_store(case.anchor_state.clone())
             .mock_execution_layer()
             .recalculate_fork_times_with_genesis(0)
-            .import_all_data_columns(true)
+            .node_custody_type(NodeCustodyType::Supernode)
             .mock_execution_layer_all_payloads_valid()
             .build();
 
@@ -919,7 +929,7 @@ impl<E: EthSpec> Tester<E> {
         let cached_head = self.harness.chain.canonical_head.cached_head();
         let next_slot = cached_head.snapshot.beacon_block.slot() + 1;
         let next_slot_epoch = next_slot.epoch(E::slots_per_epoch());
-        let (proposer_indices, decision_root, _, fork) =
+        let (proposer_indices, decision_root, _, _, fork) =
             compute_proposer_duties_from_head(next_slot_epoch, &self.harness.chain).unwrap();
         let proposer_index = proposer_indices[next_slot.as_usize() % E::slots_per_epoch() as usize];
 

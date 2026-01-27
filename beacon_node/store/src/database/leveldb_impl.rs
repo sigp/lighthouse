@@ -3,6 +3,7 @@ use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::{
     ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp, get_key_for_col, metrics,
 };
+use fixed_bytes::FixedBytesExtended;
 use leveldb::{
     compaction::Compaction,
     database::{
@@ -16,7 +17,7 @@ use leveldb::{
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::path::Path;
-use types::{EthSpec, FixedBytesExtended, Hash256};
+use types::{EthSpec, Hash256};
 
 use super::interface::WriteOptions;
 
@@ -282,7 +283,8 @@ impl<E: EthSpec> LevelDB<E> {
     ) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
         let iter = self.db.iter(self.read_options());
-
+        let start_key = BytesKey::from_vec(column.as_bytes().to_vec());
+        iter.seek(&start_key);
         iter.take_while(move |(key, _)| key.matches_column(column))
             .for_each(|(key, value)| {
                 if f(&value).unwrap_or(false) {

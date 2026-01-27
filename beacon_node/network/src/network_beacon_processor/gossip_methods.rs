@@ -21,9 +21,6 @@ use beacon_chain::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
-use lighthouse_tracing::{
-    SPAN_PROCESS_GOSSIP_BLOB, SPAN_PROCESS_GOSSIP_BLOCK, SPAN_PROCESS_GOSSIP_DATA_COLUMN,
-};
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
 use slot_clock::SlotClock;
@@ -40,7 +37,7 @@ use types::{
     DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -605,7 +602,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[instrument(
-        name = SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+        name = "lh_process_gossip_data_column",
         parent = None,
         level = "debug",
         skip_all,
@@ -708,6 +705,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidKzgProof { .. }
                     | GossipDataColumnError::UnexpectedDataColumn
                     | GossipDataColumnError::InvalidColumnIndex(_)
+                    | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
                     | GossipDataColumnError::InconsistentCommitmentsLength { .. }
                     | GossipDataColumnError::InconsistentProofsLength { .. }
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
@@ -734,12 +732,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // Data column is available via either the EL or reconstruction.
                         // Do not penalise the peer.
                         // Gossip filter should filter any duplicates received after this.
-                        debug!(
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Received already available column sidecar. Ignoring the column sidecar"
-                        )
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
                     }
                     GossipDataColumnError::FutureSlot { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
@@ -769,7 +766,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_PROCESS_GOSSIP_BLOB,
+        name = "lh_process_gossip_blob",
         parent = None,
         level = "debug",
         skip_all,
@@ -961,7 +958,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                info!(
+                debug!(
                     %block_root,
                     "Gossipsub blob processed - imported fully available block"
                 );
@@ -1034,7 +1031,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
-                    info!(
+                    debug!(
                         %block_root,
                         "Gossipsub data column processed, imported fully available block"
                     );
@@ -1135,7 +1132,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_PROCESS_GOSSIP_BLOCK,
+        name = "lh_process_gossip_block",
         parent = None,
         level = "debug",
         skip_all,
@@ -2740,6 +2737,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                 }
+            }
+            AttnError::SszTypesError(_) => {
+                error!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    ?attestation_type,
+                    "Rejecting attestation due to a critical SSZ types error"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "attn_ssz_types_error",
+                );
             }
         }
 

@@ -4,12 +4,13 @@ use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
 use crate::{Client, Enr, GossipTopic, Multiaddr, NetworkConfig, PeerId};
+use eth2::lighthouse::sync_state::CustodyBackFillState;
 use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::error;
-use types::data_column_custody_group::{compute_subnets_from_custody_group, get_custody_groups};
+use tracing::{debug, error};
+use types::data::{compute_subnets_from_custody_group, get_custody_groups};
 use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
@@ -29,6 +30,8 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
+    /// The current state of custody sync.
+    pub custody_sync_state: RwLock<CustodyBackFillState>,
     /// The computed sampling subnets and columns is stored to avoid re-computing.
     pub sampling_subnets: RwLock<HashSet<DataColumnSubnetId>>,
     /// Network-related configuration. Immutable after initialization.
@@ -76,7 +79,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             sampling_subnets.extend(subnets);
         }
 
-        tracing::debug!(
+        debug!(
             cgc = custody_group_count,
             ?sampling_subnets,
             "Starting node with custody params"
@@ -91,6 +94,9 @@ impl<E: EthSpec> NetworkGlobals<E> {
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::Paused),
+            custody_sync_state: RwLock::new(CustodyBackFillState::Pending(
+                "Custody backfill sync initialized".to_string(),
+            )),
             sampling_subnets: RwLock::new(sampling_subnets),
             config,
             spec,
@@ -221,7 +227,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
         TopicConfig {
             enable_light_client_server: self.config.enable_light_client_server,
             subscribe_all_subnets: self.config.subscribe_all_subnets,
-            subscribe_all_data_column_subnets: self.config.subscribe_all_data_column_subnets,
             sampling_subnets: self.sampling_subnets.read().clone(),
         }
     }

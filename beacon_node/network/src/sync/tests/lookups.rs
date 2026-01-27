@@ -43,7 +43,7 @@ use tracing::info;
 use types::{
     BeaconState, BeaconStateBase, BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec,
     ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    data_column_sidecar::ColumnIndex,
+    data::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
@@ -194,7 +194,7 @@ impl TestRig {
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
         let rng = &mut self.rng;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng, &self.spec)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
     }
 
     fn rand_block_and_data_columns(
@@ -1145,10 +1145,8 @@ impl TestRig {
 
 #[test]
 fn stable_rng() {
-    let spec = types::MainnetEthSpec::default_spec();
     let mut rng = XorShiftRng::from_seed([42; 16]);
-    let (block, _) =
-        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng, &spec);
+    let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
@@ -1930,8 +1928,8 @@ mod deneb_only {
         block_verification_types::{AsBlock, RpcBlock},
         data_availability_checker::AvailabilityCheckError,
     };
+    use ssz_types::RuntimeVariableList;
     use std::collections::VecDeque;
-    use types::RuntimeVariableList;
 
     struct DenebTester {
         rig: TestRig,

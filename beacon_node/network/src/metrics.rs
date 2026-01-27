@@ -212,6 +212,22 @@ pub static BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL: LazyLock<Result<IntCounter
             "Total number of gossip blocks imported to fork choice, etc.",
         )
     });
+// Custody Sync.
+pub static BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL: LazyLock<
+    Result<IntCounter>,
+> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_processor_custody_backfill_column_import_success_total",
+        "Total number of custody backfill sync columns successfully processed.",
+    )
+});
+pub static BEACON_PROCESSOR_CUSTODY_BACKFILL_BATCH_FAILED_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_processor_custody_backfill_batch_failed_total",
+            "Total number of custody backfill batches that failed to be processed.",
+        )
+    });
 // Chain segments.
 pub static BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {

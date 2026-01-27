@@ -1,6 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
+use typenum::Unsigned;
 use types::*;
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
@@ -238,7 +239,7 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
-    use types::historical_summary::HistoricalSummary;
+    use types::state::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
         LightClientBootstrapAltair, PendingDeposit, PendingPartialWithdrawal, WithdrawalRequest, *,

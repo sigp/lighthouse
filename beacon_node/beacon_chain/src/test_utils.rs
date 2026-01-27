@@ -1,6 +1,8 @@
 use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::custody_context::NodeCustodyType;
 use crate::data_column_verification::CustodyDataColumn;
+use crate::graffiti_calculator::GraffitiSettings;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -19,13 +21,17 @@ pub use crate::{
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
 };
 use bls::get_withdrawal_credentials;
-use eth2::types::SignedBlockContentsTuple;
+use bls::{
+    AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
+};
+use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
     auth::JwtKey,
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
+use fixed_bytes::FixedBytesExtended;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
@@ -38,9 +44,11 @@ use parking_lot::{Mutex, RwLockWriteGuard};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz_types::{RuntimeVariableList, VariableList};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -55,11 +63,13 @@ use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
 use tree_hash::TreeHash;
-use types::indexed_attestation::IndexedAttestationBase;
-use types::payload::BlockProductionVersion;
+use typenum::U4294967296;
+use types::attestation::IndexedAttestationBase;
+use types::data::CustodyIndex;
+use types::execution::BlockProductionVersion;
 use types::test_utils::TestRandom;
 pub use types::test_utils::generate_deterministic_keypairs;
-use types::{typenum::U4294967296, *};
+use types::*;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -76,6 +86,10 @@ pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
 // You should mutate the `ChainSpec` prior to initialising the harness if you would like to use
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
+
+// Minimum and maximum number of blobs to generate in each slot when using the `NumBlobs::Random` option (default).
+const DEFAULT_MIN_BLOBS: usize = 1;
+const DEFAULT_MAX_BLOBS: usize = 2;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
     let kzg = Kzg::new_from_trusted_setup(&get_trusted_setup()).expect("should create kzg");
@@ -168,24 +182,28 @@ fn make_rng() -> Mutex<StdRng> {
     Mutex::new(StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64))
 }
 
-/// Return a `ChainSpec` suitable for test usage.
-///
-/// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
-/// variable. Otherwise use the default spec.
-pub fn test_spec<E: EthSpec>() -> ChainSpec {
-    let mut spec = if cfg!(feature = "fork_from_env") {
+pub fn fork_name_from_env() -> Option<ForkName> {
+    if cfg!(feature = "fork_from_env") {
         let fork_name = std::env::var(FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
             panic!(
                 "{} env var must be defined when using fork_from_env: {:?}",
                 FORK_NAME_ENV_VAR, e
             )
         });
-        let fork = ForkName::from_str(fork_name.as_str()).unwrap();
-        fork.make_genesis_spec(E::default_spec())
+        Some(ForkName::from_str(fork_name.as_str()).unwrap())
     } else {
-        // We no longer support starting test networks prior to Bellatrix.
-        ForkName::Bellatrix.make_genesis_spec(E::default_spec())
-    };
+        None
+    }
+}
+
+/// Return a `ChainSpec` suitable for test usage.
+///
+/// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
+/// variable. Otherwise default to Bellatrix since we no longer support pre-merge networks.
+pub fn test_spec<E: EthSpec>() -> ChainSpec {
+    let mut spec = fork_name_from_env()
+        .map(|fork| fork.make_genesis_spec(E::default_spec()))
+        .unwrap_or_else(|| ForkName::Bellatrix.make_genesis_spec(E::default_spec()));
 
     // Set target aggregators to a high value by default.
     spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
@@ -208,7 +226,7 @@ pub struct Builder<T: BeaconChainTypes> {
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
     runtime: TestRuntime,
 }
 
@@ -363,7 +381,7 @@ where
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
             runtime,
         }
     }
@@ -449,8 +467,8 @@ where
         self
     }
 
-    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
-        self.import_all_data_columns = import_all_data_columns;
+    pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
+        self.node_custody_type = node_custody_type;
         self
     }
 
@@ -572,7 +590,8 @@ where
             .execution_layer(self.execution_layer)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
-            .import_all_data_columns(self.import_all_data_columns)
+            .node_custody_type(self.node_custody_type)
+            .ordered_custody_column_indices(generate_data_column_indices_rand_order::<E>())
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));
@@ -601,15 +620,6 @@ where
         };
 
         let chain = builder.build().expect("should build");
-
-        chain
-            .data_availability_checker
-            .custody_context()
-            .init_ordered_data_columns_from_custody_groups(
-                (0..spec.number_of_custody_groups).collect(),
-                &spec,
-            )
-            .expect("should initialise custody context");
 
         BeaconChainHarness {
             spec: chain.spec.clone(),
@@ -940,6 +950,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -953,7 +965,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 builder_boost_factor,
                 BlockProductionVersion::V3,
@@ -997,6 +1009,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1007,7 +1021,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -1056,6 +1070,8 @@ where
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1068,7 +1084,7 @@ where
                 None,
                 slot,
                 randao_reveal,
-                Some(graffiti),
+                graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 None,
                 BlockProductionVersion::FullV2,
@@ -2330,7 +2346,7 @@ where
             .collect::<Vec<_>>();
 
         // Building a VarList from leaves
-        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
+        let deposit_data_list = VariableList::<_, U4294967296>::try_from(leaves.clone()).unwrap();
 
         // Setting the deposit_root to be the tree_hash_root of the VarList
         state.eth1_data_mut().deposit_root = deposit_data_list.tree_hash_root();
@@ -2354,7 +2370,7 @@ where
         let deposits = datas
             .into_par_iter()
             .zip(proofs.into_par_iter())
-            .map(|(data, proof)| (data, proof.into()))
+            .map(|(data, proof)| (data, proof.try_into().unwrap()))
             .map(|(data, proof)| Deposit { proof, data })
             .collect::<Vec<_>>();
 
@@ -2444,7 +2460,7 @@ where
     }
 
     /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
-    fn build_rpc_block_from_blobs(
+    pub fn build_rpc_block_from_blobs(
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
@@ -2920,7 +2936,6 @@ where
         let chain_dump = self.chain.chain_dump().unwrap();
         chain_dump
             .iter()
-            .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
             .filter(|block_hash| *block_hash != Hash256::zero())
             .map(|hash| hash.into())
@@ -3251,96 +3266,47 @@ pub enum NumBlobs {
     None,
 }
 
+macro_rules! add_blob_transactions {
+    ($message:expr, $payload_type:ty, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
+        let num_blobs = match $num_blobs {
+            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
+            NumBlobs::Number(n) => n,
+            NumBlobs::None => 0,
+        };
+        let (bundle, transactions) =
+            execution_layer::test_utils::generate_blobs::<E>(num_blobs, $fork_name).unwrap();
+
+        let payload: &mut $payload_type = &mut $message.body.execution_payload;
+        payload.execution_payload.transactions = <_>::default();
+        for tx in Vec::from(transactions) {
+            payload.execution_payload.transactions.push(tx).unwrap();
+        }
+        $message.body.blob_kzg_commitments = bundle.commitments.clone();
+        bundle
+    }};
+}
+
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
-    spec: &ChainSpec,
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
-    let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
-    let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
+    let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
         SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
             ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
+        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, rng, fork_name),
         SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
             ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
+        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, rng, fork_name),
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadFulu<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
-        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
-            ref mut message, ..
-        }) => {
-            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadGloas<E> = &mut message.body.execution_payload;
-            let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.random_range(1..=max_blobs),
-                NumBlobs::Number(n) => n,
-                NumBlobs::None => 0,
-            };
-            let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
-            payload.execution_payload.transactions = <_>::default();
-            for tx in Vec::from(transactions) {
-                payload.execution_payload.transactions.push(tx).unwrap();
-            }
-            message.body.blob_kzg_commitments = bundle.commitments.clone();
-            bundle
-        }
+        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
+        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
         _ => return (block, blob_sidecars),
     };
 
@@ -3381,13 +3347,13 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     SignedBeaconBlock<E, FullPayload<E>>,
     DataColumnSidecarList<E>,
 ) {
-    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
+    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
     let data_columns = generate_data_column_sidecars_from_block(&block, spec);
     (block, data_columns)
 }
 
 /// Generate data column sidecars from pre-computed cells and proofs.
-fn generate_data_column_sidecars_from_block<E: EthSpec>(
+pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
@@ -3436,4 +3402,10 @@ fn generate_data_column_sidecars_from_block<E: EthSpec>(
         spec,
     )
     .unwrap()
+}
+
+pub fn generate_data_column_indices_rand_order<E: EthSpec>() -> Vec<CustodyIndex> {
+    let mut indices = (0..E::number_of_columns() as u64).collect::<Vec<_>>();
+    indices.shuffle(&mut StdRng::seed_from_u64(42));
+    indices
 }

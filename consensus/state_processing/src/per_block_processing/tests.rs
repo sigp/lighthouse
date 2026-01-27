@@ -11,7 +11,10 @@ use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
+use fixed_bytes::FixedBytesExtended;
 use ssz_types::Bitfield;
+use ssz_types::VariableList;
 use std::sync::{Arc, LazyLock};
 use test_utils::generate_deterministic_keypairs;
 use types::*;
@@ -213,7 +216,7 @@ async fn valid_4_deposits() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 4, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -237,7 +240,7 @@ async fn invalid_deposit_deposit_count_too_big() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -269,7 +272,7 @@ async fn invalid_deposit_count_too_small() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -301,7 +304,7 @@ async fn invalid_deposit_bad_merkle_proof() {
     let mut state = harness.get_current_state();
 
     let (deposits, state) = harness.make_deposits(&mut state, 1, None, None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -336,7 +339,7 @@ async fn invalid_deposit_wrong_sig() {
 
     let (deposits, state) =
         harness.make_deposits(&mut state, 1, None, Some(SignatureBytes::empty()));
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -360,7 +363,7 @@ async fn invalid_deposit_invalid_pub_key() {
 
     let (deposits, state) =
         harness.make_deposits(&mut state, 1, Some(PublicKeyBytes::empty()), None);
-    let deposits = VariableList::from(deposits);
+    let deposits = VariableList::try_from(deposits).unwrap();
 
     let mut head_block = harness
         .chain
@@ -753,10 +756,12 @@ async fn invalid_attester_slashing_1_invalid() {
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
         AttesterSlashing::Base(attester_slashing) => {
-            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+            attester_slashing.attestation_1.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
         AttesterSlashing::Electra(attester_slashing) => {
-            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+            attester_slashing.attestation_1.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
     }
 
@@ -791,10 +796,12 @@ async fn invalid_attester_slashing_2_invalid() {
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
         AttesterSlashing::Base(attester_slashing) => {
-            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+            attester_slashing.attestation_2.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
         AttesterSlashing::Electra(attester_slashing) => {
-            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+            attester_slashing.attestation_2.attesting_indices =
+                VariableList::try_from(vec![2, 1]).unwrap();
         }
     }
 
