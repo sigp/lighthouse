@@ -28,9 +28,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
-    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar, DataColumnSidecarList,
-    DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
-    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
+    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
+    KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.

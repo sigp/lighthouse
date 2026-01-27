@@ -3370,7 +3370,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
 
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
-    let blob_cells_and_proofs_vec = if block.fork_name_unchecked().gloas_enabled() {
+    if block.fork_name_unchecked().gloas_enabled() {
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
                 TEST_DATA_COLUMN_SIDECARS_SSZ,
@@ -3392,7 +3392,17 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             })
             .collect::<(Vec<_>, Vec<_>)>();
 
-        vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()]
+        let blob_cells_and_proofs_vec =
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+
+        build_data_column_sidecars_gloas(
+            kzg_commitments.clone(),
+            signed_block_header.message.tree_hash_root(),
+            signed_block_header.message.slot,
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .unwrap()
     } else {
         // load the precomputed column sidecar to avoid computing them for every block in the tests.
         let template_data_columns =
@@ -3416,19 +3426,9 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             })
             .collect::<(Vec<_>, Vec<_>)>();
 
-        vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()]
-    };
+        let blob_cells_and_proofs_vec =
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
 
-    if block.fork_name_unchecked().gloas_enabled() {
-        build_data_column_sidecars_gloas(
-            kzg_commitments.clone(),
-            signed_block_header.message.tree_hash_root(),
-            signed_block_header.message.slot,
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .unwrap()
-    } else {
         build_data_column_sidecars_fulu(
             kzg_commitments.clone(),
             kzg_commitments_inclusion_proof,
