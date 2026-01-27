@@ -330,6 +330,14 @@ fn update_next_withdrawal_index<E: EthSpec>(
     Ok(())
 }
 
+fn update_payload_expected_withdrawals<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    withdrawals: &Withdrawals<E>,
+) -> Result<(), BlockProcessingError> {
+    *state.payload_expected_withdrawals_mut()? = List::new(withdrawals.to_vec())?;
+    Ok(())
+}
+
 fn update_builder_pending_withdrawals<E: EthSpec>(
     state: &mut BeaconState<E>,
     processed_builder_withdrawals_count_opt: Option<usize>,
@@ -494,8 +502,7 @@ pub mod gloas {
         update_next_withdrawal_index(state, &expected_withdrawals)?;
 
         // [New in Gloas:EIP7732]
-        // TODO(gloas): make this a update_payload_expected_withdrawals function
-        *state.payload_expected_withdrawals_mut()? = List::new(expected_withdrawals.to_vec())?;
+        update_payload_expected_withdrawals(state, &expected_withdrawals)?;
 
         // [New in Gloas:EIP7732]
         update_builder_pending_withdrawals(state, processed_builder_withdrawals_count)?;
