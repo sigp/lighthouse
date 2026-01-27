@@ -108,10 +108,18 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                 let Some(merged_sidecar) = existing.sidecar.merge(&partial.sidecar) else {
                     continue;
                 };
-                added_cells += merged_sidecar
+
+                let adding_cells = merged_sidecar
                     .column
                     .len()
                     .saturating_sub(partial.sidecar.column.len());
+
+                added_cells += adding_cells;
+
+                if adding_cells == 0 {
+                    continue;
+                }
+
                 PartialDataColumn {
                     block_root: existing.block_root,
                     index: existing.index,
@@ -158,6 +166,19 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .columns
             .get(&column_index)
             .cloned()
+    }
+
+    /// Get all current partials for a block
+    pub fn get_partials(&self, block_root: &Hash256) -> Option<Vec<Arc<PartialDataColumn<E>>>> {
+        Some(
+            self.assemblies
+                .read()
+                .peek(block_root)?
+                .columns
+                .values()
+                .cloned()
+                .collect(),
+        )
     }
 
     /// Get header for a block if we have an active assembly

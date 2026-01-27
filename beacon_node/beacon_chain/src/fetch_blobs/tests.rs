@@ -10,7 +10,6 @@ use eth2::types::BlobsBundle;
 use execution_layer::json_structures::{BlobAndProof, BlobAndProofV1, BlobAndProofV2};
 use execution_layer::test_utils::generate_blobs;
 use maplit::hashset;
-use std::mem;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use task_executor::test_utils::TestRuntime;
@@ -227,8 +226,8 @@ mod get_blobs_v2 {
         let published_columns = extract_published_blobs(publish_fn_args);
         assert!(
             matches!(
-                &published_columns[..],
-                [EngineGetBlobsOutput::CompleteColumns(complete_columns), EngineGetBlobsOutput::PartialColumns(partial_columns)] if complete_columns.len() == custody_columns.len() && complete_columns.len() == partial_columns.len()
+                published_columns,
+                EngineGetBlobsOutput::CustodyColumns(columns) if columns.len() == custody_columns.len()
             ),
             "should publish custody columns"
         );
@@ -370,8 +369,8 @@ mod get_blobs_v1 {
         );
         assert!(
             matches!(
-                &extract_published_blobs(publish_fn_args)[..],
-                [EngineGetBlobsOutput::Blobs(blobs)] if blobs.len() == blob_count - 1
+                extract_published_blobs(publish_fn_args),
+                EngineGetBlobsOutput::Blobs(blobs) if blobs.len() == blob_count - 1
             ),
             "partial blob results should still be published"
         );
@@ -502,8 +501,8 @@ mod get_blobs_v1 {
         let published_blobs = extract_published_blobs(publish_fn_args);
         assert!(
             matches!(
-                &published_blobs[..],
-                [EngineGetBlobsOutput::Blobs(blobs)] if blobs.len() == blob_count
+                published_blobs,
+                EngineGetBlobsOutput::Blobs(blobs) if blobs.len() == blob_count
             ),
             "should publish fetched blobs"
         );
@@ -528,11 +527,13 @@ mod get_blobs_v1 {
     }
 }
 
-/// Extract the `EngineGetBlobsOutput`s passed to the `publish_fn`.
+/// Extract the `EngineGetBlobsOutput` passed to the `publish_fn`.
 fn extract_published_blobs(
     publish_fn_args: Arc<Mutex<Vec<EngineGetBlobsOutput<T>>>>,
-) -> Vec<EngineGetBlobsOutput<T>> {
-    mem::take(publish_fn_args.lock().unwrap().as_mut())
+) -> EngineGetBlobsOutput<T> {
+    let mut calls = publish_fn_args.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    calls.pop().unwrap()
 }
 
 fn mock_process_engine_blobs_result(

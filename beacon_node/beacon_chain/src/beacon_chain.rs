@@ -3248,14 +3248,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             EngineGetBlobsOutput::Blobs(blobs) => {
                 self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
             }
-            EngineGetBlobsOutput::CompleteColumns(columns) => {
+            EngineGetBlobsOutput::CustodyColumns(columns) => {
                 self.emit_sse_data_column_sidecar_events(
                     &block_root,
                     columns.iter().map(|column| column.as_ref()),
                 );
-            }
-            EngineGetBlobsOutput::PartialColumns(_) => {
-                // Partials don't emit SSE events until they complete
             }
         }
 
@@ -3737,21 +3734,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.data_availability_checker
                     .put_kzg_verified_blobs(block_root, blobs)?
             }
-            EngineGetBlobsOutput::CompleteColumns(data_columns) => {
+            EngineGetBlobsOutput::CustodyColumns(data_columns) => {
                 self.check_data_column_sidecar_header_signature_and_slashability(
                     block_root,
                     data_columns.iter().map(|c| c.as_ref()),
                 )?;
                 self.data_availability_checker
                     .put_full_data_columns(block_root, data_columns)?
-            }
-            EngineGetBlobsOutput::PartialColumns(_partials) => {
-                // Partials have already been initialized in the assembler during fetch_and_process
-                // They don't go through put_kzg_verified - they're assembled via gossip
-                // Return MissingComponents to indicate we're waiting for more data
-                return Ok(AvailabilityProcessingStatus::MissingComponents(
-                    slot, block_root,
-                ));
             }
         };
 

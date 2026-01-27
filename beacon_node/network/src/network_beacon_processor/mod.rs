@@ -794,15 +794,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             block_root,
                         );
                     }
-                    EngineGetBlobsOutput::CompleteColumns(columns) => {
+                    EngineGetBlobsOutput::CustodyColumns(columns) => {
                         // Gradually publish full columns
                         self_cloned.publish_data_columns_gradually(columns, block_root);
-                    }
-                    EngineGetBlobsOutput::PartialColumns(partials) => {
-                        // Publish partial columns without eager send
-                        self_cloned.send_network_message(NetworkMessage::PublishPartial {
-                            columns: partials,
-                        })
                     }
                 };
             }
@@ -854,6 +848,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Error fetching or processing blobs from EL"
                 );
             }
+        }
+
+        // Publish partial columns without eager send
+        if let Some(columns) = self
+            .chain
+            .data_availability_checker
+            .partial_assembler()
+            .get_partials(&block_root)
+        {
+            self.send_network_message(NetworkMessage::PublishPartial { columns })
         }
     }
 

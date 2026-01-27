@@ -34,7 +34,7 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
 use types::data::{BlobSidecarError, DataColumnSidecarError};
-use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
+use types::partial_data_column_sidecar::PartialDataColumnHeader;
 use types::{BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, Hash256, VersionedHash};
 
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
@@ -43,10 +43,8 @@ use types::{BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, Hash256, Versio
 #[derive(Debug)]
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     Blobs(Vec<KzgVerifiedBlob<T::EthSpec>>),
-    /// Complete columns ready to be imported into the `DataAvailabilityChecker`.
-    CompleteColumns(Vec<Arc<types::DataColumnSidecar<T::EthSpec>>>),
-    /// Incomplete partial columns that need assembly via gossip
-    PartialColumns(Vec<Arc<PartialDataColumn<T::EthSpec>>>),
+    /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
+    CustodyColumns(Vec<Arc<types::DataColumnSidecar<T::EthSpec>>>),
 }
 
 #[derive(Debug)]
@@ -343,15 +341,12 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 
     // Publish complete columns and incomplete partials
     if !merge_result.full_columns.is_empty() {
-        publish_fn(EngineGetBlobsOutput::CompleteColumns(
+        publish_fn(EngineGetBlobsOutput::CustodyColumns(
             merge_result.full_columns.clone(),
         ));
     }
-    if !merge_result.updated_partials.is_empty() {
-        publish_fn(EngineGetBlobsOutput::PartialColumns(
-            merge_result.updated_partials,
-        ));
-    }
+    // We publish all partials at the calling site, regardless of result, as previous publishs
+    // have been blocked, waiting for the results of this call
 
     // Process complete columns through DA checker
     let availability_processing_status = if !merge_result.full_columns.is_empty() {
@@ -359,7 +354,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
             .process_engine_blobs(
                 header.slot(),
                 block_root,
-                EngineGetBlobsOutput::CompleteColumns(merge_result.full_columns),
+                EngineGetBlobsOutput::CustodyColumns(merge_result.full_columns),
             )
             .await?
     } else {
