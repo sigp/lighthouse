@@ -166,8 +166,8 @@ async fn make_selection_proof<S: ValidatorStore>(
 }
 
 /// Create a Vec<BeaconCommitteeSelection> for every epoch
-/// so that when calling the selection_endpoint later, it calls once per epoch with duties of all slots in the epoch
-async fn make_beacon_committee_selection<S: ValidatorStore + 'static, T: SlotClock + 'static>(
+/// so that when calling the selections_endpoint later, it calls once per epoch with duties of all slots in that epoch
+async fn make_beacon_committee_selection<S: ValidatorStore, T: SlotClock>(
     duties_service: &Arc<DutiesService<S, T>>,
     duties: &[AttesterData],
 ) -> Result<Vec<BeaconCommitteeSelection>, Error<S::Error>> {
@@ -1305,7 +1305,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     // of selection proofs and insert them into the duties service `attesters` map.
     let slot_clock = &duties_service.slot_clock;
 
-    // Create a HashMap for BeaconCommitteeSelection to match the duty later for DVT involving middleware
+    // Create a HashMap for BeaconCommitteeSelection to match the duty later for distributed case involving middleware
     let mut selection_hashmap = HashMap::new();
     let mut call_selection_endpoint = false;
 
@@ -1352,7 +1352,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 // Using lookahead_slot to determine if it is the first slot of an epoch
                 let is_lookahead_slot_epoch_start = lookahead_slot % S::E::slots_per_epoch() == 0;
 
-                // Call the selection endpoint only at the first slot of an epoch or it errors
+                // Call the selection endpoint only at the first slot of an epoch or when it errors
                 if is_lookahead_slot_epoch_start || call_selection_endpoint {
                     let beacon_committee_selections =
                         make_beacon_committee_selection(&duties_service, &duties).await;
@@ -1377,7 +1377,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                         selection_hashmap
                             .insert((selection.validator_index, selection.slot), selection_proof);
                     }
-                    // Once we have the selection_proof, we don't want to call the selection_endpoint again
+                    // Once we have the selection_proof, we don't call the selections_endpoint again
                     call_selection_endpoint = false;
                 }
 
