@@ -74,7 +74,15 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
             );
         }
         AttestationRef::Electra(_) => {
-            verify!(data.index == 0, Invalid::BadCommitteeIndex);
+            if spec.fork_name_at_slot::<E>(data.slot).gloas_enabled() {
+                verify!(data.index < 2, Invalid::BadCommitteeIndex);
+                // When attestation is in the same slot as the block, index must be 0.
+                if state.slot() == data.slot {
+                    verify!(data.index == 0, Invalid::BadCommitteeIndex);
+                }
+            } else {
+                verify!(data.index == 0, Invalid::BadCommitteeIndex);
+            }
         }
     }
 
