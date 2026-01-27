@@ -38,6 +38,11 @@ pub use signing_data::{SignedRoot, SigningData};
 pub use slot_data::SlotData;
 pub use slot_epoch::{Epoch, Slot};
 
+#[cfg(test)]
+pub(crate) use chain_spec::{
+    max_blobs_by_root_request_common, max_data_columns_by_root_request_common,
+};
+
 pub type Hash256 = alloy_primitives::B256;
 pub type Uint256 = alloy_primitives::U256;
 pub type Hash64 = alloy_primitives::B64;

@@ -11,7 +11,6 @@ members = [
     "beacon_node/http_api",
     "beacon_node/http_metrics",
     "beacon_node/lighthouse_network",
-    "beacon_node/lighthouse_tracing",
     "beacon_node/network",
     "beacon_node/operation_pool",
     "beacon_node/store",
@@ -44,6 +43,7 @@ members = [
     "common/target_check",
     "common/task_executor",
     "common/test_random_derive",
+    "common/tracing_samplers",
     "common/validator_dir",
     "common/warp_utils",
     "common/workspace_members",
@@ -182,7 +182,6 @@ libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features =
 ] }
 libsecp256k1 = "0.7"
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
-lighthouse_tracing = { path = "beacon_node/lighthouse_tracing" }
 lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
 lighthouse_version = { path = "common/lighthouse_version" }
 lockfile = { path = "common/lockfile" }
@@ -269,6 +268,7 @@ tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing_samplers = { path = "common/tracing_samplers" }
 tree_hash = "0.12.0"
 tree_hash_derive = "0.12.0"
 typenum = "1"
