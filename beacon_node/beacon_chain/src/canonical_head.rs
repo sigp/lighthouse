@@ -47,7 +47,7 @@ use fork_choice::{
     ResetPayloadStatuses,
 };
 use itertools::process_results;
-use lighthouse_tracing::SPAN_RECOMPUTE_HEAD;
+
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
@@ -514,7 +514,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// can't abort block import because an error is returned here.
     pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) {
         let span = info_span!(
-            SPAN_RECOMPUTE_HEAD,
+            "lh_recompute_head_at_slot",
             slot = %current_slot
         );
 
@@ -958,9 +958,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
-
-        self.attester_cache
-            .prune_below(new_view.finalized_checkpoint.epoch);
 
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_finalized_subscribers()

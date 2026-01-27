@@ -10,8 +10,7 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, Hash256},
-    execution::ExecutionBlockHash,
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256},
     fork::{ForkName, ForkVersionDecode},
     state::BeaconStateError,
     test_utils::TestRandom,

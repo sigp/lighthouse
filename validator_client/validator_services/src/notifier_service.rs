@@ -146,7 +146,7 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
                 validators = total_validators,
                 %epoch,
                 %slot,
-                "Awaiting activation"
+                "All validators inactive"
             );
         }
     } else {

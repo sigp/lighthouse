@@ -135,12 +135,15 @@ impl MultiTestCase {
             }
 
             for (i, att) in test_case.attestations.iter().enumerate() {
-                match slashing_db.check_and_insert_attestation_signing_root(
-                    &att.pubkey,
-                    att.source_epoch,
-                    att.target_epoch,
-                    SigningRoot::from(att.signing_root),
-                ) {
+                match slashing_db.with_transaction(|txn| {
+                    slashing_db.check_and_insert_attestation_signing_root(
+                        &att.pubkey,
+                        att.source_epoch,
+                        att.target_epoch,
+                        SigningRoot::from(att.signing_root),
+                        txn,
+                    )
+                }) {
                     Ok(safe) if !att.should_succeed => {
                         panic!(
                             "attestation {} from `{}` succeeded when it should have failed: {:?}",

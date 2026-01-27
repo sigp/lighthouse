@@ -253,7 +253,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                         network_1
                             .add_validator_client_with_fallbacks(
                                 validator_config,
-                                i,
                                 beacon_nodes,
                                 files,
                             )

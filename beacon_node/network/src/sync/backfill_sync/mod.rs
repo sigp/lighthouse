@@ -346,7 +346,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         }
                     }
                     CouplingError::BlobPeerFailure(msg) => {
-                        tracing::debug!(?batch_id, msg, "Blob peer failure");
+                        debug!(?batch_id, msg, "Blob peer failure");
                     }
                     CouplingError::InternalError(msg) => {
                         error!(?batch_id, msg, "Block components coupling internal error");
