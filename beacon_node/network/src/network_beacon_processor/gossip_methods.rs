@@ -877,6 +877,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         if get_blobs {
+            debug!(block= %column.block_root, "Triggering getBlobs after receiving partial header");
             // We want to publish immediately when this finishes
             let publish_blobs = true;
             self.fetch_engine_blobs_and_publish(&header, block_root, publish_blobs)
@@ -1401,6 +1402,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.send_network_message(NetworkMessage::PublishPartial {
                         columns: merge_result.updated_partials,
                     });
+                } else {
+                    debug!(block = %block_root, "Not publishing partials - waiting for getBlobs");
                 }
 
                 // Check if block is now fully available

@@ -857,6 +857,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .partial_assembler()
             .get_partials(&block_root)
         {
+            debug!(block = %block_root, "Publishing all partials after getBlobs");
             self.send_network_message(NetworkMessage::PublishPartial { columns })
         }
     }
