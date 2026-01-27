@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Hash256, Slot};
+use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 type ValidatorIndex = u64;
 type BeaconBlockRoot = Hash256;
@@ -95,20 +95,29 @@ impl ObservationKey {
 
         if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
             Ok(Self::new_block_root_key(sidecar.beacon_block_root(), slot))
-        } else {
-            Self::new_proposer_key(sidecar.proposer_index(), slot)
-        }
-    }
-
-    pub fn new_proposer_key(
-        proposer_index: Option<ValidatorIndex>,
-        slot: Slot,
-    ) -> Result<Self, Error> {
-        if let Some(proposer_index) = proposer_index {
-            Ok(Self::ProposerKey((proposer_index, slot)))
+        } else if let Some(proposer_index) = sidecar.proposer_index() {
+            Ok(Self::new_proposer_key(proposer_index, slot))
         } else {
             Err(Error::UnexpectedVariant)
         }
+    }
+
+    pub fn from_block<E: EthSpec>(
+        block: &SignedBeaconBlock<E>,
+        block_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Self {
+        let slot = block.slot();
+
+        if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            Self::new_block_root_key(block_root, slot)
+        } else {
+            Self::new_proposer_key(block.message().proposer_index(), slot)
+        }
+    }
+
+    pub fn new_proposer_key(proposer_index: ValidatorIndex, slot: Slot) -> Self {
+        Self::ProposerKey((proposer_index, slot))
     }
 
     pub fn new_block_root_key(beacon_block_root: BeaconBlockRoot, slot: Slot) -> Self {
@@ -150,10 +159,10 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
         }
     }
 
-    /// Observe the `data_sidecar` at (`data_sidecar.block_proposer_index, data_sidecar.slot`).
+    /// Observe the `data_sidecar` at `ObservationKey`.
     /// This will update `self` so future calls to it indicate that this `data_sidecar` is known.
-    ///
-    /// The supplied `data_sidecar` **MUST** have completed proposer signature verification.
+    /// TODO(gloas) ensure we provide proper documentation for the post-gloas case
+    /// Pre-gloas the supplied `data_sidecar` **MUST** have completed proposer signature verification.
     pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<bool, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
@@ -239,6 +248,8 @@ impl ObservationStrategy for DoNotObserve {
     }
 }
 
+// TODO(gloas) write gloas specific/column specific tests
+// we can propably deprecate anything blob related
 #[cfg(test)]
 mod tests {
     use super::*;
