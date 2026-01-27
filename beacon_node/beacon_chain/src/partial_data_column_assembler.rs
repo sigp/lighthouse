@@ -99,6 +99,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             let column_index = partial.index;
 
             let merged = if let Some(existing) = assembly.columns.get(&column_index) {
+                // Check if the column is already completed
+                if existing.sidecar.is_complete() {
+                    continue;
+                }
+
                 // Merge with existing partial
                 let Some(merged_sidecar) = existing.sidecar.merge(&partial.sidecar) else {
                     continue;
