@@ -16,7 +16,7 @@ pub use data_column_sidecar::{
     DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarList,
     DataColumnsByRootIdentifier,
 };
-pub use data_column_subnet_id::DataColumnSubnetId;
+pub use data_column_subnet_id::{DataColumnSubnetId, all_data_column_sidecar_subnets_from_spec};
 
 use crate::core::EthSpec;
 use ssz_types::FixedVector;

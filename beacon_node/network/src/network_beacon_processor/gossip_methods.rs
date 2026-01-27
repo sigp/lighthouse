@@ -21,9 +21,6 @@ use beacon_chain::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
-use lighthouse_tracing::{
-    SPAN_PROCESS_GOSSIP_BLOB, SPAN_PROCESS_GOSSIP_BLOCK, SPAN_PROCESS_GOSSIP_DATA_COLUMN,
-};
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
 use slot_clock::SlotClock;
@@ -605,7 +602,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[instrument(
-        name = SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+        name = "lh_process_gossip_data_column",
         parent = None,
         level = "debug",
         skip_all,
@@ -778,7 +775,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_PROCESS_GOSSIP_BLOB,
+        name = "lh_process_gossip_blob",
         parent = None,
         level = "debug",
         skip_all,
@@ -1144,7 +1141,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_PROCESS_GOSSIP_BLOCK,
+        name = "lh_process_gossip_block",
         parent = None,
         level = "debug",
         skip_all,

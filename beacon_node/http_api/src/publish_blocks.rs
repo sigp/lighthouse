@@ -19,7 +19,6 @@ use eth2::{
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
-use lighthouse_tracing::SPAN_PUBLISH_BLOCK;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use slot_clock::SlotClock;
@@ -79,7 +78,7 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
 #[instrument(
-    name = SPAN_PUBLISH_BLOCK,
+    name = "lh_publish_block",
     level = "info",
     skip_all,
     fields(block_root = field::Empty, ?validation_level, block_slot = field::Empty, provenance = field::Empty)
