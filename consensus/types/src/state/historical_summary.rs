@@ -2,15 +2,17 @@ use compare_fields::CompareFields;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     core::{EthSpec, Hash256},
     fork::ForkName,
     state::BeaconState,
-    test_utils::TestRandom,
 };
 
 /// `HistoricalSummary` matches the components of the phase0 `HistoricalBatch`
@@ -19,6 +21,7 @@ use crate::{
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#historicalsummary
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
 #[derive(
     Debug,
     PartialEq,
@@ -28,7 +31,6 @@ use crate::{
     Encode,
     Decode,
     TreeHash,
-    TestRandom,
     CompareFields,
     Clone,
     Copy,

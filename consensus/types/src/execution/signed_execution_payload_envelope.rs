@@ -1,3 +1,4 @@
+#[cfg(feature = "testing")]
 use crate::test_utils::TestRandom;
 use crate::{
     ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash, ExecutionPayloadEnvelope, Fork, Hash256,
@@ -7,10 +8,12 @@ use bls::{PublicKey, Signature};
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TestRandom, TreeHash, Educe)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {

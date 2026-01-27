@@ -1,18 +1,20 @@
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::{core::Epoch, test_utils::TestRandom};
+use crate::core::Epoch;
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 
 /// Specifies a fork which allows nodes to identify each other on the network. This fork is used in
 /// a nodes local ENR.
 ///
 /// Spec v0.11
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct EnrForkId {
     /// Fork digest of the current fork computed from [`ChainSpec::compute_fork_digest`].
     #[serde(with = "serde_utils::bytes_4_hex")]

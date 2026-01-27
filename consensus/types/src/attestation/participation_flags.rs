@@ -1,15 +1,16 @@
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash::{PackedEncoding, TreeHash, TreeHashType};
 
-use crate::{
-    core::{Hash256, consts::altair::NUM_FLAG_INDICES},
-    test_utils::TestRandom,
-};
+use crate::core::{Hash256, consts::altair::NUM_FLAG_INDICES};
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ParticipationFlags {

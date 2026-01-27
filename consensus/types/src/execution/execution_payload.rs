@@ -6,14 +6,16 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     core::{Address, EthSpec, ExecutionBlockHash, Hash256},
     fork::{ForkName, ForkVersionDecode},
     state::BeaconStateError,
-    test_utils::TestRandom,
     withdrawal::Withdrawals,
 };
 
@@ -35,12 +37,12 @@ pub type Transactions<E> = VariableList<
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         context_deserialize(ForkName),
         educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),

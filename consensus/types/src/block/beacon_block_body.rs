@@ -9,10 +9,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash::{BYTES_PER_CHUNK, TreeHash};
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     SignedExecutionPayloadBid,
     attestation::{
@@ -37,7 +40,6 @@ use crate::{
     },
     state::BeaconStateError,
     sync_committee::SyncAggregate,
-    test_utils::TestRandom,
 };
 
 /// The number of leaves (including padding) on the `BeaconBlockBody` Merkle tree.
@@ -64,10 +66,10 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         serde(
             bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields

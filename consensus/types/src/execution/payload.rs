@@ -6,9 +6,13 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::{borrow::Cow, fmt::Debug, hash::Hash};
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 
 use crate::{
     core::{Address, EthSpec, ExecutionBlockHash, Hash256},
@@ -22,7 +26,6 @@ use crate::{
     fork::ForkName,
     map_execution_payload_into_blinded_payload, map_execution_payload_into_full_payload,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 #[derive(Debug, PartialEq)]
@@ -63,7 +66,7 @@ pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
 }
 
 /// `ExecPayload` functionality the requires ownership.
-#[cfg(feature = "arbitrary")]
+#[cfg(all(feature = "arbitrary", feature = "testing"))]
 pub trait OwnedExecPayload<E: EthSpec>:
     ExecPayload<E>
     + Default
@@ -76,7 +79,7 @@ pub trait OwnedExecPayload<E: EthSpec>:
     + 'static
 {
 }
-#[cfg(feature = "arbitrary")]
+#[cfg(all(feature = "arbitrary", feature = "testing"))]
 impl<E: EthSpec, P> OwnedExecPayload<E> for P where
     P: ExecPayload<E>
         + Default
@@ -91,12 +94,37 @@ impl<E: EthSpec, P> OwnedExecPayload<E> for P where
 }
 
 /// `ExecPayload` functionality the requires ownership.
-#[cfg(not(feature = "arbitrary"))]
+#[cfg(all(feature = "arbitrary", not(feature = "testing")))]
+pub trait OwnedExecPayload<E: EthSpec>:
+    ExecPayload<E>
+    + Default
+    + Serialize
+    + DeserializeOwned
+    + Encode
+    + Decode
+    + for<'a> arbitrary::Arbitrary<'a>
+    + 'static
+{
+}
+#[cfg(all(feature = "arbitrary", not(feature = "testing")))]
+impl<E: EthSpec, P> OwnedExecPayload<E> for P where
+    P: ExecPayload<E>
+        + Default
+        + Serialize
+        + DeserializeOwned
+        + Encode
+        + Decode
+        + for<'a> arbitrary::Arbitrary<'a>
+        + 'static
+{
+}
+
+#[cfg(all(not(feature = "arbitrary"), feature = "testing"))]
 pub trait OwnedExecPayload<E: EthSpec>:
     ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + TestRandom + 'static
 {
 }
-#[cfg(not(feature = "arbitrary"))]
+#[cfg(all(not(feature = "arbitrary"), feature = "testing"))]
 impl<E: EthSpec, P> OwnedExecPayload<E> for P where
     P: ExecPayload<E>
         + Default
@@ -106,6 +134,17 @@ impl<E: EthSpec, P> OwnedExecPayload<E> for P where
         + Decode
         + TestRandom
         + 'static
+{
+}
+
+#[cfg(all(not(feature = "arbitrary"), not(feature = "testing")))]
+pub trait OwnedExecPayload<E: EthSpec>:
+    ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
+{
+}
+#[cfg(all(not(feature = "arbitrary"), not(feature = "testing")))]
+impl<E: EthSpec, P> OwnedExecPayload<E> for P where
+    P: ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
 {
 }
 
@@ -159,19 +198,10 @@ pub trait AbstractExecPayload<E: EthSpec>:
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Encode,
-            Decode,
-            TestRandom,
-            TreeHash,
-            Educe,
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe,),
         educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),
@@ -526,19 +556,10 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Encode,
-            Decode,
-            TestRandom,
-            TreeHash,
-            Educe,
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe,),
         educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),

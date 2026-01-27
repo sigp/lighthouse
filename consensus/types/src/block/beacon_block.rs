@@ -9,11 +9,14 @@ use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector, FixedVector, VariableList};
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     SignedExecutionPayloadBid,
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
@@ -34,7 +37,6 @@ use crate::{
     slashing::{AttesterSlashingBase, ProposerSlashing},
     state::BeaconStateError,
     sync_committee::SyncAggregate,
-    test_utils::TestRandom,
 };
 
 /// A block of the `BeaconChain`.
@@ -49,10 +51,10 @@ use crate::{
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         serde(
             bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields

@@ -3,16 +3,18 @@ use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     attestation::{
         Attestation, AttestationBase, AttestationElectra, AttestationRef, SelectionProof,
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
-    test_utils::TestRandom,
 };
 
 #[superstruct(
@@ -26,11 +28,11 @@ use crate::{
             Deserialize,
             Encode,
             Decode,
-            TestRandom,
-            TreeHash,
+            TreeHash
         ),
         context_deserialize(ForkName),
         serde(bound = "E: EthSpec"),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),

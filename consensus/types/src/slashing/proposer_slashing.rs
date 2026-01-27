@@ -1,18 +1,20 @@
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::{block::SignedBeaconBlockHeader, fork::ForkName, test_utils::TestRandom};
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
+use crate::{block::SignedBeaconBlockHeader, fork::ForkName};
 
 /// Two conflicting proposals from the same proposer (validator).
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct ProposerSlashing {
     pub signed_header_1: SignedBeaconBlockHeader,

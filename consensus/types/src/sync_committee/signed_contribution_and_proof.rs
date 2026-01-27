@@ -2,14 +2,16 @@ use bls::{SecretKey, Signature};
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
     sync_committee::{ContributionAndProof, SyncCommitteeContribution, SyncSelectionProof},
-    test_utils::TestRandom,
 };
 
 /// A Validators signed contribution proof to publish on the `sync_committee_contribution_and_proof`
@@ -19,7 +21,8 @@ use crate::{
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 pub struct SignedContributionAndProof<E: EthSpec> {

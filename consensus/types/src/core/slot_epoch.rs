@@ -12,15 +12,15 @@
 
 use std::{fmt, hash::Hash};
 
+#[cfg(feature = "testing")]
 use rand::RngCore;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 
-use crate::{
-    core::{ChainSpec, SignedRoot},
-    test_utils::TestRandom,
-};
+use crate::core::{ChainSpec, SignedRoot};
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 
 #[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};

@@ -10,9 +10,12 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector};
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     attestation::{
         AttestationData, Checkpoint, IndexedAttestation, IndexedAttestationBase,
@@ -20,7 +23,6 @@ use crate::{
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot, SlotData},
     fork::{Fork, ForkName},
-    test_utils::TestRandom,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -49,13 +51,13 @@ impl From<ssz_types::Error> for Error {
             Deserialize,
             Decode,
             Encode,
-            TestRandom,
             Educe,
             TreeHash,
         ),
         context_deserialize(ForkName),
         educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),
@@ -605,7 +607,8 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
 */
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TestRandom, TreeHash, PartialEq)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TreeHash, PartialEq)]
 #[context_deserialize(ForkName)]
 pub struct SingleAttestation {
     #[serde(with = "serde_utils::quoted_u64")]

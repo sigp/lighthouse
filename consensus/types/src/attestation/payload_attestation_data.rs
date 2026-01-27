@@ -1,14 +1,16 @@
-use crate::test_utils::TestRandom;
-use crate::{ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(
-    TestRandom, TreeHash, Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, Hash,
-)]
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
+use crate::{Hash256, SignedRoot, Slot, fork::ForkName};
+
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(TreeHash, Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[context_deserialize(ForkName)]
 pub struct PayloadAttestationData {

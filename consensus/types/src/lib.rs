@@ -9,6 +9,7 @@
     )
 )]
 
+#[cfg(feature = "testing")]
 #[macro_use]
 pub mod test_utils;
 

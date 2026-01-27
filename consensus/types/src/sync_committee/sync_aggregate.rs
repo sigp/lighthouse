@@ -5,14 +5,16 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     core::{EthSpec, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT},
     fork::ForkName,
     sync_committee::SyncCommitteeContribution,
-    test_utils::TestRandom,
 };
 
 #[derive(Debug, PartialEq)]
@@ -32,7 +34,8 @@ impl From<ArithError> for Error {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]

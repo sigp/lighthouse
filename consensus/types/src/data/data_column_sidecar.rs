@@ -11,17 +11,19 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
     core::{Epoch, EthSpec, Hash256, Slot},
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 pub type ColumnIndex = u64;
@@ -43,7 +45,8 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]

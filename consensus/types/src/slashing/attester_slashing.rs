@@ -1,36 +1,30 @@
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
+#[cfg(feature = "testing")]
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     attestation::{IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef},
     core::EthSpec,
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 #[superstruct(
     variants(Base, Electra),
     variant_attributes(
-        derive(
-            Educe,
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Encode,
-            Decode,
-            TreeHash,
-            TestRandom,
-        ),
+        derive(Educe, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash,),
         context_deserialize(ForkName),
         educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec"),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),
@@ -171,6 +165,7 @@ impl<E: EthSpec> AttesterSlashing<E> {
     }
 }
 
+#[cfg(feature = "testing")]
 impl<E: EthSpec> TestRandom for AttesterSlashing<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         if rng.random_bool(0.5) {

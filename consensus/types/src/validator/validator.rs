@@ -3,24 +3,25 @@ use context_deserialize::context_deserialize;
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     attestation::Checkpoint,
     core::{Address, ChainSpec, Epoch, EthSpec, Hash256},
     fork::ForkName,
     state::BeaconState,
-    test_utils::TestRandom,
 };
 
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash,
-)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,

@@ -3,14 +3,16 @@ use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     core::{EthSpec, Hash256, SignedRoot, Slot, SlotData},
     fork::ForkName,
     sync_committee::SyncCommitteeMessage,
-    test_utils::TestRandom,
 };
 
 #[derive(Debug, PartialEq)]
@@ -26,7 +28,8 @@ pub enum Error {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 pub struct SyncCommitteeContribution<E: EthSpec> {
@@ -79,7 +82,8 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
 impl SignedRoot for Hash256 {}
 
 /// This is not in the spec, but useful for determining uniqueness of sync committee contributions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct SyncContributionData {
     pub slot: Slot,
     pub beacon_block_root: Hash256,

@@ -10,10 +10,13 @@ use ssz_derive::Decode;
 use ssz_derive::Encode;
 use ssz_types::FixedVector;
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 use typenum::{U4, U5, U6, U7};
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     block::SignedBlindedBeaconBlock,
     core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
@@ -23,7 +26,6 @@ use crate::{
         LightClientHeaderDeneb, LightClientHeaderElectra, LightClientHeaderFulu,
     },
     sync_committee::{SyncAggregate, SyncCommittee},
-    test_utils::TestRandom,
 };
 
 pub type FinalizedRootProofLen = U6;
@@ -47,19 +49,10 @@ type NextSyncCommitteeBranchElectra = FixedVector<Hash256, NextSyncCommitteeProo
 #[superstruct(
     variants(Altair, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Educe,
-            Decode,
-            Encode,
-            TestRandom,
-            TreeHash,
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),

@@ -1,3 +1,4 @@
+#[cfg(feature = "testing")]
 use crate::test_utils::TestRandom;
 use crate::{
     EthSpec, ExecutionPayloadGloas, ExecutionRequests, ForkName, Hash256, KzgCommitments,
@@ -7,10 +8,12 @@ use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TestRandom, TreeHash, Educe)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]

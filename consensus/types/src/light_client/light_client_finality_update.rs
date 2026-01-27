@@ -6,9 +6,12 @@ use ssz_derive::Decode;
 use ssz_derive::Encode;
 use ssz_types::FixedVector;
 use superstruct::superstruct;
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     block::SignedBlindedBeaconBlock,
     core::{ChainSpec, EthSpec, Hash256, Slot},
@@ -19,25 +22,15 @@ use crate::{
         LightClientHeaderElectra, LightClientHeaderFulu,
     },
     sync_committee::SyncAggregate,
-    test_utils::TestRandom,
 };
 
 #[superstruct(
     variants(Altair, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Educe,
-            Decode,
-            Encode,
-            TestRandom,
-            TreeHash,
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "testing", derive(TestRandom)),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),

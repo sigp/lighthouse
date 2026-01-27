@@ -1,12 +1,16 @@
 use std::{fmt, str::FromStr};
 
+#[cfg(feature = "testing")]
 use rand::RngCore;
 use regex::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use ssz::{Decode, DecodeError, Encode};
 use tree_hash::{PackedEncoding, TreeHash};
 
-use crate::{core::Hash256, test_utils::TestRandom};
+#[cfg(feature = "testing")]
+use crate::core::Hash256;
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 
 pub const GRAFFITI_BYTES_LEN: usize = 32;
 
@@ -181,6 +185,7 @@ impl TreeHash for Graffiti {
     }
 }
 
+#[cfg(feature = "testing")]
 impl TestRandom for Graffiti {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         Self::from(Hash256::random_for_test(rng).0)

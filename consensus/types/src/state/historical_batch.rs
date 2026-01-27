@@ -2,13 +2,15 @@ use context_deserialize::context_deserialize;
 use milhouse::Vector;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+#[cfg(feature = "testing")]
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 use crate::{
     core::{EthSpec, Hash256},
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 /// Historical block and state roots.
@@ -19,12 +21,13 @@ use crate::{
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[cfg_attr(feature = "testing", derive(TestRandom))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct HistoricalBatch<E: EthSpec> {
-    #[test_random(default)]
+    #[cfg_attr(feature = "testing", test_random(default))]
     pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
-    #[test_random(default)]
+    #[cfg_attr(feature = "testing", test_random(default))]
     pub state_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
 }
 

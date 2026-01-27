@@ -1,11 +1,14 @@
 use std::fmt;
 
 use fixed_bytes::FixedBytesExtended;
+#[cfg(feature = "testing")]
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 
-use crate::{core::Hash256, test_utils::TestRandom};
+use crate::core::Hash256;
+#[cfg(feature = "testing")]
+use crate::test_utils::TestRandom;
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
@@ -86,6 +89,7 @@ impl tree_hash::TreeHash for ExecutionBlockHash {
     }
 }
 
+#[cfg(feature = "testing")]
 impl TestRandom for ExecutionBlockHash {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         Self(Hash256::random_for_test(rng))
