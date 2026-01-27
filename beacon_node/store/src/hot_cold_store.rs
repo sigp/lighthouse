@@ -1472,14 +1472,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     StoreOp::PutBlobs(block_root, _) => StoreOp::DeleteBlobs(*block_root),
                     StoreOp::PutDataColumns(block_root, data_columns) => {
                         let indices = data_columns.iter().map(|c| *c.index()).collect();
-                        if let Some(column) = data_columns.first() {
-                            let slot = column.slot();
-                            let fork_name = self.spec.fork_name_at_slot::<E>(slot);
-                            StoreOp::DeleteDataColumns(*block_root, indices, fork_name)
-                        } else {
-                            return Err(Error::DBError {
-                                message: "Failed to rollback data columns".to_owned(),
-                            });
+
+                        match data_columns.first() {
+                            Some(column) => {
+                                let slot = column.slot();
+                                let fork_name = self.spec.fork_name_at_slot::<E>(slot);
+                                StoreOp::DeleteDataColumns(*block_root, indices, fork_name)
+                            }
+                            // It should be impossible to reach this case. We're reverting
+                            // a `PutDataColumn` operation that attempted to write columns to the store.
+                            None => return Err(HotColdDBError::Rollback.into()),
                         }
                     }
                     StoreOp::DeleteBlobs(_) => match blobs_to_delete.pop() {
