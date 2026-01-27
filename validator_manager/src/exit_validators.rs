@@ -330,15 +330,8 @@ mod test {
 
             let harness = &beacon_node.harness;
             let mock_el = harness.mock_execution_layer.as_ref().unwrap();
-            let execution_ctx = mock_el.server.ctx.clone();
 
-            // Move to terminal block.
             mock_el.server.all_payloads_valid();
-            execution_ctx
-                .execution_block_generator
-                .write()
-                .move_to_terminal_block()
-                .unwrap();
 
             Self {
                 exit_config: None,

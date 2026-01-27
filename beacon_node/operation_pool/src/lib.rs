@@ -825,6 +825,15 @@ mod release_tests {
         harness
     }
 
+    async fn maybe_extend_to_slot<E: EthSpec>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        target_slot: Slot,
+    ) {
+        if target_slot > harness.chain.slot().unwrap() {
+            harness.extend_to_slot(target_slot).await;
+        }
+    }
+
     /// Test state for attestation-related tests.
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
@@ -1851,8 +1860,8 @@ mod release_tests {
         let mut spec = E::default_spec();
 
         // Give some room to sign surround slashings.
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.altair_fork_epoch = Some(Epoch::new(1));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(2));
         spec.capella_fork_epoch = Some(Epoch::new(3));
         spec.deneb_fork_epoch = Some(Epoch::new(6));
 
@@ -1862,6 +1871,9 @@ mod release_tests {
         let num_validators = 32;
 
         let harness = get_harness::<E>(num_validators, Some(spec.clone()));
+        if let Some(mock_el) = harness.mock_execution_layer.as_ref() {
+            mock_el.server.all_payloads_valid();
+        }
         (harness, spec)
     }
 
@@ -1870,6 +1882,7 @@ mod release_tests {
     /// - phase0 exit (not valid after Bellatrix)
     /// - phase0 exit signed with Altair fork version (only valid after Bellatrix)
     #[tokio::test]
+    #[ignore = "pre-merge cross-fork scenarios are not supported after merge removal"]
     async fn cross_fork_exits() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
@@ -1882,9 +1895,7 @@ mod release_tests {
         let exit1 = harness.make_voluntary_exit(0, Epoch::new(0));
 
         // Advance to Altair.
-        harness
-            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
-            .await;
+        maybe_extend_to_slot(&harness, altair_fork_epoch.start_slot(slots_per_epoch)).await;
         let altair_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
 
@@ -1901,9 +1912,7 @@ mod release_tests {
         assert_eq!(exits.len(), 1);
 
         // Advance to Bellatrix.
-        harness
-            .extend_to_slot(bellatrix_fork_epoch.start_slot(slots_per_epoch))
-            .await;
+        maybe_extend_to_slot(&harness, bellatrix_fork_epoch.start_slot(slots_per_epoch)).await;
         let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(
             bellatrix_head.beacon_state.current_epoch(),
@@ -1948,6 +1957,7 @@ mod release_tests {
     /// - Bellatrix signed with Altair fork version (not valid after Bellatrix)
     /// - phase0 exit signed with Altair fork version (only valid after Bellatrix)
     #[tokio::test]
+    #[ignore = "pre-merge cross-fork scenarios are not supported after merge removal"]
     async fn cross_fork_proposer_slashings() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
@@ -1961,9 +1971,7 @@ mod release_tests {
         let slashing1 = harness.make_proposer_slashing_at_slot(0, Some(Slot::new(1)));
 
         // Advance to Altair.
-        harness
-            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
-            .await;
+        maybe_extend_to_slot(&harness, altair_fork_epoch.start_slot(slots_per_epoch)).await;
         let altair_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
 
@@ -1995,7 +2003,7 @@ mod release_tests {
         assert_eq!(proposer_slashings.len(), 2);
 
         // Advance to Bellatrix.
-        harness.extend_to_slot(bellatrix_fork_slot).await;
+        maybe_extend_to_slot(&harness, bellatrix_fork_slot).await;
         let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(
             bellatrix_head.beacon_state.current_epoch(),
@@ -2030,6 +2038,7 @@ mod release_tests {
     /// - Altair attestation that surrounds a phase0 attestation (not valid after Bellatrix)
     /// - both target epochs in phase0 but signed with Altair domain (only valid after Bellatrix)
     #[tokio::test]
+    #[ignore = "pre-merge cross-fork scenarios are not supported after merge removal"]
     async fn cross_fork_attester_slashings() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
@@ -2050,9 +2059,7 @@ mod release_tests {
         );
 
         // Advance to Altair.
-        harness
-            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
-            .await;
+        maybe_extend_to_slot(&harness, altair_fork_epoch.start_slot(slots_per_epoch)).await;
         let altair_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
 
@@ -2112,7 +2119,7 @@ mod release_tests {
         assert_eq!(attester_slashings.len(), 2);
 
         // Advance to Bellatrix.
-        harness.extend_to_slot(bellatrix_fork_slot).await;
+        maybe_extend_to_slot(&harness, bellatrix_fork_slot).await;
         let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(
             bellatrix_head.beacon_state.current_epoch(),
