@@ -5,7 +5,7 @@ use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use types::EthSpec;
 
 type CacheHashMap = HashMap<usize, SseHead>;
@@ -116,15 +116,34 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
         let stream_fut = async move {
             while let Some(event_result) = head_event_stream.next().await {
                 if let Ok(EventKind::Head(head)) = event_result {
-                    head_cache_ref.insert(candidate.index, head.clone()).await;
-
-                    if !head_cache_ref.is_latest(&head).await {
-                        continue;
-                    }
+                    debug!(
+                        node_index = candidate.index,
+                        block_root = ?head.block,
+                        slot = %head.slot,
+                        "New head from beacon node"
+                    );
 
                     // Skip optimistic heads - the beacon node can't produce valid
                     // attestation data when its execution layer is not verified
                     if head.execution_optimistic {
+                        debug!(
+                            node_index = candidate.index,
+                            block_root = ?head.block,
+                            slot = %head.slot,
+                            "Skipping optimistic head"
+                        );
+                        continue;
+                    }
+
+                    head_cache_ref.insert(candidate.index, head.clone()).await;
+
+                    if !head_cache_ref.is_latest(&head).await {
+                        debug!(
+                            node_index = candidate.index,
+                            block_root = ?head.block,
+                            slot = %head.slot,
+                            "Skipping stale head"
+                        );
                         continue;
                     }
 
