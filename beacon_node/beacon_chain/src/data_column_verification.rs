@@ -497,7 +497,11 @@ where
 }
 
 // TODO(gloas) make sure the gloas variant uses the same span name
-#[instrument(skip_all, name = "validate_data_column_sidecar_for_gossip", level = "debug")]
+#[instrument(
+    skip_all,
+    name = "validate_data_column_sidecar_for_gossip",
+    level = "debug"
+)]
 pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: DataColumnSubnetId,
@@ -800,8 +804,8 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
     // Pre-gloas: Now the signature is valid, store the proposal so we don't accept another data column sidecar
-    // with the same `ColumnIndex`. 
-    // Post-gloas: The block associated with the sidecar has already been imported into fork choice. Store the 
+    // with the same `ColumnIndex`.
+    // Post-gloas: The block associated with the sidecar has already been imported into fork choice. Store the
     // columns `beacon_block_root` so we don't accept another data column sidecar with the same `ColumnIndex`.
     // It's important to double-check that the `Observationkey` still
     // hasn't been observed so we don't have a race-condition when verifying two sidecars
