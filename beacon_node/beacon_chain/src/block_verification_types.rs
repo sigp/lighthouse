@@ -20,7 +20,7 @@ use types::{
 ///    or a post-Deneb block that doesn't require blobs/columns. Hence, it is fully self contained w.r.t
 ///    verification. i.e. this block has all the required data to get verified and imported into fork choice.
 ///
-/// 2. `BlockOnly`: This is a post-deneb block that may or may not require blobs to be considered fully available.
+/// 2. `BlockOnly`: This is a post-deneb block that requires blobs to be considered fully available.
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
 pub enum RpcBlock<E: EthSpec> {

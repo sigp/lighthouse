@@ -13,9 +13,10 @@ pub use data_column_custody_group::{
 };
 pub use data_column_sidecar::{
     Cell, ColumnIndex, DataColumn, DataColumnSidecar, DataColumnSidecarError,
-    DataColumnSidecarList, DataColumnsByRootIdentifier,
+    DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarList,
+    DataColumnsByRootIdentifier,
 };
-pub use data_column_subnet_id::DataColumnSubnetId;
+pub use data_column_subnet_id::{DataColumnSubnetId, all_data_column_sidecar_subnets_from_spec};
 
 use crate::core::EthSpec;
 use ssz_types::FixedVector;

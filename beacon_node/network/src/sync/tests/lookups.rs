@@ -19,6 +19,7 @@ use beacon_chain::{
     PayloadVerificationOutcome, PayloadVerificationStatus,
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
+    custody_context::NodeCustodyType,
     data_availability_checker::Availability,
     test_utils::{
         BeaconChainHarness, EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
@@ -54,6 +55,10 @@ type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
 impl TestRig {
     pub fn test_setup() -> Self {
+        Self::test_setup_with_custody_type(NodeCustodyType::Fullnode)
+    }
+
+    pub fn test_setup_with_custody_type(node_custody_type: NodeCustodyType) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
         let spec = test_spec::<E>();
 
@@ -68,6 +73,7 @@ impl TestRig {
                 Duration::from_secs(0),
                 Duration::from_secs(12),
             ))
+            .node_custody_type(node_custody_type)
             .build();
 
         let chain = harness.chain.clone();

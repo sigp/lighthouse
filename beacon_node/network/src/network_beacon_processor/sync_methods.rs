@@ -368,7 +368,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
         }
 
-        let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();
+        let mut indices = custody_columns
+            .iter()
+            .map(|d| *d.index())
+            .collect::<Vec<_>>();
         indices.sort_unstable();
         debug!(
             ?indices,
@@ -736,7 +739,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .data_availability_checker
             .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
-            Ok(blocks) => blocks,
+            Ok(()) => {}
             Err(e) => match e {
                 AvailabilityCheckError::StoreError(_) => {
                     return (

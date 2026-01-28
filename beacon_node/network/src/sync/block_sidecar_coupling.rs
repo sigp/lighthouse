@@ -369,7 +369,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         for column in data_columns {
             let block_root = column.block_root();
-            let index = column.index;
+            let index = *column.index();
             if data_columns_by_block
                 .entry(block_root)
                 .or_default()
@@ -488,9 +488,10 @@ mod tests {
     use crate::sync::network_context::MAX_COLUMN_RETRIES;
 
     use super::RangeBlockComponentsRequest;
+    use beacon_chain::custody_context::NodeCustodyType;
     use beacon_chain::test_utils::{
         NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns,
-        test_custody_context, test_spec,
+        test_custody_context, test_da_checker, test_spec,
     };
     use lighthouse_network::{
         PeerId,
@@ -612,9 +613,10 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
-        let custody_context = Arc::new(test_custody_context(spec.clone()));
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let custody_context = da_checker.custody_context().clone();
         let expects_custody_columns = custody_context
-            .custody_columns_for_epoch(None, &spec)
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
@@ -665,7 +667,7 @@ mod tests {
                 *req,
                 blocks
                     .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| d.index == column_index).cloned())
+                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == column_index).cloned())
                     .collect(),
             )
             .unwrap();
@@ -688,13 +690,16 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
-        let custody_context = Arc::new(test_custody_context(spec.clone()));
-        let expected_custody_columns = custody_context
-            .custody_columns_for_epoch(None, &spec)
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let custody_context = da_checker.custody_context().clone();
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
+        // Split sampling columns into two batches
+        let mid = expected_sampling_columns.len() / 2;
         let batched_column_requests = [
-            vec![expected_custody_columns[0], expected_custody_columns[1]],
-            vec![expected_custody_columns[2], expected_custody_columns[3]],
+            expected_sampling_columns[..mid].to_vec(),
+            expected_sampling_columns[mid..].to_vec(),
         ];
         let custody_column_request_ids =
             (0..batched_column_requests.len() as u32).collect::<Vec<_>>();
@@ -719,7 +724,7 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
             None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
             Span::none(),
         );
 
@@ -753,7 +758,7 @@ mod tests {
                     .iter()
                     .flat_map(|b| {
                         b.1.iter()
-                            .filter(|d| column_indices.contains(&d.index))
+                            .filter(|d| column_indices.contains(d.index()))
                             .cloned()
                     })
                     .collect::<Vec<_>>(),
@@ -774,11 +779,12 @@ mod tests {
 
     #[test]
     fn missing_custody_columns_from_faulty_peers() {
-        // GIVEN: A request expecting custody columns from multiple peers
+        // GIVEN: A request expecting sampling columns from multiple peers
         let spec = Arc::new(test_spec::<E>());
-        let custody_context = Arc::new(test_custody_context(spec.clone()));
-        let expected_custody_columns = custody_context
-            .custody_columns_for_epoch(None, &spec)
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let custody_context = da_checker.custody_context().clone();
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..2)
@@ -794,7 +800,7 @@ mod tests {
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expected_custody_columns
+        let columns_req_id = expected_sampling_columns
             .iter()
             .enumerate()
             .map(|(i, column)| {
@@ -810,7 +816,7 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
             None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
             Span::none(),
         );
 
@@ -821,21 +827,21 @@ mod tests {
         )
         .unwrap();
 
-        // AND: Only some custody columns are received (columns 1 and 2)
-        for (i, &column_index) in expected_custody_columns.iter().take(2).enumerate() {
+        // AND: Only the first 2 sampling columns are received successfully
+        for (i, &column_index) in expected_sampling_columns.iter().take(2).enumerate() {
             let (req, _columns) = columns_req_id.get(i).unwrap();
             info.add_custody_columns(
                 *req,
                 blocks
                     .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| d.index == column_index).cloned())
+                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == column_index).cloned())
                     .collect(),
             )
             .unwrap();
         }
 
         // AND: Remaining column requests are completed with empty data (simulating faulty peers)
-        for i in 2..4 {
+        for i in 2..expected_sampling_columns.len() {
             let (req, _columns) = columns_req_id.get(i).unwrap();
             info.add_custody_columns(*req, vec![]).unwrap();
         }
@@ -852,9 +858,13 @@ mod tests {
         }) = result
         {
             assert!(error.contains("Peers did not return column"));
-            assert_eq!(faulty_peers.len(), 2); // columns 3 and 4 missing
-            assert_eq!(faulty_peers[0].0, expected_custody_columns[2]); // column index 2
-            assert_eq!(faulty_peers[1].0, expected_custody_columns[3]); // column index 3
+            // All columns after the first 2 should be reported as faulty
+            let expected_faulty_count = expected_sampling_columns.len() - 2;
+            assert_eq!(faulty_peers.len(), expected_faulty_count);
+            // Verify the faulty column indices match
+            for (i, (column_index, _peer)) in faulty_peers.iter().enumerate() {
+                assert_eq!(*column_index, expected_sampling_columns[i + 2]);
+            }
             assert!(!exceeded_retries); // First attempt, should be false
         } else {
             panic!("Expected PeerFailure error");
@@ -863,14 +873,15 @@ mod tests {
 
     #[test]
     fn retry_logic_after_peer_failures() {
-        // GIVEN: A request expecting custody columns where some peers initially fail
+        // GIVEN: A request expecting sampling columns where some peers initially fail
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
-        let custody_context = Arc::new(test_custody_context(spec.clone()));
-        let expected_custody_columns = custody_context
-            .custody_columns_for_epoch(None, &spec)
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let custody_context = da_checker.custody_context().clone();
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..2)
@@ -886,7 +897,7 @@ mod tests {
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expected_custody_columns
+        let columns_req_id = expected_sampling_columns
             .iter()
             .enumerate()
             .map(|(i, column)| {
@@ -902,7 +913,7 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
             None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
             Span::none(),
         );
 
@@ -913,30 +924,26 @@ mod tests {
         )
         .unwrap();
 
-        // AND: Only partial custody columns are received (first column but not second)
-        let (req1, _) = columns_req_id.first().unwrap();
+        // AND: Only partial sampling columns are received (first column but not others)
+        let (req0, _) = columns_req_id.first().unwrap();
         info.add_custody_columns(
-            *req1,
+            *req0,
             blocks
                 .iter()
                 .flat_map(|b| {
                     b.1.iter()
-                        .filter(|d| d.index == expected_custody_columns[0])
+                        .filter(|d| *d.index() == expected_sampling_columns[0])
                         .cloned()
                 })
                 .collect(),
         )
         .unwrap();
 
-        // AND: The missing column requests are completed with empty data (peer failure)
-        let (req2, _) = columns_req_id.get(1).unwrap();
-        info.add_custody_columns(*req2, vec![]).unwrap();
-
-        let (req3, _) = columns_req_id.get(2).unwrap();
-        info.add_custody_columns(*req3, vec![]).unwrap();
-
-        let (req4, _) = columns_req_id.get(3).unwrap();
-        info.add_custody_columns(*req4, vec![]).unwrap();
+        // AND: The remaining column requests are completed with empty data (peer failure)
+        for i in 1..expected_sampling_columns.len() {
+            let (req, _) = columns_req_id.get(i).unwrap();
+            info.add_custody_columns(*req, vec![]).unwrap();
+        }
 
         let result: Result<
             Vec<beacon_chain::block_verification_types::RpcBlock<E>>,
@@ -946,35 +953,26 @@ mod tests {
             .unwrap();
         assert!(result.is_err());
 
-        // AND: We retry with a new peer for the failed column
+        // AND: We retry with a new peer for the failed columns
         let new_columns_req_id = columns_id(
             10 as Id,
             DataColumnsByRangeRequester::ComponentsByRange(components_id),
         );
-        let failed_column_requests = vec![(new_columns_req_id, vec![expected_custody_columns[1]])];
-        info.reinsert_failed_column_requests(failed_column_requests)
-            .unwrap();
-
-        let failed_column_requests = vec![(new_columns_req_id, vec![expected_custody_columns[2]])];
-        info.reinsert_failed_column_requests(failed_column_requests)
-            .unwrap();
-
-        let failed_column_requests = vec![(new_columns_req_id, vec![expected_custody_columns[3]])];
-        info.reinsert_failed_column_requests(failed_column_requests)
-            .unwrap();
+        for column in &expected_sampling_columns[1..] {
+            let failed_column_requests = vec![(new_columns_req_id, vec![*column])];
+            info.reinsert_failed_column_requests(failed_column_requests)
+                .unwrap();
+        }
 
         // AND: The new peer provides the missing column data
+        let failed_column_indices: Vec<_> = expected_sampling_columns[1..].to_vec();
         info.add_custody_columns(
             new_columns_req_id,
             blocks
                 .iter()
                 .flat_map(|b| {
                     b.1.iter()
-                        .filter(|d| {
-                            d.index == expected_custody_columns[1]
-                                || d.index == expected_custody_columns[2]
-                                || d.index == expected_custody_columns[3]
-                        })
+                        .filter(|d| failed_column_indices.contains(d.index()))
                         .cloned()
                 })
                 .collect(),
@@ -997,9 +995,10 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
-        let custody_context = Arc::new(test_custody_context(spec.clone()));
-        let expected_custody_columns = custody_context
-            .custody_columns_for_epoch(None, &spec)
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let custody_context = da_checker.custody_context().clone();
+        let expected_sampling_columns = custody_context
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..1)
@@ -1015,7 +1014,7 @@ mod tests {
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expected_custody_columns
+        let columns_req_id = expected_sampling_columns
             .iter()
             .enumerate()
             .map(|(i, column)| {
@@ -1031,7 +1030,7 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
             None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
             Span::none(),
         );
 
@@ -1042,20 +1041,26 @@ mod tests {
         )
         .unwrap();
 
-        // AND: Only partial custody columns are provided (column 1 but not 2)
-        let (req1, _) = columns_req_id.first().unwrap();
+        // AND: Only the first sampling column is provided successfully
+        let (req0, _) = columns_req_id.first().unwrap();
         info.add_custody_columns(
-            *req1,
+            *req0,
             blocks
                 .iter()
-                .flat_map(|b| b.1.iter().filter(|d| d.index == 1).cloned())
+                .flat_map(|b| {
+                    b.1.iter()
+                        .filter(|d| *d.index() == expected_sampling_columns[0])
+                        .cloned()
+                })
                 .collect(),
         )
         .unwrap();
 
-        // AND: Column 2 request completes with empty data (persistent peer failure)
-        let (req2, _) = columns_req_id.get(1).unwrap();
-        info.add_custody_columns(*req2, vec![]).unwrap();
+        // AND: All other column requests complete with empty data (persistent peer failure)
+        for i in 1..expected_sampling_columns.len() {
+            let (req, _) = columns_req_id.get(i).unwrap();
+            info.add_custody_columns(*req, vec![]).unwrap();
+        }
 
         // AND: Column 3 request completes with empty data (persistent peer failure)
         let (req3, _) = columns_req_id.get(2).unwrap();
@@ -1092,11 +1097,14 @@ mod tests {
             exceeded_retries,
         }) = result
         {
-            assert_eq!(faulty_peers.len(), 4);
+            // All columns except the first one should be faulty
+            let expected_faulty_count = expected_sampling_columns.len() - 1;
+            assert_eq!(faulty_peers.len(), expected_faulty_count);
 
             let mut faulty_peers = faulty_peers.into_iter().collect::<HashMap<u64, PeerId>>();
-            for column in expected_custody_columns {
-                faulty_peers.remove(&column);
+            // Only the columns that failed (indices 1..N) should be in faulty_peers
+            for column in &expected_sampling_columns[1..] {
+                faulty_peers.remove(column);
             }
             assert!(faulty_peers.is_empty());
             assert!(exceeded_retries); // Should be true after max retries

@@ -398,6 +398,11 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
         (custody_context, custody_count_changed)
     }
 
+    /// Returns a reference to the slot clock.
+    pub fn slot_clock(&self) -> &T::SlotClock {
+        &self.slot_clock
+    }
+
     /// Register a new validator index and updates the list of validators if required.
     ///
     /// Also modifies the internal structures if the validator custody has changed to
