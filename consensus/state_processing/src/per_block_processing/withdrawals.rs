@@ -8,8 +8,9 @@ use milhouse::List;
 use safe_arith::{SafeArith, SafeArithIter};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Validator,
-    Withdrawal, Withdrawals,
+    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload,
+    ExpectedWithdrawals, ExpectedWithdrawalsCapella, ExpectedWithdrawalsElectra,
+    ExpectedWithdrawalsGloas, Validator, Withdrawal, Withdrawals,
 };
 
 /// Compute the next batch of withdrawals which should be included in a block.
@@ -19,16 +20,7 @@ use types::{
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<
-    (
-        Withdrawals<E>,
-        Option<usize>,
-        Option<usize>,
-        Option<u64>,
-        u64,
-    ),
-    BlockProcessingError,
-> {
+) -> Result<ExpectedWithdrawals<E>, BlockProcessingError> {
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut withdrawals = Vec::<Withdrawal>::with_capacity(E::max_withdrawals_per_payload());
 
@@ -48,25 +40,45 @@ pub fn get_expected_withdrawals<E: EthSpec>(
         get_builders_sweep_withdrawals(state, &mut withdrawal_index, &mut withdrawals)?;
 
     // Get validators sweep withdrawals
-    let processed_validators_sweep_count =
+    let processed_sweep_withdrawals_count =
         get_validators_sweep_withdrawals(state, &mut withdrawal_index, &mut withdrawals, spec)?;
 
-    Ok((
-        withdrawals
-            .try_into()
-            .map_err(BlockProcessingError::SszTypesError)?,
-        processed_builder_withdrawals_count,
-        processed_partial_withdrawals_count,
-        processed_builders_sweep_count,
-        processed_validators_sweep_count,
-    ))
+    let withdrawals = withdrawals
+        .try_into()
+        .map_err(BlockProcessingError::SszTypesError)?;
+
+    let fork_name = state.fork_name_unchecked();
+    if fork_name.gloas_enabled() {
+        Ok(ExpectedWithdrawals::Gloas(ExpectedWithdrawalsGloas {
+            withdrawals,
+            processed_builder_withdrawals_count: processed_builder_withdrawals_count
+                .ok_or(BlockProcessingError::IncorrectExpectedWithdrawalsVariant)?,
+            processed_partial_withdrawals_count: processed_partial_withdrawals_count
+                .ok_or(BlockProcessingError::IncorrectExpectedWithdrawalsVariant)?,
+            processed_builders_sweep_count: processed_builders_sweep_count
+                .ok_or(BlockProcessingError::IncorrectExpectedWithdrawalsVariant)?,
+            processed_sweep_withdrawals_count,
+        }))
+    } else if fork_name.electra_enabled() {
+        Ok(ExpectedWithdrawals::Electra(ExpectedWithdrawalsElectra {
+            withdrawals,
+            processed_partial_withdrawals_count: processed_partial_withdrawals_count
+                .ok_or(BlockProcessingError::IncorrectExpectedWithdrawalsVariant)?,
+            processed_sweep_withdrawals_count,
+        }))
+    } else {
+        Ok(ExpectedWithdrawals::Capella(ExpectedWithdrawalsCapella {
+            withdrawals,
+            processed_sweep_withdrawals_count,
+        }))
+    }
 }
 
 pub fn get_builder_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     withdrawal_index: &mut u64,
     withdrawals: &mut Vec<Withdrawal>,
-) -> Result<Option<usize>, BlockProcessingError> {
+) -> Result<Option<u64>, BlockProcessingError> {
     let Ok(builder_pending_withdrawals) = state.builder_pending_withdrawals() else {
         // Pre-Gloas, nothing to do.
         return Ok(None);
@@ -101,7 +113,7 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
     withdrawal_index: &mut u64,
     withdrawals: &mut Vec<Withdrawal>,
     spec: &ChainSpec,
-) -> Result<Option<usize>, BlockProcessingError> {
+) -> Result<Option<u64>, BlockProcessingError> {
     let Ok(pending_partial_withdrawals) = state.pending_partial_withdrawals() else {
         // Pre-Electra nothing to do.
         return Ok(None);
@@ -340,35 +352,29 @@ fn update_payload_expected_withdrawals<E: EthSpec>(
 
 fn update_builder_pending_withdrawals<E: EthSpec>(
     state: &mut BeaconState<E>,
-    processed_builder_withdrawals_count_opt: Option<usize>,
+    processed_builder_withdrawals_count: u64,
 ) -> Result<(), BlockProcessingError> {
-    if let Some(processed_builder_withdrawals_count) = processed_builder_withdrawals_count_opt {
-        state
-            .builder_pending_withdrawals_mut()?
-            .pop_front(processed_builder_withdrawals_count)?;
-    }
+    state
+        .builder_pending_withdrawals_mut()?
+        .pop_front(processed_builder_withdrawals_count as usize)?;
     Ok(())
 }
 
 fn update_pending_partial_withdrawals<E: EthSpec>(
     state: &mut BeaconState<E>,
-    processed_partial_withdrawals_count_opt: Option<usize>,
+    processed_partial_withdrawals_count: u64,
 ) -> Result<(), BlockProcessingError> {
-    if let Some(processed_partial_withdrawals_count) = processed_partial_withdrawals_count_opt {
-        state
-            .pending_partial_withdrawals_mut()?
-            .pop_front(processed_partial_withdrawals_count)?;
-    }
+    state
+        .pending_partial_withdrawals_mut()?
+        .pop_front(processed_partial_withdrawals_count as usize)?;
     Ok(())
 }
 
 fn update_next_withdrawal_builder_index<E: EthSpec>(
     state: &mut BeaconState<E>,
-    processed_builders_sweep_count_opt: Option<u64>,
+    processed_builders_sweep_count: u64,
 ) -> Result<(), BlockProcessingError> {
-    if let Some(processed_builders_sweep_count) = processed_builders_sweep_count_opt
-        && !state.builders()?.is_empty()
-    {
+    if !state.builders()?.is_empty() {
         // Update the next builder index to start the next withdrawal sweep
         let next_index = state
             .next_withdrawal_builder_index()?
@@ -441,15 +447,9 @@ pub mod capella_electra {
         payload: Payload::Ref<'_>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        let (
-            expected_withdrawals,
-            _processed_builder_withdrawals_count,
-            processed_partial_withdrawals_count,
-            _processed_builders_sweep_count,
-            _,
-        ) = get_expected_withdrawals(state, spec)?;
+        let expected_withdrawals = get_expected_withdrawals(state, spec)?;
 
-        let expected_root = expected_withdrawals.tree_hash_root();
+        let expected_root = expected_withdrawals.withdrawals().tree_hash_root();
         let withdrawals_root = payload.withdrawals_root()?;
         if expected_root != withdrawals_root {
             return Err(BlockProcessingError::WithdrawalsRootMismatch {
@@ -459,16 +459,20 @@ pub mod capella_electra {
         }
 
         // Apply expected withdrawals.
-        apply_withdrawals(state, &expected_withdrawals)?;
+        apply_withdrawals(state, expected_withdrawals.withdrawals())?;
 
         // [Common] Update withdrawals fields in the state
-        update_next_withdrawal_index(state, &expected_withdrawals)?;
+        update_next_withdrawal_index(state, expected_withdrawals.withdrawals())?;
 
         // [New in Electra:EIP7251]
-        update_pending_partial_withdrawals(state, processed_partial_withdrawals_count)?;
+        if let Ok(processed_partial_withdrawals_count) =
+            expected_withdrawals.processed_partial_withdrawals_count()
+        {
+            update_pending_partial_withdrawals(state, processed_partial_withdrawals_count)?;
+        }
 
         // [Common from Capella]
-        update_next_withdrawal_validator_index(state, &expected_withdrawals, spec)?;
+        update_next_withdrawal_validator_index(state, expected_withdrawals.withdrawals(), spec)?;
 
         Ok(())
     }
@@ -486,22 +490,25 @@ pub mod gloas {
             return Ok(());
         }
 
-        let (
-            expected_withdrawals,
+        let ExpectedWithdrawals::Gloas(ExpectedWithdrawalsGloas {
+            withdrawals,
             processed_builder_withdrawals_count,
             processed_partial_withdrawals_count,
             processed_builders_sweep_count,
-            _,
-        ) = get_expected_withdrawals(state, spec)?;
+            processed_sweep_withdrawals_count: _,
+        }) = get_expected_withdrawals(state, spec)?
+        else {
+            return Err(BlockProcessingError::IncorrectExpectedWithdrawalsVariant);
+        };
 
         // Apply expected withdrawals.
-        apply_withdrawals(state, &expected_withdrawals)?;
+        apply_withdrawals(state, &withdrawals)?;
 
         // [Common] Update withdrawals fields in the state
-        update_next_withdrawal_index(state, &expected_withdrawals)?;
+        update_next_withdrawal_index(state, &withdrawals)?;
 
         // [New in Gloas:EIP7732]
-        update_payload_expected_withdrawals(state, &expected_withdrawals)?;
+        update_payload_expected_withdrawals(state, &withdrawals)?;
 
         // [New in Gloas:EIP7732]
         update_builder_pending_withdrawals(state, processed_builder_withdrawals_count)?;
@@ -513,7 +520,7 @@ pub mod gloas {
         update_next_withdrawal_builder_index(state, processed_builders_sweep_count)?;
 
         // [Common from Capella]
-        update_next_withdrawal_validator_index(state, &expected_withdrawals, spec)?;
+        update_next_withdrawal_validator_index(state, &withdrawals, spec)?;
 
         Ok(())
     }

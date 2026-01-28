@@ -95,6 +95,8 @@ pub enum BlockProcessingError {
         limit: usize,
         prior_withdrawals: usize,
     },
+    /// Unreachable unless there's a logic error in LH.
+    IncorrectExpectedWithdrawalsVariant,
     MissingLastWithdrawal,
     PendingAttestationInElectra,
 }
