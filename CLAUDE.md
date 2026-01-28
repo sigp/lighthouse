@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL - Always Follow
+
+After completing ANY code changes:
+1. **MUST** run `cargo fmt --all && make lint-fix` to format and fix linting issues
+2. **MUST** run `cargo check` to verify compilation before considering task complete
+
 ## Development Commands
 
 **Important**: Always branch from `unstable` and target `unstable` when creating pull requests.
