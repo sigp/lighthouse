@@ -270,7 +270,7 @@ impl<T: BeaconChainTypes> std::fmt::Debug for CustodyContext<T> {
                 "ordered_custody_column_indices",
                 &self.ordered_custody_column_indices,
             )
-            .field("compete_blob_backfill", &self.complete_blob_backfill)
+            .field("complete_blob_backfill", &self.complete_blob_backfill)
             .finish_non_exhaustive()
     }
 }
