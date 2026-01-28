@@ -606,7 +606,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index()),
     )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
@@ -618,7 +618,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let slot = column_sidecar.slot();
         let block_root = column_sidecar.block_root();
-        let index = column_sidecar.index;
+        let index = *column_sidecar.index();
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
@@ -664,6 +664,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
+                    GossipDataColumnError::InvalidVariant => {
+                        // TODO(gloas) we should probably penalize the peer here
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Invalid gossip data column variant."
+                        )
+                    }
                     GossipDataColumnError::PriorKnownUnpublished => {
                         debug!(
                             %slot,

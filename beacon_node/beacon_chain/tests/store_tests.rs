@@ -3381,7 +3381,7 @@ async fn test_import_historical_data_columns_batch() {
         .await;
     harness.advance_slot();
 
-    let block_root_iter = harness
+    let block_root_and_slot = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
@@ -3389,9 +3389,14 @@ async fn test_import_historical_data_columns_batch() {
     let mut data_columns_list = vec![];
 
     // Get all data columns for epoch 0
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         for data_column in data_columns.unwrap_or_default() {
             data_columns_list.push(data_column);
         }
@@ -3416,15 +3421,20 @@ async fn test_import_historical_data_columns_batch() {
         .try_prune_blobs(true, Epoch::new(2))
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     // Assert that data columns no longer exist for epoch 0
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         assert!(data_columns.is_none())
     }
 
@@ -3434,14 +3444,14 @@ async fn test_import_historical_data_columns_batch() {
         .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     // Assert that data columns now exist for epoch 0
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
         if !harness
             .get_block(block_root.into())
             .unwrap()
@@ -3451,7 +3461,12 @@ async fn test_import_historical_data_columns_batch() {
             .unwrap()
             .is_empty()
         {
-            let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+            let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+            let data_columns = harness
+                .chain
+                .store
+                .get_data_columns(&block_root, fork_name)
+                .unwrap();
             assert!(data_columns.is_some())
         };
     }
@@ -3479,7 +3494,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
         .await;
     harness.advance_slot();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
@@ -3488,14 +3503,23 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 
     // Get all data columns from start_slot to end_slot
     // and mutate the data columns with an invalid block root
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
 
         for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
-            if data_column.index % 2 == 0 {
-                data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            if data_column.index() % 2 == 0 {
+                data_column
+                    .signed_block_header_mut()
+                    .unwrap()
+                    .message
+                    .body_root = Hash256::ZERO;
             }
 
             data_columns_list.push(Arc::new(data_column));
@@ -3520,15 +3544,20 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
         .try_prune_blobs(true, Epoch::new(2))
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     // Assert there are no columns between start_slot and end_slot
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         assert!(data_columns.is_none())
     }
 
@@ -3574,20 +3603,29 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         .await;
     harness.advance_slot();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     let mut data_columns_list = vec![];
 
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
 
         for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
-            data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            data_column
+                .signed_block_header_mut()
+                .unwrap()
+                .message
+                .body_root = Hash256::ZERO;
             data_columns_list.push(Arc::new(data_column));
         }
     }
@@ -3610,14 +3648,19 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         .try_prune_blobs(true, Epoch::new(2))
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         assert!(data_columns.is_none())
     }
 
@@ -4996,7 +5039,13 @@ fn check_data_column_existence(
         .unwrap()
         .map(Result::unwrap)
     {
-        if let Some(columns) = harness.chain.store.get_data_columns(&block_root).unwrap() {
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        if let Some(columns) = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap()
+        {
             assert!(should_exist, "columns at slot {slot} exist but should not");
             columns_seen += columns.len();
         } else {
