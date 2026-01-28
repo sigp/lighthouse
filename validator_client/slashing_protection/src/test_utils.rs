@@ -1,3 +1,4 @@
+use crate::slashing_database::CheckSlashability;
 use crate::*;
 use tempfile::{TempDir, tempdir};
 use types::{AttestationData, BeaconBlockHeader, test_utils::generate_deterministic_keypair};
@@ -72,6 +73,12 @@ impl<T> Default for StreamTest<T> {
 
 impl StreamTest<AttestationData> {
     pub fn run(&self) {
+        self.run_solo();
+        self.run_batched();
+    }
+
+    // Run the test with every attestation processed individually.
+    pub fn run_solo(&self) {
         let dir = tempdir().unwrap();
         let slashing_db_file = dir.path().join("slashing_protection.sqlite");
         let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
@@ -84,8 +91,55 @@ impl StreamTest<AttestationData> {
 
         for (i, test) in self.cases.iter().enumerate() {
             assert_eq!(
-                slashing_db.check_and_insert_attestation(&test.pubkey, &test.data, test.domain),
+                slashing_db.with_transaction(|txn| slashing_db.check_and_insert_attestation(
+                    &test.pubkey,
+                    &test.data,
+                    test.domain,
+                    txn
+                )),
                 test.expected,
+                "attestation {} not processed as expected",
+                i
+            );
+        }
+
+        roundtrip_database(&dir, &slashing_db, self.registered_validators.is_empty());
+    }
+
+    // Run the test with all attestations processed by the slashing DB as part of a batch.
+    pub fn run_batched(&self) {
+        let dir = tempdir().unwrap();
+        let slashing_db_file = dir.path().join("slashing_protection.sqlite");
+        let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
+
+        for pubkey in &self.registered_validators {
+            slashing_db.register_validator(*pubkey).unwrap();
+        }
+
+        check_registration_invariants(&slashing_db, &self.registered_validators);
+
+        let attestations_to_check = self
+            .cases
+            .iter()
+            .map(|test| {
+                (
+                    &test.data,
+                    &test.pubkey,
+                    test.domain,
+                    CheckSlashability::Yes,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let results = slashing_db
+            .check_and_insert_attestations(&attestations_to_check)
+            .unwrap();
+
+        assert_eq!(results.len(), self.cases.len());
+
+        for ((i, test), result) in self.cases.iter().enumerate().zip(results) {
+            assert_eq!(
+                result, test.expected,
                 "attestation {} not processed as expected",
                 i
             );
