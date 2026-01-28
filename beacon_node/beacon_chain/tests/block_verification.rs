@@ -12,8 +12,8 @@ use beacon_chain::{
     },
 };
 use beacon_chain::{
-    BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
-    InvalidSignature, NotifyExecutionLayer, signature_verify_chain_segment,
+    BeaconSnapshot, BlockError, ChainConfig, IntoExecutionPendingBlock, InvalidSignature,
+    NotifyExecutionLayer, signature_verify_chain_segment,
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
