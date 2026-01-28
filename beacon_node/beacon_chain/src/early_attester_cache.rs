@@ -2,6 +2,7 @@ use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{BeaconChainError as Error, metrics};
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
+use safe_arith::SafeArith;
 use std::sync::Arc;
 use tracing::instrument;
 use types::*;
@@ -59,12 +60,13 @@ impl CommitteeLengths {
             slots_per_epoch,
             committees_per_slot,
             committee_index as usize,
-        );
+        )?;
+        let epoch_committee_count = committees_per_slot.safe_mul(slots_per_epoch)?;
         let range = compute_committee_range_in_epoch(
-            epoch_committee_count(committees_per_slot, slots_per_epoch),
+            epoch_committee_count,
             index_in_epoch,
             self.active_validator_indices_len,
-        )
+        )?
         .ok_or(Error::EarlyAttesterCacheError)?;
 
         range
