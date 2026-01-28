@@ -1166,6 +1166,13 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
         .clone()
         .spawn_handle(
             async move {
+                // Avoids raising an error before Bellatrix.
+                //
+                // See `Self::prepare_beacon_proposer` for more detail.
+                if chain.slot_is_prior_to_bellatrix(current_slot + 1) {
+                    return;
+                }
+
                 if let Err(e) = chain
                     .update_execution_engine_forkchoice(
                         current_slot,
