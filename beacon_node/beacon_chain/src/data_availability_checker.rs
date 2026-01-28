@@ -673,7 +673,7 @@ impl<E: EthSpec> AvailableBlock<E> {
     /// - Block data is not provided when not required (pre-Deneb or past DA boundary)
     /// - Required blobs are present and match the expected count
     /// - Required custody columns are complete based on the node's custody requirements
-    /// - KZG commitments in blobs match those in te block
+    /// - KZG commitments in blobs match those in the block
     ///
     /// Returns `AvailabilityCheckError` if:
     /// - `InvalidAvailableBlockData`: Block data is provided but not required
