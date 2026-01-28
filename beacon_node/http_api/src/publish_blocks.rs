@@ -314,9 +314,19 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 slot = %block.slot(),
                 "Block previously seen"
             );
+            let Ok(rpc_block) = RpcBlock::new(
+                block.clone(),
+                None,
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            ) else {
+                return Err(warp_utils::reject::custom_bad_request(
+                    "Unable to construct rpc block".to_string(),
+                ));
+            };
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
