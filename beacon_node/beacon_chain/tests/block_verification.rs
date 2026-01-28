@@ -2127,7 +2127,12 @@ async fn rpc_block_rejects_missing_custody_columns() {
         if let Ok(commitments) = block.message().body().blob_kzg_commitments()
             && !commitments.is_empty()
         {
-            let columns = harness.chain.get_data_columns(&root).unwrap().unwrap();
+            let fork_name = harness.chain.spec.fork_name_at_slot::<E>(block.slot());
+            let columns = harness
+                .chain
+                .get_data_columns(&root, fork_name)
+                .unwrap()
+                .unwrap();
 
             if columns.len() > 1 {
                 // Create AvailableBlockData with incomplete columns (remove one)
