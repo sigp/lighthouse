@@ -55,11 +55,14 @@ type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
 impl TestRig {
     pub fn test_setup() -> Self {
+        Self::test_setup_with_custody_type(NodeCustodyType::Fullnode)
+    }
+
+    pub fn test_setup_with_custody_type(node_custody_type: NodeCustodyType) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
         let spec = test_spec::<E>();
 
         // Initialise a new beacon chain
-        // SemiSupernode ensures enough columns are stored for sampling + custody validation for RpcBlock
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(Arc::new(spec))
             .deterministic_keypairs(1)
@@ -70,7 +73,7 @@ impl TestRig {
                 Duration::from_secs(0),
                 Duration::from_secs(12),
             ))
-            .node_custody_type(NodeCustodyType::SemiSupernode)
+            .node_custody_type(node_custody_type)
             .build();
 
         let chain = harness.chain.clone();

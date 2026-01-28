@@ -7,6 +7,7 @@ use crate::sync::network_context::RangeRequestId;
 use crate::sync::range_sync::RangeSyncType;
 use beacon_chain::BeaconChain;
 use beacon_chain::block_verification_types::AvailableBlockData;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use beacon_chain::{EngineState, NotifyExecutionLayer, block_verification_types::RpcBlock};
@@ -513,10 +514,11 @@ fn head_chain_removed_while_finalized_syncing() {
 async fn state_update_while_purging() {
     // NOTE: this is a regression test.
     // Added in PR https://github.com/sigp/lighthouse/pull/2827
-    let mut rig = TestRig::test_setup();
+    let mut rig = TestRig::test_setup_with_custody_type(NodeCustodyType::SemiSupernode);
 
     // Create blocks on a separate harness
-    let mut rig_2 = TestRig::test_setup();
+    // SemiSupernode ensures enough columns are stored for sampling + custody RPC block validation
+    let mut rig_2 = TestRig::test_setup_with_custody_type(NodeCustodyType::SemiSupernode);
     // Need to create blocks that can be inserted into the fork-choice and fit the "known
     // conditions" below.
     let head_peer_block = rig_2.create_canonical_block().await;

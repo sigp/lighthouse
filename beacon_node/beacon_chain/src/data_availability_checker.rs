@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
             .custody_context
-            .sampling_columns_for_epoch(Some(epoch), &self.spec);
+            .sampling_columns_for_epoch(epoch, &self.spec);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -315,7 +315,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
             .custody_context
-            .sampling_columns_for_epoch(Some(epoch), &self.spec);
+            .sampling_columns_for_epoch(epoch, &self.spec);
         let custody_columns = data_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -522,10 +522,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             ));
         };
 
-        let columns_to_sample = self.custody_context().sampling_columns_for_epoch(
-            Some(slot.epoch(T::EthSpec::slots_per_epoch())),
-            &self.spec,
-        );
+        let columns_to_sample = self
+            .custody_context()
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
 
         // We only need to import and publish columns that we need to sample
         // and columns that we haven't already received
@@ -795,7 +794,7 @@ impl<E: EthSpec> AvailableBlock<E> {
 
                 let mut column_indices = da_checker
                     .custody_context
-                    .sampling_columns_for_epoch(Some(block.epoch()), &spec)
+                    .sampling_columns_for_epoch(block.epoch(), &spec)
                     .iter()
                     .collect::<HashSet<_>>();
 
@@ -940,7 +939,7 @@ mod test {
             &spec,
         );
         assert_eq!(
-            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec),
+            custody_context.num_of_data_columns_to_sample(epoch, &spec),
             spec.validator_custody_requirement as usize,
             "sampling size should be the minimal custody requirement == 8"
         );
@@ -962,8 +961,16 @@ mod test {
             &spec,
         );
         let block_root = Hash256::random();
-        let custody_columns = custody_context.sampling_columns_for_epoch(None, &spec);
-        let requested_columns = &custody_columns[..10];
+        // Get 10 columns using the "latest" CGC (head) that block lookup would use.
+        // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
+        // which is typically epoch 2+ for MinimalEthSpec.
+        let future_epoch = Epoch::new(10); // Far enough in the future to have the CGC change effective
+        let requested_columns = custody_context.sampling_columns_for_epoch(future_epoch, &spec);
+        assert_eq!(
+            requested_columns.len(),
+            10,
+            "future epoch should have 10 sampling columns"
+        );
         da_checker
             .put_rpc_custody_columns(
                 block_root,
@@ -976,7 +983,7 @@ mod test {
             .expect("should put rpc custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns = custody_context.sampling_columns_for_epoch(Some(epoch), &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8
@@ -1018,7 +1025,7 @@ mod test {
             &spec,
         );
         assert_eq!(
-            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec),
+            custody_context.num_of_data_columns_to_sample(epoch, &spec),
             spec.validator_custody_requirement as usize,
             "sampling size should be the minimal custody requirement == 8"
         );
@@ -1041,8 +1048,16 @@ mod test {
             &spec,
         );
         let block_root = Hash256::random();
-        let custody_columns = custody_context.sampling_columns_for_epoch(None, &spec);
-        let requested_columns = &custody_columns[..10];
+        // Get 10 columns using the "latest" CGC that gossip subscriptions would use.
+        // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
+        // which is typically epoch 2+ for MinimalEthSpec.
+        let future_epoch = Epoch::new(10); // Far enough in the future to have the CGC change effective
+        let requested_columns = custody_context.sampling_columns_for_epoch(future_epoch, &spec);
+        assert_eq!(
+            requested_columns.len(),
+            10,
+            "future epoch should have 10 sampling columns"
+        );
         let gossip_columns = data_columns
             .into_iter()
             .filter(|d| requested_columns.contains(&d.index))
@@ -1053,7 +1068,7 @@ mod test {
             .expect("should put gossip custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns = custody_context.sampling_columns_for_epoch(Some(epoch), &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8
@@ -1150,8 +1165,7 @@ mod test {
             Slot::new(0),
             &spec,
         );
-        let sampling_requirement =
-            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec);
+        let sampling_requirement = custody_context.num_of_data_columns_to_sample(epoch, &spec);
         assert_eq!(
             sampling_requirement, 65,
             "sampling requirement should be 65"
@@ -1172,7 +1186,7 @@ mod test {
 
         // Add 64 columns to the da checker (enough to be able to reconstruct)
         // Order by all_column_indices_ordered, then take first 64
-        let custody_columns = custody_context.sampling_columns_for_epoch(None, &spec);
+        let custody_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
         let custody_columns = custody_columns
             .iter()
             .filter_map(|&col_idx| data_columns.iter().find(|d| d.index == col_idx).cloned())
@@ -1210,7 +1224,7 @@ mod test {
         );
 
         // Only the columns required for custody (65) should be imported into the cache
-        let sampling_columns = custody_context.sampling_columns_for_epoch(Some(epoch), &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
         let actual_cached: HashSet<ColumnIndex> = da_checker
             .cached_data_column_indexes(&block_root)
             .expect("should have cached data columns")

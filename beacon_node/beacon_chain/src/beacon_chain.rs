@@ -7408,7 +7408,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn sampling_columns_for_epoch(&self, epoch: Epoch) -> &[ColumnIndex] {
         self.data_availability_checker
             .custody_context()
-            .sampling_columns_for_epoch(Some(epoch), &self.spec)
+            .sampling_columns_for_epoch(epoch, &self.spec)
     }
 
     /// Returns a list of column indices that the node is expected to custody for a given epoch.

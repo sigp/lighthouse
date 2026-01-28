@@ -702,7 +702,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
 
 async fn run_skip_slot_test(skip_slots: u64) {
     let num_validators = 8;
-    // SemiSupernode ensures enough columns are stored for sampling validation in Fulu
+    // SemiSupernode ensures enough columns are stored for sampling + custody RpcBlock validation
     let harness_a = get_harness_semi_supernode(num_validators);
     let harness_b = get_harness_semi_supernode(num_validators);
 

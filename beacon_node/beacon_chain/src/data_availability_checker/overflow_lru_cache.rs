@@ -558,7 +558,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         let num_expected_columns = self
             .custody_context
-            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
+            .num_of_data_columns_to_sample(epoch, &self.spec);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -666,7 +666,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let total_column_count = T::EthSpec::number_of_columns();
         let sampling_column_count = self
             .custody_context
-            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
+            .num_of_data_columns_to_sample(epoch, &self.spec);
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
@@ -772,7 +772,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if self.spec.is_peer_das_enabled_for_epoch(epoch) {
             let num_of_column_samples = self
                 .custody_context
-                .num_of_data_columns_to_sample(Some(epoch), &self.spec);
+                .num_of_data_columns_to_sample(epoch, &self.spec);
             Some(num_of_column_samples)
         } else {
             None

@@ -116,7 +116,7 @@ async fn produces_attestations() {
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
-        // SemiSupernode ensures enough columns are stored for sampling validation in Fulu
+        // SemiSupernode ensures enough columns are stored for sampling + custody validation for RpcBlock
         .node_custody_type(NodeCustodyType::SemiSupernode)
         .build();
 

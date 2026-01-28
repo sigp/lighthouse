@@ -450,13 +450,8 @@ impl<E: EthSpec> CustodyContext<E> {
     }
 
     /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
-    pub fn num_of_data_columns_to_sample(&self, epoch: Option<Epoch>, spec: &ChainSpec) -> usize {
-        let custody_group_count = if let Some(epoch) = epoch {
-            self.custody_group_count_at_epoch(epoch, spec)
-        } else {
-            self.custody_group_count_at_head(spec)
-        };
-
+    pub fn num_of_data_columns_to_sample(&self, epoch: Epoch, spec: &ChainSpec) -> usize {
+        let custody_group_count = self.custody_group_count_at_epoch(epoch, spec);
         spec.sampling_size_columns::<E>(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
@@ -466,7 +461,7 @@ impl<E: EthSpec> CustodyContext<E> {
         let min_columns_for_reconstruction = E::number_of_columns() / 2;
         // performing reconstruction is not necessary if sampling column count is exactly 50%,
         // because the node doesn't need the remaining columns.
-        self.num_of_data_columns_to_sample(Some(epoch), spec) > min_columns_for_reconstruction
+        self.num_of_data_columns_to_sample(epoch, spec) > min_columns_for_reconstruction
     }
 
     /// Returns the ordered list of column indices that should be sampled for data availability checking at the given epoch.
@@ -477,12 +472,8 @@ impl<E: EthSpec> CustodyContext<E> {
     ///
     /// # Returns
     /// A slice of ordered column indices that should be sampled for this epoch based on the node's custody configuration
-    pub fn sampling_columns_for_epoch(
-        &self,
-        epoch_opt: Option<Epoch>,
-        spec: &ChainSpec,
-    ) -> &[ColumnIndex] {
-        let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch_opt, spec);
+    pub fn sampling_columns_for_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> &[ColumnIndex] {
+        let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch, spec);
         &self.ordered_custody_column_indices[..num_of_columns_to_sample]
     }
 
