@@ -877,7 +877,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         if get_blobs {
-            debug!(block= %column.block_root, "Triggering getBlobs after receiving partial header");
+            debug!(block = %block_root, "Triggering getBlobs after receiving partial header");
             // We want to publish immediately when this finishes
             let publish_blobs = true;
             self.fetch_engine_blobs_and_publish(&header, block_root, publish_blobs)
