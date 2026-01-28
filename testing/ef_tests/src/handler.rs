@@ -305,6 +305,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Fulu])
     }
 
+    pub fn gloas_only() -> Self {
+        Self::for_forks(vec![ForkName::Gloas])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }

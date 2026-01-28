@@ -31,7 +31,6 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
-use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -546,7 +545,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<Id, RpcRequestSendError> {
         let range_request_span = debug_span!(
             parent: None,
-            SPAN_OUTGOING_RANGE_REQUEST,
+            "lh_outgoing_range_request",
             range_req_id = %requester,
             block_peers = block_peers.len(),
             column_peers = column_peers.len()
@@ -908,7 +907,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let request_span = debug_span!(
             parent: Span::current(),
-            SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST,
+            "lh_outgoing_block_by_root_request",
             %block_root,
         );
         self.blocks_by_root_requests.insert(

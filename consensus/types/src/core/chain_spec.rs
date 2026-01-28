@@ -8,7 +8,7 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
-use ssz_types::{RuntimeVariableList, VariableList};
+use ssz_types::RuntimeVariableList;
 use tree_hash::TreeHash;
 
 use crate::{
@@ -16,7 +16,6 @@ use crate::{
         APPLICATION_DOMAIN_BUILDER, Address, ApplicationDomain, EnrForkId, Epoch, EthSpec,
         EthSpecId, ExecutionBlockHash, Hash256, MainnetEthSpec, Slot, Uint256,
     },
-    data::{BlobIdentifier, DataColumnSubnetId, DataColumnsByRootIdentifier},
     fork::{Fork, ForkData, ForkName},
 };
 
@@ -821,10 +820,6 @@ impl ChainSpec {
             ),
             _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
         }
-    }
-
-    pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
-        (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
     }
 
     /// Worst-case compressed length for a given payload of size n when using snappy.
@@ -2110,37 +2105,41 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     .len()
 }
 
-fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
-    let max_request_blob_sidecars = max_request_blob_sidecars as usize;
-    let empty_blob_identifier = BlobIdentifier {
-        block_root: Hash256::zero(),
-        index: 0,
-    };
+// Simplified function which precomputes the size of a `List` of `BlobIdentifiers`.
+pub(crate) fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
+    // BlobIdentifier is a fixed-size struct with two fields:
+    // - block_root: Hash256 (32 bytes)
+    // - index: u64 (8 bytes)
+    // Total per element: 32 + 8 = 40 bytes
+    // Since BlobIdentifier is fixed-size, the outer List does not add any byte overhead.
+    let blob_identifier_ssz_size = 40_usize;
 
-    RuntimeVariableList::<BlobIdentifier>::new(
-        vec![empty_blob_identifier; max_request_blob_sidecars],
-        max_request_blob_sidecars,
-    )
-    .expect("creating a RuntimeVariableList of size `max_request_blob_sidecars` should succeed")
-    .as_ssz_bytes()
-    .len()
+    (max_request_blob_sidecars as usize)
+        .safe_mul(blob_identifier_ssz_size)
+        .expect("should not overflow")
 }
 
-fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) -> usize {
-    let max_request_blocks = max_request_blocks as usize;
+// Simplified function which precomputes the size of a `List` of `DataColumnIdentifiers`.
+pub(crate) fn max_data_columns_by_root_request_common<E: EthSpec>(
+    max_request_blocks: u64,
+) -> usize {
+    // DataColumnsByRootIdentifier is a variable-size struct with two fields:
+    // - block_root: Hash256 (32 bytes)
+    // - columns: List<ColumnIndex, NumberOfColumns> (4 byte offset + n × 8 bytes)
+    // Since DataColumnsByRootIdentifier is variable-size, the outer List adds a
+    // 4-byte offset per element.
+    // Total per element: 4 (outer offset) + 32 (block_root) + 4 (columns offset) + n × 8
+    let column_index_ssz_size = 8_usize;
+    let ssz_fixed_size = 40_usize;
 
-    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
-        block_root: Hash256::zero(),
-        columns: VariableList::repeat_full(0),
-    };
+    let data_columns_by_root_identifier_ssz_size = column_index_ssz_size
+        .safe_mul(E::number_of_columns())
+        .and_then(|b| b.safe_add(ssz_fixed_size))
+        .expect("should not overflow");
 
-    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
-        vec![empty_data_columns_by_root_id; max_request_blocks],
-        max_request_blocks,
-    )
-    .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
-    .as_ssz_bytes()
-    .len()
+    (max_request_blocks as usize)
+        .safe_mul(data_columns_by_root_identifier_ssz_size)
+        .expect("should not overflow")
 }
 
 fn default_max_blocks_by_root_request() -> usize {
