@@ -825,15 +825,6 @@ mod release_tests {
         harness
     }
 
-    async fn maybe_extend_to_slot<E: EthSpec>(
-        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-        target_slot: Slot,
-    ) {
-        if target_slot > harness.chain.slot().unwrap() {
-            harness.extend_to_slot(target_slot).await;
-        }
-    }
-
     /// Test state for attestation-related tests.
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
@@ -1890,10 +1881,8 @@ mod release_tests {
     async fn cross_fork_proposer_slashings() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
-        let capella_fork_epoch = spec.capella_fork_epoch.unwrap();
         let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
         let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
-        let deneb_fork_slot = deneb_fork_epoch.start_slot(slots_per_epoch);
         let electra_fork_slot = electra_fork_epoch.start_slot(slots_per_epoch);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1975,10 +1964,8 @@ mod release_tests {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
         let zero_epoch = Epoch::new(0);
-        let capella_fork_epoch = spec.capella_fork_epoch.unwrap();
         let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
         let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
-        let deneb_fork_slot = deneb_fork_epoch.start_slot(slots_per_epoch);
         let electra_fork_slot = electra_fork_epoch.start_slot(slots_per_epoch);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1994,7 +1981,7 @@ mod release_tests {
 
         // Advance to Deneb.
         harness
-            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
+            .extend_to_slot(deneb_fork_epoch.start_slot(slots_per_epoch))
             .await;
         let deneb_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(deneb_head.beacon_state.current_epoch(), deneb_fork_epoch);
