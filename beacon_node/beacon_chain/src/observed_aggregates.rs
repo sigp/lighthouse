@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use types::SlotData;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
-use types::slot_data::SlotData;
 use types::{
     Attestation, AttestationData, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution,
 };

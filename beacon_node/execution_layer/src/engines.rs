@@ -15,7 +15,7 @@ use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, info, warn};
 use types::ExecutionBlockHash;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///

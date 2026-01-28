@@ -305,6 +305,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Fulu])
     }
 
+    pub fn gloas_only() -> Self {
+        Self::for_forks(vec![ForkName::Gloas])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -387,8 +391,16 @@ where
         T::name().into()
     }
 
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
+    }
+
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // TODO(gloas): DataColumnSidecar tests are disabled until we update the DataColumnSidecar
+        // type.
         self.supported_forks.contains(&fork_name)
+            && !(fork_name == ForkName::Gloas && T::name() == "DataColumnSidecar")
     }
 }
 

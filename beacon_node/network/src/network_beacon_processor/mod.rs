@@ -31,7 +31,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -980,7 +980,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             .into_iter()
                             .map(|d| {
                                 let subnet =
-                                    DataColumnSubnetId::from_column_index(d.index, &chain.spec);
+                                    DataColumnSubnetId::from_column_index(*d.index(), &chain.spec);
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
                             .collect(),
