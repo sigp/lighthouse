@@ -178,11 +178,13 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
             // TODO(EIP-7732): process execution payload bid
         } else {
-            withdrawals::capella_electra::process_withdrawals::<E, Payload>(
-                state,
-                body.execution_payload()?,
-                spec,
-            )?;
+            if state.fork_name_unchecked().capella_enabled() {
+                withdrawals::capella_electra::process_withdrawals::<E, Payload>(
+                    state,
+                    body.execution_payload()?,
+                    spec,
+                )?;
+            }
             process_execution_payload::<E, Payload>(state, body, spec)?;
         }
     }
