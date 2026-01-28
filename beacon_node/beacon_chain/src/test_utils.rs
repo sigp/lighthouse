@@ -3,7 +3,7 @@ use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_column_verification::CustodyDataColumn;
 use crate::graffiti_calculator::GraffitiSettings;
-use crate::kzg_utils::build_data_column_sidecars;
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{BeaconBlockResponseWrapper, get_block_root};
@@ -2441,7 +2441,12 @@ where
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
+            let fork_name = self.spec.fork_name_at_epoch(block.epoch());
+            let columns = self
+                .chain
+                .get_data_columns(&block_root, fork_name)
+                .unwrap()
+                .unwrap();
             let custody_columns = columns
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
@@ -2470,7 +2475,7 @@ where
                 // currently have any knowledge of the columns being custodied.
                 let columns = generate_data_column_sidecars_from_block(&block, &self.spec)
                     .into_iter()
-                    .filter(|d| sampling_columns.contains(&d.index))
+                    .filter(|d| sampling_columns.contains(d.index()))
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
                 RpcBlock::new_with_custody_columns(Some(block_root), block, columns)?
@@ -3209,10 +3214,10 @@ where
 
             let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
                 .into_iter()
-                .filter(|c| custody_columns.contains(&c.index))
+                .filter(|c| custody_columns.contains(c.index()))
                 .map(|sidecar| {
                     let subnet_id =
-                        DataColumnSubnetId::from_column_index(sidecar.index, &self.spec);
+                        DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
                     self.chain
                         .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
                 })
@@ -3363,39 +3368,76 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         .unwrap();
     let signed_block_header = block.signed_block_header();
 
-    // load the precomputed column sidecar to avoid computing them for every block in the tests.
-    let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
-        TEST_DATA_COLUMN_SIDECARS_SSZ,
-        E::number_of_columns(),
-    )
-    .unwrap();
+    // Load the precomputed column sidecar to avoid computing them for every block in the tests.
+    // Then repeat the cells and proofs for every blob
+    if block.fork_name_unchecked().gloas_enabled() {
+        let template_data_columns =
+            RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
+                TEST_DATA_COLUMN_SIDECARS_SSZ,
+                E::number_of_columns(),
+            )
+            .unwrap();
 
-    let (cells, proofs) = template_data_columns
-        .into_iter()
-        .map(|sidecar| {
-            let DataColumnSidecar {
-                column, kzg_proofs, ..
-            } = sidecar;
-            // There's only one cell per column for a single blob
-            let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
-            let kzg_cell = cell_bytes.try_into().unwrap();
-            let kzg_proof = kzg_proofs.into_iter().next().unwrap();
-            (kzg_cell, kzg_proof)
-        })
-        .collect::<(Vec<_>, Vec<_>)>();
+        let (cells, proofs) = template_data_columns
+            .into_iter()
+            .map(|sidecar| {
+                let DataColumnSidecarGloas {
+                    column, kzg_proofs, ..
+                } = sidecar;
+                // There's only one cell per column for a single blob
+                let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+                let kzg_cell = cell_bytes.try_into().unwrap();
+                let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+                (kzg_cell, kzg_proof)
+            })
+            .collect::<(Vec<_>, Vec<_>)>();
 
-    // Repeat the cells and proofs for every blob
-    let blob_cells_and_proofs_vec =
-        vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+        let blob_cells_and_proofs_vec =
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
 
-    build_data_column_sidecars(
-        kzg_commitments.clone(),
-        kzg_commitments_inclusion_proof,
-        signed_block_header,
-        blob_cells_and_proofs_vec,
-        spec,
-    )
-    .unwrap()
+        build_data_column_sidecars_gloas(
+            kzg_commitments.clone(),
+            signed_block_header.message.tree_hash_root(),
+            signed_block_header.message.slot,
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .unwrap()
+    } else {
+        // load the precomputed column sidecar to avoid computing them for every block in the tests.
+        let template_data_columns =
+            RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(
+                TEST_DATA_COLUMN_SIDECARS_SSZ,
+                E::number_of_columns(),
+            )
+            .unwrap();
+
+        let (cells, proofs) = template_data_columns
+            .into_iter()
+            .map(|sidecar| {
+                let DataColumnSidecarFulu {
+                    column, kzg_proofs, ..
+                } = sidecar;
+                // There's only one cell per column for a single blob
+                let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+                let kzg_cell = cell_bytes.try_into().unwrap();
+                let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+                (kzg_cell, kzg_proof)
+            })
+            .collect::<(Vec<_>, Vec<_>)>();
+
+        let blob_cells_and_proofs_vec =
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+
+        build_data_column_sidecars_fulu(
+            kzg_commitments.clone(),
+            kzg_commitments_inclusion_proof,
+            signed_block_header,
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .unwrap()
+    }
 }
 
 pub fn generate_data_column_indices_rand_order<E: EthSpec>() -> Vec<CustodyIndex> {

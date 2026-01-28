@@ -19,10 +19,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::data::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch,
-    EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -187,7 +187,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache
             .peek_pending_components(block_root, |components| {
                 components.is_some_and(|components| {
-                    let cached_column_opt = components.get_cached_data_column(data_column.index);
+                    let cached_column_opt = components.get_cached_data_column(*data_column.index());
                     cached_column_opt.is_some_and(|cached| *cached == *data_column)
                 })
             })
@@ -877,7 +877,9 @@ mod test {
     use std::time::Duration;
     use store::HotColdDB;
     use types::data::DataColumn;
-    use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
+    use types::{
+        ChainSpec, ColumnIndex, DataColumnSidecarFulu, EthSpec, ForkName, MainnetEthSpec, Slot,
+    };
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;
@@ -932,7 +934,7 @@ mod test {
                 cgc_change_slot,
                 data_columns
                     .into_iter()
-                    .filter(|d| requested_columns.contains(&d.index))
+                    .filter(|d| requested_columns.contains(d.index()))
                     .collect(),
             )
             .expect("should put rpc custody columns");
@@ -1007,7 +1009,7 @@ mod test {
         let requested_columns = &custody_columns[..10];
         let gossip_columns = data_columns
             .into_iter()
-            .filter(|d| requested_columns.contains(&d.index))
+            .filter(|d| requested_columns.contains(d.index()))
             .map(GossipVerifiedDataColumn::<T>::__new_for_testing)
             .collect::<Vec<_>>();
         da_checker
@@ -1039,7 +1041,7 @@ mod test {
 
     /// Regression test for KZG verification truncation bug (https://github.com/sigp/lighthouse/pull/7927)
     #[test]
-    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns() {
+    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns_fulu() {
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let da_checker = new_da_checker(spec.clone());
@@ -1065,10 +1067,17 @@ mod test {
                     data_columns
                         .into_iter()
                         .map(|d| {
-                            let invalid_sidecar = DataColumnSidecar {
+                            let invalid_sidecar = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
                                 column: DataColumn::<E>::empty(),
-                                ..d.as_ref().clone()
-                            };
+                                index: *d.index(),
+                                kzg_commitments: d.kzg_commitments().clone(),
+                                kzg_proofs: d.kzg_proofs().clone(),
+                                signed_block_header: d.signed_block_header().unwrap().clone(),
+                                kzg_commitments_inclusion_proof: d
+                                    .kzg_commitments_inclusion_proof()
+                                    .unwrap()
+                                    .clone(),
+                            });
                             CustodyDataColumn::from_asserted_custody(Arc::new(invalid_sidecar))
                         })
                         .collect::<Vec<_>>()
@@ -1126,7 +1135,7 @@ mod test {
         let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
         let custody_columns = custody_columns
             .iter()
-            .filter_map(|&col_idx| data_columns.iter().find(|d| d.index == col_idx).cloned())
+            .filter_map(|&col_idx| data_columns.iter().find(|d| *d.index() == col_idx).cloned())
             .take(64)
             .map(|d| {
                 KzgVerifiedCustodyDataColumn::from_asserted_custody(
