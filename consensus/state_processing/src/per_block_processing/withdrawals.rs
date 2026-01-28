@@ -84,6 +84,7 @@ pub fn get_builder_withdrawals<E: EthSpec>(
         return Ok(None);
     };
 
+    // TODO(gloas): this has already changed on `master`, we need to update at next spec release
     let withdrawals_limit = E::max_withdrawals_per_payload();
 
     let mut processed_count = 0;
