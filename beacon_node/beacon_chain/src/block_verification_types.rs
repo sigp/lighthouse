@@ -1,174 +1,113 @@
-use crate::data_availability_checker::AvailabilityCheckError;
-pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
-use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::{PayloadVerificationOutcome, get_block_root};
+use crate::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+pub use crate::data_availability_checker::{
+    AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
+};
+use crate::{BeaconChainTypes, PayloadVerificationOutcome};
 use educe::Educe;
-use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::data::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
+    BeaconBlockRef, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
 ///
-/// 1. `BlockAndBlobs`: A fully available post deneb block with all the blobs available. This variant
-///    is only constructed after making consistency checks between blocks and blobs.
-///    Hence, it is fully self contained w.r.t verification. i.e. this block has all the required
-///    data to get verified and imported into fork choice.
+/// 1. `FullyAvailable`: A fully available block. This can either be a pre-deneb block, a
+///    post-Deneb block with blobs, a post-Fulu block with the columns the node is required to custody,
+///    or a post-Deneb block that doesn't require blobs/columns. Hence, it is fully self contained w.r.t
+///    verification. i.e. this block has all the required data to get verified and imported into fork choice.
 ///
-/// 2. `Block`: This can be a fully available pre-deneb block **or** a post-deneb block that may or may
-///    not require blobs to be considered fully available.
-///
-/// Note: We make a distinction over blocks received over gossip because
-/// in a post-deneb world, the blobs corresponding to a given block that are received
-/// over rpc do not contain the proposer signature for dos resistance.
+/// 2. `BlockOnly`: This is a post-deneb block that requires blobs to be considered fully available.
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
-pub struct RpcBlock<E: EthSpec> {
-    block_root: Hash256,
-    block: RpcBlockInner<E>,
+pub enum RpcBlock<E: EthSpec> {
+    FullyAvailable(AvailableBlock<E>),
+    BlockOnly {
+        block: Arc<SignedBeaconBlock<E>>,
+        block_root: Hash256,
+    },
 }
 
 impl<E: EthSpec> Debug for RpcBlock<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RpcBlock({:?})", self.block_root)
+        write!(f, "RpcBlock({:?})", self.block_root())
     }
 }
 
 impl<E: EthSpec> RpcBlock<E> {
     pub fn block_root(&self) -> Hash256 {
-        self.block_root
+        match self {
+            RpcBlock::FullyAvailable(available_block) => available_block.block_root(),
+            RpcBlock::BlockOnly { block_root, .. } => *block_root,
+        }
     }
 
     pub fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match &self.block {
-            RpcBlockInner::Block(block) => block,
-            RpcBlockInner::BlockAndBlobs(block, _) => block,
-            RpcBlockInner::BlockAndCustodyColumns(block, _) => block,
+        match self {
+            RpcBlock::FullyAvailable(available_block) => available_block.block(),
+            RpcBlock::BlockOnly { block, .. } => block,
         }
     }
 
     pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match &self.block {
-            RpcBlockInner::Block(block) => block.clone(),
-            RpcBlockInner::BlockAndBlobs(block, _) => block.clone(),
-            RpcBlockInner::BlockAndCustodyColumns(block, _) => block.clone(),
+        match self {
+            RpcBlock::FullyAvailable(available_block) => available_block.block_cloned(),
+            RpcBlock::BlockOnly { block, .. } => block.clone(),
         }
     }
 
-    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
-        match &self.block {
-            RpcBlockInner::Block(_) => None,
-            RpcBlockInner::BlockAndBlobs(_, blobs) => Some(blobs),
-            RpcBlockInner::BlockAndCustodyColumns(_, _) => None,
+    pub fn block_data(&self) -> Option<&AvailableBlockData<E>> {
+        match self {
+            RpcBlock::FullyAvailable(available_block) => Some(available_block.data()),
+            RpcBlock::BlockOnly { .. } => None,
         }
     }
-
-    pub fn custody_columns(&self) -> Option<&CustodyDataColumnList<E>> {
-        match &self.block {
-            RpcBlockInner::Block(_) => None,
-            RpcBlockInner::BlockAndBlobs(_, _) => None,
-            RpcBlockInner::BlockAndCustodyColumns(_, data_columns) => Some(data_columns),
-        }
-    }
-}
-
-/// Note: This variant is intentionally private because we want to safely construct the
-/// internal variants after applying consistency checks to ensure that the block and blobs
-/// are consistent with respect to each other.
-#[derive(Debug, Clone, Educe)]
-#[educe(Hash(bound(E: EthSpec)))]
-enum RpcBlockInner<E: EthSpec> {
-    /// Single block lookup response. This should potentially hit the data availability cache.
-    Block(Arc<SignedBeaconBlock<E>>),
-    /// This variant is used with parent lookups and by-range responses. It should have all blobs
-    /// ordered, all block roots matching, and the correct number of blobs for this block.
-    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
-    /// This variant is used with parent lookups and by-range responses. It should have all
-    /// requested data columns, all block roots matching for this block.
-    BlockAndCustodyColumns(Arc<SignedBeaconBlock<E>>, CustodyDataColumnList<E>),
 }
 
 impl<E: EthSpec> RpcBlock<E> {
-    /// Constructs a `Block` variant.
-    pub fn new_without_blobs(
-        block_root: Option<Hash256>,
+    /// Constructs an `RpcBlock` from a block and optional availability data.
+    ///
+    /// This function creates an RpcBlock which can be in one of two states:
+    /// - `FullyAvailable`: When `block_data` is provided, the block contains all required
+    ///   data for verification.
+    /// - `BlockOnly`: When `block_data` is `None`, the block may still need additional
+    ///   data to be considered fully available (used during block lookups or when blobs
+    ///   will arrive separately).
+    ///
+    /// # Validation
+    ///
+    /// When `block_data` is provided, this function validates that:
+    /// - Block data is not provided when not required.
+    /// - Required blobs are present and match the expected count.
+    /// - Required custody columns are included based on the nodes custody requirements.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AvailabilityCheckError` if:
+    /// - `InvalidAvailableBlockData`: Block data is provided but not required.
+    /// - `MissingBlobs`: Block requires blobs but they are missing or incomplete.
+    /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete.
+    pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
-    ) -> Self {
-        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-
-        Self {
-            block_root,
-            block: RpcBlockInner::Block(block),
+        block_data: Option<AvailableBlockData<E>>,
+        da_checker: &DataAvailabilityChecker<T>,
+        spec: Arc<ChainSpec>,
+    ) -> Result<Self, AvailabilityCheckError>
+    where
+        T: BeaconChainTypes<EthSpec = E>,
+    {
+        match block_data {
+            Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
+                block, block_data, da_checker, spec,
+            )?)),
+            None => Ok(RpcBlock::BlockOnly {
+                block_root: block.canonical_root(),
+                block,
+            }),
         }
-    }
-
-    /// Constructs a new `BlockAndBlobs` variant after making consistency
-    /// checks between the provided blocks and blobs. This struct makes no
-    /// guarantees about whether blobs should be present, only that they are
-    /// consistent with the block. An empty list passed in for `blobs` is
-    /// viewed the same as `None` passed in.
-    pub fn new(
-        block_root: Option<Hash256>,
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: Option<BlobSidecarList<E>>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-        // Treat empty blob lists as if they are missing.
-        let blobs = blobs.filter(|b| !b.is_empty());
-
-        if let (Some(blobs), Ok(block_commitments)) = (
-            blobs.as_ref(),
-            block.message().body().blob_kzg_commitments(),
-        ) {
-            if blobs.len() != block_commitments.len() {
-                return Err(AvailabilityCheckError::MissingBlobs);
-            }
-            for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
-                let blob_commitment = blob.kzg_commitment;
-                if blob_commitment != block_commitment {
-                    return Err(AvailabilityCheckError::KzgCommitmentMismatch {
-                        block_commitment,
-                        blob_commitment,
-                    });
-                }
-            }
-        }
-        let inner = match blobs {
-            Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),
-            None => RpcBlockInner::Block(block),
-        };
-        Ok(Self {
-            block_root,
-            block: inner,
-        })
-    }
-
-    pub fn new_with_custody_columns(
-        block_root: Option<Hash256>,
-        block: Arc<SignedBeaconBlock<E>>,
-        custody_columns: Vec<CustodyDataColumn<E>>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-
-        if block.num_expected_blobs() > 0 && custody_columns.is_empty() {
-            // The number of required custody columns is out of scope here.
-            return Err(AvailabilityCheckError::MissingCustodyColumns);
-        }
-        // Treat empty data column lists as if they are missing.
-        let inner = if !custody_columns.is_empty() {
-            RpcBlockInner::BlockAndCustodyColumns(block, VariableList::new(custody_columns)?)
-        } else {
-            RpcBlockInner::Block(block)
-        };
-        Ok(Self {
-            block_root,
-            block: inner,
-        })
     }
 
     #[allow(clippy::type_complexity)]
@@ -177,28 +116,36 @@ impl<E: EthSpec> RpcBlock<E> {
     ) -> (
         Hash256,
         Arc<SignedBeaconBlock<E>>,
-        Option<BlobSidecarList<E>>,
-        Option<CustodyDataColumnList<E>>,
+        Option<AvailableBlockData<E>>,
     ) {
-        let block_root = self.block_root();
-        match self.block {
-            RpcBlockInner::Block(block) => (block_root, block, None, None),
-            RpcBlockInner::BlockAndBlobs(block, blobs) => (block_root, block, Some(blobs), None),
-            RpcBlockInner::BlockAndCustodyColumns(block, data_columns) => {
-                (block_root, block, None, Some(data_columns))
+        match self {
+            RpcBlock::FullyAvailable(available_block) => {
+                let (block_root, block, block_data) = available_block.deconstruct();
+                (block_root, block, Some(block_data))
             }
+            RpcBlock::BlockOnly { block, block_root } => (block_root, block, None),
         }
     }
+
     pub fn n_blobs(&self) -> usize {
-        match &self.block {
-            RpcBlockInner::Block(_) | RpcBlockInner::BlockAndCustodyColumns(_, _) => 0,
-            RpcBlockInner::BlockAndBlobs(_, blobs) => blobs.len(),
+        if let Some(block_data) = self.block_data() {
+            match block_data {
+                AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
+                AvailableBlockData::Blobs(blobs) => blobs.len(),
+            }
+        } else {
+            0
         }
     }
+
     pub fn n_data_columns(&self) -> usize {
-        match &self.block {
-            RpcBlockInner::Block(_) | RpcBlockInner::BlockAndBlobs(_, _) => 0,
-            RpcBlockInner::BlockAndCustodyColumns(_, data_columns) => data_columns.len(),
+        if let Some(block_data) = self.block_data() {
+            match block_data {
+                AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
+                AvailableBlockData::DataColumns(columns) => columns.len(),
+            }
+        } else {
+            0
         }
     }
 }
@@ -500,17 +447,21 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match &self.block {
-            RpcBlockInner::Block(block) => block,
-            RpcBlockInner::BlockAndBlobs(block, _) => block,
-            RpcBlockInner::BlockAndCustodyColumns(block, _) => block,
+        match self {
+            Self::BlockOnly {
+                block,
+                block_root: _,
+            } => block,
+            Self::FullyAvailable(available_block) => available_block.block(),
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match &self.block {
-            RpcBlockInner::Block(block) => block.clone(),
-            RpcBlockInner::BlockAndBlobs(block, _) => block.clone(),
-            RpcBlockInner::BlockAndCustodyColumns(block, _) => block.clone(),
+        match self {
+            RpcBlock::FullyAvailable(available_block) => available_block.block_cloned(),
+            RpcBlock::BlockOnly {
+                block,
+                block_root: _,
+            } => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {

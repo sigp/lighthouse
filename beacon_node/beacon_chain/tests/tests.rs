@@ -3,6 +3,7 @@
 use beacon_chain::{
     BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
     attestation_verification::Error as AttnError,
+    custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
@@ -47,6 +48,28 @@ fn get_harness_with_config(
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    harness
+}
+
+/// Creates a harness with SemiSupernode custody type to ensure enough columns are stored
+/// for sampling validation in Fulu.
+fn get_harness_semi_supernode(
+    validator_count: usize,
+) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..Default::default()
+        })
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .node_custody_type(NodeCustodyType::SemiSupernode)
         .build();
 
     harness.advance_slot();
@@ -679,8 +702,9 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
 
 async fn run_skip_slot_test(skip_slots: u64) {
     let num_validators = 8;
-    let harness_a = get_harness(num_validators);
-    let harness_b = get_harness(num_validators);
+    // SemiSupernode ensures enough columns are stored for sampling + custody RpcBlock validation
+    let harness_a = get_harness_semi_supernode(num_validators);
+    let harness_b = get_harness_semi_supernode(num_validators);
 
     for _ in 0..skip_slots {
         harness_a.advance_slot();

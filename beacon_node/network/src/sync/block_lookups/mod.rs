@@ -88,7 +88,11 @@ impl<E: EthSpec> BlockComponent<E> {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
             BlockComponent::Blob(blob) => blob.value.block_parent_root(),
-            BlockComponent::DataColumn(column) => column.value.block_parent_root(),
+            BlockComponent::DataColumn(column) => match column.value.as_ref() {
+                DataColumnSidecar::Fulu(column) => column.block_parent_root(),
+                // TODO(gloas) we don't have a parent root post gloas, not sure what to do here
+                DataColumnSidecar::Gloas(column) => column.beacon_block_root,
+            },
         }
     }
     fn get_type(&self) -> &'static str {

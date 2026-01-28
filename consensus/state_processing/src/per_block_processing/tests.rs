@@ -64,7 +64,6 @@ async fn get_harness<E: EthSpec>(
 
 #[tokio::test]
 async fn valid_block_ok() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let state = harness.get_current_state();
 
@@ -80,7 +79,7 @@ async fn valid_block_ok() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     assert!(result.is_ok());
@@ -88,7 +87,6 @@ async fn valid_block_ok() {
 
 #[tokio::test]
 async fn invalid_block_header_state_slot() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let state = harness.get_current_state();
@@ -105,7 +103,7 @@ async fn invalid_block_header_state_slot() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     assert_eq!(
@@ -118,7 +116,6 @@ async fn invalid_block_header_state_slot() {
 
 #[tokio::test]
 async fn invalid_parent_block_root() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let state = harness.get_current_state();
@@ -137,7 +134,7 @@ async fn invalid_parent_block_root() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     assert_eq!(
@@ -153,7 +150,6 @@ async fn invalid_parent_block_root() {
 
 #[tokio::test]
 async fn invalid_block_signature() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let state = harness.get_current_state();
@@ -170,7 +166,7 @@ async fn invalid_block_signature() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // should get a BadSignature error
@@ -184,7 +180,6 @@ async fn invalid_block_signature() {
 
 #[tokio::test]
 async fn invalid_randao_reveal_signature() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let state = harness.get_current_state();
@@ -203,7 +198,7 @@ async fn invalid_randao_reveal_signature() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // should get a BadRandaoSignature error
@@ -212,7 +207,6 @@ async fn invalid_randao_reveal_signature() {
 
 #[tokio::test]
 async fn valid_4_deposits() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut state = harness.get_current_state();
 
@@ -228,7 +222,8 @@ async fn valid_4_deposits() {
         .0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(state, head_block.body().deposits(), &harness.spec);
 
     // Expecting Ok because these are valid deposits.
     assert_eq!(result, Ok(()));
@@ -236,7 +231,6 @@ async fn valid_4_deposits() {
 
 #[tokio::test]
 async fn invalid_deposit_deposit_count_too_big() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut state = harness.get_current_state();
 
@@ -254,7 +248,8 @@ async fn invalid_deposit_deposit_count_too_big() {
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data_mut().deposit_count = big_deposit_count;
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(state, head_block.body().deposits(), &harness.spec);
 
     // Expecting DepositCountInvalid because we incremented the deposit_count
     assert_eq!(
@@ -268,7 +263,6 @@ async fn invalid_deposit_deposit_count_too_big() {
 
 #[tokio::test]
 async fn invalid_deposit_count_too_small() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut state = harness.get_current_state();
 
@@ -286,7 +280,8 @@ async fn invalid_deposit_count_too_small() {
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data_mut().deposit_count = small_deposit_count;
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(state, head_block.body().deposits(), &harness.spec);
 
     // Expecting DepositCountInvalid because we decremented the deposit_count
     assert_eq!(
@@ -300,7 +295,6 @@ async fn invalid_deposit_count_too_small() {
 
 #[tokio::test]
 async fn invalid_deposit_bad_merkle_proof() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut state = harness.get_current_state();
 
@@ -320,7 +314,8 @@ async fn invalid_deposit_bad_merkle_proof() {
     // Manually offsetting deposit count and index to trigger bad merkle proof
     state.eth1_data_mut().deposit_count += 1;
     *state.eth1_deposit_index_mut() += 1;
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(state, head_block.body().deposits(), &harness.spec);
 
     // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(
@@ -334,7 +329,6 @@ async fn invalid_deposit_bad_merkle_proof() {
 
 #[tokio::test]
 async fn invalid_deposit_wrong_sig() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut state = harness.get_current_state();
 
@@ -351,14 +345,14 @@ async fn invalid_deposit_wrong_sig() {
         .0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(state, head_block.body().deposits(), &harness.spec);
     // Expecting Ok(()) even though the block signature does not correspond to the correct public key
     assert_eq!(result, Ok(()));
 }
 
 #[tokio::test]
 async fn invalid_deposit_invalid_pub_key() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut state = harness.get_current_state();
 
@@ -375,7 +369,8 @@ async fn invalid_deposit_invalid_pub_key() {
         .0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result = process_operations::process_deposits(state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(state, head_block.body().deposits(), &harness.spec);
 
     // Expecting Ok(()) even though we passed in invalid publickeybytes in the public key field of the deposit data.
     assert_eq!(result, Ok(()));
@@ -383,7 +378,6 @@ async fn invalid_deposit_invalid_pub_key() {
 
 #[tokio::test]
 async fn invalid_attestation_no_committee_for_index() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut state = harness.get_current_state();
@@ -408,7 +402,7 @@ async fn invalid_attestation_no_committee_for_index() {
         head_block.body(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting NoCommittee because we manually set the attestation's index to be invalid
@@ -423,7 +417,6 @@ async fn invalid_attestation_no_committee_for_index() {
 
 #[tokio::test]
 async fn invalid_attestation_wrong_justified_checkpoint() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut state = harness.get_current_state();
@@ -458,7 +451,7 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         head_block.body(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting WrongJustifiedCheckpoint because we manually set the
@@ -478,7 +471,6 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
 
 #[tokio::test]
 async fn invalid_attestation_bad_aggregation_bitfield_len() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut state = harness.get_current_state();
@@ -496,7 +488,7 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .next()
         .unwrap()
         .aggregation_bits_base_mut()
-        .unwrap() = Bitfield::with_capacity(spec.target_committee_size).unwrap();
+        .unwrap() = Bitfield::with_capacity(harness.spec.target_committee_size).unwrap();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -504,7 +496,7 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         head_block.body(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the committee size.
@@ -518,7 +510,6 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
 
 #[tokio::test]
 async fn invalid_attestation_bad_signature() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, 97).await; // minimal number of required validators for this test
 
     let mut state = harness.get_current_state();
@@ -543,7 +534,7 @@ async fn invalid_attestation_bad_signature() {
         head_block.body(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
     // Expecting BadSignature because we're signing with invalid secret_keys
     assert_eq!(
@@ -559,7 +550,6 @@ async fn invalid_attestation_bad_signature() {
 
 #[tokio::test]
 async fn invalid_attestation_included_too_early() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut state = harness.get_current_state();
@@ -587,7 +577,7 @@ async fn invalid_attestation_included_too_early() {
         head_block.body(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting IncludedTooEarly because the shard included in the crosslink is bigger than expected
@@ -597,7 +587,7 @@ async fn invalid_attestation_included_too_early() {
             index: 0,
             reason: AttestationInvalid::IncludedTooEarly {
                 state: state.slot(),
-                delay: spec.min_attestation_inclusion_delay,
+                delay: harness.spec.min_attestation_inclusion_delay,
                 attestation: new_attesation_slot,
             }
         })
@@ -606,7 +596,6 @@ async fn invalid_attestation_included_too_early() {
 
 #[tokio::test]
 async fn invalid_attestation_included_too_late() {
-    let spec = MainnetEthSpec::default_spec();
     // note to maintainer: might need to increase validator count if we get NoCommittee
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
@@ -635,7 +624,7 @@ async fn invalid_attestation_included_too_late() {
         head_block.body(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
     assert_eq!(
         result,
@@ -651,7 +640,6 @@ async fn invalid_attestation_included_too_late() {
 
 #[tokio::test]
 async fn invalid_attestation_target_epoch_slot_mismatch() {
-    let spec = MainnetEthSpec::default_spec();
     // note to maintainer: might need to increase validator count if we get NoCommittee
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
@@ -679,7 +667,7 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         head_block.body(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
     assert_eq!(
         result,
@@ -695,7 +683,6 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
 
 #[tokio::test]
 async fn valid_insert_attester_slashing() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let attester_slashing = harness.make_attester_slashing(vec![1, 2]);
@@ -707,7 +694,7 @@ async fn valid_insert_attester_slashing() {
         [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting Ok(()) because attester slashing is valid
@@ -716,7 +703,6 @@ async fn valid_insert_attester_slashing() {
 
 #[tokio::test]
 async fn invalid_attester_slashing_not_slashable() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
@@ -736,7 +722,7 @@ async fn invalid_attester_slashing_not_slashable() {
         [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting NotSlashable because the two attestations are the same
@@ -751,7 +737,6 @@ async fn invalid_attester_slashing_not_slashable() {
 
 #[tokio::test]
 async fn invalid_attester_slashing_1_invalid() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
@@ -773,7 +758,7 @@ async fn invalid_attester_slashing_1_invalid() {
         [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     assert_eq!(
@@ -791,7 +776,6 @@ async fn invalid_attester_slashing_1_invalid() {
 
 #[tokio::test]
 async fn invalid_attester_slashing_2_invalid() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
@@ -813,7 +797,7 @@ async fn invalid_attester_slashing_2_invalid() {
         [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     assert_eq!(
@@ -831,7 +815,6 @@ async fn invalid_attester_slashing_2_invalid() {
 
 #[tokio::test]
 async fn valid_insert_proposer_slashing() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let proposer_slashing = harness.make_proposer_slashing(1);
     let mut state = harness.get_current_state();
@@ -841,7 +824,7 @@ async fn valid_insert_proposer_slashing() {
         &[proposer_slashing],
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
     // Expecting Ok(_) because we inserted a valid proposer slashing
     assert!(result.is_ok());
@@ -849,7 +832,6 @@ async fn valid_insert_proposer_slashing() {
 
 #[tokio::test]
 async fn invalid_proposer_slashing_proposals_identical() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut proposer_slashing = harness.make_proposer_slashing(1);
@@ -862,7 +844,7 @@ async fn invalid_proposer_slashing_proposals_identical() {
         &[proposer_slashing],
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting ProposalsIdentical because we the two headers are identical
@@ -877,7 +859,6 @@ async fn invalid_proposer_slashing_proposals_identical() {
 
 #[tokio::test]
 async fn invalid_proposer_slashing_proposer_unknown() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut proposer_slashing = harness.make_proposer_slashing(1);
@@ -891,7 +872,7 @@ async fn invalid_proposer_slashing_proposer_unknown() {
         &[proposer_slashing],
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting ProposerUnknown because validator_index is unknown
@@ -906,7 +887,6 @@ async fn invalid_proposer_slashing_proposer_unknown() {
 
 #[tokio::test]
 async fn invalid_proposer_slashing_duplicate_slashing() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let proposer_slashing = harness.make_proposer_slashing(1);
@@ -917,7 +897,7 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
         std::slice::from_ref(&proposer_slashing),
         VerifySignatures::False,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
     assert!(result_1.is_ok());
 
@@ -926,7 +906,7 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
         std::slice::from_ref(&proposer_slashing),
         VerifySignatures::False,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
     // Expecting ProposerNotSlashable because we've already slashed the validator
     assert_eq!(
@@ -940,7 +920,6 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
 
 #[tokio::test]
 async fn invalid_bad_proposal_1_signature() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut proposer_slashing = harness.make_proposer_slashing(1);
     proposer_slashing.signed_header_1.signature = Signature::empty();
@@ -951,7 +930,7 @@ async fn invalid_bad_proposal_1_signature() {
         &[proposer_slashing],
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting BadProposal1Signature because signature of proposal 1 is invalid
@@ -966,7 +945,6 @@ async fn invalid_bad_proposal_1_signature() {
 
 #[tokio::test]
 async fn invalid_bad_proposal_2_signature() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut proposer_slashing = harness.make_proposer_slashing(1);
     proposer_slashing.signed_header_2.signature = Signature::empty();
@@ -977,7 +955,7 @@ async fn invalid_bad_proposal_2_signature() {
         &[proposer_slashing],
         VerifySignatures::True,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting BadProposal2Signature because signature of proposal 2 is invalid
@@ -992,7 +970,6 @@ async fn invalid_bad_proposal_2_signature() {
 
 #[tokio::test]
 async fn invalid_proposer_slashing_proposal_epoch_mismatch() {
-    let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let mut proposer_slashing = harness.make_proposer_slashing(1);
     proposer_slashing.signed_header_1.message.slot = Slot::new(0);
@@ -1004,7 +981,7 @@ async fn invalid_proposer_slashing_proposal_epoch_mismatch() {
         &[proposer_slashing],
         VerifySignatures::False,
         &mut ctxt,
-        &spec,
+        &harness.spec,
     );
 
     // Expecting ProposalEpochMismatch because the two epochs are different
@@ -1021,6 +998,7 @@ async fn invalid_proposer_slashing_proposal_epoch_mismatch() {
 }
 
 #[tokio::test]
+#[ignore = "pre-merge cross-fork scenarios are not supported after merge removal"]
 async fn fork_spanning_exit() {
     let mut spec = MainnetEthSpec::default_spec();
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
