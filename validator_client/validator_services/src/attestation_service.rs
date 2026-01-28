@@ -200,7 +200,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 let mut last_slot = self.latest_attested_slot.lock().await;
 
                 if current_slot <= *last_slot {
-                    debug!(?current_slot, "Attestation already initiated for the slot");
+                    debug!(%current_slot, "Attestation already initiated for the slot");
                     continue;
                 }
 
