@@ -8,7 +8,6 @@ use crate::sync::{
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
-use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
@@ -720,18 +719,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = match self
+        let mut available_blocks = vec![];
+
+        for downloaded_block in downloaded_blocks {
+            match downloaded_block {
+                RpcBlock::FullyAvailable(available_block) => available_blocks.push(available_block),
+                RpcBlock::BlockOnly { .. } => return (
+                    0,
+                    Err(ChainSegmentFailed {
+                        peer_action: None,
+                        message: "Invalid downloaded_blocks segment. All downloaded blocks must be fully available".to_string()
+                    })
+                ),
+            }
+        }
+
+        match self
             .chain
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(downloaded_blocks)
+            .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
-            Ok(blocks) => blocks
-                .into_iter()
-                .filter_map(|maybe_available| match maybe_available {
-                    MaybeAvailableBlock::Available(block) => Some(block),
-                    MaybeAvailableBlock::AvailabilityPending { .. } => None,
-                })
-                .collect::<Vec<_>>(),
+            Ok(()) => {}
             Err(e) => match e {
                 AvailabilityCheckError::StoreError(_) => {
                     return (
