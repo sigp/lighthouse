@@ -277,7 +277,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let spec = builder.get_spec();
-            let header = generate_genesis_header::<E>(spec, false);
+            let header = generate_genesis_header::<E>(spec);
             let genesis_state = genesis_state_builder
                 .set_opt_execution_payload_header(header.clone())
                 .build_genesis_state(
@@ -352,7 +352,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
         });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec(), false);
+            let header = generate_genesis_header::<E>(builder.get_spec());
             let genesis_state = genesis_state_builder
                 .set_opt_execution_payload_header(header)
                 .build_genesis_state(
@@ -687,7 +687,6 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
 
     MockExecutionLayer::new(
         task_executor,
-        0,
         shanghai_time,
         cancun_time,
         prague_time,

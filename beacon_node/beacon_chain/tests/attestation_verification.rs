@@ -81,7 +81,7 @@ fn get_harness_capella_spec(
 
     let validator_keypairs = KEYPAIRS[0..validator_count].to_vec();
     // Use the proper genesis execution payload header that matches the mock execution layer
-    let execution_payload_header = generate_genesis_header(&spec, false);
+    let execution_payload_header = generate_genesis_header(&spec);
     let genesis_state = interop_genesis_state(
         &validator_keypairs,
         HARNESS_GENESIS_TIME,

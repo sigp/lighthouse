@@ -12,14 +12,19 @@ use beacon_chain::{
     },
 };
 use beacon_chain::{
-    BeaconSnapshot, BlockError, ChainConfig, IntoExecutionPendingBlock, InvalidSignature,
-    NotifyExecutionLayer, signature_verify_chain_segment,
+    BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
+    InvalidSignature, NotifyExecutionLayer, signature_verify_chain_segment,
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
-use state_processing::common::{attesting_indices_base, attesting_indices_electra};
+use state_processing::{
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    common::{attesting_indices_base, attesting_indices_electra},
+    per_block_processing, per_slot_processing,
+};
+use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
@@ -1537,158 +1542,6 @@ async fn verify_block_for_gossip_doppelganger_detection() {
     }
 }
 
-/* FIXME(sproul): consider generalising this?
-#[tokio::test]
-async fn add_base_block_to_altair_chain() {
-    let mut spec = MainnetEthSpec::default_spec();
-    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
-
-    // The Altair fork happens at epoch 1.
-    spec.altair_fork_epoch = Some(Epoch::new(1));
-
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec.into())
-        .keypairs(KEYPAIRS[..].to_vec())
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    // Move out of the genesis slot.
-    harness.advance_slot();
-
-    // Build out all the blocks in epoch 0.
-    harness
-        .extend_chain(
-            slots_per_epoch as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
-    // Move into the next empty slot.
-    harness.advance_slot();
-
-    // Produce an Altair block.
-    let state = harness.get_current_state();
-    let slot = harness.get_current_slot();
-    let ((altair_signed_block, _), _) = harness.make_block(state.clone(), slot).await;
-    let altair_block = &altair_signed_block
-        .as_altair()
-        .expect("test expects an altair block")
-        .message;
-    let altair_body = &altair_block.body;
-
-    // Create a Base-equivalent of `altair_block`.
-    let base_block = SignedBeaconBlock::Base(SignedBeaconBlockBase {
-        message: BeaconBlockBase {
-            slot: altair_block.slot,
-            proposer_index: altair_block.proposer_index,
-            parent_root: altair_block.parent_root,
-            state_root: altair_block.state_root,
-            body: BeaconBlockBodyBase {
-                randao_reveal: altair_body.randao_reveal.clone(),
-                eth1_data: altair_body.eth1_data.clone(),
-                graffiti: altair_body.graffiti,
-                proposer_slashings: altair_body.proposer_slashings.clone(),
-                attester_slashings: altair_body.attester_slashings.clone(),
-                attestations: altair_body.attestations.clone(),
-                deposits: altair_body.deposits.clone(),
-                voluntary_exits: altair_body.voluntary_exits.clone(),
-                _phantom: PhantomData,
-            },
-        },
-        signature: Signature::empty(),
-    });
-
-    // Ensure that it would be impossible to apply this block to `per_block_processing`.
-    {
-        let mut state = state;
-        let mut ctxt = ConsensusContext::new(base_block.slot());
-        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
-        assert!(matches!(
-            per_block_processing(
-                &mut state,
-                &base_block,
-                BlockSignatureStrategy::NoVerification,
-                VerifyBlockRoot::True,
-                &mut ctxt,
-                &harness.chain.spec,
-            ),
-            Err(BlockProcessingError::InconsistentBlockFork(
-                InconsistentFork {
-                    fork_at_slot: ForkName::Altair,
-                    object_fork: ForkName::Base,
-                }
-            ))
-        ));
-    }
-
-    // Ensure that it would be impossible to verify this block for gossip.
-    assert!(matches!(
-        harness
-            .chain
-            .verify_block_for_gossip(Arc::new(base_block.clone()))
-            .await
-            .expect_err("should error when processing base block"),
-        BlockError::InconsistentFork(InconsistentFork {
-            fork_at_slot: ForkName::Altair,
-            object_fork: ForkName::Base,
-        })
-    ));
-
-    // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let base_rpc_block = RpcBlock::new(
-        Arc::new(base_block.clone()),
-        None,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
-    assert!(matches!(
-        harness
-            .chain
-            .process_block(
-                base_rpc_block.block_root(),
-                base_rpc_block,
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            )
-            .await
-            .expect_err("should error when processing base block"),
-        BlockError::InconsistentFork(InconsistentFork {
-            fork_at_slot: ForkName::Altair,
-            object_fork: ForkName::Base,
-        })
-    ));
-
-    // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
-    assert!(matches!(
-        harness
-            .chain
-            .process_chain_segment(
-                vec![
-                    RpcBlock::new(
-                        Arc::new(base_block),
-                        None,
-                        &harness.chain.data_availability_checker,
-                        harness.spec.clone()
-                    )
-                    .unwrap()
-                ],
-                NotifyExecutionLayer::Yes,
-            )
-            .await,
-        ChainSegmentResult::Failed {
-            imported_blocks: _,
-            error: BlockError::InconsistentFork(InconsistentFork {
-                fork_at_slot: ForkName::Altair,
-                object_fork: ForkName::Base,
-            })
-        }
-    ));
-}
-
 #[tokio::test]
 async fn add_altair_block_to_base_chain() {
     let mut spec = MainnetEthSpec::default_spec();
@@ -1839,8 +1692,6 @@ async fn add_altair_block_to_base_chain() {
         }
     ));
 }
-*/
-
 // This is a regression test for this bug:
 // https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]

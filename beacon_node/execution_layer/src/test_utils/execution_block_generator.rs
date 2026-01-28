@@ -167,12 +167,8 @@ fn make_rng() -> Arc<Mutex<StdRng>> {
 }
 
 impl<E: EthSpec> ExecutionBlockGenerator<E> {
-    // FIXME(sproul): remove terminal block params
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        _terminal_total_difficulty: Uint256,
-        _terminal_block_number: u64,
-        _terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
@@ -843,12 +839,8 @@ fn payload_id_from_u64(n: u64) -> PayloadId {
     n.to_le_bytes()
 }
 
-pub fn generate_genesis_header<E: EthSpec>(
-    spec: &ChainSpec,
-    _post_transition_merge: bool,
-) -> Option<ExecutionPayloadHeader<E>> {
+pub fn generate_genesis_header<E: EthSpec>(spec: &ChainSpec) -> Option<ExecutionPayloadHeader<E>> {
     let genesis_fork = spec.fork_name_at_slot::<E>(spec.genesis_slot);
-    // FIXME(sproul): delete these params altogether
     let genesis_block_hash = generate_genesis_block(Default::default(), 0)
         .ok()
         .map(|block| block.block_hash);

@@ -286,10 +286,6 @@ pub async fn consensus_invalid() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    // The error depends on whether blobs exist (which affects validation order):
-    // - Pre-Deneb (no blobs): block validation runs first -> NotFinalizedDescendant
-    // - Deneb/Electra (blobs): blob validation runs first -> ParentUnknown
-    // - Fulu+ (columns): block validation runs first -> NotFinalizedDescendant
     let pre_finalized_block_root = Hash256::zero();
     let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
         || tester.harness.spec.is_fulu_scheduled()
@@ -527,10 +523,6 @@ pub async fn equivocation_invalid() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    // The error depends on whether blobs exist (which affects validation order):
-    // - Pre-Deneb (no blobs): block validation runs first -> NotFinalizedDescendant
-    // - Deneb/Electra (blobs): blob validation runs first -> ParentUnknown
-    // - Fulu+ (columns): block validation runs first -> NotFinalizedDescendant
     let pre_finalized_block_root = Hash256::zero();
     let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
         || tester.harness.spec.is_fulu_scheduled()
@@ -862,10 +854,6 @@ pub async fn blinded_gossip_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    // The error depends on whether blobs exist (which affects validation order):
-    // - Pre-Deneb (no blobs): block validation runs first -> NotFinalizedDescendant
-    // - Deneb/Electra (blobs): blob validation runs first -> ParentUnknown
-    // - Fulu+ (columns): block validation runs first -> NotFinalizedDescendant
     let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
         || tester.harness.spec.is_fulu_scheduled()
     {
@@ -1088,14 +1076,14 @@ pub async fn blinded_consensus_invalid() {
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        // Pre-Deneb: no blobs, block validation runs first -> NotFinalizedDescendant
-        // Deneb/Electra: blobs exist, blob validation runs first -> ParentUnknown
-        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_some() {
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
-        } else {
+        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+            || tester.harness.spec.is_fulu_scheduled()
+        {
             format!(
                 "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
             )
+        } else {
+            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
         };
         assert_server_message_error(error_response, expected_error_msg);
     }
@@ -1277,14 +1265,14 @@ pub async fn blinded_equivocation_invalid() {
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        // Pre-Deneb: no blobs, block validation runs first -> NotFinalizedDescendant
-        // Deneb/Electra: blobs exist, blob validation runs first -> ParentUnknown
-        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_some() {
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
-        } else {
+        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+            || tester.harness.spec.is_fulu_scheduled()
+        {
             format!(
                 "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
             )
+        } else {
+            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
         };
         assert_server_message_error(error_response, expected_error_msg);
     }
