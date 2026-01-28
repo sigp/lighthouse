@@ -1062,14 +1062,6 @@ mod tests {
             info.add_custody_columns(*req, vec![]).unwrap();
         }
 
-        // AND: Column 3 request completes with empty data (persistent peer failure)
-        let (req3, _) = columns_req_id.get(2).unwrap();
-        info.add_custody_columns(*req3, vec![]).unwrap();
-
-        // AND: Column 4 request completes with empty data (persistent peer failure)
-        let (req4, _) = columns_req_id.get(3).unwrap();
-        info.add_custody_columns(*req4, vec![]).unwrap();
-
         // WHEN: Multiple retry attempts are made (up to max retries)
         for _ in 0..MAX_COLUMN_RETRIES {
             let result = info
