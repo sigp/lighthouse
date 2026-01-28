@@ -639,19 +639,20 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 mod test {
     use super::*;
 
+    use crate::data_column_verification::GossipVerifiedDataColumn;
+    use crate::payload_verification_types::PayloadImportData;
     use crate::test_utils::generate_data_column_indices_rand_order;
     use crate::{
-        blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         custody_context::NodeCustodyType,
-        data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
+        data_availability_checker_v2::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
-    use std::collections::VecDeque;
+    use std::collections::{HashSet, VecDeque};
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::{debug_span, info};
@@ -722,7 +723,7 @@ mod test {
                 .message()
                 .body()
                 .execution_payload()
-                .is_err()
+                .is_err(),
             "Gloas block has no payload"
         );
         harness
@@ -746,9 +747,10 @@ mod test {
         let target_slot = chain.slot().expect("should get slot") + 1;
         let parent_root = head.beacon_block_root;
         let parent_block = chain
-            .get_blinded_block(&parent_root)
+            .get_payload(&parent_root)
             .expect("should get block")
             .expect("should have block");
+
 
         let (signed_beacon_block_hash, (block, maybe_blobs), state) = harness
             .add_block_at_slot(target_slot, parent_state)
@@ -777,12 +779,12 @@ mod test {
 
         let gossip_verified_columns = if let Some((kzg_proofs, blobs)) = maybe_blobs {
             let sidecars =
-                DataColumnSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
+                DataColumnSidecar::build_sidecars(blobs, &block, &chain.kzg, &chain.spec).unwrap();
             Vec::from(sidecars)
                 .into_iter()
                 .map(|sidecar| {
-                    let subnet = sidecar.index;
-                    GossipVerifiedDataColumn::new(sidecar, subnet, &harness.chain)
+                    let subnet = *sidecar.index();
+                    GossipVerifiedDataColumn::new(sidecar, subnet.into(), &harness.chain)
                         .expect("should validate column")
                 })
                 .collect()
@@ -791,11 +793,9 @@ mod test {
         };
 
         let slot = block.slot();
-        let consensus_context = ConsensusContext::<E>::new(slot);
-        let import_data: BlockImportData<E> = BlockImportData {
-            block_root,
+        let consensus_context: ConsensusContext<E> = ConsensusContext::<E>::new(slot);
+        let import_data: PayloadImportData<E> = PayloadImportData {
             state,
-            parent_block,
             consensus_context,
         };
 
@@ -804,13 +804,13 @@ mod test {
             is_valid_merge_transition_block: false,
         };
 
-        let availability_pending_block = AvailabilityPendingExecutedBlock {
-            block,
+        let availability_pending_block = AvailabilityPendingExecutedPayload {
+            payload,
             import_data,
             payload_verification_outcome,
         };
 
-        (availability_pending_block, gossip_verified_blobs)
+        (availability_pending_block, gossip_verified_columns)
     }
 
     async fn setup_harness_and_cache<E, T>(
@@ -830,7 +830,7 @@ mod test {
     {
         create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
-        let harness = get_deneb_chain(&chain_db_path).await;
+        let harness = get_gloas_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
@@ -858,52 +858,58 @@ mod test {
         let capacity = 4;
         let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
-        let (pending_block, blobs) = availability_pending_block(&harness).await;
-        let root = pending_block.import_data.block_root;
+        let (pending_payload, columns) = availability_pending_payload(&harness).await;
+        let root = pending_payload.as_payload().beacon_block_root();
 
-        let blobs_expected = pending_block.num_blobs_expected();
+        let expected_column_indices = harness.chain.data_availability_checker.custody_context().custody_columns_for_epoch(None, &harness.chain.spec).iter().collect::<HashSet<_>>();
+        let columns_expected = pending_payload.num_blobs_expected();
+
         assert_eq!(
-            blobs.len(),
-            blobs_expected,
+            columns.len(),
+            expected_column_indices.len(),
             "should have expected number of blobs"
         );
         assert!(cache.critical.read().is_empty(), "cache should be empty");
         let availability = cache
-            .put_executed_block(pending_block)
+            .put_executed_payload(pending_payload)
             .expect("should put block");
-        if blobs_expected == 0 {
+        if columns_expected == 0 {
             assert!(
                 matches!(availability, Availability::Available(_)),
-                "block doesn't have blobs, should be available"
+                "payload doesn't have columns, should be available"
             );
             assert_eq!(
                 cache.critical.read().len(),
                 1,
-                "cache should still have block as it hasn't been imported yet"
+                "cache should still have payload as it hasn't been imported yet"
             );
         } else {
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
-                "should be pending blobs"
+                "should be pending columns"
             );
             assert_eq!(
                 cache.critical.read().len(),
                 1,
-                "cache should have one block"
+                "cache should have one payload"
             );
             assert!(
                 cache.critical.read().peek(&root).is_some(),
-                "newly inserted block should exist in memory"
+                "newly inserted payload should exist in memory"
             );
         }
 
-        let mut kzg_verified_blobs = Vec::new();
-        for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
-            kzg_verified_blobs.push(gossip_blob.into_inner());
+        let mut kzg_verified_columns = Vec::new();
+
+        for gossip_column in columns.into_iter() {
+            kzg_verified_columns.push(gossip_column.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
-                .expect("should put blob");
-            if blob_index == blobs_expected - 1 {
+                .put_kzg_verified_data_columns(root, kzg_verified_columns.clone().into_iter())
+                .expect("should put column");
+
+            expected_column_indices.remove(&gossip_column.index());
+
+            if expected_column_indices.is_empty() {
                 assert!(matches!(availability, Availability::Available(_)));
             } else {
                 assert!(matches!(availability, Availability::MissingComponents(_)));
@@ -911,41 +917,43 @@ mod test {
             }
         }
 
-        let (pending_block, blobs) = availability_pending_block(&harness).await;
-        let blobs_expected = pending_block.num_blobs_expected();
+        let (pending_payload, columns) = availability_pending_payload(&harness).await;
+        let expected_column_indices = harness.chain.data_availability_checker.custody_context().custody_columns_for_epoch(None, &harness.chain.spec).iter().collect::<HashSet<_>>();
+        let columns_expected = pending_payload.num_blobs_expected();
         assert_eq!(
-            blobs.len(),
-            blobs_expected,
+            columns.len(),
+            expected_column_indices.len(),
             "should have expected number of blobs"
         );
-        let root = pending_block.import_data.block_root;
-        let mut kzg_verified_blobs = vec![];
-        for gossip_blob in blobs {
-            kzg_verified_blobs.push(gossip_blob.into_inner());
+        let root = pending_payload.as_payload().beacon_block_root();
+
+        let mut kzg_verified_columns = vec![];
+        for gossip_column in columns {
+            kzg_verified_columns.push(gossip_column.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
-                .expect("should put blob");
+                .put_kzg_verified_data_columns(root, kzg_verified_columns.clone())
+                .expect("should put column");
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
-                "should be pending block"
+                "should be pending payload"
             );
             assert_eq!(
                 cache.critical.read().len(),
                 2,
-                "cache should have two blocks now"
+                "cache should have two payloads now"
             );
         }
         let availability = cache
-            .put_executed_block(pending_block)
-            .expect("should put block");
+            .put_executed_payload(pending_payload)
+            .expect("should put payload");
         assert!(
             matches!(availability, Availability::Available(_)),
-            "block should be available: {:?}",
+            "payload should be available: {:?}",
             availability
         );
         assert!(
             cache.critical.read().len() == 2,
-            "cache should still have available block"
+            "cache should still have available payload"
         );
     }
 

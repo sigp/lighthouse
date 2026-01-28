@@ -393,7 +393,7 @@ impl TestRig {
 
         let data_sidecars = if fork.fulu_enabled() {
             store
-                .get_data_columns(&block_root)
+                .get_data_columns(&block_root, fork)
                 .unwrap()
                 .map(|columns| {
                     columns

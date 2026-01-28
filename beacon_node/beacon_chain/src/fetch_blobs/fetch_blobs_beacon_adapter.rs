@@ -1,5 +1,5 @@
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
-use crate::observed_block_producers::ProposalKey;
+use crate::observed_data_sidecars::ObservationKey;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use kzg::Kzg;
@@ -67,27 +67,25 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::RequestFailed)
     }
 
-    pub(crate) fn blobs_known_for_proposal(
+    pub(crate) fn blobs_known_for_observation_key(
         &self,
-        proposer: u64,
-        slot: Slot,
+        observation_key: ObservationKey,
     ) -> Option<HashSet<u64>> {
-        let proposer_key = ProposalKey::new(proposer, slot);
         self.chain
             .observed_blob_sidecars
             .read()
-            .known_for_proposal(&proposer_key)
+            .known_for_observation_key(&observation_key)
             .cloned()
     }
 
-    pub(crate) fn data_column_known_for_proposal(
+    pub(crate) fn data_column_known_for_observation_key(
         &self,
-        proposal_key: ProposalKey,
+        observation_key: ObservationKey,
     ) -> Option<HashSet<ColumnIndex>> {
         self.chain
             .observed_column_sidecars
             .read()
-            .known_for_proposal(&proposal_key)
+            .known_for_observation_key(&observation_key)
             .cloned()
     }
 

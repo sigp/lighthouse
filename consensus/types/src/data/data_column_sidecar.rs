@@ -3,21 +3,23 @@ use std::sync::Arc;
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
-use kzg::{KzgCommitment, KzgProof};
+use kzg::{CellsAndKzgProofs, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
-    core::{Epoch, EthSpec, Hash256, Slot},
+    block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader},
+    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
+    data::BlobsList,
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,
@@ -38,15 +40,43 @@ pub struct DataColumnsByRootIdentifier<E: EthSpec> {
 
 pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
+#[superstruct(
+    variants(Fulu, Gloas),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            TestRandom,
+            Educe,
+            TreeHash,
+        ),
+        context_deserialize(ForkName),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
+        serde(bound = "E: EthSpec", deny_unknown_fields),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec")
+        )
+    ),
+    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
+    cast_error(ty = "DataColumnSidecarError", expr = "DataColumnSidecarError::IncorrectStateVariant"),
+    partial_getter_error(ty = "DataColumnSidecarError", expr = "DataColumnSidecarError::IncorrectStateVariant")
+)]
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
-#[serde(bound = "E: EthSpec")]
-#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
-#[context_deserialize(ForkName)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
+#[serde(bound = "E: EthSpec", untagged, deny_unknown_fields)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
@@ -55,18 +85,182 @@ pub struct DataColumnSidecar<E: EthSpec> {
     /// All the KZG commitments and proofs associated with the block, used for verifying sample cells.
     pub kzg_commitments: KzgCommitments<E>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
+    #[superstruct(only(Fulu))]
     pub signed_block_header: SignedBeaconBlockHeader,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
+    #[superstruct(only(Fulu))]
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+    #[superstruct(only(Gloas), partial_getter(rename = "slot_gloas"))]
+    pub slot: Slot,
+    #[superstruct(only(Gloas))]
+    pub beacon_block_root: Hash256,
 }
 
 impl<E: EthSpec> DataColumnSidecar<E> {
     pub fn slot(&self) -> Slot {
-        self.signed_block_header.message.slot
+        match self {
+            DataColumnSidecar::Fulu(column) => column.slot(),
+            DataColumnSidecar::Gloas(column) => column.slot,
+        }
     }
 
     pub fn epoch(&self) -> Epoch {
         self.slot().epoch(E::slots_per_epoch())
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        match self {
+            DataColumnSidecar::Fulu(column) => column.block_root(),
+            DataColumnSidecar::Gloas(column) => column.beacon_block_root,
+        }
+    }
+
+    /// Custom SSZ decoder that takes a `ForkName` as context.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => Err(ssz::DecodeError::NoMatchingVariant),
+            ForkName::Fulu => Ok(DataColumnSidecar::Fulu(
+                DataColumnSidecarFulu::from_ssz_bytes(bytes)?,
+            )),
+            ForkName::Gloas => Ok(DataColumnSidecar::Gloas(
+                DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
+            )),
+        }
+    }
+
+    /// Build data column sidecars from blobs and a signed beacon block.
+    ///
+    /// This method computes cells and cell proofs from the blobs using KZG,
+    /// then constructs the appropriate data column sidecar variant (Fulu or Gloas)
+    /// based on the block's fork.
+    pub fn build_sidecars(
+        blobs: BlobsList<E>,
+        block: &SignedBeaconBlock<E>,
+        kzg: &Kzg,
+        spec: &ChainSpec,
+    ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
+        if blobs.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let kzg_commitments = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_| DataColumnSidecarError::PreDeneb)?
+            .clone();
+
+        // Compute cells and proofs for each blob
+        let blob_cells_and_proofs: Vec<CellsAndKzgProofs> = blobs
+            .iter()
+            .map(|blob| {
+                let blob_bytes: &[u8; BYTES_PER_BLOB] =
+                    blob.as_ref().try_into().map_err(|_| {
+                        DataColumnSidecarError::KzgError(KzgError::InconsistentArrayLength(
+                            format!(
+                                "blob should have size {}, got {}",
+                                BYTES_PER_BLOB,
+                                blob.len()
+                            ),
+                        ))
+                    })?;
+                kzg.compute_cells_and_proofs(blob_bytes)
+                    .map_err(DataColumnSidecarError::KzgError)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let number_of_columns = E::number_of_columns();
+        let max_blobs_per_block =
+            spec.max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
+
+        // Initialize columns and proofs vectors
+        let mut columns: Vec<Vec<Cell<E>>> =
+            vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
+        let mut column_kzg_proofs: Vec<Vec<KzgProof>> =
+            vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
+
+        // Arrange cells and proofs into columns
+        for (blob_cells, blob_cell_proofs) in &blob_cells_and_proofs {
+            for col_idx in 0..number_of_columns {
+                let cell = blob_cells.get(col_idx).ok_or_else(|| {
+                    DataColumnSidecarError::DataColumnIndexOutOfBounds
+                })?;
+                let cell_vec: Vec<u8> = cell.to_vec();
+                let cell = Cell::<E>::try_from(cell_vec)?;
+
+                let proof = blob_cell_proofs.get(col_idx).ok_or_else(|| {
+                    DataColumnSidecarError::DataColumnIndexOutOfBounds
+                })?;
+
+                columns
+                    .get_mut(col_idx)
+                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?
+                    .push(cell);
+                column_kzg_proofs
+                    .get_mut(col_idx)
+                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?
+                    .push(*proof);
+            }
+        }
+
+        // Build sidecars based on fork
+        let fork_name = block.fork_name_unchecked();
+        if fork_name.gloas_enabled() {
+            // Gloas variant
+            let beacon_block_root = block.canonical_root();
+            let slot = block.slot();
+
+            columns
+                .into_iter()
+                .zip(column_kzg_proofs)
+                .enumerate()
+                .map(|(index, (col, proofs))| {
+                    Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+                        index: index as u64,
+                        column: DataColumn::<E>::try_from(col)?,
+                        kzg_commitments: kzg_commitments.clone(),
+                        kzg_proofs: VariableList::try_from(proofs)?,
+                        slot,
+                        beacon_block_root,
+                    })))
+                })
+                .collect()
+        } else {
+            // Fulu variant
+            let signed_block_header = block.signed_block_header();
+            let kzg_commitments_inclusion_proof =
+                block.message().body().kzg_commitments_merkle_proof()?;
+
+            columns
+                .into_iter()
+                .zip(column_kzg_proofs)
+                .enumerate()
+                .map(|(index, (col, proofs))| {
+                    Ok(Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                        index: index as u64,
+                        column: DataColumn::<E>::try_from(col)?,
+                        kzg_commitments: kzg_commitments.clone(),
+                        kzg_proofs: VariableList::try_from(proofs)?,
+                        signed_block_header: signed_block_header.clone(),
+                        kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
+                    })))
+                })
+                .collect()
+        }
+    }
+}
+
+impl<E: EthSpec> DataColumnSidecarFulu<E> {
+    pub fn slot(&self) -> Slot {
+        self.signed_block_header.message.slot
     }
 
     pub fn block_root(&self) -> Hash256 {
@@ -132,6 +326,39 @@ impl<E: EthSpec> DataColumnSidecar<E> {
     }
 }
 
+impl<E: EthSpec> DataColumnSidecarGloas<E> {
+    pub fn min_size() -> usize {
+        // min size is one cell
+        Self {
+            index: 0,
+            column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
+            kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
+            slot: Slot::new(0),
+            beacon_block_root: Hash256::ZERO,
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn max_size(max_blobs_per_block: usize) -> usize {
+        Self {
+            index: 0,
+            column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
+            kzg_commitments: VariableList::new(vec![
+                KzgCommitment::empty_for_testing();
+                max_blobs_per_block
+            ])
+            .unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
+            slot: Slot::new(0),
+            beacon_block_root: Hash256::ZERO,
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+}
+
 #[derive(Debug)]
 pub enum DataColumnSidecarError {
     ArithError(ArithError),
@@ -145,6 +372,7 @@ pub enum DataColumnSidecarError {
     SszError(SszError),
     BuildSidecarFailed(String),
     InvalidCellProofLength { expected: usize, actual: usize },
+    IncorrectStateVariant,
 }
 
 impl From<ArithError> for DataColumnSidecarError {
@@ -168,5 +396,45 @@ impl From<KzgError> for DataColumnSidecarError {
 impl From<SszError> for DataColumnSidecarError {
     fn from(e: SszError) -> Self {
         Self::SszError(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{MainnetEthSpec, max_data_columns_by_root_request_common};
+    use fixed_bytes::FixedBytesExtended;
+    use ssz_types::RuntimeVariableList;
+
+    // This is the "correct" implementation of max_data_columns_by_root_request.
+    // This test ensures that the simplified implementation doesn't deviate from it.
+    fn max_data_columns_by_root_request_implementation<E: EthSpec>(
+        max_request_blocks: u64,
+    ) -> usize {
+        let max_request_blocks = max_request_blocks as usize;
+
+        let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
+            block_root: Hash256::zero(),
+            columns: VariableList::repeat_full(0),
+        };
+
+        RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
+            vec![empty_data_columns_by_root_id; max_request_blocks],
+            max_request_blocks,
+        )
+        .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
+        .as_ssz_bytes()
+        .len()
+    }
+
+    #[test]
+    fn max_data_columns_by_root_request_matches_simplified() {
+        for n in [0, 1, 2, 8, 16, 32, 64, 128, 256, 512, 1024] {
+            assert_eq!(
+                max_data_columns_by_root_request_common::<MainnetEthSpec>(n),
+                max_data_columns_by_root_request_implementation::<MainnetEthSpec>(n),
+                "Mismatch at n={n}"
+            );
+        }
     }
 }
