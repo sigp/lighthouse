@@ -1993,6 +1993,7 @@ mod release_tests {
     /// - both target epochs in Deneb signed with Deneb domain (only valid after Deneb)
     /// - both target epochs in Deneb signed with Electra domain (only valid after Electra)
     #[tokio::test]
+    #[ignore = "pre-merge cross-fork scenarios are not supported after merge removal"]
     async fn cross_fork_attester_slashings() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
