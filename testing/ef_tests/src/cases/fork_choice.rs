@@ -532,6 +532,7 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
         let mut data_column_success = true;
 
         if let Some(columns) = columns.clone() {
@@ -560,13 +561,21 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(self.harness.chain.process_block(
-                block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            ))?
+            .block_on_dangerous(
+                self.harness.chain.process_block(
+                    block_root,
+                    RpcBlock::new(
+                        block.clone(),
+                        None,
+                        &self.harness.chain.data_availability_checker,
+                        self.harness.chain.spec.clone(),
+                    )
+                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                ),
+            )?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
@@ -650,13 +659,21 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(self.harness.chain.process_block(
-                block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            ))?
+            .block_on_dangerous(
+                self.harness.chain.process_block(
+                    block_root,
+                    RpcBlock::new(
+                        block.clone(),
+                        None,
+                        &self.harness.chain.data_availability_checker,
+                        self.harness.chain.spec.clone(),
+                    )
+                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                ),
+            )?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
