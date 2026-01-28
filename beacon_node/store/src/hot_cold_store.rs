@@ -1479,7 +1479,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                                 let fork_name = self.spec.fork_name_at_slot::<E>(slot);
                                 StoreOp::DeleteDataColumns(*block_root, indices, fork_name)
                             }
-                            // It should be impossible to reach this case. We're reverting
+                            // It shouldn't be possible to reach this case. We're reverting
                             // a `PutDataColumn` operation that attempted to write columns to the store.
                             None => return Err(HotColdDBError::Rollback.into()),
                         }

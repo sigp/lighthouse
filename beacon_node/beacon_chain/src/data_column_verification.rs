@@ -496,7 +496,8 @@ where
     Ok(())
 }
 
-#[instrument(skip_all, level = "debug")]
+// TODO(gloas) make sure the gloas variant uses the same span name
+#[instrument(skip_all, name = "validate_data_column_sidecar_for_gossip", level = "debug")]
 pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: DataColumnSubnetId,
@@ -798,15 +799,18 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
     data_column_sidecar: &DataColumnSidecar<T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
-    // Now the signature is valid, store the proposal so we don't accept another data column sidecar
-    // with the same `ColumnIndex`.  It's important to double-check that the proposer still
-    // hasn't been observed so we don't have a race-condition when verifying two blocks
+    // Pre-gloas: Now the signature is valid, store the proposal so we don't accept another data column sidecar
+    // with the same `ColumnIndex`. 
+    // Post-gloas: The block associated with the sidecar has already been imported into fork choice. Store the 
+    // columns `beacon_block_root` so we don't accept another data column sidecar with the same `ColumnIndex`.
+    // It's important to double-check that the `Observationkey` still
+    // hasn't been observed so we don't have a race-condition when verifying two sidecars
     // simultaneously.
     //
     // Note: If this DataColumnSidecar goes on to fail full verification, we do not evict it from the
     // seen_cache as alternate data_column_sidecars for the same identifier can still be retrieved over
     // rpc. Evicting them from this cache would allow faster propagation over gossip. So we
-    // allow retrieval of potentially valid blocks over rpc, but try to punish the proposer for
+    // allow retrieval of potentially valid sidecars over rpc, but try to punish the proposer for
     // signing invalid messages. Issue for more background
     // https://github.com/ethereum/consensus-specs/issues/3261
     if let Some(observation_key) = chain

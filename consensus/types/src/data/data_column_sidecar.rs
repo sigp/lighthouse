@@ -73,8 +73,7 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 )]
 #[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(untagged)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", untagged, deny_unknown_fields)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct DataColumnSidecar<E: EthSpec> {

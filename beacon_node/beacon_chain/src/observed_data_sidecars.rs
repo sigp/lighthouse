@@ -163,8 +163,6 @@ impl<T: ObservableDataSidecar, E: EthSpec> ObservedDataSidecars<T, E> {
     /// Observes the sidecar, returning `Some(key)` if it was already known, `None` if newly added.
     ///
     /// This will update `self` so future calls indicate that this `data_sidecar` is known.
-    /// TODO(gloas) ensure we provide proper documentation for the post-gloas case
-    /// Pre-gloas the supplied `data_sidecar` **MUST** have completed proposer signature verification.
     pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<Option<ObservationKey>, Error> {
         self.sanitize_data_sidecar(data_sidecar)?;
 
@@ -257,43 +255,98 @@ impl ObservationStrategy for DoNotObserve {
     }
 }
 
-// TODO(gloas) write gloas specific/column specific tests
-// we can propably deprecate anything blob related
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::test_spec;
+    use bls::FixedBytesExtended;
     use std::sync::Arc;
-    use types::{Epoch, MainnetEthSpec};
+    use types::{DataColumnSidecarFulu, DataColumnSidecarGloas, ForkName, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
-    fn get_blob_sidecar(slot: u64, proposer_index: u64, index: u64) -> Arc<BlobSidecar<E>> {
-        let mut blob_sidecar = BlobSidecar::empty();
-        blob_sidecar.signed_block_header.message.slot = slot.into();
-        blob_sidecar.signed_block_header.message.proposer_index = proposer_index;
-        blob_sidecar.index = index;
-        Arc::new(blob_sidecar)
+    /// Creates a Fulu DataColumnSidecar for testing.
+    /// Keyed by (proposer_index, slot) in the observation cache.
+    fn get_data_column_sidecar_fulu(
+        slot: u64,
+        proposer_index: u64,
+        index: u64,
+    ) -> Arc<DataColumnSidecar<E>> {
+        let mut signed_block_header = types::SignedBeaconBlockHeader::empty();
+        signed_block_header.message.slot = slot.into();
+        signed_block_header.message.proposer_index = proposer_index;
+        // Use proposer_index as a simple way to generate different block roots
+        signed_block_header.message.body_root = Hash256::from_low_u64_be(proposer_index);
+        Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+            index,
+            column: vec![].try_into().unwrap(),
+            kzg_commitments: vec![].try_into().unwrap(),
+            kzg_proofs: vec![].try_into().unwrap(),
+            signed_block_header,
+            kzg_commitments_inclusion_proof: vec![
+                Hash256::ZERO;
+                E::kzg_commitments_inclusion_proof_depth()
+            ]
+            .try_into()
+            .unwrap(),
+        }))
+    }
+
+    /// Creates a Gloas DataColumnSidecar for testing.
+    /// Keyed by (beacon_block_root, slot) in the observation cache.
+    fn get_data_column_sidecar_gloas(
+        slot: u64,
+        beacon_block_root: Hash256,
+        index: u64,
+    ) -> Arc<DataColumnSidecar<E>> {
+        Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+            index,
+            column: vec![].try_into().unwrap(),
+            kzg_commitments: vec![].try_into().unwrap(),
+            kzg_proofs: vec![].try_into().unwrap(),
+            slot: slot.into(),
+            beacon_block_root,
+        }))
+    }
+
+    fn fulu_spec() -> Arc<ChainSpec> {
+        Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()))
+    }
+
+    fn gloas_spec() -> Arc<ChainSpec> {
+        Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()))
     }
 
     #[test]
-    fn pruning() {
-        let spec = Arc::new(test_spec::<E>());
-        let mut cache = ObservedDataSidecars::<BlobSidecar<E>, E>::new(spec.clone());
+    fn pruning_fulu() {
+        pruning_test(fulu_spec(), get_data_column_sidecar_fulu);
+    }
+
+    #[test]
+    fn pruning_gloas() {
+        pruning_test(gloas_spec(), |slot, key, index| {
+            get_data_column_sidecar_gloas(slot, Hash256::from_low_u64_be(key), index)
+        });
+    }
+
+    fn pruning_test(
+        spec: Arc<ChainSpec>,
+        get_sidecar: impl Fn(u64, u64, u64) -> Arc<DataColumnSidecar<E>>,
+    ) {
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 0, "no slots should be present");
 
         // Slot 0, index 0
-        let proposer_index_a = 420;
-        let sidecar_a = get_blob_sidecar(0, proposer_index_a, 0);
+        let key_a = 420;
+        let sidecar_a = get_sidecar(0, key_a, 0);
 
         assert_eq!(
             cache
                 .observe_sidecar(sidecar_a.as_ref())
                 .map(|o| o.is_some()),
             Ok(false),
-            "can observe proposer, indicates proposer unobserved"
+            "can observe sidecar, indicates sidecar unobserved"
         );
 
         /*
@@ -304,21 +357,17 @@ mod tests {
         assert_eq!(
             cache.items.len(),
             1,
-            "only one (validator_index, slot) tuple should be present"
+            "only one observation key should be present"
         );
 
         let observation_key =
-            &ObservationKey::new::<BlobSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
+            &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
 
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
             .get(observation_key)
             .expect("slot zero should be present");
-        assert_eq!(
-            cached_blob_indices.len(),
-            1,
-            "only one proposer should be present"
-        );
+        assert_eq!(cached_indices.len(), 1, "only one index should be present");
 
         /*
          * Check that a prune at the genesis slot does nothing.
@@ -327,19 +376,15 @@ mod tests {
         cache.prune(Slot::new(0));
 
         let observation_key =
-            ObservationKey::new::<BlobSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
+            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
             .get(&observation_key)
             .expect("slot zero should be present");
-        assert_eq!(
-            cached_blob_indices.len(),
-            1,
-            "only one proposer should be present"
-        );
+        assert_eq!(cached_indices.len(), 1, "only one index should be present");
 
         /*
          * Check that a prune empties the cache
@@ -358,10 +403,10 @@ mod tests {
          */
 
         // First slot of finalized epoch
-        let block_b = get_blob_sidecar(E::slots_per_epoch(), 419, 0);
+        let sidecar_b = get_sidecar(E::slots_per_epoch(), 419, 0);
 
         assert_eq!(
-            cache.observe_sidecar(block_b.as_ref()),
+            cache.observe_sidecar(sidecar_b.as_ref()),
             Err(Error::FinalizedDataSidecar {
                 slot: E::slots_per_epoch().into(),
                 finalized_slot: E::slots_per_epoch().into(),
@@ -372,37 +417,34 @@ mod tests {
         assert_eq!(cache.items.len(), 0, "sidecar was not added");
 
         /*
-         * Check that we _can_ insert a non-finalized block
+         * Check that we _can_ insert a non-finalized sidecar
          */
 
         let three_epochs = E::slots_per_epoch() * 3;
 
-        // First slot of finalized epoch
-        let proposer_index_b = 421;
-        let block_b = get_blob_sidecar(three_epochs, proposer_index_b, 0);
+        let key_b = 421;
+        let sidecar_b = get_sidecar(three_epochs, key_b, 0);
 
         assert_eq!(
-            cache.observe_sidecar(block_b.as_ref()).map(|o| o.is_some()),
+            cache
+                .observe_sidecar(sidecar_b.as_ref())
+                .map(|o| o.is_some()),
             Ok(false),
-            "can insert non-finalized block"
+            "can insert non-finalized sidecar"
         );
 
         let observation_key =
-            ObservationKey::new::<BlobSidecar<E>, E>(block_b.as_ref(), &spec).unwrap();
+            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_b.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
             .get(&observation_key)
             .expect("the three epochs slot should be present");
-        assert_eq!(
-            cached_blob_indices.len(),
-            1,
-            "only one proposer should be present"
-        );
+        assert_eq!(cached_indices.len(), 1, "only one index should be present");
 
         /*
-         * Check that a prune doesnt wipe later blocks
+         * Check that a prune doesnt wipe later sidecars
          */
 
         let two_epochs = E::slots_per_epoch() * 2;
@@ -415,28 +457,37 @@ mod tests {
         );
 
         let observation_key =
-            ObservationKey::new::<BlobSidecar<E>, E>(block_b.as_ref(), &spec).unwrap();
+            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_b.as_ref(), &spec).unwrap();
 
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
             .get(&observation_key)
             .expect("the three epochs slot should be present");
-        assert_eq!(
-            cached_blob_indices.len(),
-            1,
-            "only one proposer should be present"
-        );
+        assert_eq!(cached_indices.len(), 1, "only one index should be present");
     }
 
     #[test]
-    fn simple_observations() {
-        let spec = Arc::new(test_spec::<E>());
-        let mut cache = ObservedDataSidecars::<BlobSidecar<E>, E>::new(spec.clone());
+    fn simple_observations_fulu() {
+        simple_observations_test(fulu_spec(), get_data_column_sidecar_fulu);
+    }
+
+    #[test]
+    fn simple_observations_gloas() {
+        simple_observations_test(gloas_spec(), |slot, key, index| {
+            get_data_column_sidecar_gloas(slot, Hash256::from_low_u64_be(key), index)
+        });
+    }
+
+    fn simple_observations_test(
+        spec: Arc<ChainSpec>,
+        get_sidecar: impl Fn(u64, u64, u64) -> Arc<DataColumnSidecar<E>>,
+    ) {
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
 
         // Slot 0, index 0
-        let proposer_index_a = 420;
-        let sidecar_a = get_blob_sidecar(0, proposer_index_a, 0);
+        let key_a = 420;
+        let sidecar_a = get_sidecar(0, key_a, 0);
 
         assert_eq!(
             cache
@@ -451,7 +502,7 @@ mod tests {
                 .observe_sidecar(sidecar_a.as_ref())
                 .map(|o| o.is_some()),
             Ok(false),
-            "can observe proposer, indicates proposer unobserved"
+            "can observe sidecar, indicates sidecar unobserved"
         );
 
         assert_eq!(
@@ -459,7 +510,7 @@ mod tests {
                 .observation_key_is_known(sidecar_a.as_ref())
                 .map(|o| o.is_some()),
             Ok(true),
-            "observed block is indicated as true"
+            "observed sidecar is indicated as true"
         );
 
         assert_eq!(
@@ -472,20 +523,18 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 1, "only one slot should be present");
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
-            .get(&ObservationKey::new::<BlobSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap())
+            .get(
+                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap(),
+            )
             .expect("slot zero should be present");
-        assert_eq!(
-            cached_blob_indices.len(),
-            1,
-            "only one proposer should be present"
-        );
+        assert_eq!(cached_indices.len(), 1, "only one index should be present");
 
-        // Slot 1, proposer 0
+        // Slot 1, different key
 
-        let proposer_index_b = 421;
-        let sidecar_b = get_blob_sidecar(1, proposer_index_b, 0);
+        let key_b = 421;
+        let sidecar_b = get_sidecar(1, key_b, 0);
 
         assert_eq!(
             cache
@@ -499,14 +548,14 @@ mod tests {
                 .observe_sidecar(sidecar_b.as_ref())
                 .map(|o| o.is_some()),
             Ok(false),
-            "can observe proposer for new slot, indicates proposer unobserved"
+            "can observe sidecar for new slot, indicates sidecar unobserved"
         );
         assert_eq!(
             cache
                 .observation_key_is_known(sidecar_b.as_ref())
                 .map(|o| o.is_some()),
             Ok(true),
-            "observed block in slot 1 is indicated as true"
+            "observed sidecar in slot 1 is indicated as true"
         );
         assert_eq!(
             cache
@@ -518,27 +567,31 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 2, "two slots should be present");
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
-            .get(&ObservationKey::new::<BlobSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap())
+            .get(
+                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap(),
+            )
             .expect("slot zero should be present");
         assert_eq!(
-            cached_blob_indices.len(),
+            cached_indices.len(),
             1,
-            "only one proposer should be present in slot 0"
+            "only one index should be present in slot 0"
         );
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
-            .get(&ObservationKey::new::<BlobSidecar<E>, E>(sidecar_b.as_ref(), &spec).unwrap())
+            .get(
+                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_b.as_ref(), &spec).unwrap(),
+            )
             .expect("slot one should be present");
         assert_eq!(
-            cached_blob_indices.len(),
+            cached_indices.len(),
             1,
-            "only one proposer should be present in slot 1"
+            "only one index should be present in slot 1"
         );
 
-        // Slot 0, index 1
-        let sidecar_c = get_blob_sidecar(0, proposer_index_a, 1);
+        // Slot 0, index 1 (same key as sidecar_a)
+        let sidecar_c = get_sidecar(0, key_a, 1);
 
         assert_eq!(
             cache
@@ -571,51 +624,163 @@ mod tests {
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 2, "two slots should be present");
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
-            .get(&ObservationKey::new::<BlobSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap())
+            .get(
+                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_a.as_ref(), &spec).unwrap(),
+            )
             .expect("slot zero should be present");
         assert_eq!(
-            cached_blob_indices.len(),
+            cached_indices.len(),
             2,
-            "two blob indices should be present in slot 0"
+            "two indices should be present in slot 0"
         );
 
-        // Create a sidecar with a different proposer index (pre-gloas: keyed by proposer,
-        // post-gloas: keyed by block root).
-        let proposer_index_c = 422;
-        let sidecar_d = get_blob_sidecar(0, proposer_index_c, 0);
+        // Create a sidecar with a different key at the same slot
+        // For Fulu: different proposer_index creates a different observation key
+        // For Gloas: different block_root creates a different observation key
+        let key_c = 422;
+        let sidecar_d = get_sidecar(0, key_c, 0);
         assert_eq!(
             cache
                 .observation_key_is_known(sidecar_d.as_ref())
                 .map(|o| o.is_some()),
             Ok(false),
-            "no observation for new proposer"
+            "no observation for new key"
         );
         assert_eq!(
             cache
                 .observe_sidecar(sidecar_d.as_ref())
                 .map(|o| o.is_some()),
             Ok(false),
-            "can observe sidecar, indicates sidecar unobserved for new proposer"
+            "can observe sidecar, indicates sidecar unobserved for new key"
         );
-        let cached_blob_indices = cache
+        let cached_indices = cache
             .items
-            .get(&ObservationKey::new::<BlobSidecar<E>, E>(sidecar_d.as_ref(), &spec).unwrap())
+            .get(
+                &ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_d.as_ref(), &spec).unwrap(),
+            )
             .expect("sidecar_d's observation key should be present");
         assert_eq!(
-            cached_blob_indices.len(),
+            cached_indices.len(),
             1,
-            "one blob index should be present for sidecar_d's observation key"
+            "one index should be present for sidecar_d's observation key"
         );
 
         // Try adding an out of bounds index
-        let invalid_index = spec.max_blobs_per_block(Epoch::new(0));
-        let sidecar_d = get_blob_sidecar(0, proposer_index_a, invalid_index);
+        let invalid_index = E::number_of_columns() as u64;
+        let sidecar_e = get_sidecar(0, key_a, invalid_index);
         assert_eq!(
-            cache.observe_sidecar(sidecar_d.as_ref()),
+            cache.observe_sidecar(sidecar_e.as_ref()),
             Err(Error::InvalidDataIndex(invalid_index)),
-            "cannot add an index > MaxBlobsPerBlock"
+            "cannot add an index >= NUMBER_OF_COLUMNS"
         );
+    }
+
+    /// Test that sidecars with the same observation key but different indices
+    /// are tracked correctly.
+    #[test]
+    fn multiple_indices_same_key_fulu() {
+        multiple_indices_same_key_test(fulu_spec(), get_data_column_sidecar_fulu);
+    }
+
+    #[test]
+    fn multiple_indices_same_key_gloas() {
+        multiple_indices_same_key_test(gloas_spec(), |slot, key, index| {
+            get_data_column_sidecar_gloas(slot, Hash256::from_low_u64_be(key), index)
+        });
+    }
+
+    fn multiple_indices_same_key_test(
+        spec: Arc<ChainSpec>,
+        get_sidecar: impl Fn(u64, u64, u64) -> Arc<DataColumnSidecar<E>>,
+    ) {
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
+
+        let key = 420;
+
+        // Add multiple indices for the same observation key
+        for index in 0..5 {
+            let sidecar = get_sidecar(0, key, index);
+            assert_eq!(
+                cache
+                    .observe_sidecar(sidecar.as_ref())
+                    .map(|o| o.is_some()),
+                Ok(false),
+                "index {index} should be new"
+            );
+        }
+
+        // Verify all indices are tracked under one observation key
+        assert_eq!(cache.items.len(), 1, "only one observation key");
+
+        let sidecar_for_key = get_sidecar(0, key, 0);
+        let observation_key =
+            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar_for_key.as_ref(), &spec)
+                .unwrap();
+        let cached_indices = cache.items.get(&observation_key).unwrap();
+        assert_eq!(cached_indices.len(), 5, "five indices should be tracked");
+
+        // Re-observing should indicate they're already known
+        for index in 0..5 {
+            let sidecar = get_sidecar(0, key, index);
+            assert_eq!(
+                cache
+                    .observe_sidecar(sidecar.as_ref())
+                    .map(|o| o.is_some()),
+                Ok(true),
+                "index {index} should already be known"
+            );
+        }
+    }
+
+    /// Test the known_for_observation_key method
+    #[test]
+    fn known_for_observation_key_fulu() {
+        known_for_observation_key_test(fulu_spec(), get_data_column_sidecar_fulu);
+    }
+
+    #[test]
+    fn known_for_observation_key_gloas() {
+        known_for_observation_key_test(gloas_spec(), |slot, key, index| {
+            get_data_column_sidecar_gloas(slot, Hash256::from_low_u64_be(key), index)
+        });
+    }
+
+    fn known_for_observation_key_test(
+        spec: Arc<ChainSpec>,
+        get_sidecar: impl Fn(u64, u64, u64) -> Arc<DataColumnSidecar<E>>,
+    ) {
+        let mut cache = ObservedDataSidecars::<DataColumnSidecar<E>, E>::new(spec.clone());
+
+        let key = 420;
+        let sidecar = get_sidecar(0, key, 0);
+        let observation_key =
+            ObservationKey::new::<DataColumnSidecar<E>, E>(sidecar.as_ref(), &spec).unwrap();
+
+        // Before observation, should return None
+        assert!(cache.known_for_observation_key(&observation_key).is_none());
+
+        // After observation, should return the set of indices
+        cache.observe_sidecar(sidecar.as_ref()).unwrap();
+        let known = cache
+            .known_for_observation_key(&observation_key)
+            .expect("should be known");
+        assert!(known.contains(&0));
+        assert_eq!(known.len(), 1);
+
+        // Add more indices
+        let sidecar_1 = get_sidecar(0, key, 1);
+        let sidecar_2 = get_sidecar(0, key, 2);
+        cache.observe_sidecar(sidecar_1.as_ref()).unwrap();
+        cache.observe_sidecar(sidecar_2.as_ref()).unwrap();
+
+        let known = cache
+            .known_for_observation_key(&observation_key)
+            .expect("should be known");
+        assert!(known.contains(&0));
+        assert!(known.contains(&1));
+        assert!(known.contains(&2));
+        assert_eq!(known.len(), 3);
     }
 }
