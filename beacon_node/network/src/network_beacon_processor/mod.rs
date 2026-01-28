@@ -482,7 +482,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         self.try_send(BeaconWorkEvent {
-            drop_during_sync: false,
+            drop_during_sync: true,
             work: Work::GossipPayloadAttestation(Box::new(process_fn)),
         })
     }
