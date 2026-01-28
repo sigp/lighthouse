@@ -964,6 +964,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
+            .v1()
             .cached_blob_indexes(&block_root)
             .unwrap_or_default();
         // Include only the blob indexes not yet imported (received through gossip)
@@ -1078,13 +1079,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn custody_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
+        slot: Slot,
         block_root: Hash256,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
-            .cached_data_column_indexes(&block_root)
+            .cached_data_column_indexes(&block_root, slot)
             .unwrap_or_default();
 
         let current_epoch = self.chain.epoch().map_err(|e| {
@@ -1366,12 +1368,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if self
             .chain
             .data_availability_checker
+            .v1()
             .data_columns_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndColumns
         } else if self
             .chain
             .data_availability_checker
+            .v1()
             .blobs_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndBlobs

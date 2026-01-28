@@ -11,7 +11,7 @@ use types::kzg_ext::KzgCommitments;
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
     EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlindedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
 
 /// Converts a blob ssz List object to an array to be used with the kzg

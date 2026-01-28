@@ -26,6 +26,7 @@ impl DataColumnsByRootSingleBlockRequest {
                 block_root: self.block_root,
                 columns,
             }],
+            fork_name,
             spec.max_request_blocks(fork_name),
         )
     }

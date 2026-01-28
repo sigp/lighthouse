@@ -306,6 +306,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 let block_root = blob_id.block_root;
                 self.chain
                     .data_availability_checker
+                    .v1()
                     .get_cached_block(&block_root)
                     .and_then(|status| match status {
                         BlockProcessStatus::NotValidated(block, _source) => Some(block),
@@ -333,7 +334,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
 
             // First attempt to get the blobs from the RPC cache.
-            if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
+            if let Ok(Some(blob)) = self.chain.data_availability_checker.v1().get_blob(id) {
                 self.send_response(
                     peer_id,
                     inbound_request_id,
@@ -443,6 +444,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
                 &indices_to_retrieve,
+                request.fork_name,
             ) {
                 Ok(data_columns) => {
                     send_data_column_count += data_columns.len();

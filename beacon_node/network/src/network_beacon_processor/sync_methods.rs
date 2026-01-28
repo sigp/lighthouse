@@ -717,9 +717,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
+        // TODO(gloas) make this work across both v1 and v2
         let available_blocks = match self
             .chain
             .data_availability_checker
+            .v1()
             .verify_kzg_for_rpc_blocks(downloaded_blocks)
         {
             Ok(blocks) => blocks

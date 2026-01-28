@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use tracing::{debug, warn};
-use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
+use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, SignedExecutionPayloadEnvelope, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.
 pub const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
@@ -526,6 +526,13 @@ impl<E: EthSpec> CustodyContext<E> {
         self.validator_registrations
             .write()
             .reset_validator_custody_requirements(effective_epoch);
+    }
+
+    pub fn data_columns_required_for_payload(
+        &self,
+        _payload: &SignedExecutionPayloadEnvelope<E>,
+    ) -> bool {
+        todo!()
     }
 }
 

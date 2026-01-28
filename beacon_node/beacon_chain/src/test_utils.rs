@@ -3280,6 +3280,42 @@ macro_rules! add_blob_transactions {
     }};
 }
 
+macro_rules! add_blob_transactions_gloas {
+    ($message:expr, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
+        let num_blobs = match $num_blobs {
+            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
+            NumBlobs::Number(n) => n,
+            NumBlobs::None => 0,
+        };
+        let (bundle, transactions) =
+            execution_layer::test_utils::generate_blobs::<E>(num_blobs, $fork_name).unwrap();
+
+        let payload = &mut $message.payload;
+        payload.transactions = <_>::default();
+        for tx in Vec::from(transactions) {
+            payload.transactions.push(tx).unwrap();
+        }
+        $message.blob_kzg_commitments = bundle.commitments.clone();
+        bundle
+    }};
+}
+
+pub fn generate_rand_payloads_and_columns<E: EthSpec>(
+    fork_name: ForkName,
+    num_blobs: NumBlobs,
+    rng: &mut impl Rng,
+) -> (SignedExecutionPayloadEnvelope<E>, Vec<DataColumnSidecar<E>>) {
+    let mut payload = SignedExecutionPayloadEnvelope::random_for_test(rng);
+
+    let mut data_column_sidecars = vec![];
+
+    let bundle = add_blob_transactions_gloas!(payload.message, num_blobs, rng, fork_name);
+
+    let data_columns = generate_data_column_sidecars_from_block(&block, spec);
+
+    todo!()
+}
+
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
@@ -3396,6 +3432,44 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         spec,
     )
     .unwrap()
+}
+
+/// Generate data column sidecars from pre-computed cells and proofs for gloas paylaods.
+pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
+    payload: &SignedExecutionPayloadEnvelope<E>,
+    spec: &ChainSpec,
+) -> DataColumnSidecarList<E> {
+    let kzg_commitments = payload.message.blob_kzg_commitments;
+    if kzg_commitments.is_empty() {
+        return vec![];
+    }
+
+    // load the precomputed column sidecar to avoid computing them for every block in the tests.
+    let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
+        TEST_DATA_COLUMN_SIDECARS_SSZ,
+        E::number_of_columns(),
+    )
+    .unwrap();
+
+    let (cells, proofs) = template_data_columns
+        .into_iter()
+        .map(|sidecar| {
+            let DataColumnSidecar {
+                column, kzg_proofs, ..
+            } = sidecar;
+            // There's only one cell per column for a single blob
+            let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+            let kzg_cell = cell_bytes.try_into().unwrap();
+            let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+            (kzg_cell, kzg_proof)
+        })
+        .collect::<(Vec<_>, Vec<_>)>();
+
+    // Repeat the cells and proofs for every blob
+    let blob_cells_and_proofs_vec =
+        vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+
+    build_data_column_sidecars(kzg_commitments.clone(), blob_cells_and_proofs_vec, spec).unwrap()
 }
 
 pub fn generate_data_column_indices_rand_order<E: EthSpec>() -> Vec<CustodyIndex> {

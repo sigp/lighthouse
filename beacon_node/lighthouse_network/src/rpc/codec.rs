@@ -566,6 +566,7 @@ fn handle_rpc_request<E: EthSpec>(
                         decoded_buffer,
                         spec.max_request_blocks(current_fork),
                     )?,
+                fork_name: current_fork,
             },
         ))),
         SupportedProtocol::PingV1 => Ok(Some(RequestType::Ping(Ping {
@@ -1089,6 +1090,7 @@ mod tests {
                 spec.max_request_blocks(fork_name),
             )
             .unwrap(),
+            fork_name,
         }
     }
 

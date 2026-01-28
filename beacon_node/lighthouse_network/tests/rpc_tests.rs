@@ -992,6 +992,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                 };
                 max_request_blocks
             ],
+            current_fork_name,
             max_request_blocks,
         )
         .unwrap();
@@ -1002,6 +1003,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                 spec.max_request_blocks(current_fork_name),
             )
             .unwrap(),
+            fork_name: current_fork_name,
         };
         assert_eq!(req, req_decoded);
         let rpc_request = RequestType::DataColumnsByRoot(req);

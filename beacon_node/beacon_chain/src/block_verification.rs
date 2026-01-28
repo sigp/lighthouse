@@ -649,6 +649,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let (roots, blocks): (Vec<_>, Vec<_>) = chain_segment.into_iter().unzip();
     let maybe_available_blocks = chain
         .data_availability_checker
+        .v1()
         .verify_kzg_for_rpc_blocks(blocks)?;
     // zip it back up
     let mut signature_verified_blocks = roots
@@ -1299,6 +1300,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
         let maybe_available = chain
             .data_availability_checker
+            .v1()
             .verify_kzg_for_rpc_block(self.clone())
             .map_err(|e| {
                 BlockSlashInfo::SignatureNotChecked(

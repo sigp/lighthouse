@@ -229,6 +229,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
+        let slot = column_sidecar.slot();
         verify_data_column_sidecar(&column_sidecar, &chain.spec)?;
 
         // Check if the data column is already in the DA checker cache. This happens when data columns
@@ -238,10 +239,11 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         // In this case, we should accept it for gossip propagation.
         verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
-        if chain
-            .data_availability_checker
-            .is_data_column_cached(&column_sidecar.block_root(), &column_sidecar)
-        {
+        if chain.data_availability_checker.is_data_column_cached(
+            slot,
+            &column_sidecar.block_root(),
+            &column_sidecar,
+        ) {
             // Observe this data column so we don't process it again.
             if O::observe() {
                 observe_gossip_data_column(&column_sidecar, chain)?;
@@ -495,10 +497,11 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     // it has already passed the gossip checks, even though this particular instance hasn't been
     // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
     // In this case, we should accept it for gossip propagation.
-    if chain
-        .data_availability_checker
-        .is_data_column_cached(&data_column.block_root(), &data_column)
-    {
+    if chain.data_availability_checker.is_data_column_cached(
+        column_slot,
+        &data_column.block_root(),
+        &data_column,
+    ) {
         // Observe this data column so we don't process it again.
         if O::observe() {
             observe_gossip_data_column(&data_column, chain)?;

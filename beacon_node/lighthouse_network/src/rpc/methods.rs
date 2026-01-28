@@ -12,6 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
+use types::ForkName;
 use types::data::BlobIdentifier;
 use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
@@ -528,16 +529,21 @@ impl BlobsByRootRequest {
 pub struct DataColumnsByRootRequest<E: EthSpec> {
     /// The list of beacon block roots and column indices being requested.
     pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier<E>>,
+    pub fork_name: ForkName,
 }
 
 impl<E: EthSpec> DataColumnsByRootRequest<E> {
     pub fn new(
         data_column_ids: Vec<DataColumnsByRootIdentifier<E>>,
+        fork_name: ForkName,
         max_request_blocks: usize,
     ) -> Result<Self, &'static str> {
         let data_column_ids = RuntimeVariableList::new(data_column_ids, max_request_blocks)
             .map_err(|_| "DataColumnsByRootRequest too many column IDs")?;
-        Ok(Self { data_column_ids })
+        Ok(Self {
+            data_column_ids,
+            fork_name,
+        })
     }
 
     pub fn max_requested(&self) -> usize {

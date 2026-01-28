@@ -1079,6 +1079,7 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
+            .v1()
             .put_executed_block(executed_block)
             .unwrap()
         {
@@ -1094,6 +1095,7 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
+            .v1()
             .put_gossip_verified_blobs(
                 blob.block_root(),
                 std::iter::once(GossipVerifiedBlob::<_, Observe>::__assumed_valid(
@@ -1113,6 +1115,7 @@ impl TestRig {
         self.harness
             .chain
             .data_availability_checker
+            .v1()
             .put_pre_execution_block(block.canonical_root(), block, BlockImportSource::Gossip)
             .unwrap();
     }
@@ -1121,6 +1124,7 @@ impl TestRig {
         self.harness
             .chain
             .data_availability_checker
+            .v1()
             .remove_block_on_execution_error(&block_root);
 
         self.send_sync_message(SyncMessage::GossipBlockProcessResult {
