@@ -635,7 +635,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .hierarchy
             .closest_layer_points(new_finalized_slot, store.hot_hdiff_start_slot()?);
 
-        // We don't know which blocks/payloads are shared among abandoned chains, so we buffer and delete
+        // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
         let mut blocks_to_prune: HashSet<Hash256> = HashSet::new();
         let mut states_to_prune: HashSet<(Slot, Hash256)> = HashSet::new();
