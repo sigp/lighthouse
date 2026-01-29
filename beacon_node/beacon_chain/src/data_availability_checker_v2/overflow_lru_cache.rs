@@ -644,7 +644,7 @@ mod test {
     use crate::test_utils::generate_data_column_indices_rand_order;
     use crate::{
         block_verification::PayloadVerificationOutcome,
-        block_verification_types::{AsBlock, BlockImportData},
+        block_verification_types::AsBlock,
         custody_context::NodeCustodyType,
         data_availability_checker_v2::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
@@ -657,7 +657,7 @@ mod test {
     use tempfile::{TempDir, tempdir};
     use tracing::{debug_span, info};
     use types::new_non_zero_usize;
-    use types::{ExecPayload, MinimalEthSpec};
+    use types::MinimalEthSpec;
 
     const LOW_VALIDATOR_COUNT: usize = 32;
     const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
@@ -719,11 +719,7 @@ mod test {
         assert!(gloas_head.as_gloas().is_ok());
         assert_eq!(gloas_head.slot(), gloas_fork_slot);
         assert!(
-            gloas_head
-                .message()
-                .body()
-                .execution_payload()
-                .is_err(),
+            gloas_head.message().body().execution_payload().is_err(),
             "Gloas block has no payload"
         );
         harness
@@ -740,77 +736,7 @@ mod test {
         Hot: ItemStore<E>,
         Cold: ItemStore<E>,
     {
-        let chain = &harness.chain;
-        let head = chain.head_snapshot();
-        let parent_state = head.beacon_state.clone();
-
-        let target_slot = chain.slot().expect("should get slot") + 1;
-        let parent_root = head.beacon_block_root;
-        let parent_block = chain
-            .get_payload(&parent_root)
-            .expect("should get block")
-            .expect("should have block");
-
-
-        let (signed_beacon_block_hash, (block, maybe_blobs), state) = harness
-            .add_block_at_slot(target_slot, parent_state)
-            .await
-            .expect("should add block");
-        let block_root = signed_beacon_block_hash.into();
-        assert_eq!(
-            block_root,
-            block.canonical_root(),
-            "block root should match"
-        );
-
-        // log kzg commitments
-        info!("printing kzg commitments");
-        for comm in Vec::from(
-            block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .expect("should be deneb fork")
-                .clone(),
-        ) {
-            info!(commitment = ?comm, "kzg commitment");
-        }
-        info!("done printing kzg commitments");
-
-        let gossip_verified_columns = if let Some((kzg_proofs, blobs)) = maybe_blobs {
-            let sidecars =
-                DataColumnSidecar::build_sidecars(blobs, &block, &chain.kzg, &chain.spec).unwrap();
-            Vec::from(sidecars)
-                .into_iter()
-                .map(|sidecar| {
-                    let subnet = *sidecar.index();
-                    GossipVerifiedDataColumn::new(sidecar, subnet.into(), &harness.chain)
-                        .expect("should validate column")
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-
-        let slot = block.slot();
-        let consensus_context: ConsensusContext<E> = ConsensusContext::<E>::new(slot);
-        let import_data: PayloadImportData<E> = PayloadImportData {
-            state,
-            consensus_context,
-        };
-
-        let payload_verification_outcome = PayloadVerificationOutcome {
-            payload_verification_status: PayloadVerificationStatus::Verified,
-            is_valid_merge_transition_block: false,
-        };
-
-        let availability_pending_block = AvailabilityPendingExecutedPayload {
-            payload,
-            import_data,
-            payload_verification_outcome,
-        };
-
-        (availability_pending_block, gossip_verified_columns)
+        todo!()
     }
 
     async fn setup_harness_and_cache<E, T>(
@@ -861,7 +787,13 @@ mod test {
         let (pending_payload, columns) = availability_pending_payload(&harness).await;
         let root = pending_payload.as_payload().beacon_block_root();
 
-        let expected_column_indices = harness.chain.data_availability_checker.custody_context().custody_columns_for_epoch(None, &harness.chain.spec).iter().collect::<HashSet<_>>();
+        let expected_column_indices = harness
+            .chain
+            .data_availability_checker
+            .custody_context()
+            .custody_columns_for_epoch(None, &harness.chain.spec)
+            .iter()
+            .collect::<HashSet<_>>();
         let columns_expected = pending_payload.num_blobs_expected();
 
         assert_eq!(
@@ -918,7 +850,13 @@ mod test {
         }
 
         let (pending_payload, columns) = availability_pending_payload(&harness).await;
-        let expected_column_indices = harness.chain.data_availability_checker.custody_context().custody_columns_for_epoch(None, &harness.chain.spec).iter().collect::<HashSet<_>>();
+        let expected_column_indices = harness
+            .chain
+            .data_availability_checker
+            .custody_context()
+            .custody_columns_for_epoch(None, &harness.chain.spec)
+            .iter()
+            .collect::<HashSet<_>>();
         let columns_expected = pending_payload.num_blobs_expected();
         assert_eq!(
             columns.len(),
@@ -966,28 +904,28 @@ mod test {
         let capacity = STATE_LRU_CAPACITY * 2;
         let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
 
-        let mut pending_blocks = VecDeque::new();
+        let mut pending_payloads = VecDeque::new();
         let mut states = Vec::new();
         let mut state_roots = Vec::new();
         // Get enough blocks to fill the cache to capacity, ensuring all blocks have blobs
-        while pending_blocks.len() < capacity {
-            let (mut pending_block, _) = availability_pending_block(&harness).await;
-            if pending_block.num_blobs_expected() == 0 {
+        while pending_payloads.len() < capacity {
+            let (mut pending_payload, _) = availability_pending_payload(&harness).await;
+            if pending_payload.num_blobs_expected() == 0 {
                 // we need blocks with blobs
                 continue;
             }
-            let state_root = pending_block.import_data.state.canonical_root().unwrap();
-            states.push(pending_block.import_data.state.clone());
-            pending_blocks.push_back(pending_block);
+            let state_root = pending_payload.import_data.state.canonical_root().unwrap();
+            states.push(pending_payload.import_data.state.clone());
+            pending_payloads.push_back(pending_payload);
             state_roots.push(state_root);
         }
 
         let state_cache = cache.state_lru_cache().lru_cache();
-        let mut pushed_diet_blocks = VecDeque::new();
+        let mut pushed_diet_payloads = VecDeque::new();
 
         for i in 0..capacity {
-            let pending_block = pending_blocks.pop_front().expect("should have block");
-            let block_root = pending_block.as_block().canonical_root();
+            let pending_payload = pending_payloads.pop_front().expect("should have payload");
+            let block_root = pending_payload.as_payload().beacon_block_root();
 
             assert_eq!(
                 state_cache.read().len(),
@@ -1000,23 +938,23 @@ mod test {
                 assert_eq!(
                     state_cache.read().peek_lru().map(|(root, _)| root),
                     Some(&lru_root),
-                    "lru block should be in cache"
+                    "lru payload should be in cache"
                 );
             }
 
             // put the block in the cache
             let availability = cache
-                .put_executed_block(pending_block)
-                .expect("should put block");
+                .put_executed_payload(pending_payload)
+                .expect("should put payload");
 
             // grab the diet block from the cache for later testing
-            let diet_block = cache
+            let diet_payload = cache
                 .critical
                 .read()
                 .peek(&block_root)
-                .and_then(|pending_components| pending_components.get_diet_block().cloned())
+                .and_then(|pending_components| pending_components.get_diet_payload().cloned())
                 .expect("should exist");
-            pushed_diet_blocks.push_back(diet_block);
+            pushed_diet_payloads.push_back(diet_payload);
 
             // should be unavailable since we made sure all blocks had blobs
             assert!(
@@ -1032,41 +970,41 @@ mod test {
                     "lru root should be evicted"
                 );
                 // get the diet block via direct conversion (testing only)
-                let diet_block = pushed_diet_blocks.pop_front().expect("should have block");
+                let diet_payload = pushed_diet_payloads.pop_front().expect("should have payload");
                 // reconstruct the pending block by replaying the block on the parent state
-                let recovered_pending_block = cache
+                let recovered_pending_payload = cache
                     .state_lru_cache()
-                    .recover_pending_executed_block(diet_block, &debug_span!("test"))
+                    .recover_pending_executed_payload(diet_payload, &debug_span!("test"))
                     .expect("should reconstruct pending block");
 
                 // assert the recovered state is the same as the original
                 assert_eq!(
-                    recovered_pending_block.import_data.state, states[evicted_index],
+                    recovered_pending_payload.import_data.state, states[evicted_index],
                     "recovered state should be the same as the original"
                 );
             }
         }
 
-        // now check the last block
-        let last_block = pushed_diet_blocks.pop_back().expect("should exist").clone();
+        // now check the last payload
+        let last_payload = pushed_diet_payloads.pop_back().expect("should exist").clone();
         // the state should still be in the cache
         assert!(
             state_cache
                 .read()
-                .peek(&last_block.as_block().state_root())
+                .peek(&last_payload.as_payload().message.state_root)
                 .is_some(),
-            "last block state should still be in cache"
+            "last payload state should still be in cache"
         );
-        // get the diet block via direct conversion (testing only)
-        let diet_block = last_block.clone();
-        // recover the pending block from the cache
-        let recovered_pending_block = cache
+        // get the diet payload via direct conversion (testing only)
+        let diet_payload = last_payload.clone();
+        // recover the pending payload from the cache
+        let recovered_pending_payload = cache
             .state_lru_cache()
-            .recover_pending_executed_block(diet_block, &debug_span!("test"))
-            .expect("should reconstruct pending block");
+            .recover_pending_executed_payload(diet_payload, &debug_span!("test"))
+            .expect("should reconstruct pending payload");
         // assert the recovered state is the same as the original
         assert_eq!(
-            Some(&recovered_pending_block.import_data.state),
+            Some(&recovered_pending_payload.import_data.state),
             states.last(),
             "recovered state should be the same as the original"
         );
@@ -1084,6 +1022,7 @@ mod pending_components_tests {
     use kzg::KzgCommitment;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use ssz_types::RuntimeFixedVector;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
     use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};

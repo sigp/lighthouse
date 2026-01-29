@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
-use kzg::{CellsAndKzgProofs, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB};
+use kzg::{BYTES_PER_BLOB, CellsAndKzgProofs, Kzg, KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader},
+    block::{
+        BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
+    },
     core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
     data::BlobsList,
     fork::ForkName,
@@ -162,16 +164,13 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         let blob_cells_and_proofs: Vec<CellsAndKzgProofs> = blobs
             .iter()
             .map(|blob| {
-                let blob_bytes: &[u8; BYTES_PER_BLOB] =
-                    blob.as_ref().try_into().map_err(|_| {
-                        DataColumnSidecarError::KzgError(KzgError::InconsistentArrayLength(
-                            format!(
-                                "blob should have size {}, got {}",
-                                BYTES_PER_BLOB,
-                                blob.len()
-                            ),
-                        ))
-                    })?;
+                let blob_bytes: &[u8; BYTES_PER_BLOB] = blob.as_ref().try_into().map_err(|_| {
+                    DataColumnSidecarError::KzgError(KzgError::InconsistentArrayLength(format!(
+                        "blob should have size {}, got {}",
+                        BYTES_PER_BLOB,
+                        blob.len()
+                    )))
+                })?;
                 kzg.compute_cells_and_proofs(blob_bytes)
                     .map_err(DataColumnSidecarError::KzgError)
             })
@@ -190,15 +189,15 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         // Arrange cells and proofs into columns
         for (blob_cells, blob_cell_proofs) in &blob_cells_and_proofs {
             for col_idx in 0..number_of_columns {
-                let cell = blob_cells.get(col_idx).ok_or_else(|| {
-                    DataColumnSidecarError::DataColumnIndexOutOfBounds
-                })?;
+                let cell = blob_cells
+                    .get(col_idx)
+                    .ok_or_else(|| DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
                 let cell_vec: Vec<u8> = cell.to_vec();
                 let cell = Cell::<E>::try_from(cell_vec)?;
 
-                let proof = blob_cell_proofs.get(col_idx).ok_or_else(|| {
-                    DataColumnSidecarError::DataColumnIndexOutOfBounds
-                })?;
+                let proof = blob_cell_proofs
+                    .get(col_idx)
+                    .ok_or_else(|| DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
 
                 columns
                     .get_mut(col_idx)

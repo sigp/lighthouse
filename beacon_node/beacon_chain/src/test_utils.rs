@@ -2690,6 +2690,22 @@ where
         self.chain.slot_clock.set_slot(slot.into());
     }
 
+    pub async fn add_payload_envelope_at_slot(
+        &self,
+        slot: Slot,
+        state: BeaconState<E>,
+    ) -> Result<
+        (
+            SignedBeaconBlockHash,
+            SignedExecutionPayloaContentsTuple<E>,
+            BeaconState<E>,
+        ),
+        BlockError,
+    > {
+        self.set_current_slot(slot);
+        let (block_contents, new_state) = self.make_block(state, slot).await;
+    }
+
     pub async fn add_block_at_slot(
         &self,
         slot: Slot,

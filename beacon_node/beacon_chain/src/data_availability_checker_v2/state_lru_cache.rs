@@ -1,4 +1,4 @@
-#![allow(dead_code)] 
+#![allow(dead_code)]
 use crate::payload_verification_types::{AvailabilityPendingExecutedPayload, PayloadImportData};
 use crate::{
     BeaconChainTypes, BeaconStore, PayloadVerificationOutcome,
