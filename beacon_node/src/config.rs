@@ -1204,6 +1204,19 @@ pub fn set_network_config(
         config.boot_nodes_multiaddr = multiaddrs;
     }
 
+    // DEPRECATED: can be removed in v8.2.0./v9.0.0
+    if let Some(libp2p_addresses_str) = cli_args.get_one::<String>("libp2p-addresses") {
+        warn!("The --libp2p-nodes flag is deprecated and replaced by --boot-nodes");
+        config.libp2p_nodes = libp2p_addresses_str
+            .split(',')
+            .map(|multiaddr| {
+                multiaddr
+                    .parse()
+                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
+            })
+            .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
     if parse_flag(cli_args, "disable-peer-scoring") {
         config.disable_peer_scoring = true;
     }
