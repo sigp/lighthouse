@@ -17,13 +17,19 @@ const CULL_EXEMPT_DENOMINATOR: usize = 10;
 /// be culled from the cache.
 const EPOCH_FINALIZATION_LIMIT: u64 = 4;
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum BlockStatus {
+    Empty,
+    Full,
+}
+
 #[derive(Debug)]
 pub struct FinalizedState<E: EthSpec> {
     state_root: Hash256,
     state: BeaconState<E>,
 }
 
-/// Map from block_root -> slot -> state_root.
+/// Map from block_root -> slot -> block_status -> state_root.
 #[derive(Debug, Default)]
 pub struct BlockMap {
     blocks: HashMap<Hash256, SlotMap>,
@@ -32,7 +38,7 @@ pub struct BlockMap {
 /// Map from slot -> state_root.
 #[derive(Debug, Default)]
 pub struct SlotMap {
-    slots: BTreeMap<Slot, Hash256>,
+    slots: BTreeMap<Slot, HashMap<BlockStatus, Hash256>>,
 }
 
 #[derive(Debug)]
@@ -42,6 +48,7 @@ pub struct StateCache<E: EthSpec> {
     // the state_root
     states: LruCache<Hash256, (Hash256, BeaconState<E>)>,
     block_map: BlockMap,
+    // TODO(gloas): This cache should also index by BlockStatus
     hdiff_buffers: HotHDiffBufferCache,
     max_epoch: Epoch,
     head_block_root: Hash256,
@@ -131,7 +138,12 @@ impl<E: EthSpec> StateCache<E> {
         }
 
         // Add to block map.
-        self.block_map.insert(block_root, state.slot(), state_root);
+        self.block_map.insert(
+            block_root,
+            state.slot(),
+            BlockStatus::from_state(&state),
+            state_root,
+        );
 
         // Prune block map.
         let state_roots_to_prune = self.block_map.prune(state.slot());
@@ -253,8 +265,12 @@ impl<E: EthSpec> StateCache<E> {
         }
 
         // Record the connection from block root and slot to this state.
-        let slot = state.slot();
-        self.block_map.insert(block_root, slot, state_root);
+        self.block_map.insert(
+            block_root,
+            state.slot(),
+            BlockStatus::from_state(&state),
+            state_root,
+        );
 
         Ok(PutStateOutcome::New(deleted_states))
     }
@@ -308,12 +324,20 @@ impl<E: EthSpec> StateCache<E> {
         let slot_map = self.block_map.blocks.get(&block_root)?;
 
         // Find the state at `slot`, or failing that the most recent ancestor.
+        // Prefer Full over Empty block status at the same slot.
         let state_root = slot_map
             .slots
             .iter()
             .rev()
-            .find_map(|(ancestor_slot, state_root)| {
-                (*ancestor_slot <= slot).then_some(*state_root)
+            .find_map(|(ancestor_slot, status_map)| {
+                if *ancestor_slot <= slot {
+                    status_map
+                        .get(&BlockStatus::Full)
+                        .or_else(|| status_map.get(&BlockStatus::Empty))
+                        .copied()
+                } else {
+                    None
+                }
             })?;
 
         let state = self.get_by_state_root(state_root)?;
@@ -327,8 +351,10 @@ impl<E: EthSpec> StateCache<E> {
 
     pub fn delete_block_states(&mut self, block_root: &Hash256) {
         if let Some(slot_map) = self.block_map.delete_block_states(block_root) {
-            for state_root in slot_map.slots.values() {
-                self.states.pop(state_root);
+            for status_map in slot_map.slots.values() {
+                for state_root in status_map.values() {
+                    self.states.pop(state_root);
+                }
             }
         }
     }
@@ -399,19 +425,30 @@ impl<E: EthSpec> StateCache<E> {
 }
 
 impl BlockMap {
-    fn insert(&mut self, block_root: Hash256, slot: Slot, state_root: Hash256) {
-        let slot_map = self.blocks.entry(block_root).or_default();
-        slot_map.slots.insert(slot, state_root);
+    fn insert(
+        &mut self,
+        block_root: Hash256,
+        slot: Slot,
+        block_status: BlockStatus,
+        state_root: Hash256,
+    ) {
+        self.blocks
+            .entry(block_root)
+            .or_default()
+            .slots
+            .entry(slot)
+            .or_default()
+            .insert(block_status, state_root);
     }
 
     fn prune(&mut self, finalized_slot: Slot) -> HashSet<Hash256> {
         let mut pruned_states = HashSet::new();
 
         self.blocks.retain(|_, slot_map| {
-            slot_map.slots.retain(|slot, state_root| {
+            slot_map.slots.retain(|slot, status_map| {
                 let keep = *slot >= finalized_slot;
                 if !keep {
-                    pruned_states.insert(*state_root);
+                    pruned_states.extend(status_map.values());
                 }
                 keep
             });
@@ -424,9 +461,10 @@ impl BlockMap {
 
     fn delete(&mut self, state_root_to_delete: &Hash256) {
         self.blocks.retain(|_, slot_map| {
-            slot_map
-                .slots
-                .retain(|_, state_root| state_root != state_root_to_delete);
+            slot_map.slots.retain(|_, status_map| {
+                status_map.retain(|_, state_root| state_root != state_root_to_delete);
+                !status_map.is_empty()
+            });
             !slot_map.slots.is_empty()
         });
     }
@@ -510,5 +548,15 @@ impl HotHDiffBufferCache {
             .iter()
             .map(|(_, (_, buffer))| buffer.size())
             .sum()
+    }
+}
+
+impl BlockStatus {
+    fn from_state<E: EthSpec>(state: &BeaconState<E>) -> Self {
+        if state.is_parent_block_full() {
+            Self::Full
+        } else {
+            Self::Empty
+        }
     }
 }
