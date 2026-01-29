@@ -54,6 +54,8 @@ warp_utils = { workspace = true }
 [dev-dependencies]
 genesis = { workspace = true }
 proto_array = { workspace = true }
+reqwest = { workspace = true }
+serde_yaml = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"
