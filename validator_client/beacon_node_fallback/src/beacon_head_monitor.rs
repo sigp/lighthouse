@@ -94,89 +94,97 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
         let candidates_guard = beacon_nodes.candidates.read().await;
         candidates_guard.clone()
     };
-    let mut tasks = vec![];
 
-    for candidate in candidates.iter() {
+    // Clear the cache in case it contains stale data from a previous run. This function gets
+    // restarted if it fails (see monitoring in `start_fallback_updater_service`).
+    head_cache.purge_cache().await;
+
+    // Create Vec of streams, which we will select over.
+    let mut streams = vec![];
+
+    for candidate in &candidates {
         let head_event_stream = candidate
             .beacon_node
             .get_events::<E>(&[EventTopic::Head])
             .await;
 
-        let mut head_event_stream = match head_event_stream {
+        let head_event_stream = match head_event_stream {
             Ok(stream) => stream,
             Err(e) => {
-                warn!("failed to get head event stream: {:?}", e);
+                warn!(error = ?e, node_index = candidate.index, "Failed to get head event stream");
                 continue;
             }
         };
 
-        let sender_tx = head_monitor_send.clone();
-        let head_cache_ref = head_cache.clone();
+        streams.push(head_event_stream.map(|event| (candidate.index, event)));
+    }
 
-        let stream_fut = async move {
-            while let Some(event_result) = head_event_stream.next().await {
-                if let Ok(EventKind::Head(head)) = event_result {
+    if streams.is_empty() {
+        return Err("No beacon nodes available for head event streaming".to_string());
+    }
+
+    // Combine streams into a single stream and poll events from any of them.
+    let mut combined_stream = futures::stream::select_all(streams);
+
+    while let Some((candidate_index, event_result)) = combined_stream.next().await {
+        match event_result {
+            Ok(EventKind::Head(head)) => {
+                debug!(
+                    candidate_index,
+                    block_root = ?head.block,
+                    slot = %head.slot,
+                    "New head from beacon node"
+                );
+
+                // Skip optimistic heads - the beacon node can't produce valid
+                // attestation data when its execution layer is not verified
+                if head.execution_optimistic {
                     debug!(
-                        node_index = candidate.index,
+                        candidate_index,
                         block_root = ?head.block,
                         slot = %head.slot,
-                        "New head from beacon node"
+                        "Skipping optimistic head"
                     );
+                    continue;
+                }
 
-                    // Skip optimistic heads - the beacon node can't produce valid
-                    // attestation data when its execution layer is not verified
-                    if head.execution_optimistic {
-                        debug!(
-                            node_index = candidate.index,
-                            block_root = ?head.block,
-                            slot = %head.slot,
-                            "Skipping optimistic head"
-                        );
-                        continue;
-                    }
+                head_cache.insert(candidate_index, head.clone()).await;
 
-                    head_cache_ref.insert(candidate.index, head.clone()).await;
+                if !head_cache.is_latest(&head).await {
+                    debug!(
+                        candidate_index,
+                        block_root = ?head.block,
+                        slot = %head.slot,
+                        "Skipping stale head"
+                    );
+                    continue;
+                }
 
-                    if !head_cache_ref.is_latest(&head).await {
-                        debug!(
-                            node_index = candidate.index,
-                            block_root = ?head.block,
-                            slot = %head.slot,
-                            "Skipping stale head"
-                        );
-                        continue;
-                    }
-
-                    if sender_tx
-                        .send(HeadEvent {
-                            beacon_node_index: candidate.index,
-                            slot: head.slot,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        warn!("Head monitoring service channel closed");
-                    }
+                if head_monitor_send
+                    .send(HeadEvent {
+                        beacon_node_index: candidate_index,
+                        slot: head.slot,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Err("Head monitoring service channel closed".into());
                 }
             }
-        };
-
-        tasks.push(stream_fut);
+            Ok(event) => {
+                warn!(
+                    event_kind = event.topic_name(),
+                    candidate_index, "Received unexpected event from BN"
+                );
+                continue;
+            }
+            Err(e) => {
+                return Err(format!("Head monitoring stream error {e:?}"));
+            }
+        }
     }
 
-    if tasks.is_empty() {
-        head_cache.purge_cache().await;
-        return Err(
-            "No beacon nodes available for head event streaming, retry in sometime".to_string(),
-        );
-    }
-
-    futures::future::join_all(tasks).await;
-
-    drop(candidates);
-    head_cache.purge_cache().await;
-
-    Ok(())
+    Err("Stream ended unexpectedly".into())
 }
 
 #[cfg(test)]

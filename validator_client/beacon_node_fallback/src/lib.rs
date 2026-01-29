@@ -81,10 +81,10 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     if beacon_nodes_ref.head_monitor_send.is_some() {
         let head_monitor_future = async move {
             loop {
-                if let Err(err) =
+                if let Err(error) =
                     poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await
                 {
-                    warn!(error=?err, "Head service failed, retrying starting next slot");
+                    warn!(error, "Head service failed retrying starting next slot");
                     let sleep_time = beacon_nodes_ref
                         .slot_clock
                         .as_ref()
