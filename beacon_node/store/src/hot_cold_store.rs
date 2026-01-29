@@ -93,6 +93,7 @@ struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
     blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
+    payload_envelope_cache: LruCache<Hash256, SignedExecutionPayloadEnvelope<E>>,
     data_column_custody_info_cache: Option<DataColumnCustodyInfo>,
 }
 
@@ -102,6 +103,7 @@ impl<E: EthSpec> BlockCache<E> {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
             data_column_cache: LruCache::new(size),
+            payload_envelope_cache: LruCache::new(size),
             data_column_custody_info_cache: None,
         }
     }
@@ -115,6 +117,14 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get_or_insert_mut(block_root, Default::default)
             .insert(*data_column.index(), data_column);
+    }
+    pub fn put_payload_envelope(
+        &mut self,
+        block_root: Hash256,
+        payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    ) {
+        self.payload_envelope_cache
+            .put(block_root, payload_envelope);
     }
     pub fn put_data_column_custody_info(
         &mut self,
@@ -139,6 +149,12 @@ impl<E: EthSpec> BlockCache<E> {
             .get(block_root)
             .and_then(|map| map.get(column_index).cloned())
     }
+    pub fn get_payload_envelope<'a>(
+        &'a mut self,
+        block_root: &Hash256,
+    ) -> Option<&'a SignedExecutionPayloadEnvelope<E>> {
+        self.payload_envelope_cache.get(block_root)
+    }
     pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
         self.data_column_custody_info_cache.clone()
     }
@@ -151,10 +167,14 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn delete_data_columns(&mut self, block_root: &Hash256) {
         let _ = self.data_column_cache.pop(block_root);
     }
+    pub fn delete_payload_envelope(&mut self, block_root: &Hash256) {
+        let _ = self.payload_envelope_cache.pop(block_root);
+    }
     pub fn delete(&mut self, block_root: &Hash256) {
         self.delete_block(block_root);
         self.delete_blobs(block_root);
         self.delete_data_columns(block_root);
+        self.delete_payload_envelope(block_root);
     }
 }
 
@@ -508,6 +528,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 &metrics::STORE_BEACON_BLOB_CACHE_SIZE,
                 cache.blob_cache.len() as i64,
             );
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_PAYLOAD_ENVELOPE_CACHE_SIZE,
+                cache.payload_envelope_cache.len() as i64,
+            );
         }
         let state_cache = self.state_cache.lock();
         metrics::set_gauge(
@@ -743,6 +767,57 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
+    }
+
+    pub fn get_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+        // Check the cache.
+        if let Some(envelope) = self
+            .block_cache
+            .as_ref()
+            .and_then(|cache| cache.lock().get_payload_envelope(block_root).cloned())
+        {
+            metrics::inc_counter(&metrics::BEACON_PAYLOAD_ENVELOPE_CACHE_HIT_COUNT);
+            return Ok(Some(envelope));
+        }
+
+        let key = block_root.as_slice();
+
+        match self
+            .hot_db
+            .get_bytes(SignedExecutionPayloadEnvelope::<E>::db_column(), key)?
+        {
+            Some(bytes) => {
+                let envelope = SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)?;
+                self.block_cache.as_ref().inspect(|cache| {
+                    cache
+                        .lock()
+                        .put_payload_envelope(*block_root, envelope.clone())
+                });
+                Ok(Some(envelope))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if the payload envelope for a block exists on disk or in cache.
+    pub fn payload_envelope_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+        // Check the cache first.
+        if self
+            .block_cache
+            .as_ref()
+            .and_then(|cache| cache.lock().get_payload_envelope(block_root).cloned())
+            .is_some()
+        {
+            return Ok(true);
+        }
+
+        self.hot_db.key_exists(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+        )
     }
 
     /// Load the execution payload for a block from disk.
@@ -1027,6 +1102,39 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    // TODO(gloas) we should store the execution payload separately like we do for blocks.
+    /// Prepare a signed execution payload envelope for storage in the database.
+    pub fn payload_envelope_as_kv_store_ops(
+        &self,
+        key: &Hash256,
+        payload: &SignedExecutionPayloadEnvelope<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            key.as_slice().into(),
+            payload.as_ssz_bytes(),
+        ));
+    }
+
+    pub fn put_payload_envelope(
+        &self,
+        block_root: &Hash256,
+        payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    ) -> Result<(), Error> {
+        self.hot_db.put_bytes(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+            &payload_envelope.as_ssz_bytes(),
+        )?;
+        self.block_cache.as_ref().inspect(|cache| {
+            cache
+                .lock()
+                .put_payload_envelope(*block_root, payload_envelope)
+        });
+        Ok(())
+    }
+
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         let mut ops: Vec<KeyValueStoreOp> = Vec::new();
@@ -1283,6 +1391,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     );
                 }
 
+                StoreOp::PutPayloadEnvelope(block_root, payload_envelope) => {
+                    self.payload_envelope_as_kv_store_ops(
+                        &block_root,
+                        &payload_envelope,
+                        &mut key_value_batch,
+                    );
+                }
+
                 StoreOp::PutStateSummary(state_root, summary) => {
                     key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
@@ -1307,6 +1423,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         key_value_batch
                             .push(KeyValueStoreOp::DeleteKey(DBColumn::BeaconDataColumn, key));
                     }
+                }
+
+                StoreOp::DeletePayloadEnvelope(block_root) => {
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        SignedExecutionPayloadEnvelope::<E>::db_column(),
+                        block_root.as_slice().to_vec(),
+                    ))
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
@@ -1528,12 +1651,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                     StoreOp::PutDataColumns(_, _) => (),
 
+                    StoreOp::PutPayloadEnvelope(block_root, payload_envelope) => {
+                        guard.put_payload_envelope(block_root, (*payload_envelope).clone());
+                    }
+
                     StoreOp::PutState(_, _) => (),
 
                     StoreOp::PutStateSummary(_, _) => (),
 
                     StoreOp::DeleteBlock(block_root) => {
                         guard.delete_block(&block_root);
+                    }
+
+                    StoreOp::DeletePayloadEnvelope(block_root) => {
+                        guard.delete_payload_envelope(&block_root);
                     }
 
                     StoreOp::DeleteState(_, _) => (),

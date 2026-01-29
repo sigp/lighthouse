@@ -635,9 +635,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .hierarchy
             .closest_layer_points(new_finalized_slot, store.hot_hdiff_start_slot()?);
 
-        // We don't know which blocks are shared among abandoned chains, so we buffer and delete
+        // We don't know which blocks/payloads are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
         let mut blocks_to_prune: HashSet<Hash256> = HashSet::new();
+        let mut payloads_to_prune: HashSet<Hash256> = HashSet::new();
         let mut states_to_prune: HashSet<(Slot, Hash256)> = HashSet::new();
         let mut kept_summaries_for_hdiff = vec![];
 
@@ -728,6 +729,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             if should_prune {
                 blocks_to_prune.insert(block_root);
+                payloads_to_prune.insert(block_root);
             }
         }
 
@@ -748,6 +750,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             state_summaries_dag_roots = ?state_summaries_dag_roots,
             finalized_and_descendant_state_roots_of_finalized_checkpoint = finalized_and_descendant_state_roots_of_finalized_checkpoint.len(),
             blocks_to_prune = blocks_to_prune.len(),
+            payloads_to_prune = payloads_to_prune.len(),
             states_to_prune = states_to_prune.len(),
             "Extra pruning information"
         );
@@ -773,6 +776,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                     StoreOp::DeleteBlobs(block_root),
+                    StoreOp::DeletePayloadEnvelope(block_root),
                     StoreOp::DeleteSyncCommitteeBranch(block_root),
                 ]
             })

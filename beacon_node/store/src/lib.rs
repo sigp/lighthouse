@@ -234,12 +234,14 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
+    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope<E>>),
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
     DeleteDataColumns(Hash256, Vec<ColumnIndex>, ForkName),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeletePayloadEnvelope(Hash256),
     DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
@@ -307,9 +309,14 @@ pub enum DBColumn {
     /// non-temporary by the deletion of their state root from this column.
     #[strum(serialize = "bst")]
     BeaconStateTemporary,
-    /// Execution payloads for blocks more recent than the finalized checkpoint.
+    /// Pre-gloas execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
+    // TODO(gloas) once finalized envelope pruning is implemented this comment should be updated
+    // "Post-gloas execution payload envlopes for payloads more recent than the finalized checkpoint"
+    /// Post-gloas execution payload envelopes.
+    #[strum(serialize = "pay")]
+    PayloadEnvelope,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -421,7 +428,8 @@ impl DBColumn {
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
             | Self::CustodyContext
-            | Self::OptimisticTransitionBlock => 32,
+            | Self::OptimisticTransitionBlock
+            | Self::PayloadEnvelope => 32,
             Self::BeaconBlockRoots
             | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked
