@@ -16,6 +16,7 @@ use ssz_types::VariableList;
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use store::PayloadStatusFilter;
 use tracing::{debug, instrument};
 use types::data::ColumnIndex;
 use types::{
@@ -709,7 +710,13 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             );
             chain
                 .store
-                .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
+                .get_advanced_hot_state(
+                    block_parent_root,
+                    column_slot,
+                    parent_block.state_root,
+                    // TODO(gloas): The post-state of the block and payload have the same proposers?
+                    PayloadStatusFilter::Any,
+                )
                 .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
                 .ok_or_else(|| {
                     GossipDataColumnError::BeaconChainError(Box::new(

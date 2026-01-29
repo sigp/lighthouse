@@ -255,6 +255,13 @@ pub struct ProposerHeadInfo {
     pub current_slot: Slot,
 }
 
+impl ProposerHeadInfo {
+    pub fn is_parent_block_full(&self) -> bool {
+        // TODO(gloas): Set to something once fork-choice is implemented
+        false
+    }
+}
+
 /// Error type to enable short-circuiting checks in `get_proposer_head`.
 ///
 /// This type intentionally does not implement `Debug` so that callers are forced to handle the

@@ -17,10 +17,22 @@ const CULL_EXEMPT_DENOMINATOR: usize = 10;
 /// be culled from the cache.
 const EPOCH_FINALIZATION_LIMIT: u64 = 4;
 
+/// Whether the execution payload for a block has been included (full) or not (empty).
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-enum BlockStatus {
+enum PayloadStatus {
     Empty,
     Full,
+}
+
+/// Filter for querying states by payload status.
+#[derive(Debug, Clone, Copy)]
+pub enum PayloadStatusFilter {
+    /// Only return the state where the execution payload was included.
+    Full,
+    /// Only return the state where the execution payload was not included.
+    Empty,
+    /// Return any state, preferring full to empty.
+    Any,
 }
 
 #[derive(Debug)]
@@ -29,7 +41,7 @@ pub struct FinalizedState<E: EthSpec> {
     state: BeaconState<E>,
 }
 
-/// Map from block_root -> slot -> block_status -> state_root.
+/// Map from block_root -> slot -> payload_status -> state_root.
 #[derive(Debug, Default)]
 pub struct BlockMap {
     blocks: HashMap<Hash256, SlotMap>,
@@ -38,7 +50,7 @@ pub struct BlockMap {
 /// Map from slot -> state_root.
 #[derive(Debug, Default)]
 pub struct SlotMap {
-    slots: BTreeMap<Slot, HashMap<BlockStatus, Hash256>>,
+    slots: BTreeMap<Slot, HashMap<PayloadStatus, Hash256>>,
 }
 
 #[derive(Debug)]
@@ -48,7 +60,8 @@ pub struct StateCache<E: EthSpec> {
     // the state_root
     states: LruCache<Hash256, (Hash256, BeaconState<E>)>,
     block_map: BlockMap,
-    // TODO(gloas): This cache should also index by BlockStatus
+    // This cache stores finalized HDiff buffers. The persisted states are always for the post-block
+    // empty state without applying the payload. So we don't index by PayloadStatus.
     hdiff_buffers: HotHDiffBufferCache,
     max_epoch: Epoch,
     head_block_root: Hash256,
@@ -141,7 +154,7 @@ impl<E: EthSpec> StateCache<E> {
         self.block_map.insert(
             block_root,
             state.slot(),
-            BlockStatus::from_state(&state),
+            PayloadStatus::from_state(&state),
             state_root,
         );
 
@@ -169,8 +182,11 @@ impl<E: EthSpec> StateCache<E> {
                 // useful buffers.
                 let slot = state.slot();
                 if pre_finalized_slots_to_retain.contains(&slot) {
-                    let hdiff_buffer = HDiffBuffer::from_state(state);
-                    self.hdiff_buffers.put(state_root, slot, hdiff_buffer);
+                    // Only keep the HDiff buffers of post-block states before applying the payload
+                    if !state.is_parent_block_full() {
+                        let hdiff_buffer = HDiffBuffer::from_state(state);
+                        self.hdiff_buffers.put(state_root, slot, hdiff_buffer);
+                    }
                 }
             }
         }
@@ -225,9 +241,11 @@ impl<E: EthSpec> StateCache<E> {
                 // caller's responsibility to not feed us garbage) as we don't want to thread the
                 // hierarchy config through here. So any state received is converted to an
                 // HDiffBuffer and saved.
-                let hdiff_buffer = HDiffBuffer::from_state(state.clone());
-                self.hdiff_buffers
-                    .put(state_root, state.slot(), hdiff_buffer);
+                if !state.is_parent_block_full() {
+                    let hdiff_buffer = HDiffBuffer::from_state(state.clone());
+                    self.hdiff_buffers
+                        .put(state_root, state.slot(), hdiff_buffer);
+                }
                 return Ok(PutStateOutcome::PreFinalizedHDiffBuffer);
             }
         }
@@ -268,7 +286,7 @@ impl<E: EthSpec> StateCache<E> {
         self.block_map.insert(
             block_root,
             state.slot(),
-            BlockStatus::from_state(&state),
+            PayloadStatus::from_state(&state),
             state_root,
         );
 
@@ -320,21 +338,27 @@ impl<E: EthSpec> StateCache<E> {
         &mut self,
         block_root: Hash256,
         slot: Slot,
+        payload_status: PayloadStatusFilter,
     ) -> Option<(Hash256, BeaconState<E>)> {
         let slot_map = self.block_map.blocks.get(&block_root)?;
 
         // Find the state at `slot`, or failing that the most recent ancestor.
-        // Prefer Full over Empty block status at the same slot.
         let state_root = slot_map
             .slots
             .iter()
             .rev()
             .find_map(|(ancestor_slot, status_map)| {
                 if *ancestor_slot <= slot {
-                    status_map
-                        .get(&BlockStatus::Full)
-                        .or_else(|| status_map.get(&BlockStatus::Empty))
-                        .copied()
+                    match payload_status {
+                        PayloadStatusFilter::Full => status_map.get(&PayloadStatus::Full).copied(),
+                        PayloadStatusFilter::Empty => {
+                            status_map.get(&PayloadStatus::Empty).copied()
+                        }
+                        PayloadStatusFilter::Any => status_map
+                            .get(&PayloadStatus::Full)
+                            .or_else(|| status_map.get(&PayloadStatus::Empty))
+                            .copied(),
+                    }
                 } else {
                     None
                 }
@@ -429,7 +453,7 @@ impl BlockMap {
         &mut self,
         block_root: Hash256,
         slot: Slot,
-        block_status: BlockStatus,
+        payload_status: PayloadStatus,
         state_root: Hash256,
     ) {
         self.blocks
@@ -438,7 +462,7 @@ impl BlockMap {
             .slots
             .entry(slot)
             .or_default()
-            .insert(block_status, state_root);
+            .insert(payload_status, state_root);
     }
 
     fn prune(&mut self, finalized_slot: Slot) -> HashSet<Hash256> {
@@ -551,7 +575,7 @@ impl HotHDiffBufferCache {
     }
 }
 
-impl BlockStatus {
+impl PayloadStatus {
     fn from_state<E: EthSpec>(state: &BeaconState<E>) -> Self {
         if state.is_parent_block_full() {
             Self::Full

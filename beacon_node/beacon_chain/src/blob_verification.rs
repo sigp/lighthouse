@@ -15,6 +15,7 @@ use crate::{BeaconChainError, metrics};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
 use std::time::Duration;
+use store::PayloadStatusFilter;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::data::BlobIdentifier;
@@ -510,7 +511,13 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
             );
             chain
                 .store
-                .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)
+                .get_advanced_hot_state(
+                    block_parent_root,
+                    blob_slot,
+                    parent_block.state_root,
+                    // TODO(gloas): The post-state of the block and payload have the same proposers
+                    PayloadStatusFilter::Any,
+                )
                 .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
                 .ok_or_else(|| {
                     GossipBlobError::BeaconChainError(Box::new(BeaconChainError::DBInconsistent(

@@ -23,6 +23,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use store::PayloadStatusFilter;
 use task_executor::TaskExecutor;
 use tokio::time::{Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, debug_span, error, instrument, warn};
@@ -272,14 +273,27 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         }
     }
 
-    let (head_block_root, head_block_state_root) = {
+    let (head_block_root, head_block_state_root, head_payload_status) = {
         let snapshot = beacon_chain.head_snapshot();
-        (snapshot.beacon_block_root, snapshot.beacon_state_root())
+        (
+            snapshot.beacon_block_root,
+            snapshot.beacon_state_root(),
+            if snapshot.beacon_state.is_parent_block_full() {
+                PayloadStatusFilter::Full
+            } else {
+                PayloadStatusFilter::Empty
+            },
+        )
     };
 
     let (head_state_root, mut state) = beacon_chain
         .store
-        .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
+        .get_advanced_hot_state(
+            head_block_root,
+            current_slot,
+            head_block_state_root,
+            head_payload_status,
+        )?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
     let initial_slot = state.slot();

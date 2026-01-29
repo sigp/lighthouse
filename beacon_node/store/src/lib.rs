@@ -32,6 +32,7 @@ pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
 pub use errors::Error;
+pub use state_cache::PayloadStatusFilter;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use std::collections::HashSet;

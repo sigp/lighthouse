@@ -126,7 +126,7 @@ use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
-    KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    KeyValueStore, KeyValueStoreOp, PayloadStatusFilter, StoreItem, StoreOp,
 };
 use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
@@ -2019,7 +2019,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 let (advanced_state_root, mut state) = self
                     .store
-                    .get_advanced_hot_state(beacon_block_root, request_slot, beacon_state_root)?
+                    .get_advanced_hot_state(
+                        beacon_block_root,
+                        request_slot,
+                        beacon_state_root,
+                        // TODO(gloas): The payload status does not change the shuffling nor the
+                        // justification checkpoint
+                        PayloadStatusFilter::Any,
+                    )?
                     .ok_or(Error::MissingBeaconState(beacon_state_root))?;
                 if state.current_epoch() < request_epoch {
                     partial_state_advance(
@@ -4613,12 +4620,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary.
-        let (head_slot, head_block_root, head_state_root) = {
+        let (head_slot, head_block_root, head_state_root, head_payload_status) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
                 head.head_block_root(),
                 head.head_state_root(),
+                if head.snapshot.beacon_state.is_parent_block_full() {
+                    PayloadStatusFilter::Full
+                } else {
+                    PayloadStatusFilter::Empty
+                },
             )
         };
         let (state, state_root_opt) = if head_slot < slot {
@@ -4637,7 +4649,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // state cache thanks to the state advance timer.
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(head_block_root, slot, head_state_root)
+                    .get_advanced_hot_state(
+                        head_block_root,
+                        slot,
+                        head_state_root,
+                        head_payload_status,
+                    )
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
                 (state, Some(state_root))
@@ -4741,7 +4758,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let (state_root, state) = self
             .store
-            .get_advanced_hot_state_from_cache(re_org_parent_block, slot)
+            .get_advanced_hot_state_from_cache(
+                re_org_parent_block,
+                slot,
+                // TODO(gloas): Use the correct payload status for the re-org parent.
+                PayloadStatusFilter::Any,
+            )
             .or_else(|| {
                 warn!(reason = "no state in cache", "Not attempting re-org");
                 None
@@ -4878,7 +4900,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
+                    .get_advanced_hot_state(
+                        parent_block_root,
+                        proposal_slot,
+                        block.state_root(),
+                        // TODO(gloas): The post-state of the block and payload have the same proposers?
+                        PayloadStatusFilter::Any,
+                    )?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
                 (Cow::Owned(state), state_root)
             };
@@ -6907,7 +6935,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)?
+                    .get_advanced_hot_state(
+                        head_block_root,
+                        target_slot,
+                        head_block.state_root,
+                        // TODO(gloas): The post-state of the block and payload have the same shuffling?
+                        PayloadStatusFilter::Any,
+                    )?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };
