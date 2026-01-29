@@ -3883,7 +3883,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // This block became the head, add it to the early attester cache.
                 Ok(new_head_root) if new_head_root == block_root => {
                     if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                        // Extract execution status before proto_block is moved.
                         let new_head_is_optimistic =
                             proto_block.execution_status.is_optimistic_or_invalid();
 
