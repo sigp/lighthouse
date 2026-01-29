@@ -8,7 +8,7 @@ authors = [
 edition = { workspace = true }
 
 [features]
-default = ["sqlite"]
+default = []
 # Enable +, -, *, /, % operators for Slot and Epoch types.
 # Operations saturate instead of wrapping.
 saturating-arith = []

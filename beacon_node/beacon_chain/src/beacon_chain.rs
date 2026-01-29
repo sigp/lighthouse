@@ -412,9 +412,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
-    pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>>>,
+    pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of column sidecars seen over the gossip network.
-    pub observed_column_sidecars: RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>>>,
+    pub observed_column_sidecars:
+        RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -1130,13 +1131,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .or_else(|| self.early_attester_cache.get_data_columns(block_root));
 
         if let Some(mut all_cached_columns) = all_cached_columns_opt {
-            all_cached_columns.retain(|col| indices.contains(&col.index));
+            all_cached_columns.retain(|col| indices.contains(col.index()));
             Ok(all_cached_columns)
-        } else {
+        } else if let Some(block) = self.get_blinded_block(&block_root)? {
             indices
                 .iter()
-                .filter_map(|index| self.get_data_column(&block_root, index).transpose())
+                .filter_map(|index| {
+                    self.get_data_column(&block_root, index, block.fork_name_unchecked())
+                        .transpose()
+                })
                 .collect::<Result<_, _>>()
+        } else {
+            Ok(vec![])
         }
     }
 
@@ -1221,8 +1227,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
+        fork_name: ForkName,
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
-        self.store.get_data_columns(block_root).map_err(Error::from)
+        self.store
+            .get_data_columns(block_root, fork_name)
+            .map_err(Error::from)
     }
 
     /// Returns the blobs at the given root, if any.
@@ -1243,7 +1252,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            if let Some(columns) = self.store.get_data_columns(block_root)? {
+            let fork_name = self.spec.fork_name_at_epoch(block.epoch());
+            if let Some(columns) = self.store.get_data_columns(block_root, fork_name)? {
                 let num_required_columns = T::EthSpec::number_of_columns() / 2;
                 let reconstruction_possible = columns.len() >= num_required_columns;
                 if reconstruction_possible {
@@ -1259,7 +1269,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(None)
             }
         } else {
-            self.get_blobs(block_root).map(|b| b.blobs())
+            Ok(self.get_blobs(block_root)?.blobs())
         }
     }
 
@@ -1271,8 +1281,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
         column_index: &ColumnIndex,
+        fork_name: ForkName,
     ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
-        Ok(self.store.get_data_column(block_root, column_index)?)
+        Ok(self
+            .store
+            .get_data_column(block_root, column_index, fork_name)?)
     }
 
     pub fn get_blinded_block(
@@ -3182,7 +3195,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .cached_data_column_indexes(block_root)
                 .unwrap_or_default();
             let new_data_columns =
-                data_columns_iter.filter(|b| !imported_data_columns.contains(&b.index));
+                data_columns_iter.filter(|b| !imported_data_columns.contains(b.index()));
 
             for data_column in new_data_columns {
                 event_handler.register(EventKind::DataColumnSidecar(
@@ -3194,6 +3207,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    // TODO(gloas) we need a separate code path for gloas. See TODO's below.
     pub async fn process_rpc_custody_columns(
         self: &Arc<Self>,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
@@ -3211,6 +3225,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its columns again.
+        // TODO(gloas) the block will be available in fork choice for gloas. This does not indicate availability
+        // anymore.
         if self
             .canonical_head
             .fork_choice_read_lock()
@@ -3222,7 +3238,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Reject RPC columns referencing unknown parents. Otherwise we allow potentially invalid data
         // into the da_checker, where invalid = descendant of invalid blocks.
         // Note: custody_columns should have at least one item and all items have the same parent root.
-        if let Some(parent_root) = custody_columns.iter().map(|c| c.block_parent_root()).next()
+        // TODO(gloas) ensure this check is no longer relevant post gloas
+        if let Some(parent_root) = custody_columns
+            .iter()
+            .filter_map(|c| match c.as_ref() {
+                DataColumnSidecar::Fulu(column) => Some(column.block_parent_root()),
+                _ => None,
+            })
+            .next()
             && !self
                 .canonical_head
                 .fork_choice_read_lock()
@@ -3542,8 +3565,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         if let Some(slasher) = self.slasher.as_ref() {
-            for data_colum in &data_columns {
-                slasher.accept_block_header(data_colum.signed_block_header());
+            for data_column in &data_columns {
+                // TODO(gloas) different gossip checks in gloas
+                // https://github.com/ethereum/consensus-specs/blob/81458afc6aad6985c533785c8d2860d87a993241/specs/gloas/p2p-interface.md?plain=1#L385
+                if let DataColumnSidecar::Fulu(c) = data_column.as_data_column() {
+                    slasher.accept_block_header(c.signed_block_header.clone());
+                }
             }
         }
 
@@ -3621,9 +3648,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .put_kzg_verified_blobs(block_root, blobs)?
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
+                // TODO(gloas) verify that this check is no longer relevant for gloas
                 self.check_data_column_sidecar_header_signature_and_slashability(
                     block_root,
-                    data_columns.iter().map(|c| c.as_data_column()),
+                    data_columns
+                        .iter()
+                        .filter_map(|c| match c.as_data_column() {
+                            DataColumnSidecar::Fulu(column) => Some(column),
+                            _ => None,
+                        }),
                 )?;
                 self.data_availability_checker
                     .put_kzg_verified_custody_data_columns(block_root, data_columns)?
@@ -3642,9 +3675,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        // TODO(gloas) ensure that this check is no longer relevant post gloas
         self.check_data_column_sidecar_header_signature_and_slashability(
             block_root,
-            custody_columns.iter().map(|c| c.as_ref()),
+            custody_columns.iter().filter_map(|c| match c.as_ref() {
+                DataColumnSidecar::Fulu(fulu) => Some(fulu),
+                _ => None,
+            }),
         )?;
 
         // This slot value is purely informative for the consumers of
@@ -3662,7 +3699,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn check_data_column_sidecar_header_signature_and_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
-        custody_columns: impl IntoIterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
+        custody_columns: impl IntoIterator<Item = &'a DataColumnSidecarFulu<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
         // Process all unique block headers - previous logic assumed all headers were identical and
@@ -7365,7 +7402,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Supernodes need to persist all sampled custody columns
                 if columns_to_custody.len() != self.spec.number_of_custody_groups as usize {
                     data_columns
-                        .retain(|data_column| columns_to_custody.contains(&data_column.index));
+                        .retain(|data_column| columns_to_custody.contains(data_column.index()));
                 }
                 debug!(
                     %block_root,
@@ -7378,7 +7415,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Retrieves block roots (in ascending slot order) within some slot range from fork choice.
-    pub fn block_roots_from_fork_choice(&self, start_slot: u64, count: u64) -> Vec<Hash256> {
+    pub fn block_roots_from_fork_choice(
+        &self,
+        start_slot: u64,
+        count: u64,
+    ) -> Vec<(Hash256, Slot)> {
         let head_block_root = self.canonical_head.cached_head().head_block_root();
         let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
         let block_roots_iter = fork_choice_read_lock
@@ -7389,7 +7430,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         for (root, slot) in block_roots_iter {
             if slot < end_slot && slot >= start_slot {
-                roots.push(root);
+                roots.push((root, slot));
             }
             if slot < start_slot {
                 break;
