@@ -612,8 +612,6 @@ impl<E: EthSpec> AvailablePayload<E> {
     ///   Returns `AvailabilityCheckError` if:
     /// - `column_data` contains data not required by the block
     /// - Required `column_data` is missing
-    /// - Blob count doesn't match expected
-    /// - Custody columns are incomplete
     pub fn new<T>(
         payload: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         block: Arc<SignedBeaconBlock<E>>,

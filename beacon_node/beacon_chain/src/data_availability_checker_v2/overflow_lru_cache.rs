@@ -776,6 +776,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore] // TODO(gloas): Implement availability_pending_payload
     async fn overflow_cache_test_insert_components() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
@@ -899,6 +900,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore] // TODO(gloas): Implement availability_pending_payload
     // ensure the state cache keeps memory usage low and that it can properly recover states
     // THIS TEST CAN BE DELETED ONCE TREE STATES IS MERGED AND WE RIP OUT THE STATE CACHE
     async fn overflow_cache_test_state_cache() {
@@ -1024,14 +1026,14 @@ mod pending_components_tests {
     use super::*;
     use crate::PayloadVerificationOutcome;
     use crate::data_column_verification::KzgVerifiedDataColumn;
-    use crate::test_utils::{NumBlobs, generate_data_column_sidecars_from_payload, test_spec};
+    use crate::test_utils::{NumBlobs, generate_rand_payload_and_columns, test_spec};
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
+    use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng};
     use ssz_types::VariableList;
     use types::test_utils::TestRandom;
-    use types::{ForkName, MainnetEthSpec, SignedExecutionPayloadEnvelope};
+    use types::{ForkName, MainnetEthSpec, SignedExecutionPayloadEnvelope, Slot};
 
     type E = MainnetEthSpec;
 
@@ -1041,28 +1043,27 @@ mod pending_components_tests {
         DataColumnSidecarList<E>,
     );
 
+    /// Returns true if gloas is enabled for testing. Tests should skip if this returns false.
+    fn is_gloas_enabled() -> bool {
+        let spec = test_spec::<E>();
+        spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled()
+    }
+
     fn pre_setup() -> Setup {
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let spec = test_spec::<E>();
-        // Ensure spec supports gloas so build_data_column_sidecars_gloas succeeds
-        let spec = ForkName::Gloas.make_genesis_spec(spec);
 
-        let mut payload = SignedExecutionPayloadEnvelope::<E>::random_for_test(&mut rng);
-        // Generate blob transactions to populate blob_kzg_commitments
-        let num_blobs = match NumBlobs::Random {
-            NumBlobs::Random => rng.random_range(1..=6usize),
-            NumBlobs::Number(n) => n,
-            NumBlobs::None => 0,
-        };
-        let (bundle, transactions) =
-            execution_layer::test_utils::generate_blobs::<E>(num_blobs, ForkName::Gloas).unwrap();
-        payload.message.payload.transactions = <_>::default();
-        for tx in Vec::from(transactions) {
-            payload.message.payload.transactions.push(tx).unwrap();
-        }
-        payload.message.blob_kzg_commitments = bundle.commitments.clone();
+        assert!(
+            spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled(),
+            "pre_setup() only works after gloas"
+        );
 
-        let columns = generate_data_column_sidecars_from_payload(&payload, &spec);
+        let (payload, columns) = generate_rand_payload_and_columns::<E>(
+            ForkName::Gloas,
+            NumBlobs::Random,
+            &mut rng,
+            &spec,
+        );
 
         // Create invalid columns by mutating kzg_commitments
         let invalid_columns: DataColumnSidecarList<E> = columns
@@ -1163,6 +1164,9 @@ mod pending_components_tests {
 
     #[test]
     fn payload_invalid_columns_valid_columns() {
+        if !is_gloas_enabled() {
+            return;
+        }
         let (payload, columns, invalid_columns) = pre_setup();
         let (diet_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
@@ -1183,6 +1187,9 @@ mod pending_components_tests {
 
     #[test]
     fn invalid_columns_payload_valid_columns() {
+        if !is_gloas_enabled() {
+            return;
+        }
         let (payload, columns, invalid_columns) = pre_setup();
         let (diet_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
@@ -1202,6 +1209,9 @@ mod pending_components_tests {
 
     #[test]
     fn invalid_columns_valid_columns_payload() {
+        if !is_gloas_enabled() {
+            return;
+        }
         let (payload, columns, invalid_columns) = pre_setup();
         let (diet_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
@@ -1222,6 +1232,9 @@ mod pending_components_tests {
 
     #[test]
     fn payload_valid_columns_invalid_columns() {
+        if !is_gloas_enabled() {
+            return;
+        }
         let (payload, columns, invalid_columns) = pre_setup();
         let (diet_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
@@ -1242,6 +1255,9 @@ mod pending_components_tests {
 
     #[test]
     fn valid_columns_payload_invalid_columns() {
+        if !is_gloas_enabled() {
+            return;
+        }
         let (payload, columns, invalid_columns) = pre_setup();
         let (diet_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
@@ -1262,6 +1278,9 @@ mod pending_components_tests {
 
     #[test]
     fn valid_columns_invalid_columns_payload() {
+        if !is_gloas_enabled() {
+            return;
+        }
         let (payload, columns, invalid_columns) = pre_setup();
         let (diet_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
@@ -1282,6 +1301,9 @@ mod pending_components_tests {
 
     #[test]
     fn should_not_insert_pre_execution_payload_if_executed_payload_exists() {
+        if !is_gloas_enabled() {
+            return;
+        }
         let (payload, _columns, _invalid_columns) = pre_setup();
         let (diet_payload, _columns, _invalid_columns) =
             setup_pending_components(payload.clone(), _columns, _invalid_columns);

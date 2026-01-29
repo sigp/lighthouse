@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
-use kzg::{BYTES_PER_BLOB, CellsAndKzgProofs, Kzg, KzgCommitment, KzgProof};
+use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
@@ -17,11 +17,8 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    block::{
-        BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
-    },
-    core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
-    data::BlobsList,
+    block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
+    core::{Epoch, EthSpec, Hash256, Slot},
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,
@@ -135,124 +132,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             ForkName::Gloas => Ok(DataColumnSidecar::Gloas(
                 DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
             )),
-        }
-    }
-
-    /// Build data column sidecars from blobs and a signed beacon block.
-    ///
-    /// This method computes cells and cell proofs from the blobs using KZG,
-    /// then constructs the appropriate data column sidecar variant (Fulu or Gloas)
-    /// based on the block's fork.
-    pub fn build_sidecars(
-        blobs: BlobsList<E>,
-        block: &SignedBeaconBlock<E>,
-        kzg: &Kzg,
-        spec: &ChainSpec,
-    ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
-        if blobs.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let kzg_commitments = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map_err(|_| DataColumnSidecarError::PreDeneb)?
-            .clone();
-
-        // Compute cells and proofs for each blob
-        let blob_cells_and_proofs: Vec<CellsAndKzgProofs> = blobs
-            .iter()
-            .map(|blob| {
-                let blob_bytes: &[u8; BYTES_PER_BLOB] = blob.as_ref().try_into().map_err(|_| {
-                    DataColumnSidecarError::KzgError(KzgError::InconsistentArrayLength(format!(
-                        "blob should have size {}, got {}",
-                        BYTES_PER_BLOB,
-                        blob.len()
-                    )))
-                })?;
-                kzg.compute_cells_and_proofs(blob_bytes)
-                    .map_err(DataColumnSidecarError::KzgError)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let number_of_columns = E::number_of_columns();
-        let max_blobs_per_block =
-            spec.max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
-
-        // Initialize columns and proofs vectors
-        let mut columns: Vec<Vec<Cell<E>>> =
-            vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
-        let mut column_kzg_proofs: Vec<Vec<KzgProof>> =
-            vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
-
-        // Arrange cells and proofs into columns
-        for (blob_cells, blob_cell_proofs) in &blob_cells_and_proofs {
-            for col_idx in 0..number_of_columns {
-                let cell = blob_cells
-                    .get(col_idx)
-                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
-                let cell_vec: Vec<u8> = cell.to_vec();
-                let cell = Cell::<E>::try_from(cell_vec)?;
-
-                let proof = blob_cell_proofs
-                    .get(col_idx)
-                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
-
-                columns
-                    .get_mut(col_idx)
-                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?
-                    .push(cell);
-                column_kzg_proofs
-                    .get_mut(col_idx)
-                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?
-                    .push(*proof);
-            }
-        }
-
-        // Build sidecars based on fork
-        let fork_name = block.fork_name_unchecked();
-        if fork_name.gloas_enabled() {
-            // Gloas variant
-            let beacon_block_root = block.canonical_root();
-            let slot = block.slot();
-
-            columns
-                .into_iter()
-                .zip(column_kzg_proofs)
-                .enumerate()
-                .map(|(index, (col, proofs))| {
-                    Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
-                        index: index as u64,
-                        column: DataColumn::<E>::try_from(col)?,
-                        kzg_commitments: kzg_commitments.clone(),
-                        kzg_proofs: VariableList::try_from(proofs)?,
-                        slot,
-                        beacon_block_root,
-                    })))
-                })
-                .collect()
-        } else {
-            // Fulu variant
-            let signed_block_header = block.signed_block_header();
-            let kzg_commitments_inclusion_proof =
-                block.message().body().kzg_commitments_merkle_proof()?;
-
-            columns
-                .into_iter()
-                .zip(column_kzg_proofs)
-                .enumerate()
-                .map(|(index, (col, proofs))| {
-                    Ok(Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
-                        index: index as u64,
-                        column: DataColumn::<E>::try_from(col)?,
-                        kzg_commitments: kzg_commitments.clone(),
-                        kzg_proofs: VariableList::try_from(proofs)?,
-                        signed_block_header: signed_block_header.clone(),
-                        kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
-                    })))
-                })
-                .collect()
         }
     }
 }

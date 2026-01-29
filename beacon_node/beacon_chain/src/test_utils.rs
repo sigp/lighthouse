@@ -3436,7 +3436,7 @@ macro_rules! add_blob_transactions_gloas {
     }};
 }
 
-pub fn generate_rand_payloads_and_columns<E: EthSpec>(
+pub fn generate_rand_payload_and_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
@@ -3616,8 +3616,10 @@ pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
         return vec![];
     }
 
-    // load the precomputed column sidecar to avoid computing them for every block in the tests.
-    let template_data_columns = RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
+    // Load the precomputed column sidecar to avoid computing them for every block in the tests.
+    // TODO(gloas): The fixture is currently in Fulu format. We should generate a Gloas-specific
+    // fixture once the format is finalized, or compute columns dynamically for Gloas tests.
+    let template_data_columns = RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
         E::number_of_columns(),
     )
@@ -3626,7 +3628,7 @@ pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
     let (cells, proofs) = template_data_columns
         .into_iter()
         .map(|sidecar| {
-            let DataColumnSidecarGloas {
+            let DataColumnSidecarFulu {
                 column, kzg_proofs, ..
             } = sidecar;
             // There's only one cell per column for a single blob
