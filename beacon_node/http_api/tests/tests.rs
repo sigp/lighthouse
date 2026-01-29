@@ -6539,8 +6539,13 @@ impl ApiTester {
             block_events.as_slice(),
             &[
                 expected_gossip,
-                expected_block,
+                // SSE `Head`` event is now emitted before `Block` event, because we only emit the block event
+                // after it's persisted to the database. We could consider changing this later, but
+                // we might have to serve http API requests for blocks from early_attester_cache
+                // before they're persisted to the database.
+                // https://github.com/sigp/lighthouse/pull/8718#issuecomment-3815593310
                 expected_head,
+                expected_block,
                 expected_finalized
             ]
         );
@@ -6797,7 +6802,12 @@ impl ApiTester {
             .unwrap();
 
         let block_events = poll_events(&mut events_future, 2, Duration::from_millis(10000)).await;
-        assert_eq!(block_events.as_slice(), &[expected_block, expected_head]);
+        // SSE `Head`` event is now emitted before `Block` event, because we only emit the block event
+        // after it's persisted to the database. We could consider changing this later, but
+        // we might have to serve http API requests for blocks from early_attester_cache
+        // before they're persisted to the database.
+        // https://github.com/sigp/lighthouse/pull/8718#issuecomment-3815593310
+        assert_eq!(block_events.as_slice(), &[expected_head, expected_block]);
 
         self
     }
