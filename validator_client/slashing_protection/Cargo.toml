@@ -23,7 +23,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tracing = { workspace = true }
-types = { workspace = true }
+types = { workspace = true, features = ["sqlite"] }
 
 [dev-dependencies]
 rayon = { workspace = true }
