@@ -87,6 +87,16 @@ pub fn get_builder_withdrawals<E: EthSpec>(
     // TODO(gloas): this has already changed on `master`, we need to update at next spec release
     let withdrawals_limit = E::max_withdrawals_per_payload();
 
+    // TODO(gloas): this assert is from `master`, remove this comment once it is part of the tested
+    // spec version.
+    block_verify!(
+        withdrawals.len() <= withdrawals_limit,
+        BlockProcessingError::WithdrawalsLimitExceeded {
+            limit: withdrawals_limit,
+            prior_withdrawals: withdrawals.len()
+        }
+    );
+
     let mut processed_count = 0;
     for withdrawal in builder_pending_withdrawals {
         let has_reached_limit = withdrawals.len() == withdrawals_limit;
@@ -125,9 +135,11 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
         withdrawals
             .len()
             .safe_add(spec.max_pending_partials_per_withdrawals_sweep as usize)?,
-        E::max_withdrawals_per_payload(),
+        E::max_withdrawals_per_payload().safe_sub(1)?,
     );
 
+    // TODO(gloas): this assert is from `master`, remove this comment once it is part of the tested
+    // spec version.
     block_verify!(
         withdrawals.len() <= withdrawals_limit,
         BlockProcessingError::WithdrawalsLimitExceeded {
@@ -192,9 +204,12 @@ pub fn get_builders_sweep_withdrawals<E: EthSpec>(
 
     let epoch = state.current_epoch();
     let builders_limit = std::cmp::min(builders.len(), E::max_builders_per_withdrawals_sweep());
-    // Reserve one slot for validator sweep withdrawals
-    let withdrawals_limit = E::max_withdrawals_per_payload().saturating_sub(1);
 
+    // TODO(gloas): this has already changed on `master`, we should update at the next spec release
+    let withdrawals_limit = E::max_withdrawals_per_payload();
+
+    // TODO(gloas): this assert is from `master`, remove this comment once it is part of the tested
+    // spec version.
     block_verify!(
         withdrawals.len() <= withdrawals_limit,
         BlockProcessingError::WithdrawalsLimitExceeded {
