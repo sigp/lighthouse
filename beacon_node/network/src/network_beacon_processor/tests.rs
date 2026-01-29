@@ -404,7 +404,7 @@ impl TestRig {
                 RpcBlock::new(
                     self.next_block.clone(),
                     None,
-                    &self._harness.chain.data_availability_checker,
+                    &self._harness.chain.data_availability_checker.v1(),
                     self._harness.spec.clone(),
                 )
                 .unwrap(),
@@ -422,7 +422,7 @@ impl TestRig {
                 RpcBlock::new(
                     self.next_block.clone(),
                     None,
-                    &self._harness.chain.data_availability_checker,
+                    &self._harness.chain.data_availability_checker.v1(),
                     self._harness.spec.clone(),
                 )
                 .unwrap(),

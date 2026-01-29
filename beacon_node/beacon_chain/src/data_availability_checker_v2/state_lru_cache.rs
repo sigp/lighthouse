@@ -24,6 +24,23 @@ pub struct DietAvailabilityPendingExecutedPayload<E: EthSpec> {
 
 /// Implementing the same methods as `AvailabilityPendingExecutedPayload`
 impl<E: EthSpec> DietAvailabilityPendingExecutedPayload<E> {
+    #[cfg(test)]
+    pub fn new_for_testing(
+        payload: Arc<SignedExecutionPayloadEnvelope<E>>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    ) -> Self {
+        use state_processing::ConsensusContext;
+        use types::Slot;
+        Self {
+            payload,
+            state_root: Hash256::ZERO,
+            consensus_context: OnDiskConsensusContext::from_consensus_context(
+                ConsensusContext::new(Slot::new(0)),
+            ),
+            payload_verification_outcome,
+        }
+    }
+
     pub fn as_payload(&self) -> &SignedExecutionPayloadEnvelope<E> {
         &self.payload
     }
@@ -115,7 +132,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
     #[instrument(skip_all, level = "debug")]
     fn reconstruct_state(
         &self,
-        diet_executed_block: &DietAvailabilityPendingExecutedPayload<T::EthSpec>,
+        _diet_executed_block: &DietAvailabilityPendingExecutedPayload<T::EthSpec>,
     ) -> Result<BeaconState<T::EthSpec>, AvailabilityCheckError> {
         todo!()
     }

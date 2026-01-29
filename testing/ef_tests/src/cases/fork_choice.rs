@@ -567,7 +567,7 @@ impl<E: EthSpec> Tester<E> {
                     RpcBlock::new(
                         block.clone(),
                         None,
-                        &self.harness.chain.data_availability_checker,
+                        &self.harness.chain.data_availability_checker.v1(),
                         self.harness.chain.spec.clone(),
                     )
                     .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
@@ -665,7 +665,7 @@ impl<E: EthSpec> Tester<E> {
                     RpcBlock::new(
                         block.clone(),
                         None,
-                        &self.harness.chain.data_availability_checker,
+                        &self.harness.chain.data_availability_checker.v1(),
                         self.harness.chain.spec.clone(),
                     )
                     .map_err(|e| Error::InternalError(format!("{:?}", e)))?,

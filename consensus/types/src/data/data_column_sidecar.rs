@@ -191,13 +191,13 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             for col_idx in 0..number_of_columns {
                 let cell = blob_cells
                     .get(col_idx)
-                    .ok_or_else(|| DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
+                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
                 let cell_vec: Vec<u8> = cell.to_vec();
                 let cell = Cell::<E>::try_from(cell_vec)?;
 
                 let proof = blob_cell_proofs
                     .get(col_idx)
-                    .ok_or_else(|| DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
+                    .ok_or(DataColumnSidecarError::DataColumnIndexOutOfBounds)?;
 
                 columns
                     .get_mut(col_idx)

@@ -777,7 +777,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let range_req = entry.get_mut();
         if let Some(blocks_result) = range_req.responses(
-            self.chain.data_availability_checker.clone(),
+            self.chain.data_availability_checker.v1().clone(),
             self.chain.spec.clone(),
         ) {
             if let Err(CouplingError::DataColumnPeerFailure {
@@ -1615,7 +1615,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let block = RpcBlock::new(
             block,
             None,
-            &self.chain.data_availability_checker,
+            &self.chain.data_availability_checker.v1(),
             self.chain.spec.clone(),
         )
         .map_err(|_| SendErrorProcessor::SendError)?;

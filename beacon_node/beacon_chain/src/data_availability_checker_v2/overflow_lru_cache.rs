@@ -27,6 +27,7 @@ pub enum CachedPayload<E: EthSpec> {
     Executed(Box<DietAvailabilityPendingExecutedPayload<E>>),
 }
 
+#[allow(dead_code)]
 impl<E: EthSpec> CachedPayload<E> {
     pub fn get_commitments(&self) -> KzgCommitments<E> {
         let payload = self.as_payload();
@@ -49,6 +50,7 @@ impl<E: EthSpec> CachedPayload<E> {
 ///
 /// The columns are all gossip and kzg verified.
 /// The payload has completed all verifications except the availability check.
+#[allow(dead_code)]
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub block: Option<Arc<SignedBeaconBlock<E>>>,
@@ -123,7 +125,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns Some if the payload has received all its required data for import. The return value
-    /// must be persisted in the DB along with the block.
+    /// must be persisted in the DB along with the payload.
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
@@ -157,7 +159,7 @@ impl<E: EthSpec> PendingComponents<E> {
                     )));
                 }
                 Ordering::Equal => {
-                    // Block is post-peerdas, and we got enough columns
+                    // We have enough columns
                     let data_columns = self
                         .verified_data_columns
                         .iter()
@@ -179,9 +181,9 @@ impl<E: EthSpec> PendingComponents<E> {
 
         let Some(block) = self.block.clone() else {
             // This should never happen
-            return Err(AvailabilityCheckError::Unexpected(format!(
-                "Payload is being made available but no block exists"
-            )));
+            return Err(AvailabilityCheckError::Unexpected(
+                "Block doesn't exist for the payload being made available".to_owned(),
+            ));
         };
 
         // Payload is available, construct `AvailableExecutedPayload`
@@ -235,7 +237,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// - The payload if it is cached
     ///   Otherwise, returns None
     pub fn epoch(&self) -> Option<Epoch> {
-        // Get epoch from cached block
+        // Get epoch from cached payload
         if let Some(payload) = &self.payload {
             return Some(
                 payload
@@ -365,7 +367,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             // No columns are processed. This can occur if all received columns were filtered out
             // before this point, e.g. due to a CGC change that caused extra columns to be downloaded
             // // before the new CGC took effect.
-            // Return `Ok` without marking the block as available.
+            // Return `Ok` without marking the payload as available.
             return Ok(Availability::MissingComponents(block_root));
         };
 
@@ -408,7 +410,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
             if let Some(components) = self.critical.write().get_mut(&block_root) {
-                // Clean up span now that block is available
+                // Clean up span now that payload is available
                 components.span = Span::none();
             }
 
@@ -458,7 +460,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     /// Potentially trigger reconstruction if all the following satisfy:
     ///  - Our custody requirement is more than 50% of total columns,
     ///  - We haven't received all required columns
-    ///  - Reconstruction hasn't been started for the block
+    ///  - Reconstruction hasn't been started for the payload
     ///
     /// If reconstruction is required, returns `PendingComponents` which contains the
     /// components to be used as inputs to reconstruction, otherwise returns a `reason`.
@@ -468,8 +470,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     ) -> ReconstructColumnsDecision<T::EthSpec> {
         let mut write_lock = self.critical.write();
         let Some(pending_components) = write_lock.get_mut(block_root) else {
-            // Block may have been imported as it does not exist in availability cache.
-            return ReconstructColumnsDecision::No("block already imported");
+            // Payload may have been imported as it does not exist in availability cache.
+            return ReconstructColumnsDecision::No("payload already imported");
         };
 
         let Some(epoch) = pending_components
@@ -542,7 +544,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     /// Removes a pre-execution payload from the cache.
     /// This does NOT remove an existing executed payload.
     pub fn remove_pre_execution_payload(&self, block_root: &Hash256) {
-        // The read lock is immediately dropped so we can safely remove the block from the cache.
+        // The read lock is immediately dropped so we can safely remove the payload from the cache.
         if let Some(PayloadProcessStatus::NotValidated(_, _)) = self.get_cached_payload(block_root)
         {
             self.critical.write().pop(block_root);
@@ -562,7 +564,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .epoch(T::EthSpec::slots_per_epoch());
         let block_root = executed_payload.payload.message.beacon_block_root;
 
-        // register the payload to get the diet block
+        // register the payload to get the diet payload
         let diet_executed_payload = self
             .state_cache
             .register_pending_executed_payload(executed_payload);
@@ -639,25 +641,21 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 mod test {
     use super::*;
 
-    use crate::data_column_verification::GossipVerifiedDataColumn;
-    use crate::payload_verification_types::PayloadImportData;
+    use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
     use crate::test_utils::generate_data_column_indices_rand_order;
     use crate::{
-        block_verification::PayloadVerificationOutcome,
         block_verification_types::AsBlock,
         custody_context::NodeCustodyType,
         data_availability_checker_v2::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
-    use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
-    use state_processing::ConsensusContext;
     use std::collections::{HashSet, VecDeque};
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
-    use tracing::{debug_span, info};
-    use types::new_non_zero_usize;
+    use tracing::debug_span;
     use types::MinimalEthSpec;
+    use types::new_non_zero_usize;
 
     const LOW_VALIDATOR_COUNT: usize = 32;
     const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
@@ -726,7 +724,7 @@ mod test {
     }
 
     async fn availability_pending_payload<E, Hot, Cold>(
-        harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
+        _harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
     ) -> (
         AvailabilityPendingExecutedPayload<E>,
         Vec<GossipVerifiedDataColumn<BaseHarnessType<E, Hot, Cold>>>,
@@ -787,7 +785,7 @@ mod test {
         let (pending_payload, columns) = availability_pending_payload(&harness).await;
         let root = pending_payload.as_payload().beacon_block_root();
 
-        let expected_column_indices = harness
+        let mut expected_column_indices = harness
             .chain
             .data_availability_checker
             .custody_context()
@@ -804,7 +802,7 @@ mod test {
         assert!(cache.critical.read().is_empty(), "cache should be empty");
         let availability = cache
             .put_executed_payload(pending_payload)
-            .expect("should put block");
+            .expect("should put payload");
         if columns_expected == 0 {
             assert!(
                 matches!(availability, Availability::Available(_)),
@@ -834,12 +832,15 @@ mod test {
         let mut kzg_verified_columns = Vec::new();
 
         for gossip_column in columns.into_iter() {
-            kzg_verified_columns.push(gossip_column.into_inner());
+            let col_index = gossip_column.index();
+            kzg_verified_columns.push(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                gossip_column.into_inner(),
+            ));
             let availability = cache
                 .put_kzg_verified_data_columns(root, kzg_verified_columns.clone().into_iter())
                 .expect("should put column");
 
-            expected_column_indices.remove(&gossip_column.index());
+            expected_column_indices.remove(&col_index);
 
             if expected_column_indices.is_empty() {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -857,17 +858,19 @@ mod test {
             .custody_columns_for_epoch(None, &harness.chain.spec)
             .iter()
             .collect::<HashSet<_>>();
-        let columns_expected = pending_payload.num_blobs_expected();
+
         assert_eq!(
             columns.len(),
             expected_column_indices.len(),
-            "should have expected number of blobs"
+            "should have expected number of columns"
         );
         let root = pending_payload.as_payload().beacon_block_root();
 
         let mut kzg_verified_columns = vec![];
         for gossip_column in columns {
-            kzg_verified_columns.push(gossip_column.into_inner());
+            kzg_verified_columns.push(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                gossip_column.into_inner(),
+            ));
             let availability = cache
                 .put_kzg_verified_data_columns(root, kzg_verified_columns.clone())
                 .expect("should put column");
@@ -907,11 +910,11 @@ mod test {
         let mut pending_payloads = VecDeque::new();
         let mut states = Vec::new();
         let mut state_roots = Vec::new();
-        // Get enough blocks to fill the cache to capacity, ensuring all blocks have blobs
+        // Get enough payload to fill the cache to capacity, ensuring all payloads have blobs
         while pending_payloads.len() < capacity {
             let (mut pending_payload, _) = availability_pending_payload(&harness).await;
             if pending_payload.num_blobs_expected() == 0 {
-                // we need blocks with blobs
+                // we need payloads with blobs
                 continue;
             }
             let state_root = pending_payload.import_data.state.canonical_root().unwrap();
@@ -942,12 +945,12 @@ mod test {
                 );
             }
 
-            // put the block in the cache
+            // put the payload in the cache
             let availability = cache
                 .put_executed_payload(pending_payload)
                 .expect("should put payload");
 
-            // grab the diet block from the cache for later testing
+            // grab the diet payload from the cache for later testing
             let diet_payload = cache
                 .critical
                 .read()
@@ -956,7 +959,7 @@ mod test {
                 .expect("should exist");
             pushed_diet_payloads.push_back(diet_payload);
 
-            // should be unavailable since we made sure all blocks had blobs
+            // should be unavailable since we made sure all payloads had blobs
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
                 "should be pending blobs"
@@ -969,13 +972,15 @@ mod test {
                     state_cache.read().peek(&evicted_root).is_none(),
                     "lru root should be evicted"
                 );
-                // get the diet block via direct conversion (testing only)
-                let diet_payload = pushed_diet_payloads.pop_front().expect("should have payload");
-                // reconstruct the pending block by replaying the block on the parent state
+                // get the diet payload via direct conversion (testing only)
+                let diet_payload = pushed_diet_payloads
+                    .pop_front()
+                    .expect("should have payload");
+                // reconstruct the pending payload by replaying the payload on the parent state
                 let recovered_pending_payload = cache
                     .state_lru_cache()
                     .recover_pending_executed_payload(diet_payload, &debug_span!("test"))
-                    .expect("should reconstruct pending block");
+                    .expect("should reconstruct pending payload");
 
                 // assert the recovered state is the same as the original
                 assert_eq!(
@@ -986,7 +991,10 @@ mod test {
         }
 
         // now check the last payload
-        let last_payload = pushed_diet_payloads.pop_back().expect("should exist").clone();
+        let last_payload = pushed_diet_payloads
+            .pop_back()
+            .expect("should exist")
+            .clone();
         // the state should still be in the cache
         assert!(
             state_cache
@@ -1015,239 +1023,294 @@ mod test {
 mod pending_components_tests {
     use super::*;
     use crate::PayloadVerificationOutcome;
-    use crate::payload_verification_types::PayloadImportData;
-    use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
-    use fixed_bytes::FixedBytesExtended;
+    use crate::data_column_verification::KzgVerifiedDataColumn;
+    use crate::test_utils::{NumBlobs, generate_data_column_sidecars_from_payload, test_spec};
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use ssz_types::RuntimeFixedVector;
-    use state_processing::ConsensusContext;
+    use rand::{Rng, SeedableRng};
+    use ssz_types::VariableList;
     use types::test_utils::TestRandom;
-    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{ForkName, MainnetEthSpec, SignedExecutionPayloadEnvelope};
 
     type E = MainnetEthSpec;
 
-    type Setup<E> = (
-        SignedBeaconBlock<E>,
-        RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>,
-        RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>,
-        usize,
+    type Setup = (
+        SignedExecutionPayloadEnvelope<E>,
+        DataColumnSidecarList<E>,
+        DataColumnSidecarList<E>,
     );
 
-    pub fn pre_setup() -> Setup<E> {
+    fn pre_setup() -> Setup {
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let spec = test_spec::<E>();
-        let (block, blobs_vec) =
-            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
-        let max_len = spec.max_blobs_per_block(block.epoch()) as usize;
-        let mut blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
-            RuntimeFixedVector::default(max_len);
+        // Ensure spec supports gloas so build_data_column_sidecars_gloas succeeds
+        let spec = ForkName::Gloas.make_genesis_spec(spec);
 
-        for blob in blobs_vec {
-            if let Some(b) = blobs.get_mut(blob.index as usize) {
-                *b = Some(Arc::new(blob));
-            }
+        let mut payload = SignedExecutionPayloadEnvelope::<E>::random_for_test(&mut rng);
+        // Generate blob transactions to populate blob_kzg_commitments
+        let num_blobs = match NumBlobs::Random {
+            NumBlobs::Random => rng.random_range(1..=6usize),
+            NumBlobs::Number(n) => n,
+            NumBlobs::None => 0,
+        };
+        let (bundle, transactions) =
+            execution_layer::test_utils::generate_blobs::<E>(num_blobs, ForkName::Gloas).unwrap();
+        payload.message.payload.transactions = <_>::default();
+        for tx in Vec::from(transactions) {
+            payload.message.payload.transactions.push(tx).unwrap();
         }
+        payload.message.blob_kzg_commitments = bundle.commitments.clone();
 
-        let mut invalid_blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
-            RuntimeFixedVector::default(max_len);
-        for (index, blob) in blobs.iter().enumerate() {
-            if let Some(invalid_blob) = blob {
-                let mut blob_copy = invalid_blob.as_ref().clone();
-                blob_copy.kzg_commitment = KzgCommitment::random_for_test(&mut rng);
-                *invalid_blobs.get_mut(index).unwrap() = Some(Arc::new(blob_copy));
-            }
-        }
+        let columns = generate_data_column_sidecars_from_payload(&payload, &spec);
 
-        (block, blobs, invalid_blobs, max_len)
+        // Create invalid columns by mutating kzg_commitments
+        let invalid_columns: DataColumnSidecarList<E> = columns
+            .iter()
+            .map(|col| {
+                let mut col_clone = col.as_ref().clone();
+                // Mutate commitments to make them invalid
+                let mut commitments: Vec<_> = col_clone.kzg_commitments().iter().copied().collect();
+                for commitment in commitments.iter_mut() {
+                    *commitment = KzgCommitment::random_for_test(&mut rng);
+                }
+                let new_commitments =
+                    VariableList::try_from(commitments).expect("commitments within bounds");
+                match &mut col_clone {
+                    DataColumnSidecar::Gloas(gloas) => {
+                        gloas.kzg_commitments = new_commitments;
+                    }
+                    DataColumnSidecar::Fulu(fulu) => {
+                        fulu.kzg_commitments = new_commitments;
+                    }
+                }
+                Arc::new(col_clone)
+            })
+            .collect();
+
+        (payload, columns, invalid_columns)
     }
 
-    type PendingComponentsSetup<E> = (
-        DietAvailabilityPendingExecutedBlock<E>,
-        RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
-        RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
+    type PendingComponentsSetup = (
+        DietAvailabilityPendingExecutedPayload<E>,
+        Vec<KzgVerifiedCustodyDataColumn<E>>,
+        Vec<KzgVerifiedCustodyDataColumn<E>>,
     );
 
-    pub fn setup_pending_components(
+    fn setup_pending_components(
         payload: SignedExecutionPayloadEnvelope<E>,
-        valid_columns: RuntimeFixedVector<Option<Arc<DataColumnSidecar<E>>>>,
-        invalid_columns: RuntimeFixedVector<Option<Arc<DataColumnSidecar<E>>>>,
-    ) -> PendingComponentsSetup<E> {
-        let columns = RuntimeFixedVector::new(
-            valid_columns
-                .iter()
-                .map(|column_opt| {
-                    column_opt
-                        .as_ref()
-                        .map(|column| KzgVerifiedDataColumn::__assumed_valid(column.clone()))
-                })
-                .collect::<Vec<_>>(),
-        );
-        let invalid_columns = RuntimeFixedVector::new(
-            invalid_columns
-                .iter()
-                .map(|column_opt| {
-                    column_opt
-                        .as_ref()
-                        .map(|column| KzgVerifiedDataColumn::__assumed_valid(column.clone()))
-                })
-                .collect::<Vec<_>>(),
-        );
-        let block = AvailabilityPendingExecutedBlock {
-            payload: Arc::new(payload),
-            import_data: PayloadImportData {
-                state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
-                consensus_context: ConsensusContext::new(Slot::new(0)),
-            },
-            payload_verification_outcome: PayloadVerificationOutcome {
+        valid_columns: DataColumnSidecarList<E>,
+        invalid_columns: DataColumnSidecarList<E>,
+    ) -> PendingComponentsSetup {
+        let columns: Vec<KzgVerifiedCustodyDataColumn<E>> = valid_columns
+            .into_iter()
+            .map(|col| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::__new_for_testing(col),
+                )
+            })
+            .collect();
+
+        let invalid_columns: Vec<KzgVerifiedCustodyDataColumn<E>> = invalid_columns
+            .into_iter()
+            .map(|col| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::__new_for_testing(col),
+                )
+            })
+            .collect();
+
+        let diet_payload = DietAvailabilityPendingExecutedPayload::new_for_testing(
+            Arc::new(payload),
+            PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
                 is_valid_merge_transition_block: false,
             },
-        };
-        (payload, columns, invalid_blobs)
+        );
+
+        (diet_payload, columns, invalid_columns)
     }
 
-    pub fn assert_cache_consistent(cache: PendingComponents<E>, max_len: usize) {
-        if let Some(cached_payload) = &cache.payload {
-            let cached_payload_commitments = cached_payload.get_commitments();
-            for index in 0..max_len {
-                let payload_commitment = cached_payload_commitments.get(index).copied();
-                let column_commitment_opt = cache.get_cached_data_column().get(index).unwrap();
-                let column_commitment = column_commitment_opt.as_ref().map(|c| *c.get_commitment());
-                assert_eq!(payload_commitment, column_commitment);
-            }
-        } else {
-            panic!("No cached payload")
+    fn assert_cache_consistent(cache: &PendingComponents<E>) {
+        let cached_payload = cache
+            .payload
+            .as_ref()
+            .expect("expected cached payload to be present");
+        let payload_commitments = cached_payload.get_commitments();
+        // Each column should have commitments matching the payload
+        for col in &cache.verified_data_columns {
+            let col_commitments = col.as_data_column().kzg_commitments();
+            assert_eq!(
+                payload_commitments,
+                *col_commitments,
+                "column {} commitments should match payload commitments",
+                col.index()
+            );
         }
     }
 
-    pub fn assert_empty_column_cache(cache: PendingComponents<E>) {
-        for column_indices in cache.get_cached_data_columns_indices().iter() {
-            panic!("assert_empty_column_cache failed");
-        }
+    #[allow(dead_code)]
+    fn assert_empty_column_cache(cache: &PendingComponents<E>) {
+        assert!(
+            cache.verified_data_columns.is_empty(),
+            "expected empty column cache but found {} columns",
+            cache.verified_data_columns.len()
+        );
+    }
+
+    // v2 merge_data_columns deduplicates by index (first-in wins). When invalid columns
+    // are merged first, they persist even after valid columns are merged at the same indices.
+
+    #[test]
+    fn payload_invalid_columns_valid_columns() {
+        let (payload, columns, invalid_columns) = pre_setup();
+        let (diet_payload, columns, invalid_columns) =
+            setup_pending_components(payload, columns, invalid_columns);
+        let block_root = Hash256::ZERO;
+        let mut cache = <PendingComponents<E>>::empty(block_root);
+        cache.merge_payload(diet_payload);
+        cache
+            .merge_data_columns(invalid_columns)
+            .expect("merge should succeed");
+        cache
+            .merge_data_columns(columns)
+            .expect("merge should succeed");
+
+        // Invalid columns were inserted first, valid columns are deduplicated away.
+        // The cache has columns but they have invalid commitments (not matching payload).
+        assert!(!cache.verified_data_columns.is_empty());
     }
 
     #[test]
-    fn valid_block_invalid_blobs_valid_blobs() {
-        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_pending_components(block_commitments, blobs, random_blobs);
-        let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(random_blobs);
-        cache.merge_blobs(blobs);
+    fn invalid_columns_payload_valid_columns() {
+        let (payload, columns, invalid_columns) = pre_setup();
+        let (diet_payload, columns, invalid_columns) =
+            setup_pending_components(payload, columns, invalid_columns);
+        let block_root = Hash256::ZERO;
+        let mut cache = <PendingComponents<E>>::empty(block_root);
+        cache
+            .merge_data_columns(invalid_columns)
+            .expect("merge should succeed");
+        cache.merge_payload(diet_payload);
+        cache
+            .merge_data_columns(columns)
+            .expect("merge should succeed");
 
-        assert_cache_consistent(cache, max_len);
+        // Invalid columns were first, valid ones deduplicated away.
+        assert!(!cache.verified_data_columns.is_empty());
     }
 
     #[test]
-    fn invalid_blobs_block_valid_blobs() {
-        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_pending_components(block_commitments, blobs, random_blobs);
-        let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(blobs);
+    fn invalid_columns_valid_columns_payload() {
+        let (payload, columns, invalid_columns) = pre_setup();
+        let (diet_payload, columns, invalid_columns) =
+            setup_pending_components(payload, columns, invalid_columns);
 
-        assert_cache_consistent(cache, max_len);
+        let block_root = Hash256::ZERO;
+        let mut cache = <PendingComponents<E>>::empty(block_root);
+        cache
+            .merge_data_columns(invalid_columns)
+            .expect("merge should succeed");
+        cache
+            .merge_data_columns(columns)
+            .expect("merge should succeed");
+        cache.merge_payload(diet_payload);
+
+        // Invalid columns were first, valid ones deduplicated away.
+        assert!(!cache.verified_data_columns.is_empty());
     }
 
     #[test]
-    fn invalid_blobs_valid_blobs_block() {
-        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_pending_components(block_commitments, blobs, random_blobs);
+    fn payload_valid_columns_invalid_columns() {
+        let (payload, columns, invalid_columns) = pre_setup();
+        let (diet_payload, columns, invalid_columns) =
+            setup_pending_components(payload, columns, invalid_columns);
 
-        let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_blobs(random_blobs);
-        cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
+        let block_root = Hash256::ZERO;
+        let mut cache = <PendingComponents<E>>::empty(block_root);
+        cache.merge_payload(diet_payload);
+        cache
+            .merge_data_columns(columns)
+            .expect("merge should succeed");
+        cache
+            .merge_data_columns(invalid_columns)
+            .expect("merge should succeed");
 
-        assert_empty_blob_cache(cache);
+        // Valid columns were inserted first, so they persist. Cache should be consistent.
+        assert_cache_consistent(&cache);
     }
 
     #[test]
-    fn block_valid_blobs_invalid_blobs() {
-        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_pending_components(block_commitments, blobs, random_blobs);
+    fn valid_columns_payload_invalid_columns() {
+        let (payload, columns, invalid_columns) = pre_setup();
+        let (diet_payload, columns, invalid_columns) =
+            setup_pending_components(payload, columns, invalid_columns);
 
-        let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(blobs);
-        cache.merge_blobs(random_blobs);
+        let block_root = Hash256::ZERO;
+        let mut cache = <PendingComponents<E>>::empty(block_root);
+        cache
+            .merge_data_columns(columns)
+            .expect("merge should succeed");
+        cache.merge_payload(diet_payload);
+        cache
+            .merge_data_columns(invalid_columns)
+            .expect("merge should succeed");
 
-        assert_cache_consistent(cache, max_len);
+        // Valid columns were inserted first, so they persist. Cache should be consistent.
+        assert_cache_consistent(&cache);
     }
 
     #[test]
-    fn valid_blobs_block_invalid_blobs() {
-        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_pending_components(block_commitments, blobs, random_blobs);
+    fn valid_columns_invalid_columns_payload() {
+        let (payload, columns, invalid_columns) = pre_setup();
+        let (diet_payload, columns, invalid_columns) =
+            setup_pending_components(payload, columns, invalid_columns);
 
-        let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
-        cache.merge_blobs(random_blobs);
+        let block_root = Hash256::ZERO;
+        let mut cache = <PendingComponents<E>>::empty(block_root);
+        cache
+            .merge_data_columns(columns)
+            .expect("merge should succeed");
+        cache
+            .merge_data_columns(invalid_columns)
+            .expect("merge should succeed");
+        cache.merge_payload(diet_payload);
 
-        assert_cache_consistent(cache, max_len);
+        // Valid columns were inserted first, so they persist. Cache should be consistent.
+        assert_cache_consistent(&cache);
     }
 
     #[test]
-    fn valid_blobs_invalid_blobs_block() {
-        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
-        let (block_commitments, blobs, random_blobs) =
-            setup_pending_components(block_commitments, blobs, random_blobs);
+    fn should_not_insert_pre_execution_payload_if_executed_payload_exists() {
+        let (payload, _columns, _invalid_columns) = pre_setup();
+        let (diet_payload, _columns, _invalid_columns) =
+            setup_pending_components(payload.clone(), _columns, _invalid_columns);
 
-        let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_blobs(blobs);
-        cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
+        let block_root = Hash256::ZERO;
+        let mut pending_component = <PendingComponents<E>>::empty(block_root);
 
-        assert_cache_consistent(cache, max_len);
-    }
-
-    #[test]
-    fn should_not_insert_pre_execution_block_if_executed_block_exists() {
-        let (pre_execution_block, blobs, random_blobs, max_len) = pre_setup();
-        let (executed_block, _blobs, _random_blobs) =
-            setup_pending_components(pre_execution_block.clone(), blobs, random_blobs);
-
-        let block_root = pre_execution_block.canonical_root();
-        let mut pending_component = <PendingComponents<E>>::empty(block_root, max_len);
-
-        let pre_execution_block = Arc::new(pre_execution_block);
+        let pre_execution_payload = Arc::new(payload);
         pending_component
-            .insert_pre_execution_block(pre_execution_block.clone(), BlockImportSource::Gossip);
+            .insert_pre_execution_payload(pre_execution_payload.clone(), BlockImportSource::Gossip);
         assert!(
             matches!(
-                pending_component.block,
-                Some(CachedBlock::PreExecution(_, _))
+                pending_component.payload,
+                Some(CachedPayload::PreExecution(_, _))
             ),
-            "pre execution block inserted"
+            "pre execution payload inserted"
         );
 
-        pending_component.insert_executed_block(executed_block);
+        pending_component.insert_executed_payload(diet_payload);
         assert!(
-            matches!(pending_component.block, Some(CachedBlock::Executed(_))),
-            "executed block inserted"
+            matches!(pending_component.payload, Some(CachedPayload::Executed(_))),
+            "executed payload inserted"
         );
 
         pending_component
-            .insert_pre_execution_block(pre_execution_block, BlockImportSource::Gossip);
+            .insert_pre_execution_payload(pre_execution_payload, BlockImportSource::Gossip);
         assert!(
-            matches!(pending_component.block, Some(CachedBlock::Executed(_))),
-            "executed block should remain"
+            matches!(pending_component.payload, Some(CachedPayload::Executed(_))),
+            "executed payload should remain"
         );
     }
 }

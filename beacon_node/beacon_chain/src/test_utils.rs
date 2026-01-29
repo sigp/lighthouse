@@ -24,7 +24,7 @@ use bls::get_withdrawal_credentials;
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
 };
-use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
+use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple, SignedPayloadEnvelopeContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
@@ -2483,7 +2483,7 @@ where
             return RpcBlock::new(
                 block,
                 Some(AvailableBlockData::NoData),
-                &self.chain.data_availability_checker,
+                &self.chain.data_availability_checker.v1(),
                 self.chain.spec.clone(),
             )
             .unwrap();
@@ -2502,7 +2502,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &self.chain.data_availability_checker,
+                &self.chain.data_availability_checker.v1(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2517,7 +2517,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &self.chain.data_availability_checker,
+                &self.chain.data_availability_checker.v1(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2548,14 +2548,14 @@ where
                     RpcBlock::new(
                         block,
                         Some(block_data),
-                        &self.chain.data_availability_checker,
+                        &self.chain.data_availability_checker.v1(),
                         self.chain.spec.clone(),
                     )?
                 } else {
                     RpcBlock::new(
                         block,
                         None,
-                        &self.chain.data_availability_checker,
+                        &self.chain.data_availability_checker.v1(),
                         self.chain.spec.clone(),
                     )?
                 }
@@ -2563,14 +2563,14 @@ where
                 RpcBlock::new(
                     block,
                     Some(AvailableBlockData::NoData),
-                    &self.chain.data_availability_checker,
+                    &self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             } else {
                 RpcBlock::new(
                     block,
                     None,
-                    &self.chain.data_availability_checker,
+                    &self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             }
@@ -2591,14 +2591,14 @@ where
                 RpcBlock::new(
                     block,
                     Some(block_data),
-                    &self.chain.data_availability_checker,
+                    &self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             } else {
                 RpcBlock::new(
                     block,
                     None,
-                    &self.chain.data_availability_checker,
+                    &self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             }
@@ -2690,20 +2690,23 @@ where
         self.chain.slot_clock.set_slot(slot.into());
     }
 
+    // TODO(gloas) this is a stub implementation for now
+    // we need payload processing functionality for this function
+    // to work
     pub async fn add_payload_envelope_at_slot(
         &self,
         slot: Slot,
-        state: BeaconState<E>,
+        _state: BeaconState<E>,
     ) -> Result<
         (
             SignedBeaconBlockHash,
-            SignedExecutionPayloaContentsTuple<E>,
+            SignedPayloadEnvelopeContentsTuple<E>,
             BeaconState<E>,
         ),
         BlockError,
     > {
         self.set_current_slot(slot);
-        let (block_contents, new_state) = self.make_block(state, slot).await;
+        todo!()
     }
 
     pub async fn add_block_at_slot(
@@ -3437,16 +3440,15 @@ pub fn generate_rand_payloads_and_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
-) -> (SignedExecutionPayloadEnvelope<E>, Vec<DataColumnSidecar<E>>) {
+    spec: &ChainSpec,
+) -> (SignedExecutionPayloadEnvelope<E>, DataColumnSidecarList<E>) {
     let mut payload = SignedExecutionPayloadEnvelope::random_for_test(rng);
 
-    let mut data_column_sidecars = vec![];
+    let _bundle = add_blob_transactions_gloas!(payload.message, num_blobs, rng, fork_name);
 
-    let bundle = add_blob_transactions_gloas!(payload.message, num_blobs, rng, fork_name);
+    let data_columns = generate_data_column_sidecars_from_payload(&payload, spec);
 
-    let data_columns = generate_data_column_sidecars_from_block(&block, spec);
-
-    todo!()
+    (payload, data_columns)
 }
 
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
@@ -3604,18 +3606,18 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     }
 }
 
-/// Generate data column sidecars from pre-computed cells and proofs for gloas paylaods.
+/// Generate data column sidecars from pre-computed cells and proofs for gloas payloads.
 pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
     payload: &SignedExecutionPayloadEnvelope<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    let kzg_commitments = payload.message.blob_kzg_commitments;
+    let kzg_commitments = payload.message.blob_kzg_commitments.clone();
     if kzg_commitments.is_empty() {
         return vec![];
     }
 
     // load the precomputed column sidecar to avoid computing them for every block in the tests.
-    let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
+    let template_data_columns = RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
         E::number_of_columns(),
     )
@@ -3624,7 +3626,7 @@ pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
     let (cells, proofs) = template_data_columns
         .into_iter()
         .map(|sidecar| {
-            let DataColumnSidecar {
+            let DataColumnSidecarGloas {
                 column, kzg_proofs, ..
             } = sidecar;
             // There's only one cell per column for a single blob
@@ -3639,7 +3641,14 @@ pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
     let blob_cells_and_proofs_vec =
         vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
 
-    build_data_column_sidecars(kzg_commitments.clone(), blob_cells_and_proofs_vec, spec).unwrap()
+    build_data_column_sidecars_gloas(
+        kzg_commitments,
+        payload.message.beacon_block_root,
+        payload.message.slot,
+        blob_cells_and_proofs_vec,
+        spec,
+    )
+    .unwrap()
 }
 
 pub fn generate_data_column_indices_rand_order<E: EthSpec>() -> Vec<CustodyIndex> {

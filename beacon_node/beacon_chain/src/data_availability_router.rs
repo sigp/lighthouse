@@ -374,15 +374,15 @@ where
     ///
     /// Use this for operations that are specific to the legacy block-based DA checker,
     /// such as `put_executed_block`, `get_cached_block`, blob operations, etc.
-    pub fn v1(&self) -> &V1 {
-        &self.v1
+    pub fn v1(&self) -> Arc<V1> {
+        self.v1.clone()
     }
 
     /// Direct access to v2 checker (for payload-specific operations).
     ///
     /// Use this for operations that are specific to the Gloas payload-based DA checker,
     /// such as `put_executed_payload`, `get_cached_payload`, etc.
-    pub fn v2(&self) -> &V2 {
-        &self.v2
+    pub fn v2(&self) -> Arc<V2> {
+        self.v2.clone()
     }
 }
