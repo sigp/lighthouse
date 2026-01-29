@@ -1295,7 +1295,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_blinded_block(block_root)?)
     }
 
-    pub fn get_payload(
+    pub fn get_payload_envelope(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {

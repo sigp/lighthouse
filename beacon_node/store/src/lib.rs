@@ -309,11 +309,9 @@ pub enum DBColumn {
     /// non-temporary by the deletion of their state root from this column.
     #[strum(serialize = "bst")]
     BeaconStateTemporary,
-    /// Pre-gloas execution payloads for blocks more recent than the finalized checkpoint.
+    /// Execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
-    // TODO(gloas) once finalized envelope pruning is implemented this comment should be updated
-    // "Post-gloas execution payload envlopes for payloads more recent than the finalized checkpoint"
     /// Post-gloas execution payload envelopes.
     #[strum(serialize = "pay")]
     PayloadEnvelope,
