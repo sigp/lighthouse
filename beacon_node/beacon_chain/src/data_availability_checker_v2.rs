@@ -3,7 +3,7 @@ use crate::data_availability_checker_v2::overflow_lru_cache::{
 };
 
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::data_column_availability_cache::DataColumnCache;
+use crate::data_availability_router::DataColumnCache;
 use crate::payload_verification_types::{
     AvailabilityPendingExecutedPayload, AvailableExecutedPayload, PayloadProcessStatus,
 };

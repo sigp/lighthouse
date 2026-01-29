@@ -7,7 +7,7 @@ use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_availability_checker_v2::DataAvailabilityChecker as DataAvailabilityCheckerV2;
-use crate::data_column_availability_cache::DataAvailabilityRouter;
+use crate::data_availability_router::DataAvailabilityRouter;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};

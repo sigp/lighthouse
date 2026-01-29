@@ -26,7 +26,7 @@ use crate::data_availability_checker::{
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
 use crate::data_availability_checker_v2::DataAvailabilityChecker as DataAvailabilityCheckerV2;
-use crate::data_column_availability_cache::{
+use crate::data_availability_router::{
     AvailabilityOutcome, DataAvailabilityRouter, ReconstructionOutcome,
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};

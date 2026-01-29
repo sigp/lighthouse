@@ -5,7 +5,7 @@ use crate::block_verification_types::{AvailabilityPendingExecutedBlock, Availabl
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::data_column_availability_cache::DataColumnCache;
+use crate::data_availability_router::DataColumnCache;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus, CustodyContext, metrics,
 };

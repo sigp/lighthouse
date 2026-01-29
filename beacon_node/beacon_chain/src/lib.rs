@@ -19,7 +19,7 @@ pub mod chain_config;
 pub mod custody_context;
 pub mod data_availability_checker;
 pub mod data_availability_checker_v2;
-pub mod data_column_availability_cache;
+pub mod data_availability_router;
 pub mod data_column_verification;
 mod early_attester_cache;
 mod errors;
