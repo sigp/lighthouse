@@ -3828,6 +3828,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
+        // Read the cached head prior to taking the fork choice lock to avoid potential deadlocks.
+        let old_head_slot = self.canonical_head.cached_head().head_slot();
+
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -3914,7 +3917,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         {
                             let head_slot = state.slot();
                             let state_root = block.state_root();
-                            let old_head_slot = self.canonical_head.cached_head().head_slot();
                             let is_epoch_transition = state.current_epoch()
                                 > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
 
