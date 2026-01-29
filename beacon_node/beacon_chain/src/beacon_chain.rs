@@ -3862,6 +3862,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self.spec,
                 )
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+
+            // Register a server-sent-event for a new block.
+            if let Some(event_handler) = self
+                .event_handler
+                .as_ref()
+                .filter(|handler| handler.has_block_subscribers())
+            {
+                event_handler.register(EventKind::Block(SseBlock {
+                    slot: block.slot(),
+                    block: block_root,
+                    execution_optimistic: payload_verification_status.is_optimistic(),
+                }));
+            }
         }
 
         // If the block is recent enough and it was not optimistically imported, check to see if it
@@ -4071,7 +4084,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block,
             block_root,
             block_time_imported,
-            payload_verification_status,
             current_slot,
         );
 
@@ -4359,7 +4371,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<T::EthSpec>,
         block_root: Hash256,
         block_time_imported: Duration,
-        payload_verification_status: PayloadVerificationStatus,
         current_slot: Slot,
     ) {
         // Only present some metrics for blocks from the previous epoch or later.
@@ -4391,16 +4402,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 current_slot,
                 block_time_imported,
             );
-        }
-
-        if let Some(event_handler) = self.event_handler.as_ref()
-            && event_handler.has_block_subscribers()
-        {
-            event_handler.register(EventKind::Block(SseBlock {
-                slot: block.slot(),
-                block: block_root,
-                execution_optimistic: payload_verification_status.is_optimistic(),
-            }));
         }
 
         // Do not trigger light_client server update producer for old blocks, to extra work
