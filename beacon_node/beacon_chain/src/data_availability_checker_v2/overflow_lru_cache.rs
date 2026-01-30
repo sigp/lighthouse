@@ -1,7 +1,5 @@
-use super::state_lru_cache::{DietAvailabilityPendingExecutedPayload, StateLRUCache};
 use crate::BeaconChainTypes;
 use crate::CustodyContext;
-use crate::beacon_chain::BeaconStore;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::data_availability_checker_v2::{Availability, AvailablePayload, AvailablePayloadData};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
@@ -24,7 +22,7 @@ use types::{
 #[derive(Clone)]
 pub enum CachedPayload<E: EthSpec> {
     PreExecution(Arc<SignedExecutionPayloadEnvelope<E>>, BlockImportSource),
-    Executed(Box<DietAvailabilityPendingExecutedPayload<E>>),
+    Executed(Box<AvailabilityPendingExecutedPayload<E>>),
 }
 
 #[allow(dead_code)]
@@ -37,12 +35,19 @@ impl<E: EthSpec> CachedPayload<E> {
     fn as_payload(&self) -> &SignedExecutionPayloadEnvelope<E> {
         match self {
             CachedPayload::PreExecution(p, _) => p,
-            CachedPayload::Executed(p) => p.as_payload(),
+            CachedPayload::Executed(p) => &p.payload,
         }
     }
 
     pub fn num_blobs_expected(&self) -> usize {
         self.as_payload().message.blob_kzg_commitments.len()
+    }
+
+    pub fn payload_cloned(&self) -> Arc<SignedExecutionPayloadEnvelope<E>> {
+        match self {
+            CachedPayload::PreExecution(p, _) => p.clone(),
+            CachedPayload::Executed(p) => p.payload.clone(),
+        }
     }
 }
 
@@ -61,14 +66,6 @@ pub struct PendingComponents<E: EthSpec> {
 }
 
 impl<E: EthSpec> PendingComponents<E> {
-    #[cfg(test)]
-    fn get_diet_payload(&self) -> Option<&DietAvailabilityPendingExecutedPayload<E>> {
-        self.payload.as_ref().and_then(|payload| match payload {
-            CachedPayload::Executed(payload) => Some(payload.as_ref()),
-            _ => None,
-        })
-    }
-
     /// Returns an immutable reference to the cached data column.
     pub fn get_cached_data_column(
         &self,
@@ -89,7 +86,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Inserts an executed payload into the cache.
-    pub fn insert_executed_payload(&mut self, payload: DietAvailabilityPendingExecutedPayload<E>) {
+    pub fn insert_executed_payload(&mut self, payload: AvailabilityPendingExecutedPayload<E>) {
         self.payload = Some(CachedPayload::Executed(Box::new(payload)))
     }
 
@@ -120,33 +117,23 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Inserts a new payload.
-    pub fn merge_payload(&mut self, payload: DietAvailabilityPendingExecutedPayload<E>) {
+    pub fn merge_payload(&mut self, payload: AvailabilityPendingExecutedPayload<E>) {
         self.insert_executed_payload(payload);
     }
 
     /// Returns Some if the payload has received all its required data for import. The return value
     /// must be persisted in the DB along with the payload.
-    ///
-    /// WARNING: This function can potentially take a lot of time if the state needs to be
-    /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(
+    pub fn make_available(
         &self,
         spec: &Arc<ChainSpec>,
         num_expected_columns: usize,
-        recover: R,
-    ) -> Result<Option<AvailableExecutedPayload<E>>, AvailabilityCheckError>
-    where
-        R: FnOnce(
-            DietAvailabilityPendingExecutedPayload<E>,
-            &Span,
-        ) -> Result<AvailabilityPendingExecutedPayload<E>, AvailabilityCheckError>,
-    {
-        let Some(CachedPayload::Executed(payload)) = &self.payload else {
+    ) -> Result<Option<AvailableExecutedPayload<E>>, AvailabilityCheckError> {
+        let Some(CachedPayload::Executed(executed_payload)) = &self.payload else {
             // Payload not available yet
             return Ok(None);
         };
 
-        let num_expected_blobs = payload.num_blobs_expected();
+        let num_expected_blobs = executed_payload.num_blobs_expected();
         let column_data = if num_expected_blobs == 0 {
             Some(AvailablePayloadData::NoData)
         } else {
@@ -198,7 +185,7 @@ impl<E: EthSpec> PendingComponents<E> {
             payload,
             import_data,
             payload_verification_outcome,
-        } = recover(*payload.clone(), &self.span)?;
+        } = executed_payload.as_ref().clone();
 
         let available_payload = AvailablePayload {
             block_root: payload.message.beacon_block_root,
@@ -272,9 +259,6 @@ impl<E: EthSpec> PendingComponents<E> {
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     critical: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
-    /// This cache holds a limited number of states in memory and reconstructs them
-    /// from disk when necessary. This is necessary until we merge tree-states
-    state_cache: StateLRUCache<T>,
     custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
 }
@@ -291,13 +275,11 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
-        beacon_store: BeaconStore<T>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
-            state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             custody_context,
             spec,
         })
@@ -320,7 +302,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                             PayloadProcessStatus::NotValidated(p.clone(), *source)
                         }
                         CachedPayload::Executed(p) => {
-                            PayloadProcessStatus::ExecutionValidated(p.payload_cloned())
+                            PayloadProcessStatus::ExecutionValidated(p.payload.clone())
                         }
                     })
             })
@@ -399,14 +381,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
         num_expected_columns: usize,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        if let Some(available_payload) = pending_components.make_available(
-            &self.spec,
-            num_expected_columns,
-            |payload, span| {
-                self.state_cache
-                    .recover_pending_executed_payload(payload, span)
-            },
-        )? {
+        if let Some(available_payload) =
+            pending_components.make_available(&self.spec, num_expected_columns)?
+        {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
             if let Some(components) = self.critical.write().get_mut(&block_root) {
@@ -564,14 +541,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .epoch(T::EthSpec::slots_per_epoch());
         let block_root = executed_payload.payload.message.beacon_block_root;
 
-        // register the payload to get the diet payload
-        let diet_executed_payload = self
-            .state_cache
-            .register_pending_executed_payload(executed_payload);
-
         let pending_components =
             self.update_or_insert_pending_components(block_root, |pending_components| {
-                pending_components.merge_payload(diet_executed_payload);
+                pending_components.merge_payload(executed_payload);
                 Ok(())
             })?;
 
@@ -599,9 +571,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     /// maintain the cache
     pub fn do_maintenance(&self, cutoff_epoch: Epoch) -> Result<(), AvailabilityCheckError> {
-        // clean up any lingering states in the state cache
-        self.state_cache.do_maintenance(cutoff_epoch);
-
         // Collect keys of pending payloads from a previous epoch to cutoff
         let mut write_lock = self.critical.write();
         let mut keys_to_remove = vec![];
@@ -620,17 +589,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         Ok(())
     }
 
-    #[cfg(test)]
-    /// get the state cache for inspection (used only for tests)
-    pub fn state_lru_cache(&self) -> &StateLRUCache<T> {
-        &self.state_cache
-    }
-
-    /// Number of states stored in memory in the cache.
-    pub fn state_cache_size(&self) -> usize {
-        self.state_cache.lru_cache().read().len()
-    }
-
     /// Number of pending component entries in memory in the cache.
     pub fn payload_cache_size(&self) -> usize {
         self.critical.read().len()
@@ -646,19 +604,16 @@ mod test {
     use crate::{
         block_verification_types::AsBlock,
         custody_context::NodeCustodyType,
-        data_availability_checker_v2::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use logging::create_test_tracing_subscriber;
-    use std::collections::{HashSet, VecDeque};
+    use std::collections::HashSet;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
-    use tracing::debug_span;
     use types::MinimalEthSpec;
     use types::new_non_zero_usize;
 
     const LOW_VALIDATOR_COUNT: usize = 32;
-    const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
@@ -756,7 +711,7 @@ mod test {
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_gloas_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
-        let test_store = harness.chain.store.clone();
+        let _test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
@@ -764,13 +719,8 @@ mod test {
             &spec,
         ));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(
-                capacity_non_zero,
-                test_store,
-                custody_context,
-                spec.clone(),
-            )
-            .expect("should create cache"),
+            DataAvailabilityCheckerInner::<T>::new(capacity_non_zero, custody_context, spec.clone())
+                .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }
@@ -898,127 +848,6 @@ mod test {
             "cache should still have available payload"
         );
     }
-
-    #[tokio::test]
-    #[ignore] // TODO(gloas): Implement availability_pending_payload
-    // ensure the state cache keeps memory usage low and that it can properly recover states
-    // THIS TEST CAN BE DELETED ONCE TREE STATES IS MERGED AND WE RIP OUT THE STATE CACHE
-    async fn overflow_cache_test_state_cache() {
-        type E = MinimalEthSpec;
-        type T = DiskHarnessType<E>;
-        let capacity = STATE_LRU_CAPACITY * 2;
-        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
-
-        let mut pending_payloads = VecDeque::new();
-        let mut states = Vec::new();
-        let mut state_roots = Vec::new();
-        // Get enough payload to fill the cache to capacity, ensuring all payloads have blobs
-        while pending_payloads.len() < capacity {
-            let (mut pending_payload, _) = availability_pending_payload(&harness).await;
-            if pending_payload.num_blobs_expected() == 0 {
-                // we need payloads with blobs
-                continue;
-            }
-            let state_root = pending_payload.import_data.state.canonical_root().unwrap();
-            states.push(pending_payload.import_data.state.clone());
-            pending_payloads.push_back(pending_payload);
-            state_roots.push(state_root);
-        }
-
-        let state_cache = cache.state_lru_cache().lru_cache();
-        let mut pushed_diet_payloads = VecDeque::new();
-
-        for i in 0..capacity {
-            let pending_payload = pending_payloads.pop_front().expect("should have payload");
-            let block_root = pending_payload.as_payload().beacon_block_root();
-
-            assert_eq!(
-                state_cache.read().len(),
-                std::cmp::min(i, STATE_LRU_CAPACITY),
-                "state cache should be empty at start"
-            );
-
-            if i >= STATE_LRU_CAPACITY {
-                let lru_root = state_roots[i - STATE_LRU_CAPACITY];
-                assert_eq!(
-                    state_cache.read().peek_lru().map(|(root, _)| root),
-                    Some(&lru_root),
-                    "lru payload should be in cache"
-                );
-            }
-
-            // put the payload in the cache
-            let availability = cache
-                .put_executed_payload(pending_payload)
-                .expect("should put payload");
-
-            // grab the diet payload from the cache for later testing
-            let diet_payload = cache
-                .critical
-                .read()
-                .peek(&block_root)
-                .and_then(|pending_components| pending_components.get_diet_payload().cloned())
-                .expect("should exist");
-            pushed_diet_payloads.push_back(diet_payload);
-
-            // should be unavailable since we made sure all payloads had blobs
-            assert!(
-                matches!(availability, Availability::MissingComponents(_)),
-                "should be pending blobs"
-            );
-
-            if i >= STATE_LRU_CAPACITY {
-                let evicted_index = i - STATE_LRU_CAPACITY;
-                let evicted_root = state_roots[evicted_index];
-                assert!(
-                    state_cache.read().peek(&evicted_root).is_none(),
-                    "lru root should be evicted"
-                );
-                // get the diet payload via direct conversion (testing only)
-                let diet_payload = pushed_diet_payloads
-                    .pop_front()
-                    .expect("should have payload");
-                // reconstruct the pending payload by replaying the payload on the parent state
-                let recovered_pending_payload = cache
-                    .state_lru_cache()
-                    .recover_pending_executed_payload(diet_payload, &debug_span!("test"))
-                    .expect("should reconstruct pending payload");
-
-                // assert the recovered state is the same as the original
-                assert_eq!(
-                    recovered_pending_payload.import_data.state, states[evicted_index],
-                    "recovered state should be the same as the original"
-                );
-            }
-        }
-
-        // now check the last payload
-        let last_payload = pushed_diet_payloads
-            .pop_back()
-            .expect("should exist")
-            .clone();
-        // the state should still be in the cache
-        assert!(
-            state_cache
-                .read()
-                .peek(&last_payload.as_payload().message.state_root)
-                .is_some(),
-            "last payload state should still be in cache"
-        );
-        // get the diet payload via direct conversion (testing only)
-        let diet_payload = last_payload.clone();
-        // recover the pending payload from the cache
-        let recovered_pending_payload = cache
-            .state_lru_cache()
-            .recover_pending_executed_payload(diet_payload, &debug_span!("test"))
-            .expect("should reconstruct pending payload");
-        // assert the recovered state is the same as the original
-        assert_eq!(
-            Some(&recovered_pending_payload.import_data.state),
-            states.last(),
-            "recovered state should be the same as the original"
-        );
-    }
 }
 
 #[cfg(test)]
@@ -1026,14 +855,16 @@ mod pending_components_tests {
     use super::*;
     use crate::PayloadVerificationOutcome;
     use crate::data_column_verification::KzgVerifiedDataColumn;
+    use crate::payload_verification_types::PayloadImportData;
     use crate::test_utils::{NumBlobs, generate_rand_payload_and_columns, test_spec};
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use ssz_types::VariableList;
+    use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{ForkName, MainnetEthSpec, SignedExecutionPayloadEnvelope, Slot};
+    use types::{BeaconState, ForkName, MainnetEthSpec, SignedExecutionPayloadEnvelope, Slot};
 
     type E = MainnetEthSpec;
 
@@ -1093,7 +924,7 @@ mod pending_components_tests {
     }
 
     type PendingComponentsSetup = (
-        DietAvailabilityPendingExecutedPayload<E>,
+        AvailabilityPendingExecutedPayload<E>,
         Vec<KzgVerifiedCustodyDataColumn<E>>,
         Vec<KzgVerifiedCustodyDataColumn<E>>,
     );
@@ -1121,15 +952,19 @@ mod pending_components_tests {
             })
             .collect();
 
-        let diet_payload = DietAvailabilityPendingExecutedPayload::new_for_testing(
-            Arc::new(payload),
+        let executed_payload = AvailabilityPendingExecutedPayload::new(
+            Arc::new(payload.clone()),
+            PayloadImportData {
+                state: BeaconState::new(0, Default::default(), &test_spec::<E>()),
+                consensus_context: ConsensusContext::new(payload.message.slot),
+            },
             PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
                 is_valid_merge_transition_block: false,
             },
         );
 
-        (diet_payload, columns, invalid_columns)
+        (executed_payload, columns, invalid_columns)
     }
 
     fn assert_cache_consistent(cache: &PendingComponents<E>) {
@@ -1168,11 +1003,11 @@ mod pending_components_tests {
             return;
         }
         let (payload, columns, invalid_columns) = pre_setup();
-        let (diet_payload, columns, invalid_columns) =
+        let (executed_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
         let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
-        cache.merge_payload(diet_payload);
+        cache.merge_payload(executed_payload);
         cache
             .merge_data_columns(invalid_columns)
             .expect("merge should succeed");
@@ -1191,14 +1026,14 @@ mod pending_components_tests {
             return;
         }
         let (payload, columns, invalid_columns) = pre_setup();
-        let (diet_payload, columns, invalid_columns) =
+        let (executed_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
         let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache
             .merge_data_columns(invalid_columns)
             .expect("merge should succeed");
-        cache.merge_payload(diet_payload);
+        cache.merge_payload(executed_payload);
         cache
             .merge_data_columns(columns)
             .expect("merge should succeed");
@@ -1213,7 +1048,7 @@ mod pending_components_tests {
             return;
         }
         let (payload, columns, invalid_columns) = pre_setup();
-        let (diet_payload, columns, invalid_columns) =
+        let (executed_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
 
         let block_root = Hash256::ZERO;
@@ -1224,7 +1059,7 @@ mod pending_components_tests {
         cache
             .merge_data_columns(columns)
             .expect("merge should succeed");
-        cache.merge_payload(diet_payload);
+        cache.merge_payload(executed_payload);
 
         // Invalid columns were first, valid ones deduplicated away.
         assert!(!cache.verified_data_columns.is_empty());
@@ -1236,12 +1071,12 @@ mod pending_components_tests {
             return;
         }
         let (payload, columns, invalid_columns) = pre_setup();
-        let (diet_payload, columns, invalid_columns) =
+        let (executed_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
 
         let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
-        cache.merge_payload(diet_payload);
+        cache.merge_payload(executed_payload);
         cache
             .merge_data_columns(columns)
             .expect("merge should succeed");
@@ -1259,7 +1094,7 @@ mod pending_components_tests {
             return;
         }
         let (payload, columns, invalid_columns) = pre_setup();
-        let (diet_payload, columns, invalid_columns) =
+        let (executed_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
 
         let block_root = Hash256::ZERO;
@@ -1267,7 +1102,7 @@ mod pending_components_tests {
         cache
             .merge_data_columns(columns)
             .expect("merge should succeed");
-        cache.merge_payload(diet_payload);
+        cache.merge_payload(executed_payload);
         cache
             .merge_data_columns(invalid_columns)
             .expect("merge should succeed");
@@ -1282,7 +1117,7 @@ mod pending_components_tests {
             return;
         }
         let (payload, columns, invalid_columns) = pre_setup();
-        let (diet_payload, columns, invalid_columns) =
+        let (executed_payload, columns, invalid_columns) =
             setup_pending_components(payload, columns, invalid_columns);
 
         let block_root = Hash256::ZERO;
@@ -1293,7 +1128,7 @@ mod pending_components_tests {
         cache
             .merge_data_columns(invalid_columns)
             .expect("merge should succeed");
-        cache.merge_payload(diet_payload);
+        cache.merge_payload(executed_payload);
 
         // Valid columns were inserted first, so they persist. Cache should be consistent.
         assert_cache_consistent(&cache);
@@ -1305,7 +1140,7 @@ mod pending_components_tests {
             return;
         }
         let (payload, _columns, _invalid_columns) = pre_setup();
-        let (diet_payload, _columns, _invalid_columns) =
+        let (executed_payload, _columns, _invalid_columns) =
             setup_pending_components(payload.clone(), _columns, _invalid_columns);
 
         let block_root = Hash256::ZERO;
@@ -1322,7 +1157,7 @@ mod pending_components_tests {
             "pre execution payload inserted"
         );
 
-        pending_component.insert_executed_payload(diet_payload);
+        pending_component.insert_executed_payload(executed_payload);
         assert!(
             matches!(pending_component.payload, Some(CachedPayload::Executed(_))),
             "executed payload inserted"

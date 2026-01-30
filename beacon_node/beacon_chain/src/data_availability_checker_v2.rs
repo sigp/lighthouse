@@ -7,7 +7,7 @@ use crate::data_availability_router::DataColumnCache;
 use crate::payload_verification_types::{
     AvailabilityPendingExecutedPayload, AvailableExecutedPayload, PayloadProcessStatus,
 };
-use crate::{BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext, metrics};
+use crate::{BeaconChain, BeaconChainTypes, CustodyContext, metrics};
 use educe::Educe;
 use kzg::Kzg;
 use slot_clock::SlotClock;
@@ -25,7 +25,6 @@ use types::{
 };
 
 mod overflow_lru_cache;
-mod state_lru_cache;
 
 use crate::data_column_verification::{
     GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
@@ -46,7 +45,6 @@ use types::new_non_zero_usize;
 /// `PendingComponents` are now never removed from the cache manually are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
 const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
-const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After the Gloas hard-fork
 /// beacon blocks can be immediately imported into fork choice. The execution payload is now separated out from
@@ -314,13 +312,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
-        store: BeaconStore<T>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY_NON_ZERO,
-            store,
             custody_context.clone(),
             spec.clone(),
         )?;
@@ -449,7 +445,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Collects metrics from the data availability checker.
     pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
         DataAvailabilityCheckerMetrics {
-            state_cache_size: self.availability_cache.state_cache_size(),
             payload_cache_size: self.availability_cache.payload_cache_size(),
         }
     }
@@ -457,7 +452,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Helper struct to group data availability checker metrics.
 pub struct DataAvailabilityCheckerMetrics {
-    pub state_cache_size: usize,
     pub payload_cache_size: usize,
 }
 

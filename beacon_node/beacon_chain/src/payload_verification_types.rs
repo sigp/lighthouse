@@ -5,7 +5,7 @@ use types::{BeaconState, BlockImportSource, EthSpec, SignedExecutionPayloadEnvel
 
 use crate::{PayloadVerificationOutcome, data_availability_checker_v2::AvailablePayload};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PayloadImportData<E: EthSpec> {
     pub state: BeaconState<E>,
     pub consensus_context: ConsensusContext<E>,
@@ -13,6 +13,7 @@ pub struct PayloadImportData<E: EthSpec> {
 
 /// A payload that has completed payload verification by an EL client but does not
 /// have all requisite column data to get imported into fork choice.
+#[derive(Clone)]
 pub struct AvailabilityPendingExecutedPayload<E: EthSpec> {
     pub payload: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub import_data: PayloadImportData<E>,

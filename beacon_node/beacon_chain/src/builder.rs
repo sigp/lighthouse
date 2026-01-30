@@ -996,7 +996,6 @@ where
                 complete_blob_backfill,
                 slot_clock.clone(),
                 self.kzg.clone(),
-                store.clone(),
                 custody_context.clone(),
                 self.spec.clone(),
             )
