@@ -1,7 +1,6 @@
+use crate::execution::{ExecutionPayloadGloas, ExecutionRequests};
 use crate::test_utils::TestRandom;
-use crate::{
-    EthSpec, ExecutionPayloadGloas, ExecutionRequests, ForkName, Hash256, SignedRoot, Slot,
-};
+use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
