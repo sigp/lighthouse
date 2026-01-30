@@ -763,12 +763,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         Ok(())
     }
 
-    /// Number of states stored in memory in the cache.
-    /// With tree-states merged, this always returns 0 as we no longer cache states.
-    pub fn state_cache_size(&self) -> usize {
-        0
-    }
-
     /// Number of pending component entries in memory in the cache.
     pub fn block_cache_size(&self) -> usize {
         self.critical.read().len()

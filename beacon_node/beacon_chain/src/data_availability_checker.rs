@@ -463,7 +463,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Collects metrics from the data availability checker.
     pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
         DataAvailabilityCheckerMetrics {
-            state_cache_size: self.availability_cache.state_cache_size(),
             block_cache_size: self.availability_cache.block_cache_size(),
         }
     }
@@ -559,7 +558,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Helper struct to group data availability checker metrics.
 pub struct DataAvailabilityCheckerMetrics {
-    pub state_cache_size: usize,
     pub block_cache_size: usize,
 }
 
