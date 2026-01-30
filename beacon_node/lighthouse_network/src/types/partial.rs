@@ -7,8 +7,8 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::debug;
-use types::data::partial_data_column_sidecar::{CellBitmap, PartialDataColumn};
-use types::partial_data_column_sidecar::PartialDataColumnSidecar;
+use types::PartialDataColumnSidecar;
+use types::{CellBitmap, PartialDataColumn};
 use types::{EthSpec, Hash256};
 
 pub type HeaderSentSet = Arc<Mutex<HashSet<PeerId>>>;

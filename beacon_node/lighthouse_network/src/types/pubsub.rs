@@ -6,13 +6,13 @@ use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use types::data::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnSidecar};
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PartialDataColumnSidecar, ProposerSlashing, SignedAggregateAndProof,
+    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
     SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, SubnetId,
@@ -393,8 +393,9 @@ impl<E: EthSpec> PubsubMessage<E> {
         }
     }
 
-    /// Encodes a `PubsubMessage`.
-    pub fn encode(&self) -> Vec<u8> {
+    /// Encodes a `PubsubMessage` based on the topic encodings. The first known encoding is used. If
+    /// no encoding is known, and error is returned.
+    pub fn encode(&self, _encoding: GossipEncoding) -> Vec<u8> {
         // Currently do not employ encoding strategies based on the topic. All messages are ssz
         // encoded.
         // Also note, that the compression is handled by the `SnappyTransform` struct. Gossipsub will compress the

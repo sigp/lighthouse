@@ -38,10 +38,9 @@ use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
-use types::data::partial_data_column_sidecar::PartialDataColumn;
 use types::{
-    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    ValidatorSubscription,
+    EthSpec, ForkContext, PartialDataColumn, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, ValidatorSubscription,
 };
 
 mod tests;

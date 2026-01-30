@@ -24,8 +24,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
-use types::data::partial_data_column_sidecar::PartialDataColumn;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
+use types::{
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
+};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {

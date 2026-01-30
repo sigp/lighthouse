@@ -28,7 +28,6 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
-use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -795,8 +794,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                     EngineGetBlobsOutput::CustodyColumns(columns) => {
-                        // Gradually publish full columns
-                        self_cloned.publish_data_columns_gradually(columns, block_root);
+                        self_cloned.publish_data_columns_gradually(
+                            columns.into_iter().map(|c| c.clone_arc()).collect(),
+                            block_root,
+                        );
                     }
                 };
             }
@@ -858,7 +859,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .get_partials(&block_root)
         {
             debug!(block = %block_root, "Publishing all partials after getBlobs");
-            self.send_network_message(NetworkMessage::PublishPartial { columns })
+            self.send_network_message(NetworkMessage::PublishPartial {
+                columns: columns
+                    .into_iter()
+                    .map(|partial| partial.into_inner())
+                    .collect(),
+            });
         }
     }
 

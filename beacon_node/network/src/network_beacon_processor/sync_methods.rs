@@ -26,9 +26,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::data::FixedBlobSidecarList;
+use types::data::{FixedBlobSidecarList, PartialDataColumnHeader};
 use types::kzg_ext::format_kzg_commitments;
-use types::partial_data_column_sidecar::PartialDataColumnHeader;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -216,21 +215,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {
-                if self
-                    .beacon_processor_send
-                    .try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::BlockPending { block_root }),
-                    })
-                    .is_err()
-                {
-                    error!(
-                        source = "rpc",
-                        ?block_root,
-                        "Failed to inform block pending"
-                    )
-                };
-
                 // Block is valid, we can now attempt fetching blobs from EL using version hashes
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.

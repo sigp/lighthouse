@@ -27,7 +27,8 @@ use crate::data_availability_checker::{
 };
 use crate::data_column_verification::{
     GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedPartialDataColumnHeader,
-    KzgVerifiedPartialDataColumn, validate_partial_data_column_sidecar_for_gossip,
+    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -59,6 +60,7 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
+use crate::partial_data_column_assembler::PartialMergeResult;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
@@ -136,7 +138,6 @@ use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace
 use tree_hash::TreeHash;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
-use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -339,7 +340,6 @@ struct PartialBeaconBlock<E: EthSpec> {
 pub enum BlockProcessStatus<E: EthSpec> {
     /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
     Unknown,
-    /// Only the header
     /// Block is currently processing but not yet validated.
     NotValidated(Arc<SignedBeaconBlock<E>>, BlockImportSource),
     /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
@@ -543,6 +543,9 @@ impl FinalizationAndCanonicity {
         self.slot_is_finalized && self.canonical
     }
 }
+
+type ProcessedPartialColumnStatus<E> =
+    Option<(AvailabilityProcessingStatus, PartialMergeResult<E>)>;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if a block is finalized.
@@ -2204,7 +2207,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         data_column_header: PartialDataColumnHeader<T::EthSpec>,
     ) -> Result<GossipVerifiedPartialDataColumnHeader<T::EthSpec>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        let _timer = metrics::start_timer(
+            &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES,
+        );
         if let Some(cached_header) = self
             .data_availability_checker
             .partial_assembler()
@@ -2222,7 +2227,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         GossipVerifiedPartialDataColumnHeader::new(block_root, data_column_header, self).inspect(
             |_| {
-                metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
+                metrics::inc_counter(
+                    &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_SUCCESSES,
+                );
             },
         )
     }
@@ -3127,17 +3134,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_partial_data_column(
         self: &Arc<Self>,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-    ) -> Result<crate::partial_data_column_assembler::PartialMergeResult<T::EthSpec>, BlockError>
-    {
+        slot: Slot,
+    ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
         let block_root = verified_partial.block_root();
-        let slot = verified_partial.slot();
-        let partial = verified_partial.to_data_column();
+        let partial = verified_partial.as_data_column();
         let index_str = partial.index.to_string();
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
             &[index_str.as_str()],
             partial.sidecar.column.len() as u64,
         );
+
+        // Check if we have custody of this column
+        let sampling_columns = self
+            .data_availability_checker
+            .custody_context()
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+        let verified_partial = if sampling_columns.contains(&partial.index) {
+            KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
+        } else {
+            return Ok(None);
+        };
 
         // If this block has already been imported to forkchoice it must have been available
         if self
@@ -3152,7 +3169,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let merge_result = self
             .data_availability_checker
             .partial_assembler()
-            .merge_partials(block_root, vec![partial], false)
+            .merge_partials(block_root, vec![verified_partial], false)
             .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
 
         metrics::inc_counter_vec_by(
@@ -3161,30 +3178,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             merge_result.added_cells as u64,
         );
 
-        // If we completed a column, process it through the DA checker
-        if !merge_result.full_columns.is_empty() {
-            metrics::inc_counter_vec_by(
-                &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
-                &[index_str.as_str()],
-                merge_result.full_columns.len() as u64,
-            );
+        metrics::inc_counter_vec_by(
+            &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
+            &[index_str.as_str()],
+            merge_result.full_columns.len() as u64,
+        );
 
-            let availability = self
-                .data_availability_checker
-                .put_full_data_columns(block_root, merge_result.full_columns.clone())?;
+        let availability = self
+            .data_availability_checker
+            .put_kzg_verified_custody_data_columns(block_root, merge_result.full_columns.clone())?;
 
-            // If we achieved full availability, process it
-            if let Availability::Available(available_block) = availability {
-                self.process_availability(
-                    slot,
-                    Availability::Available(available_block),
-                    || Ok(()),
-                )
-                .await?;
-            }
-        }
+        let availability = self
+            .process_availability(slot, availability, || Ok(()))
+            .await?;
 
-        Ok(merge_result)
+        Ok(Some((availability, merge_result)))
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3251,7 +3259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             EngineGetBlobsOutput::CustodyColumns(columns) => {
                 self.emit_sse_data_column_sidecar_events(
                     &block_root,
-                    columns.iter().map(|column| column.as_ref()),
+                    columns.iter().map(|column| column.as_data_column()),
                 );
             }
         }
@@ -3281,11 +3289,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    fn emit_sse_data_column_sidecar_events<'a>(
+    fn emit_sse_data_column_sidecar_events<'a, I>(
         self: &Arc<Self>,
         block_root: &Hash256,
-        data_columns_iter: impl Iterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
-    ) {
+        data_columns_iter: I,
+    ) where
+        I: Iterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
+    {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_data_column_sidecar_subscribers()
         {
@@ -3656,8 +3666,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         if let Some(slasher) = self.slasher.as_ref() {
-            for header in data_columns.iter().map(|c| c.signed_block_header()) {
-                slasher.accept_block_header(header.clone());
+            for data_colum in &data_columns {
+                slasher.accept_block_header(data_colum.signed_block_header());
             }
         }
 
@@ -3737,10 +3747,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
                 self.check_data_column_sidecar_header_signature_and_slashability(
                     block_root,
-                    data_columns.iter().map(|c| c.as_ref()),
+                    data_columns.iter().map(|c| c.as_data_column()),
                 )?;
                 self.data_availability_checker
-                    .put_full_data_columns(block_root, data_columns)?
+                    .put_kzg_verified_custody_data_columns(block_root, data_columns)?
             }
         };
 

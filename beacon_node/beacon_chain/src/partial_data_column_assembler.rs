@@ -1,3 +1,6 @@
+use crate::data_column_verification::{
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn,
+};
 use lru::LruCache;
 use parking_lot::RwLock;
 use parking_lot::lock_api::RwLockReadGuard;
@@ -5,8 +8,8 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::sync::Arc;
-use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
-use types::{ColumnIndex, DataColumnSidecar, EthSpec, Hash256};
+use types::data::{ColumnIndex, DataColumnSidecar, PartialDataColumn, PartialDataColumnHeader};
+use types::{EthSpec, Hash256};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {
@@ -19,7 +22,7 @@ struct PartialAssembly<E: EthSpec> {
     header: PartialDataColumnHeader<E>,
     has_local_blobs: bool,
     /// Map of column_index -> partial column being assembled
-    columns: HashMap<ColumnIndex, Arc<PartialDataColumn<E>>>,
+    columns: HashMap<ColumnIndex, KzgVerifiedCustodyPartialDataColumn<E>>,
 }
 
 /// Result of merging a partial column
@@ -29,9 +32,9 @@ pub struct PartialMergeResult<E: EthSpec> {
     /// Have local blobs been added yet
     pub local_blobs: bool,
     /// Merge that completed the column
-    pub full_columns: Vec<Arc<DataColumnSidecar<E>>>,
+    pub full_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     /// The updated partials for publishing
-    pub updated_partials: Vec<Arc<PartialDataColumn<E>>>,
+    pub updated_partials: Vec<KzgVerifiedCustodyPartialDataColumn<E>>,
 }
 
 impl<E: EthSpec> PartialDataColumnAssembler<E> {
@@ -72,7 +75,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn merge_partials(
         &self,
         block_root: Hash256,
-        partials: Vec<PartialDataColumn<E>>,
+        partials: Vec<KzgVerifiedCustodyPartialDataColumn<E>>,
         local_blobs: bool,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
@@ -80,7 +83,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .try_get_or_insert_mut(block_root, || {
                 partials
                     .iter()
-                    .filter_map(|partial| partial.sidecar.header.first())
+                    .filter_map(|partial| partial.as_data_column().sidecar.header.first())
                     .next()
                     .map(|header| PartialAssembly {
                         header: header.clone(),
@@ -96,23 +99,29 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         let mut added_cells = 0;
 
         for partial in partials {
-            let column_index = partial.index;
+            let partial_column = partial.as_data_column();
+            let column_index = partial_column.index;
 
             let merged = if let Some(existing) = assembly.columns.get(&column_index) {
+                let column = existing.as_data_column();
                 // Check if the column is already completed
-                if existing.sidecar.is_complete() {
+                if column.sidecar.is_complete() {
                     continue;
                 }
 
+                let old_len = column.sidecar.column.len();
+
                 // Merge with existing partial
-                let Some(merged_sidecar) = existing.sidecar.merge(&partial.sidecar) else {
+                let Some(merged) = existing.merge(&partial) else {
                     continue;
                 };
 
-                let adding_cells = merged_sidecar
+                let adding_cells = merged
+                    .as_data_column()
+                    .sidecar
                     .column
                     .len()
-                    .saturating_sub(partial.sidecar.column.len());
+                    .saturating_sub(old_len);
 
                 added_cells += adding_cells;
 
@@ -120,24 +129,19 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     continue;
                 }
 
-                PartialDataColumn {
-                    block_root: existing.block_root,
-                    index: existing.index,
-                    sidecar: merged_sidecar,
-                }
+                merged
             } else {
-                added_cells += partial.sidecar.column.len();
+                added_cells += partial_column.sidecar.column.len();
                 // First time seeing this column index for this block
                 partial
             };
 
             // Check if merged column is now complete by trying to convert into full
             if let Some(full_column) = merged.try_clone_full() {
-                full_columns.push(Arc::new(full_column));
+                full_columns.push(full_column);
             }
 
             // Update assembly with merged partial
-            let merged = Arc::new(merged);
             assembly.columns.insert(column_index, merged.clone());
             updated_partials.push(merged);
         }
@@ -159,7 +163,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         &self,
         block_root: &Hash256,
         column_index: ColumnIndex,
-    ) -> Option<Arc<PartialDataColumn<E>>> {
+    ) -> Option<KzgVerifiedCustodyPartialDataColumn<E>> {
         self.assemblies
             .read()
             .peek(block_root)?
@@ -169,7 +173,10 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     }
 
     /// Get all current partials for a block
-    pub fn get_partials(&self, block_root: &Hash256) -> Option<Vec<Arc<PartialDataColumn<E>>>> {
+    pub fn get_partials(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<Vec<KzgVerifiedCustodyPartialDataColumn<E>>> {
         Some(
             self.assemblies
                 .read()
@@ -190,16 +197,6 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             assemblies.peek(block_root).map(|a| &a.header)
         })
         .ok()
-    }
-
-    /// Check if we have an assembly for this block
-    pub fn has_assembly(&self, block_root: &Hash256) -> bool {
-        self.assemblies.read().contains(block_root)
-    }
-
-    /// Remove assembly for a block (called when block is finalized or evicted)
-    pub fn remove_assembly(&self, block_root: &Hash256) {
-        self.assemblies.write().pop(block_root);
     }
 
     /// Maintenance: remove assemblies older than cutoff epoch
@@ -223,11 +220,6 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         for root in to_remove {
             assemblies.pop(&root);
         }
-    }
-
-    /// Get cache size for metrics
-    pub fn cache_size(&self) -> usize {
-        self.assemblies.read().len()
     }
 }
 

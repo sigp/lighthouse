@@ -15,14 +15,13 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use crate::partial_data_column_sidecar::PartialDataColumnHeader;
 use crate::{
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
     },
     complete_kzg_commitment_merkle_proof,
     core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
-    data::Blob,
+    data::{Blob, PartialDataColumnHeader},
     fork::ForkName,
     kzg_ext::KzgProofs,
     state::BeaconStateError,

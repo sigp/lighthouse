@@ -40,9 +40,7 @@ use crate::metrics::{
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::DataColumnSidecar;
-use types::new_non_zero_usize;
-use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
+use types::{DataColumnSidecar, PartialDataColumn, PartialDataColumnHeader, new_non_zero_usize};
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
@@ -216,7 +214,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // Check assembler for partial columns
         if let Some(cached_partial) = self.partial_assembler.get_partial(block_root, column_index) {
             // Compare: find which cells from incoming full column aren't in cached partial
-            return compare_full_to_partial(cell_count, cached_partial.as_ref());
+            return compare_full_to_partial(cell_count, cached_partial.as_data_column());
         }
 
         // No cached data, all cells are "missing" (new data we want)
@@ -248,7 +246,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // Check assembler for partial columns
         if let Some(cached_partial) = self.partial_assembler.get_partial(block_root, column_index) {
             // Compare: find which cells from incoming partial aren't in cached partial
-            return compare_partial_to_partial(data_column, cached_partial.as_ref());
+            return compare_partial_to_partial(data_column, cached_partial.as_data_column());
         }
 
         // No cached data, return all present cells as "missing" (new data we want)
@@ -410,39 +408,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
-    /// Put complete data columns directly into the DA checker (no assembly needed)
-    #[instrument(skip_all, level = "trace")]
-    pub fn put_full_data_columns(
-        &self,
-        block_root: Hash256,
-        data_columns: Vec<Arc<types::DataColumnSidecar<T::EthSpec>>>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // Convert to custody columns - filter by custody requirement
-        let Some(first_column) = data_columns.first() else {
-            // No columns to process - return missing components
-            return Ok(Availability::MissingComponents(block_root));
-        };
-        let epoch = first_column.slot().epoch(T::EthSpec::slots_per_epoch());
-
-        let sampling_columns = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
-
-        let custody_columns = data_columns
-            .into_iter()
-            .filter(|col| sampling_columns.contains(&col.index))
-            .map(|c| {
-                // These are from EL, already KZG verified
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::from_execution_verified(c),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        self.availability_cache
-            .put_kzg_verified_data_columns(block_root, custody_columns)
-    }
-
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
     pub fn put_executed_block(
@@ -467,8 +432,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pre_execution_block(block_root, block, source)
     }
 
-    /// Inserts a pre-execution block into the cache.
-    /// This does NOT override an existing executed block.
+    /// Inserts a partial data column header into the assembler.
     /// Returns true if this was the first insertion.
     pub fn put_partial_data_column_header(
         &self,

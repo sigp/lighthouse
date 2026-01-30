@@ -14,7 +14,7 @@ mod tests;
 
 use crate::blob_verification::{GossipBlobError, KzgVerifiedBlob};
 use crate::data_column_verification::{
-    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
 };
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
@@ -33,9 +33,8 @@ use mockall_double::double;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{Span, debug, instrument, warn};
-use types::data::{BlobSidecarError, DataColumnSidecarError};
-use types::partial_data_column_sidecar::PartialDataColumnHeader;
-use types::{BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, Hash256, VersionedHash};
+use types::data::{BlobSidecarError, ColumnIndex, DataColumnSidecarError, PartialDataColumnHeader};
+use types::{BeaconStateError, BlobSidecar, EthSpec, Hash256, VersionedHash};
 
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
 /// gossip network. The blobs / data columns have not been marked as observed yet, as they may not
@@ -44,7 +43,7 @@ use types::{BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, Hash256, Versio
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     Blobs(Vec<KzgVerifiedBlob<T::EthSpec>>),
     /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
-    CustodyColumns(Vec<Arc<types::DataColumnSidecar<T::EthSpec>>>),
+    CustodyColumns(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>),
 }
 
 #[derive(Debug)]
@@ -101,6 +100,11 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         debug!("Fetch blobs not triggered - none required");
         return Ok(None);
     };
+
+    debug!(
+        num_expected_blobs = versioned_hashes.len(),
+        "Fetching blobs from the EL"
+    );
 
     if chain_adapter
         .spec()
@@ -325,21 +329,14 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     // Initialize the partial assembler with the columns from the engine
     let assembler = chain_adapter.partial_assembler();
     let merge_result = assembler
-        .merge_partials(
-            block_root,
-            custody_columns_to_import
-                .into_iter()
-                .map(|c| c.into_inner())
-                .collect(),
-            true,
-        )
+        .merge_partials(block_root, custody_columns_to_import, true)
         .ok_or_else(|| {
             FetchEngineBlobError::InternalError(
                 "Failed to merge partials into assembler".to_string(),
             )
         })?;
 
-    // Publish complete columns and incomplete partials
+    // Publish complete columns
     if !merge_result.full_columns.is_empty() {
         publish_fn(EngineGetBlobsOutput::CustodyColumns(
             merge_result.full_columns.clone(),
@@ -389,7 +386,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     &[&blobs_and_proofs.len().to_string()],
                 );
 
-                let blob_and_cell_refs = blobs_and_proofs
+                let blob_and_proof_refs = blobs_and_proofs
                     .iter()
                     .map(|option| {
                         option
@@ -398,7 +395,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     })
                     .collect::<Vec<_>>();
                 let data_columns_result =
-                    blobs_to_partial_data_columns(blob_and_cell_refs, &header, &kzg, &spec)
+                    blobs_to_partial_data_columns(blob_and_proof_refs, &header, &kzg, &spec)
                         .discard_timer_on_break(&mut timer);
                 drop(timer);
 

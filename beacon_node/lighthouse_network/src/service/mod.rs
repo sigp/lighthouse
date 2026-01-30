@@ -43,11 +43,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
-use types::data::partial_data_column_sidecar::{CellBitmap, PartialDataColumn};
-use types::{ChainSpec, ForkName};
 use types::{
-    DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    CellBitmap, ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName,
+    PartialDataColumn, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -863,10 +861,11 @@ impl<E: EthSpec> Network<E> {
     pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
-                let bytes = message.encode();
-                let gossipsub = self.gossipsub_mut();
-                let publish_topic: Topic = topic.clone().into();
-                if let Err(e) = gossipsub.publish(publish_topic, bytes.clone()) {
+                let message_data = message.encode(GossipEncoding::default());
+                if let Err(e) = self
+                    .gossipsub_mut()
+                    .publish(Topic::from(topic.clone()), message_data.clone())
+                {
                     match e {
                         PublishError::Duplicate => {
                             debug!(
@@ -914,7 +913,7 @@ impl<E: EthSpec> Network<E> {
                     }
 
                     if let PublishError::NoPeersSubscribedToTopic = e {
-                        self.gossip_cache.insert(topic, bytes);
+                        self.gossip_cache.insert(topic, message_data);
                     }
                 }
             }
@@ -1908,12 +1907,9 @@ impl<E: EthSpec> Network<E> {
 
     fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
         match event {
-            libp2p::upnp::Event::NewExternalAddr {
-                external_addr: addr,
-                ..
-            } => {
-                info!(%addr, "UPnP route established");
-                let mut iter = addr.iter();
+            libp2p::upnp::Event::NewExternalAddr { external_addr, .. } => {
+                info!(%external_addr, "UPnP route established");
+                let mut iter = external_addr.iter();
                 let is_ip6 = {
                     let addr = iter.next();
                     matches!(addr, Some(MProtocol::Ip6(_)))
@@ -1928,7 +1924,7 @@ impl<E: EthSpec> Network<E> {
                             }
                         }
                         _ => {
-                            trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                            trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                         }
                     },
                     Some(multiaddr::Protocol::Tcp(tcp_port)) => {
@@ -1937,7 +1933,7 @@ impl<E: EthSpec> Network<E> {
                         }
                     }
                     _ => {
-                        trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                        trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                     }
                 }
             }

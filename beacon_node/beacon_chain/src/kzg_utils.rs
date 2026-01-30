@@ -6,9 +6,11 @@ use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use tracing::instrument;
-use types::data::{Cell, DataColumn, DataColumnSidecarError};
+use types::data::{
+    Cell, CellBitmap, DataColumn, DataColumnSidecarError, PartialDataColumn,
+    PartialDataColumnHeader,
+};
 use types::kzg_ext::KzgCommitments;
-use types::partial_data_column_sidecar::{CellBitmap, PartialDataColumn, PartialDataColumnHeader};
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
     EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock, SignedBeaconBlockHeader,
@@ -65,17 +67,17 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
             return Err((Some(col_index), KzgError::KzgVerificationFailed));
         }
 
-        // Full columns have all cells present - iterate over column, commitments, and proofs
-        for ((cell, commitment), proof) in data_column
-            .column
-            .iter()
-            .zip(data_column.kzg_commitments.iter())
-            .zip(data_column.kzg_proofs.iter())
-        {
+        for cell in &data_column.column {
             cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (Some(col_index), e))?);
             column_indices.push(col_index);
-            proofs.push(Bytes48::from(*proof));
-            commitments.push(Bytes48::from(*commitment));
+        }
+
+        for &proof in &data_column.kzg_proofs {
+            proofs.push(Bytes48::from(proof));
+        }
+
+        for &commitment in &data_column.kzg_commitments {
+            commitments.push(Bytes48::from(commitment));
         }
 
         let expected_len = column_indices.len();
@@ -466,7 +468,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
             let column = PartialDataColumn {
                 block_root: header.signed_block_header.message.canonical_root(),
                 index: index as u64,
-                sidecar: types::partial_data_column_sidecar::PartialDataColumnSidecar {
+                sidecar: types::data::PartialDataColumnSidecar {
                     cells_present_bitmap: bitmap.clone(),
                     column: VariableList::try_from(col)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,

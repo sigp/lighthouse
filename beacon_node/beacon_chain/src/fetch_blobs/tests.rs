@@ -23,8 +23,7 @@ type T = EphemeralHarnessType<E>;
 
 mod get_blobs_v2 {
     use super::*;
-    use types::ColumnIndex;
-    use types::partial_data_column_sidecar::PartialDataColumnHeader;
+    use types::{ColumnIndex, PartialDataColumnHeader};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_in_block() {
@@ -256,8 +255,7 @@ mod get_blobs_v1 {
     use super::*;
     use crate::block_verification_types::AsBlock;
     use std::collections::HashSet;
-    use types::partial_data_column_sidecar::PartialDataColumnHeader;
-    use types::{ColumnIndex, FullPayload};
+    use types::{ColumnIndex, FullPayload, PartialDataColumnHeader};
 
     const ELECTRA_FORK: ForkName = ForkName::Electra;
 

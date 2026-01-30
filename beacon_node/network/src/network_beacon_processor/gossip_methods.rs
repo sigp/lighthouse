@@ -40,10 +40,10 @@ use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, ColumnIndex,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PartialDataColumnHeader, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -54,7 +54,6 @@ use beacon_processor::{
         ReprocessQueueMessage,
     },
 };
-use types::partial_data_column_sidecar::{PartialDataColumn, PartialDataColumnHeader};
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -867,6 +866,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.process_gossip_verified_partial_data_column(
                     peer_id,
                     gossip_verified_data_column,
+                    slot,
                     seen_duration,
                 )
                 .await
@@ -1285,44 +1285,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    if self
-                        .chain
-                        .data_availability_checker
-                        .custody_context()
-                        .should_attempt_reconstruction(
-                            slot.epoch(T::EthSpec::slots_per_epoch()),
-                            &self.chain.spec,
-                        )
-                    {
-                        // Instead of triggering reconstruction immediately, schedule it to be run. If
-                        // another column arrives, it either completes availability or pushes
-                        // reconstruction back a bit.
-                        let cloned_self = Arc::clone(self);
-                        let block_root = *block_root;
-
-                        if self
-                            .beacon_processor_send
-                            .try_send(WorkEvent {
-                                drop_during_sync: false,
-                                work: Work::Reprocess(
-                                    ReprocessQueueMessage::DelayColumnReconstruction(
-                                        QueuedColumnReconstruction {
-                                            block_root,
-                                            slot: *slot,
-                                            process_fn: Box::pin(async move {
-                                                cloned_self
-                                                    .attempt_data_column_reconstruction(block_root)
-                                                    .await;
-                                            }),
-                                        },
-                                    ),
-                                ),
-                            })
-                            .is_err()
-                        {
-                            warn!("Unable to send reconstruction to reprocessing");
-                        }
-                    }
+                    self.check_reconstruction_trigger(*slot, block_root).await;
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
@@ -1363,6 +1326,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         _peer_id: PeerId,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
+        slot: Slot,
         _seen_duration: Duration,
     ) {
         let processing_start_time = Instant::now();
@@ -1371,11 +1335,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_gossip_partial_data_column(verified_partial)
+            .process_gossip_partial_data_column(verified_partial, slot)
             .await;
 
-        match result {
-            Ok(merge_result) => {
+        // First, handle merge results (if any)
+        let result = match result {
+            Ok(Some((avail, merge_result))) => {
                 if !merge_result.full_columns.is_empty() {
                     debug!(
                         %block_root,
@@ -1383,44 +1348,140 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Partial data column completed to full column"
                     );
 
-                    for full_column in merge_result.full_columns {
-                        // Publish both the updated partial and the full column
-                        let subnet = DataColumnSubnetId::from_column_index(
-                            full_column.index,
-                            &self.chain.spec,
-                        );
-                        self.send_network_message(NetworkMessage::Publish {
-                            messages: vec![PubsubMessage::DataColumnSidecar(Box::new((
-                                subnet,
-                                full_column.clone(),
-                            )))],
-                        });
-                    }
+                    self.send_network_message(NetworkMessage::Publish {
+                        messages: merge_result
+                            .full_columns
+                            .into_iter()
+                            .map(|col| {
+                                let subnet = DataColumnSubnetId::from_column_index(
+                                    col.index(),
+                                    &self.chain.spec,
+                                );
+                                PubsubMessage::DataColumnSidecar(Box::new((
+                                    subnet,
+                                    col.into_inner(),
+                                )))
+                            })
+                            .collect(),
+                    });
                 }
 
                 if merge_result.local_blobs || self.chain.config.disable_get_blobs {
                     self.send_network_message(NetworkMessage::PublishPartial {
-                        columns: merge_result.updated_partials,
+                        columns: merge_result
+                            .updated_partials
+                            .into_iter()
+                            .map(|partial| partial.into_inner())
+                            .collect(),
                     });
                 } else {
                     debug!(block = %block_root, "Not publishing partials - waiting for getBlobs");
                 }
+                Ok(avail)
+            }
+            Ok(None) => {
+                // Column was not merged because it is not a custody column.
+                return;
+            }
+            Err(err) => Err(err),
+        };
 
-                // Check if block is now fully available
-                // This is handled in process_gossip_partial_data_column
+        register_process_result_metrics(
+            &result,
+            metrics::BlockSource::Gossip,
+            "partial_data_column",
+        );
 
-                metrics::set_gauge(
-                    &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
-                    processing_start_time.elapsed().as_millis() as i64,
+        match &result {
+            Ok(availability) => match availability {
+                AvailabilityProcessingStatus::Imported(block_root) => {
+                    debug!(
+                        %block_root,
+                        "Data column from partial processed, imported fully available block"
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+
+                    metrics::set_gauge(
+                        &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
+                        processing_start_time.elapsed().as_millis() as i64,
+                    );
+                }
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                    trace!(
+                        %slot,
+                        %data_column_index,
+                        %block_root,
+                        "Processed data column from partial, waiting for other components"
+                    );
+
+                    self.check_reconstruction_trigger(*slot, block_root).await;
+                }
+            },
+            Err(BlockError::DuplicateFullyImported(_)) => {
+                debug!(
+                    ?block_root,
+                    data_column_index, "Ignoring completed gossip column already imported"
                 );
             }
-            Err(e) => {
-                warn!(
-                    error = ?e,
-                    %block_root,
-                    index = data_column_index,
-                    "Error processing partial data column"
+            Err(err) => {
+                debug!(
+                    outcome = ?err,
+                    ?block_root,
+                    block_slot =  %slot,
+                    data_column_index,
+                    "Invalid completed gossip data column"
                 );
+                // We can't really penalize here, as the error might be the fault of another peer
+                // contributing to the partial.
+            }
+        }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or data column. If a
+        // importing a block results in `Imported`, notify. Do not notify of data column errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
+        }
+    }
+
+    async fn check_reconstruction_trigger(self: &Arc<Self>, slot: Slot, block_root: &Hash256) {
+        if self
+            .chain
+            .data_availability_checker
+            .custody_context()
+            .should_attempt_reconstruction(
+                slot.epoch(T::EthSpec::slots_per_epoch()),
+                &self.chain.spec,
+            )
+        {
+            // Instead of triggering reconstruction immediately, schedule it to be run. If
+            // another column arrives, it either completes availability or pushes
+            // reconstruction back a bit.
+            let cloned_self = Arc::clone(self);
+            let block_root = *block_root;
+
+            if self
+                .beacon_processor_send
+                .try_send(WorkEvent {
+                    drop_during_sync: false,
+                    work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
+                        QueuedColumnReconstruction {
+                            block_root,
+                            slot,
+                            process_fn: Box::pin(async move {
+                                cloned_self
+                                    .attempt_data_column_reconstruction(block_root)
+                                    .await;
+                            }),
+                        },
+                    )),
+                })
+                .is_err()
+            {
+                warn!("Unable to send reconstruction to reprocessing");
             }
         }
     }
@@ -1850,22 +1911,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %block_root,
                     "Processed block, waiting for other components"
                 );
-                if self
-                    .beacon_processor_send
-                    .try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::BlockPending {
-                            block_root: *block_root,
-                        }),
-                    })
-                    .is_err()
-                {
-                    error!(
-                        source = "gossip",
-                        ?block_root,
-                        "Failed to inform block pending"
-                    )
-                };
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // This should not occur. It should be checked by `should_forward_block`.
