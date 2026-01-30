@@ -40,7 +40,7 @@ use reqwest::{
     header::{HeaderMap, HeaderValue},
 };
 #[cfg(feature = "events")]
-use reqwest_eventsource::{Event, EventSource};
+use reqwest_eventsource::{Event, RequestBuilderExt};
 use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
@@ -2800,7 +2800,11 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
-        let mut es = EventSource::get(path);
+        let mut es = self
+            .client
+            .get(path)
+            .eventsource()
+            .map_err(Error::SseEventSource)?;
         // If we don't await `Event::Open` here, then the consumer
         // will not get any Message events until they start awaiting the stream.
         // This is a way to register the stream with the sse server before
