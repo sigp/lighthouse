@@ -59,7 +59,8 @@ impl<E: EthSpec> AvailabilityOutcome<E> {
         match self {
             Self::Block(BlockAvailability::Available(block)) => block.import_data.block_root,
             Self::Block(BlockAvailability::MissingComponents(root)) => *root,
-            Self::Payload(PayloadAvailability::Available(payload)) => payload.payload.block_root(),
+            // For payload availability, the first element of the tuple is the block root
+            Self::Payload(PayloadAvailability::Available(available_data)) => available_data.0,
             Self::Payload(PayloadAvailability::MissingComponents(root)) => *root,
         }
     }
@@ -126,7 +127,7 @@ impl<E: EthSpec> ReconstructionOutcome<E> {
 /// Both `DataAvailabilityChecker` (v1) and `DataAvailabilityChecker` (v2) implement
 /// this trait. The associated types differ:
 /// - V1: Returns `Availability<E>` containing `AvailableExecutedBlock<E>`
-/// - V2: Returns `Availability<E>` containing `AvailableExecutedPayload<E>`
+/// - V2: Returns `Availability<E>` containing `(Hash256, DataColumnSidecarList<E>)` (block root + columns)
 pub trait DataColumnCache<T: BeaconChainTypes>: Send + Sync {
     /// The availability type returned by write operations.
     /// V1 returns block availability, V2 returns payload availability.

@@ -3431,7 +3431,8 @@ macro_rules! add_blob_transactions_gloas {
         for tx in Vec::from(transactions) {
             payload.transactions.push(tx).unwrap();
         }
-        $message.blob_kzg_commitments = bundle.commitments.clone();
+        // Note: In Gloas, blob_kzg_commitments are in the bid (block body), not the payload envelope.
+        // The commitments are returned via the bundle for the caller to use.
         bundle
     }};
 }
@@ -3444,9 +3445,12 @@ pub fn generate_rand_payload_and_columns<E: EthSpec>(
 ) -> (SignedExecutionPayloadEnvelope<E>, DataColumnSidecarList<E>) {
     let mut payload = SignedExecutionPayloadEnvelope::random_for_test(rng);
 
-    let _bundle = add_blob_transactions_gloas!(payload.message, num_blobs, rng, fork_name);
+    let bundle = add_blob_transactions_gloas!(payload.message, num_blobs, rng, fork_name);
 
-    let data_columns = generate_data_column_sidecars_from_payload(&payload, spec);
+    // In Gloas, blob_kzg_commitments are in the bid (block body), not the payload envelope.
+    // We pass them from the bundle to generate the data columns.
+    let kzg_commitments = bundle.commitments;
+    let data_columns = generate_data_column_sidecars_from_payload(&payload, kzg_commitments, spec);
 
     (payload, data_columns)
 }
@@ -3607,11 +3611,14 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
 }
 
 /// Generate data column sidecars from pre-computed cells and proofs for gloas payloads.
+///
+/// Note: In Gloas, `blob_kzg_commitments` are in the bid (block body), not the payload envelope.
+/// The caller must provide the commitments separately.
 pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
     payload: &SignedExecutionPayloadEnvelope<E>,
+    kzg_commitments: KzgCommitments<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    let kzg_commitments = payload.message.blob_kzg_commitments.clone();
     if kzg_commitments.is_empty() {
         return vec![];
     }
