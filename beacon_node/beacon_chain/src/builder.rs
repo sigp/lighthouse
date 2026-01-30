@@ -1049,7 +1049,6 @@ where
                     complete_blob_backfill,
                     slot_clock,
                     self.kzg.clone(),
-                    store,
                     Arc::new(custody_context),
                     self.spec,
                 )
