@@ -70,9 +70,10 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns the number of blobs expected for this block by reading the bid's kzg commitments.
     /// Returns an error if the block is not cached or not a Gloas block.
     pub fn num_blobs_expected(&self) -> Result<usize, AvailabilityCheckError> {
-        let block = self.block.as_ref().ok_or_else(|| {
-            AvailabilityCheckError::Unexpected("No block available".to_string())
-        })?;
+        let block = self
+            .block
+            .as_ref()
+            .ok_or_else(|| AvailabilityCheckError::Unexpected("No block available".to_string()))?;
 
         let bid = block
             .message()
@@ -167,10 +168,8 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     pub fn status_str(&self, num_expected_columns: usize) -> String {
-        let block_status = if self.block.is_some() { "yes" } else { "no" };
         format!(
-            "block {} data_columns {}/{}",
-            block_status,
+            "data_columns {}/{}",
             self.verified_data_columns.len(),
             num_expected_columns
         )
@@ -475,7 +474,7 @@ mod pending_components_tests {
         let components = PendingComponents::<E>::empty(block_root);
 
         let status = components.status_str(10);
-        assert_eq!(status, "block no data_columns 0/10");
+        assert_eq!(status, "data_columns 0/10");
     }
 
     #[test]
@@ -510,20 +509,20 @@ mod data_availability_checker_tests {
 
     use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
     use crate::test_utils::{
-        generate_data_column_indices_rand_order, test_spec, NumBlobs,
-        generate_rand_block_and_data_columns,
+        NumBlobs, generate_data_column_indices_rand_order, generate_rand_block_and_data_columns,
+        test_spec,
     };
     use crate::{
         custody_context::NodeCustodyType,
         test_utils::{BeaconChainHarness, DiskHarnessType},
     };
     use logging::create_test_tracing_subscriber;
-    use store::{HotColdDB, StoreConfig, database::interface::BeaconNodeBackend};
-    use tempfile::{TempDir, tempdir};
-    use types::{ForkName, MinimalEthSpec, Slot};
-    use types::new_non_zero_usize;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use store::{HotColdDB, StoreConfig, database::interface::BeaconNodeBackend};
+    use tempfile::{TempDir, tempdir};
+    use types::new_non_zero_usize;
+    use types::{ForkName, MinimalEthSpec, Slot};
 
     type E = MinimalEthSpec;
 
@@ -569,17 +568,12 @@ mod data_availability_checker_tests {
         let chain_store = get_store_with_spec::<E>(db_path, spec.clone());
         let validators_keypairs =
             types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-        let harness = BeaconChainHarness::builder(E::default())
+        BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
             .keypairs(validators_keypairs)
             .fresh_disk_store(chain_store)
             .mock_execution_layer()
-            .build();
-
-        // go to gloas slot
-        let gloas_fork_slot = Slot::new(0);
-        harness.extend_to_slot(gloas_fork_slot).await;
-        harness
+            .build()
     }
 
     async fn setup_harness_and_cache<T>(
@@ -607,8 +601,12 @@ mod data_availability_checker_tests {
             &spec,
         ));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(capacity_non_zero, custody_context, spec.clone())
-                .expect("should create cache"),
+            DataAvailabilityCheckerInner::<T>::new(
+                capacity_non_zero,
+                custody_context,
+                spec.clone(),
+            )
+            .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }
@@ -643,9 +641,8 @@ mod data_availability_checker_tests {
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
         let spec = harness.spec.clone();
 
-        // Generate a block with data columns
         let (_block, data_columns) = generate_rand_block_and_data_columns::<E>(
-            ForkName::Fulu, // Use Fulu for now as Gloas generation may not be ready
+            ForkName::Gloas,
             NumBlobs::Number(1),
             &mut rng,
             &spec,
@@ -653,7 +650,6 @@ mod data_availability_checker_tests {
 
         let block_root = Hash256::random();
 
-        // Convert to KzgVerifiedCustodyDataColumn
         let verified_columns: Vec<_> = data_columns
             .into_iter()
             .take(1) // Just take one column for the test
@@ -693,7 +689,7 @@ mod data_availability_checker_tests {
         let spec = harness.spec.clone();
 
         let (_block, data_columns) = generate_rand_block_and_data_columns::<E>(
-            ForkName::Fulu,
+            ForkName::Gloas,
             NumBlobs::Number(1),
             &mut rng,
             &spec,
@@ -742,7 +738,7 @@ mod data_availability_checker_tests {
         let spec = harness.spec.clone();
 
         let (_block, data_columns) = generate_rand_block_and_data_columns::<E>(
-            ForkName::Fulu,
+            ForkName::Gloas,
             NumBlobs::Number(1),
             &mut rng,
             &spec,
@@ -782,7 +778,7 @@ mod data_availability_checker_tests {
         let spec = harness.spec.clone();
 
         let (_block, data_columns) = generate_rand_block_and_data_columns::<E>(
-            ForkName::Fulu,
+            ForkName::Gloas,
             NumBlobs::Number(1),
             &mut rng,
             &spec,
@@ -824,7 +820,7 @@ mod data_availability_checker_tests {
         let spec = harness.spec.clone();
 
         let (_block, data_columns) = generate_rand_block_and_data_columns::<E>(
-            ForkName::Fulu,
+            ForkName::Gloas,
             NumBlobs::Number(1),
             &mut rng,
             &spec,
@@ -876,7 +872,7 @@ mod data_availability_checker_tests {
         let block_root = Hash256::random();
 
         // Create an empty entry in the cache
-        let _ = cache.peek_pending_components(&block_root, |_| {});
+        cache.peek_pending_components(&block_root, |_| {});
 
         // Manually insert a pending component by putting empty columns
         // This will create an entry but it won't have an epoch
@@ -884,7 +880,9 @@ mod data_availability_checker_tests {
 
         // Run maintenance with a future cutoff epoch
         let cutoff_epoch = Epoch::new(100);
-        cache.do_maintenance(cutoff_epoch).expect("maintenance should succeed");
+        cache
+            .do_maintenance(cutoff_epoch)
+            .expect("maintenance should succeed");
 
         // Cache should still be empty since we didn't add anything with an epoch
         assert_eq!(cache.block_cache_size(), 0);
@@ -904,7 +902,7 @@ mod data_availability_checker_tests {
         let spec = harness.spec.clone();
 
         let (_block, data_columns) = generate_rand_block_and_data_columns::<E>(
-            ForkName::Fulu,
+            ForkName::Gloas,
             NumBlobs::Number(1),
             &mut rng,
             &spec,

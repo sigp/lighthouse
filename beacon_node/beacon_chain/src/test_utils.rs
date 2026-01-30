@@ -3416,45 +3416,6 @@ macro_rules! add_blob_transactions {
     }};
 }
 
-macro_rules! add_blob_transactions_gloas {
-    ($message:expr, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
-        let num_blobs = match $num_blobs {
-            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
-            NumBlobs::Number(n) => n,
-            NumBlobs::None => 0,
-        };
-        let (bundle, transactions) =
-            execution_layer::test_utils::generate_blobs::<E>(num_blobs, $fork_name).unwrap();
-
-        let payload = &mut $message.payload;
-        payload.transactions = <_>::default();
-        for tx in Vec::from(transactions) {
-            payload.transactions.push(tx).unwrap();
-        }
-        // Note: In Gloas, blob_kzg_commitments are in the bid (block body), not the payload envelope.
-        // The commitments are returned via the bundle for the caller to use.
-        bundle
-    }};
-}
-
-pub fn generate_rand_payload_and_columns<E: EthSpec>(
-    fork_name: ForkName,
-    num_blobs: NumBlobs,
-    rng: &mut impl Rng,
-    spec: &ChainSpec,
-) -> (SignedExecutionPayloadEnvelope<E>, DataColumnSidecarList<E>) {
-    let mut payload = SignedExecutionPayloadEnvelope::random_for_test(rng);
-
-    let bundle = add_blob_transactions_gloas!(payload.message, num_blobs, rng, fork_name);
-
-    // In Gloas, blob_kzg_commitments are in the bid (block body), not the payload envelope.
-    // We pass them from the bundle to generate the data columns.
-    let kzg_commitments = bundle.commitments;
-    let data_columns = generate_data_column_sidecars_from_payload(&payload, kzg_commitments, spec);
-
-    (payload, data_columns)
-}
-
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
@@ -3475,7 +3436,26 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
-        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
+        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
+            ref mut message, ..
+        }) => {
+            // For Gloas, commitments are in the bid, not directly in the body.
+            // BlobSidecars cannot be created for Gloas because there's no merkle proof
+            // from the block body to the commitments. Return early with empty blob_sidecars.
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, _transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
+            message
+                .body
+                .signed_execution_payload_bid
+                .message
+                .blob_kzg_commitments = bundle.commitments.clone();
+            return (block, blob_sidecars);
+        }
         _ => return (block, blob_sidecars),
     };
 
@@ -3526,32 +3506,37 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-    if kzg_commitments.is_empty() {
-        return vec![];
-    }
-
-    let kzg_commitments_inclusion_proof = block
-        .message()
-        .body()
-        .kzg_commitments_merkle_proof()
-        .unwrap();
     let signed_block_header = block.signed_block_header();
+
+    // load the precomputed column sidecar to avoid computing them for every block in the tests.
+    let template_data_columns = RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(
+        TEST_DATA_COLUMN_SIDECARS_SSZ,
+        E::number_of_columns(),
+    )
+    .unwrap();
 
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
-        let template_data_columns =
-            RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
-                TEST_DATA_COLUMN_SIDECARS_SSZ,
-                E::number_of_columns(),
-            )
-            .unwrap();
+        // For Gloas, commitments are in the bid, not the block body
+        let kzg_commitments = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message
+            .blob_kzg_commitments
+            .clone();
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
 
+        // TODO(gloas): The fixture is Fulu format. Generate Gloas-specific fixture once format
+        // is finalized, or compute columns dynamically for Gloas tests.
         let (cells, proofs) = template_data_columns
             .into_iter()
             .map(|sidecar| {
-                let DataColumnSidecarGloas {
+                let DataColumnSidecarFulu {
                     column, kzg_proofs, ..
                 } = sidecar;
                 // There's only one cell per column for a single blob
@@ -3574,12 +3559,15 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         )
         .unwrap()
     } else {
-        // load the precomputed column sidecar to avoid computing them for every block in the tests.
-        let template_data_columns =
-            RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(
-                TEST_DATA_COLUMN_SIDECARS_SSZ,
-                E::number_of_columns(),
-            )
+        // For pre-Gloas forks, commitments are in the block body
+        let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+        let kzg_commitments_inclusion_proof = block
+            .message()
+            .body()
+            .kzg_commitments_merkle_proof()
             .unwrap();
 
         let (cells, proofs) = template_data_columns
@@ -3608,56 +3596,6 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         )
         .unwrap()
     }
-}
-
-/// Generate data column sidecars from pre-computed cells and proofs for gloas payloads.
-///
-/// Note: In Gloas, `blob_kzg_commitments` are in the bid (block body), not the payload envelope.
-/// The caller must provide the commitments separately.
-pub fn generate_data_column_sidecars_from_payload<E: EthSpec>(
-    payload: &SignedExecutionPayloadEnvelope<E>,
-    kzg_commitments: KzgCommitments<E>,
-    spec: &ChainSpec,
-) -> DataColumnSidecarList<E> {
-    if kzg_commitments.is_empty() {
-        return vec![];
-    }
-
-    // Load the precomputed column sidecar to avoid computing them for every block in the tests.
-    // TODO(gloas): The fixture is currently in Fulu format. We should generate a Gloas-specific
-    // fixture once the format is finalized, or compute columns dynamically for Gloas tests.
-    let template_data_columns = RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(
-        TEST_DATA_COLUMN_SIDECARS_SSZ,
-        E::number_of_columns(),
-    )
-    .unwrap();
-
-    let (cells, proofs) = template_data_columns
-        .into_iter()
-        .map(|sidecar| {
-            let DataColumnSidecarFulu {
-                column, kzg_proofs, ..
-            } = sidecar;
-            // There's only one cell per column for a single blob
-            let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
-            let kzg_cell = cell_bytes.try_into().unwrap();
-            let kzg_proof = kzg_proofs.into_iter().next().unwrap();
-            (kzg_cell, kzg_proof)
-        })
-        .collect::<(Vec<_>, Vec<_>)>();
-
-    // Repeat the cells and proofs for every blob
-    let blob_cells_and_proofs_vec =
-        vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
-
-    build_data_column_sidecars_gloas(
-        kzg_commitments,
-        payload.message.beacon_block_root,
-        payload.message.slot,
-        blob_cells_and_proofs_vec,
-        spec,
-    )
-    .unwrap()
 }
 
 pub fn generate_data_column_indices_rand_order<E: EthSpec>() -> Vec<CustodyIndex> {

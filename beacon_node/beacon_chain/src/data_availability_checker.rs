@@ -5,7 +5,7 @@ use crate::block_verification_types::{AvailabilityPendingExecutedBlock, Availabl
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::data_availability_router::DataColumnCache;
+use crate::data_availability_router::AvailabilityCache;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus, CustodyContext, metrics,
 };
@@ -366,7 +366,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 }
 
-impl<T: BeaconChainTypes> DataColumnCache<T> for DataAvailabilityChecker<T> {
+impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     type Availability = Availability<T::EthSpec>;
     type ReconstructionResult = DataColumnReconstructionResult<T::EthSpec>;
 
@@ -559,6 +559,18 @@ impl<T: BeaconChainTypes> DataColumnCache<T> for DataAvailabilityChecker<T> {
                 ))
             })
     }
+
+    /// Verifies KZG commitments for data columns.
+    fn verify_kzg_for_data_columns(
+        &self,
+        data_columns: &DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<(), AvailabilityCheckError> {
+        if !data_columns.is_empty() {
+            verify_kzg_for_data_column_list(data_columns.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
+        }
+        Ok(())
+    }
 }
 
 /// Helper struct to group data availability checker metrics.
@@ -587,6 +599,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     }
 }
 
+// TODO(gloas) we can shut down this service once we reach the gloas fork epoch
 async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,

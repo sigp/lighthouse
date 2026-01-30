@@ -3,7 +3,7 @@ use crate::data_availability_checker_v2::overflow_lru_cache::{
 };
 
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::data_availability_router::DataColumnCache;
+use crate::data_availability_router::AvailabilityCache;
 use crate::{BeaconChain, BeaconChainTypes, CustodyContext, metrics};
 use kzg::Kzg;
 use slot_clock::SlotClock;
@@ -86,7 +86,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     spec: Arc<ChainSpec>,
 }
 
-impl<T: BeaconChainTypes> DataColumnCache<T> for DataAvailabilityChecker<T> {
+impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     type Availability = Availability<T::EthSpec>;
     type ReconstructionResult = DataColumnReconstructionResult<T::EthSpec>;
 
@@ -275,6 +275,18 @@ impl<T: BeaconChainTypes> DataColumnCache<T> for DataAvailabilityChecker<T> {
                 ))
             })
     }
+
+    /// Verifies KZG commitments for data columns.
+    fn verify_kzg_for_data_columns(
+        &self,
+        data_columns: &DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<(), AvailabilityCheckError> {
+        if !data_columns.is_empty() {
+            verify_kzg_for_data_column_list(data_columns.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
+        }
+        Ok(())
+    }
 }
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
@@ -309,18 +321,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache.put_block(block_root, block)
-    }
-
-    /// Verifies kzg commitments for data columns.
-    pub fn verify_kzg_for_data_columns(
-        &self,
-        data_columns: &DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<(), AvailabilityCheckError> {
-        if !data_columns.is_empty() {
-            verify_kzg_for_data_column_list(data_columns.iter(), &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
-        }
-        Ok(())
     }
 
     /// Collects metrics from the data availability checker.

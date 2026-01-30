@@ -1978,6 +1978,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         beacon_chain.store.state_cache_len(),
     );
 
+    // TODO(gloas) configure v2 metrics
     let da_checker_metrics = beacon_chain.data_availability_checker.v1().metrics();
 
     set_gauge_by_usize(

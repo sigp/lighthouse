@@ -1,14 +1,14 @@
-//! Abstraction layer for data column storage across different DA checkers.
+//! Abstraction layer for data availability operations across different DA checkers.
 //!
-//! This module provides a unified interface for data column operations that are shared
+//! This module provides a unified interface for availability operations that are shared
 //! between the legacy `DataAvailabilityChecker` (v1, for blocks) and
 //! `DataAvailabilityChecker` v2 (for payload envelopes after Gloas).
 //!
 //! ## Design
 //!
-//! - **Read operations**: Unified via the `DataColumnCache` trait
-//! - **Write operations**: Return `AvailabilityOutcome` enum that wraps both checker types
-//! - **Processing**: `BeaconChain::process_availability_outcome()` handles both cases
+//! - **Unified operations**: Via the `AvailabilityCache` trait (blocks, columns, availability checks)
+//! - **Fork-aware routing**: `DataAvailabilityRouter` dispatches to v1 or v2 based on slot
+//! - **Processing**: `BeaconChain::process_availability_outcome()` handles both result types
 //!
 //! After Gloas is fully activated and v1 is deprecated, this can be deleted and we can
 //! use the Gloas DA checker directly.
@@ -122,13 +122,13 @@ impl<E: EthSpec> ReconstructionOutcome<E> {
     }
 }
 
-/// Trait for data column operations on availability checkers.
+/// Trait for data availability operations on availability checkers.
 ///
 /// Both `DataAvailabilityChecker` (v1) and `DataAvailabilityChecker` (v2) implement
 /// this trait. The associated types differ:
 /// - V1: Returns `Availability<E>` containing `AvailableExecutedBlock<E>`
 /// - V2: Returns `Availability<E>` containing `(Hash256, DataColumnSidecarList<E>)` (block root + columns)
-pub trait DataColumnCache<T: BeaconChainTypes>: Send + Sync {
+pub trait AvailabilityCache<T: BeaconChainTypes>: Send + Sync {
     /// The availability type returned by write operations.
     /// V1 returns block availability, V2 returns payload availability.
     type Availability;
@@ -182,24 +182,30 @@ pub trait DataColumnCache<T: BeaconChainTypes>: Send + Sync {
         &self,
         block_root: &Hash256,
     ) -> Result<Self::ReconstructionResult, AvailabilityCheckError>;
+
+    /// Verifies KZG commitments for a list of data columns.
+    fn verify_kzg_for_data_columns(
+        &self,
+        data_columns: &DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<(), AvailabilityCheckError>;
 }
 
 /// Router that directs data availability checker operations to the appropriate version based on fork.
 ///
 /// This wraps both the legacy (v1) and Gloas (v2) DA checkers, providing:
-/// - Unified read operations that query both checkers
+/// - Unified operations that dispatch to the correct checker based on fork
 /// - Fork-aware routing for write operations that return `AvailabilityOutcome`
 ///
 /// After Gloas is fully activated and v1 is deprecated, this router can be deleted and
 /// we can use the Gloas DA checker directly.
 pub struct DataAvailabilityRouter<T: BeaconChainTypes, V1, V2>
 where
-    V1: DataColumnCache<
+    V1: AvailabilityCache<
             T,
             Availability = BlockAvailability<T::EthSpec>,
             ReconstructionResult = BlockReconstructionResult<T::EthSpec>,
         >,
-    V2: DataColumnCache<
+    V2: AvailabilityCache<
             T,
             Availability = PayloadAvailability<T::EthSpec>,
             ReconstructionResult = PayloadReconstructionResult<T::EthSpec>,
@@ -215,12 +221,12 @@ where
 
 impl<T: BeaconChainTypes, V1, V2> DataAvailabilityRouter<T, V1, V2>
 where
-    V1: DataColumnCache<
+    V1: AvailabilityCache<
             T,
             Availability = BlockAvailability<T::EthSpec>,
             ReconstructionResult = BlockReconstructionResult<T::EthSpec>,
         >,
-    V2: DataColumnCache<
+    V2: AvailabilityCache<
             T,
             Availability = PayloadAvailability<T::EthSpec>,
             ReconstructionResult = PayloadReconstructionResult<T::EthSpec>,
@@ -371,18 +377,16 @@ where
         }
     }
 
-    /// Direct access to v1 checker (for block-specific operations).
+    /// Direct access to v1 checker for block execution/availability checks.
     ///
-    /// Use this for operations that are specific to the legacy block-based DA checker,
-    /// such as `put_executed_block`, `get_cached_block`, blob operations, etc.
+    /// Use this for operations that are specific to the legacy DA checker,
     pub fn v1(&self) -> Arc<V1> {
         self.v1.clone()
     }
 
-    /// Direct access to v2 checker (for payload-specific operations).
+    /// Direct access to v2 checker for payload availability checks.
     ///
-    /// Use this for operations that are specific to the Gloas payload-based DA checker,
-    /// such as `put_executed_payload`, `get_cached_payload`, etc.
+    /// Use this for operations that are specific to the Gloas DA checker,
     pub fn v2(&self) -> Arc<V2> {
         self.v2.clone()
     }
