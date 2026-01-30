@@ -10,7 +10,11 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[derive(TestRandom, TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
 #[educe(PartialEq, Hash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
