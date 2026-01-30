@@ -286,13 +286,15 @@ impl<E: EthSpec> PendingComponents<E> {
             AvailableBlockData::DataColumns(_) => None,
         };
 
-        let block_arc = block.block.clone();
-        let import_data = block.import_data.clone();
-        let payload_verification_outcome = block.payload_verification_outcome.clone();
+        let AvailabilityPendingExecutedBlock {
+            block,
+            import_data,
+            payload_verification_outcome,
+        } = block.as_ref();
 
         let available_block = AvailableBlock {
             block_root: self.block_root,
-            block: block_arc,
+            block: block.clone(),
             blob_data,
             blobs_available_timestamp,
             spec: spec.clone(),
@@ -303,8 +305,8 @@ impl<E: EthSpec> PendingComponents<E> {
         });
         Ok(Some(AvailableExecutedBlock::new(
             available_block,
-            import_data,
-            payload_verification_outcome,
+            import_data.clone(),
+            payload_verification_outcome.clone(),
         )))
     }
 
@@ -969,7 +971,6 @@ mod test {
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
-        let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
@@ -979,7 +980,6 @@ mod test {
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(
                 capacity_non_zero,
-                test_store,
                 custody_context,
                 spec.clone(),
             )

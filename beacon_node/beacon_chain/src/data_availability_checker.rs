@@ -904,7 +904,6 @@ mod test {
     use std::collections::HashSet;
     use std::sync::Arc;
     use std::time::Duration;
-    use store::HotColdDB;
     use types::data::DataColumn;
     use types::{
         ChainSpec, ColumnIndex, DataColumnSidecarFulu, EthSpec, ForkName, MainnetEthSpec, Slot,
@@ -1245,7 +1244,6 @@ mod test {
             Duration::from_secs(spec.seconds_per_slot),
         );
         let kzg = get_kzg(&spec);
-        let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
