@@ -1,5 +1,7 @@
 use crate::test_utils::TestRandom;
-use crate::{Address, EthSpec, ExecutionBlockHash, ForkName, Hash256, KzgCommitments, SignedRoot, Slot};
+use crate::{
+    Address, EthSpec, ExecutionBlockHash, ForkName, Hash256, KzgCommitments, SignedRoot, Slot,
+};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
