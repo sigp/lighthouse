@@ -1,5 +1,6 @@
+use crate::execution::ExecutionPayloadBid;
 use crate::test_utils::TestRandom;
-use crate::{EthSpec, ExecutionPayloadBid, ForkName};
+use crate::{EthSpec, ForkName};
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
