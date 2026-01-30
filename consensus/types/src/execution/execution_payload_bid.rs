@@ -11,7 +11,11 @@ use tree_hash_derive::TreeHash;
 #[derive(
     Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe, TestRandom,
 )]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
 #[educe(PartialEq, Hash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
