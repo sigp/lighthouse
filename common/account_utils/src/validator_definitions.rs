@@ -456,7 +456,7 @@ impl ValidatorDefinitions {
                 .filter(|d| d.enabled && d.suggested_fee_recipient.is_none())
                 .count();
             if count > 0 {
-                info!(
+                debug!(
                     "The fallback --suggested-fee-recipient is being used for {} validator(s). \
                      You may alternatively set the fee recipient for each validator individually via `validator_definitions.yml`.",
                     count
