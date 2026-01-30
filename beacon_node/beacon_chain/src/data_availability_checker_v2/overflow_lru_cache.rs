@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock,
+    SignedExecutionPayloadBid,
 };
 
 /// This represents the components of a payload pending data availability.
@@ -22,7 +22,8 @@ pub struct PendingComponents<E: EthSpec> {
     /// The block root is stored for tracing context in the span.
     #[allow(dead_code)]
     pub block_root: Hash256,
-    pub block: Option<Arc<SignedBeaconBlock<E>>>,
+    /// The execution payload bid containing blob_kzg_commitments.
+    pub bid: Option<Arc<SignedExecutionPayloadBid<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub reconstruction_started: bool,
     span: Span,
@@ -62,50 +63,40 @@ impl<E: EthSpec> PendingComponents<E> {
         Ok(())
     }
 
-    /// Inserts a block into the cache.
-    pub fn insert_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
-        self.block = Some(block);
+    /// Inserts an execution payload bid into the cache.
+    pub fn insert_bid(&mut self, bid: Arc<SignedExecutionPayloadBid<E>>) {
+        self.bid = Some(bid);
     }
 
-    /// Returns the number of blobs expected for this block by reading the bid's kzg commitments.
-    /// Returns an error if the block is not cached or not a Gloas block.
+    /// Returns the number of blobs expected by reading the bid's kzg commitments.
+    /// Returns an error if the bid is not cached. This function should only be called
+    /// after ensuring that the bid has been cached.
     pub fn num_blobs_expected(&self) -> Result<usize, AvailabilityCheckError> {
-        let block = self
-            .block
+        let bid = self
+            .bid
             .as_ref()
-            .ok_or_else(|| AvailabilityCheckError::Unexpected("No block available".to_string()))?;
-
-        let bid = block
-            .message()
-            .body()
-            .signed_execution_payload_bid()
-            .map_err(|_| {
-                AvailabilityCheckError::Unexpected(
-                    "Block does not have execution payload bid (not a Gloas block?)".to_string(),
-                )
-            })?;
+            .ok_or_else(|| AvailabilityCheckError::Unexpected("No bid available".to_string()))?;
 
         Ok(bid.message.blob_kzg_commitments.len())
     }
 
-    /// Returns Some if all required data columns have been received.
+    /// Returns `Some` if the bid and all required data columns have been received.
     pub fn make_available(
         &self,
         num_expected_columns: usize,
     ) -> Result<Option<DataColumnSidecarList<E>>, AvailabilityCheckError> {
-        // Check if we have a block - if not, still waiting
-        if self.block.is_none() {
+        // Check if we have a bid - if not, still waiting
+        if self.bid.is_none() {
             return Ok(None);
         }
 
-        // Get the number of blobs expected from the block's bid
-        // This will error if the block doesn't have a bid (not Gloas)
+        // Get the number of blobs expected from the bid
         let num_expected_blobs = self.num_blobs_expected()?;
 
         if num_expected_blobs == 0 {
             // No blobs expected, data is available (empty)
             self.span.in_scope(|| {
-                debug!("Block has no blobs, data is available");
+                debug!("Bid has no blobs, data is available");
             });
             return Ok(Some(vec![]));
         }
@@ -145,18 +136,18 @@ impl<E: EthSpec> PendingComponents<E> {
         let _guard = span.clone().entered();
         Self {
             block_root,
-            block: None,
+            bid: None,
             verified_data_columns: vec![],
             reconstruction_started: false,
             span,
         }
     }
 
-    /// Returns the epoch of the block or first data column, if available.
+    /// Returns the epoch of the bid or first data column, if available.
     pub fn epoch(&self) -> Option<Epoch> {
-        // Get epoch from block
-        if let Some(block) = &self.block {
-            return Some(block.slot().epoch(E::slots_per_epoch()));
+        // Get epoch from bid
+        if let Some(bid) = &self.bid {
+            return Some(bid.message.slot.epoch(E::slots_per_epoch()));
         }
 
         // Or, get epoch from first data column
@@ -232,17 +223,17 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
-    /// Insert a block into the cache and check if data becomes available.
-    pub fn put_block(
+    /// Insert an execution payload bid into the cache and check if data becomes available.
+    pub fn put_bid(
         &self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = bid.message.slot.epoch(T::EthSpec::slots_per_epoch());
 
         let pending_components =
             self.update_or_insert_pending_components(block_root, |pending_components| {
-                pending_components.insert_block(block);
+                pending_components.insert_bid(bid);
                 Ok(())
             })?;
 
@@ -250,7 +241,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         pending_components.span.in_scope(|| {
             debug!(
-                component = "block",
+                component = "bid",
                 status = pending_components.status_str(num_expected_columns),
                 "Component added to data availability checker"
             );
@@ -312,8 +303,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             }
 
             // We never remove the pending components manually to avoid race conditions.
-            // This ensures components remain available during and right after block import,
-            // preventing a race condition where a component was removed after the block was
+            // This ensures components remain available during and right after payload import,
+            // preventing a race condition where a component was removed after the payload was
             // imported, but re-inserted immediately, causing partial pending components to be
             // stored and served to peers.
             // Components are only removed via LRU eviction as finality advances.
@@ -453,7 +444,7 @@ mod pending_components_tests {
         let components = PendingComponents::<E>::empty(block_root);
 
         assert_eq!(components.block_root, block_root);
-        assert!(components.block.is_none());
+        assert!(components.bid.is_none());
         assert!(components.verified_data_columns.is_empty());
         assert!(!components.reconstruction_started);
         assert!(components.epoch().is_none());
@@ -469,7 +460,7 @@ mod pending_components_tests {
     }
 
     #[test]
-    fn test_status_str_no_block() {
+    fn test_status_str_no_bid() {
         let block_root = Hash256::random();
         let components = PendingComponents::<E>::empty(block_root);
 
@@ -478,7 +469,7 @@ mod pending_components_tests {
     }
 
     #[test]
-    fn test_num_blobs_expected_no_block() {
+    fn test_num_blobs_expected_no_bid() {
         let block_root = Hash256::random();
         let components = PendingComponents::<E>::empty(block_root);
 
@@ -492,11 +483,11 @@ mod pending_components_tests {
     }
 
     #[test]
-    fn test_make_available_no_block_returns_none() {
+    fn test_make_available_no_bid_returns_none() {
         let block_root = Hash256::random();
         let components = PendingComponents::<E>::empty(block_root);
 
-        // Without a block, make_available should return Ok(None)
+        // Without a bid, make_available should return Ok(None)
         let result = components.make_available(10);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
@@ -760,7 +751,7 @@ mod data_availability_checker_tests {
             .put_kzg_verified_data_columns(block_root, verified_columns)
             .expect("should put columns");
 
-        // Without a block, should still be missing components
+        // Without a bid, should still be missing components
         assert!(matches!(result, Availability::MissingComponents(_)));
     }
 

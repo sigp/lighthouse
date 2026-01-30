@@ -734,7 +734,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
 
-        // TODO(gloas) make this work across both v1 and v2
+        // TODO(gloas) when implementing backfill sync for gloas
+        // we need a batch verify kzg function in the new da checker
         match self
             .chain
             .data_availability_checker

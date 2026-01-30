@@ -671,7 +671,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             }
         }
     }
-    // TODO(gloas) make this work across both v1 and v2
+    // TODO(gloas) When implementing range and backfill sync for gloas
+    // we need a batch verify kzg function in the new da checker as well.
     chain
         .data_availability_checker
         .v1()
@@ -1311,7 +1312,8 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
 
         let maybe_available_block = match &self {
             RpcBlock::FullyAvailable(available_block) => {
-                // TODO(gloas) make this work across both v1 and v2
+                // TODO(gloas) when implementing sync for gloas we need a verify kzg function
+                // added to the new da checker as well.
                 chain
                     .data_availability_checker
                     .v1()

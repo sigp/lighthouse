@@ -15,7 +15,7 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    SignedExecutionPayloadBid, Slot,
 };
 
 mod overflow_lru_cache;
@@ -30,19 +30,20 @@ use crate::metrics::{
 use crate::observed_data_sidecars::ObservationStrategy;
 use types::new_non_zero_usize;
 
-/// The LRU Cache stores `PendingComponents`, which store block and its associated column data.
+/// The LRU Cache stores `PendingComponents`, which store the block root, the execution payload bid, and its associated column data.
+/// The execution payload bid stores the kzg commitments which we use to verify against incoming column data.
 /// Setting this to 32 keeps memory usage reasonable.
 ///
 /// `PendingComponents` are now never removed from the cache manually and are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
 const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 
-/// Represents available data for a block - the block root and its data columns.
+/// Represents available data for a payload - its block root and its data columns.
 pub type AvailableData<E> = (Hash256, DataColumnSidecarList<E>);
 
-/// This type is returned after adding a block / column to the `DataAvailabilityChecker`.
+/// This type is returned after adding a bid / column to the `DataAvailabilityChecker`.
 ///
-/// Indicates if the block's data is fully `Available` or if we need more columns.
+/// Indicates if the payloads data is fully `Available` or if we need more columns.
 pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
     Available(Box<AvailableData<E>>),
@@ -68,10 +69,10 @@ pub enum DataColumnReconstructionResult<E: EthSpec> {
     RecoveredColumnsNotImported(&'static str),
 }
 
-/// Cache to hold data columns for blocks pending data availability.
+/// Cache to hold data columns for payloads pending data availability.
 ///
 /// In Gloas, beacon blocks can be immediately imported into fork choice. The execution payload
-/// is separated from the beacon block. This cache tracks data columns for payloads until all
+/// bid contains the payloads kzg commitments. This cache tracks data columns for payloads until all
 /// required columns are received.
 ///
 /// Usually data becomes available on its slot within a second of receiving its first component
@@ -126,7 +127,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
             })
     }
 
-    /// Insert RPC custody columns and check if the block becomes available.
+    /// Insert RPC custody columns and check if the payload becomes available.
     #[instrument(skip_all, level = "trace")]
     fn put_rpc_custody_columns(
         &self,
@@ -154,9 +155,8 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, verified_custody_columns)
     }
 
-    /// Check if we've cached other data columns for this block. If it satisfies the custody
-    /// requirement and we also have the block cached, return the `Availability` variant
-    /// triggering import. Otherwise cache the data column sidecar.
+    /// Check if we've cached other data columns for this block root. If it satisfies the custody
+    /// requirement, return the `Availability::Available` variant. Otherwise cache the data column sidecar.
     #[instrument(skip_all, level = "trace")]
     fn put_gossip_verified_data_columns<O: ObservationStrategy>(
         &self,
@@ -314,13 +314,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self.custody_context
     }
 
-    /// Insert a block into the cache and check if data becomes available.
-    pub fn put_block(
+    /// Insert an execution payload bid into the cache and check if data becomes available.
+    pub fn put_bid(
         &self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache.put_block(block_root, block)
+        self.availability_cache.put_bid(block_root, bid)
     }
 
     /// Collects metrics from the data availability checker.
