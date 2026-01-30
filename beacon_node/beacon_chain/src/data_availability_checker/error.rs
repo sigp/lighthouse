@@ -19,7 +19,6 @@ pub enum Error {
     StoreError(store::Error),
     DecodeError(ssz::DecodeError),
     ParentStateMissing(Hash256),
-    StateMissing(Hash256),
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
@@ -44,7 +43,6 @@ impl Error {
             | Error::DecodeError(_)
             | Error::Unexpected(_)
             | Error::ParentStateMissing(_)
-            | Error::StateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError
