@@ -1344,6 +1344,16 @@ impl ChainSpec {
             // Gloas
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
+
+            /*
+             * Derived time values (set by `finalize()`)
+             * Precomputed for 6000ms slot: 3333 bps = 1999ms, 6667 bps = 4000ms
+             */
+            unaggregated_attestation_due: Duration::from_millis(1999),
+            aggregate_attestation_due: Duration::from_millis(4000),
+            sync_message_due: Duration::from_millis(1999),
+            contribution_and_proof_due: Duration::from_millis(4000),
+
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -3385,7 +3395,7 @@ mod yaml_tests {
 
     #[test]
     fn test_default_duration_values_without_finalize() {
-        // Verify that mainnet and gnosis have correct pre-computed defaults
+        // Verify that mainnet, minimal, and gnosis have correct pre-computed defaults
         // without needing to call finalize()
         let mainnet = ChainSpec::mainnet();
         assert_eq!(
@@ -3402,6 +3412,23 @@ mod yaml_tests {
             Duration::from_millis(8000)
         );
 
+        // Minimal spec: 6000ms slots, 3333 bps = 1999ms, 6667 bps = 4000ms
+        let minimal = ChainSpec::minimal();
+        assert_eq!(
+            minimal.get_unaggregated_attestation_due(),
+            Duration::from_millis(1999)
+        );
+        assert_eq!(
+            minimal.get_aggregate_attestation_due(),
+            Duration::from_millis(4000)
+        );
+        assert_eq!(minimal.get_sync_message_due(), Duration::from_millis(1999));
+        assert_eq!(
+            minimal.get_contribution_message_due(),
+            Duration::from_millis(4000)
+        );
+
+        // Gnosis spec: 5000ms slots, 3333 bps = 1666ms, 6667 bps = 3333ms
         let gnosis = ChainSpec::gnosis();
         assert_eq!(
             gnosis.get_unaggregated_attestation_due(),
