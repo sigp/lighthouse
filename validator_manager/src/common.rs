@@ -1,5 +1,6 @@
 pub use account_utils::STDIN_INPUTS_FLAG;
 use account_utils::strip_off_newlines;
+use bls::{Keypair, PublicKeyBytes, SignatureBytes};
 use eth2::lighthouse_vc::std_types::{InterchangeJsonStr, KeystoreJsonStr};
 use eth2::{
     SensitiveUrl,

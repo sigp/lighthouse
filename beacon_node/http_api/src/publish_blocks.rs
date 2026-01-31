@@ -19,7 +19,6 @@ use eth2::{
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
-use lighthouse_tracing::SPAN_PUBLISH_BLOCK;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use slot_clock::SlotClock;
@@ -79,7 +78,7 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
 #[instrument(
-    name = SPAN_PUBLISH_BLOCK,
+    name = "lh_publish_block",
     level = "info",
     skip_all,
     fields(block_root = field::Empty, ?validation_level, block_slot = field::Empty, provenance = field::Empty)
@@ -138,9 +137,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             "Signed block published to network via HTTP API"
         );
 
-        crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone())).map_err(
-            |_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)),
-        )?;
+        crate::utils::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
+            .map_err(|_| {
+                BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
+            })?;
 
         Ok(())
     };
@@ -314,9 +314,19 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 slot = %block.slot(),
                 "Block previously seen"
             );
+            let Ok(rpc_block) = RpcBlock::new(
+                block.clone(),
+                None,
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            ) else {
+                return Err(warp_utils::reject::custom_bad_request(
+                    "Unable to construct rpc block".to_string(),
+                ));
+            };
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
@@ -492,7 +502,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
     blob: &GossipVerifiedBlob<T>,
 ) -> Result<(), BlockError> {
     let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
-    crate::publish_pubsub_message(sender_clone, pubsub_message)
+    crate::utils::publish_pubsub_message(sender_clone, pubsub_message)
         .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
@@ -514,18 +524,18 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         data_column_sidecars.shuffle(&mut **chain.rng.lock());
         let dropped_indices = data_column_sidecars
             .drain(columns_to_keep..)
-            .map(|d| d.index)
+            .map(|d| *d.index())
             .collect::<Vec<_>>();
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
     let pubsub_messages = data_column_sidecars
         .into_iter()
         .map(|data_col| {
-            let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
+            let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
             PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col)))
         })
         .collect::<Vec<_>>();
-    crate::publish_pubsub_messages(sender_clone, pubsub_messages)
+    crate::utils::publish_pubsub_messages(sender_clone, pubsub_messages)
         .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 

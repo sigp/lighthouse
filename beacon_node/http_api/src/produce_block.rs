@@ -6,15 +6,16 @@ use crate::{
         add_ssz_content_type_header, beacon_response, inconsistent_fork_rejection,
     },
 };
+use beacon_chain::graffiti_calculator::GraffitiSettings;
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
-use lighthouse_tracing::{SPAN_PRODUCE_BLOCK_V2, SPAN_PRODUCE_BLOCK_V3};
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::instrument;
-use types::{payload::BlockProductionVersion, *};
+use types::{execution::BlockProductionVersion, *};
 use warp::{
     Reply,
     hyper::{Body, Response},
@@ -43,7 +44,7 @@ pub fn get_randao_verification(
 }
 
 #[instrument(
-    name = SPAN_PRODUCE_BLOCK_V3,
+    name = "lh_produce_block_v3",
     skip_all,
     fields(%slot)
 )]
@@ -67,11 +68,13 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         query.builder_boost_factor
     };
 
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
+
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             builder_boost_factor,
             BlockProductionVersion::V3,
@@ -147,11 +150,13 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
+
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             None,
             BlockProductionVersion::BlindedV2,
@@ -163,7 +168,7 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
 }
 
 #[instrument(
-    name = SPAN_PRODUCE_BLOCK_V2,
+    name = "lh_produce_block_v2",
     skip_all,
     fields(%slot)
 )]
@@ -181,12 +186,13 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             None,
             BlockProductionVersion::FullV2,

@@ -7,6 +7,7 @@
 //! Eventually it would be ideal to publish this crate on crates.io, however we have some local
 //! dependencies preventing this presently.
 
+pub mod beacon_response;
 pub mod error;
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
@@ -15,22 +16,31 @@ pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
 
+pub use beacon_response::{
+    BeaconResponse, EmptyMetadata, ExecutionOptimisticFinalizedBeaconResponse,
+    ExecutionOptimisticFinalizedMetadata, ForkVersionedResponse, UnversionedResponse,
+};
+
 pub use self::error::{Error, ok_or_error, success_or_error};
+pub use reqwest;
+pub use reqwest::{StatusCode, Url};
+pub use sensitive_url::SensitiveUrl;
+
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
-use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
+use bls::SignatureBytes;
+use context_deserialize::ContextDeserialize;
 use educe::Educe;
+#[cfg(feature = "events")]
 use futures::Stream;
+#[cfg(feature = "events")]
 use futures_util::StreamExt;
-use libp2p_identity::PeerId;
-pub use reqwest;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response,
     header::{HeaderMap, HeaderValue},
 };
-pub use reqwest::{StatusCode, Url};
+#[cfg(feature = "events")]
 use reqwest_eventsource::{Event, EventSource};
-pub use sensitive_url::SensitiveUrl;
 use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
@@ -1990,7 +2000,7 @@ impl BeaconNodeHttpClient {
     /// `GET node/peers/{peer_id}`
     pub async fn get_node_peers_by_id(
         &self,
-        peer_id: PeerId,
+        peer_id: &str,
     ) -> Result<GenericResponse<PeerData>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1998,7 +2008,7 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("peers")
-            .push(&peer_id.to_string());
+            .push(peer_id);
 
         self.get(path).await
     }
@@ -2214,6 +2224,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<Url, Error> {
         let mut path = self.eth_path(V3)?;
 
@@ -2241,6 +2252,14 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
+        // Only append the HTTP URL request if the graffiti_policy is to AppendClientVersions
+        // If PreserveUserGraffiti (default), then the HTTP URL request does not contain graffiti_policy
+        // so that the default case is compliant to the spec
+        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+            path.query_pairs_mut()
+                .append_pair("graffiti_policy", "AppendClientVersions");
+        }
+
         Ok(path)
     }
 
@@ -2251,6 +2270,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular(
             slot,
@@ -2258,6 +2278,7 @@ impl BeaconNodeHttpClient {
             graffiti,
             SkipRandaoVerification::No,
             builder_booster_factor,
+            graffiti_policy,
         )
         .await
     }
@@ -2270,6 +2291,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         let path = self
             .get_validator_blocks_v3_path(
@@ -2278,6 +2300,7 @@ impl BeaconNodeHttpClient {
                 graffiti,
                 skip_randao_verification,
                 builder_booster_factor,
+                graffiti_policy,
             )
             .await?;
 
@@ -2320,6 +2343,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular_ssz::<E>(
             slot,
@@ -2327,6 +2351,7 @@ impl BeaconNodeHttpClient {
             graffiti,
             SkipRandaoVerification::No,
             builder_booster_factor,
+            graffiti_policy,
         )
         .await
     }
@@ -2339,6 +2364,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         let path = self
             .get_validator_blocks_v3_path(
@@ -2347,6 +2373,7 @@ impl BeaconNodeHttpClient {
                 graffiti,
                 skip_randao_verification,
                 builder_booster_factor,
+                graffiti_policy,
             )
             .await?;
 
@@ -2773,6 +2800,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET events?topics`
+    #[cfg(feature = "events")]
     pub async fn get_events<E: EthSpec>(
         &self,
         topic: &[EventTopic],

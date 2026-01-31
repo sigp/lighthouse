@@ -148,7 +148,8 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{FixedBytesExtended, Hash256};
+    use bls::FixedBytesExtended;
+    use types::Hash256;
 
     fn create_sse_head(slot: u64, block_root: u8) -> SseHead {
         SseHead {

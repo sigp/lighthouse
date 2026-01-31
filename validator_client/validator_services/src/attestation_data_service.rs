@@ -62,7 +62,7 @@ impl ResultAggregator for ConsensusAggregator {
         }
         self.results
             .entry(attestation_data.target)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(index);
 
         if self
@@ -204,7 +204,7 @@ impl<T: SlotClock> AttestationDataService<T> {
             }
             AttestationDataStrategy::Consensus((threshold, checkpoint_and_index)) => {
                 let consensus_aggregator =
-                    ConsensusAggregator::new(*threshold, checkpoint_and_index.clone());
+                    ConsensusAggregator::new(*threshold, *checkpoint_and_index);
                 self.data_with_aggregation(request_slot, consensus_aggregator)
                     .await
             }
@@ -228,9 +228,9 @@ mod tests {
     use beacon_node_fallback::{BeaconNodeFallback, CandidateBeaconNode, Config as FallbackConfig};
     use eth2::{SensitiveUrl, Timeouts};
     use slot_clock::{SlotClock, TestingSlotClock};
+    use bls::FixedBytesExtended;
     use types::{
-        AttestationData, Checkpoint, Epoch, EthSpec, FixedBytesExtended, Hash256, MainnetEthSpec,
-        MinimalEthSpec, Slot,
+        AttestationData, Checkpoint, Epoch, EthSpec, Hash256, MainnetEthSpec, MinimalEthSpec, Slot,
     };
 
     use crate::attestation_data_service::{AttestationDataService, AttestationDataStrategy};

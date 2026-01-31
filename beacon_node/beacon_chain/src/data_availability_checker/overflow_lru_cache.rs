@@ -9,19 +9,18 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::{BeaconChainTypes, BlockProcessStatus};
-use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ssz_types::{RuntimeFixedVector, RuntimeVariableList};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
-use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::BlobIdentifier;
+use types::data::BlobIdentifier;
+use types::kzg_ext::KzgCommitments;
 use types::{
     BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList,
-    SignedBeaconBlock,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
 };
 
 #[derive(Clone)]
@@ -334,7 +333,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns an empty `PendingComponents` object with the given block root.
     pub fn empty(block_root: Hash256, max_len: usize) -> Self {
-        let span = debug_span!(parent: None, SPAN_PENDING_COMPONENTS, %block_root);
+        let span = debug_span!(parent: None, "lh_pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
             block_root,
@@ -839,7 +838,7 @@ mod test {
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::{debug_span, info};
-    use types::non_zero_usize::new_non_zero_usize;
+    use types::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
@@ -1261,15 +1260,14 @@ mod pending_components_tests {
     use crate::PayloadVerificationOutcome;
     use crate::block_verification_types::BlockImportData;
     use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
+    use fixed_bytes::FixedBytesExtended;
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{
-        BeaconState, FixedBytesExtended, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot,
-    };
+    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
 

@@ -1,11 +1,12 @@
+use bls::{AggregateSignature, Signature};
+use fixed_bytes::FixedBytesExtended;
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
-    AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
-    AttesterSlashingElectra, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, IndexedAttestation, MainnetEthSpec, Signature,
-    SignedBeaconBlockHeader, Slot,
-    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
+    AttestationData, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra,
+    BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
+    MainnetEthSpec, SignedBeaconBlockHeader, Slot,
+    attestation::{IndexedAttestationBase, IndexedAttestationElectra},
 };
 
 pub type E = MainnetEthSpec;

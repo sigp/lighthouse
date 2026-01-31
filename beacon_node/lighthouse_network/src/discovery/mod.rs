@@ -51,7 +51,7 @@ use types::{ChainSpec, EnrForkId, EthSpec};
 mod subnet_predicate;
 use crate::discovery::enr::{NEXT_FORK_DIGEST_ENR_KEY, PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY};
 pub use subnet_predicate::subnet_predicate;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
@@ -1231,7 +1231,8 @@ mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV3};
     use libp2p::identity::secp256k1;
-    use types::{BitVector, MinimalEthSpec, SubnetId};
+    use ssz_types::BitVector;
+    use types::{MinimalEthSpec, SubnetId};
 
     type E = MinimalEthSpec;
 

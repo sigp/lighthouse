@@ -1,4 +1,4 @@
-use ethereum_hashing::{ZERO_HASHES, hash, hash32_concat};
+use ethereum_hashing::{ZERO_HASHES, hash32_concat};
 use safe_arith::ArithError;
 use std::sync::LazyLock;
 
@@ -382,20 +382,19 @@ pub fn verify_merkle_proof(
 pub fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usize) -> H256 {
     assert_eq!(branch.len(), depth, "proof length should equal depth");
 
-    let mut merkle_root = leaf.as_slice().to_vec();
+    let mut merkle_root = leaf.0;
 
-    for (i, leaf) in branch.iter().enumerate().take(depth) {
+    for (i, branch_node) in branch.iter().enumerate().take(depth) {
         let ith_bit = (index >> i) & 0x01;
-        if ith_bit == 1 {
-            merkle_root = hash32_concat(leaf.as_slice(), &merkle_root)[..].to_vec();
+        let (left, right) = if ith_bit == 1 {
+            (branch_node.as_slice(), merkle_root.as_slice())
         } else {
-            let mut input = merkle_root;
-            input.extend_from_slice(leaf.as_slice());
-            merkle_root = hash(&input);
-        }
+            (merkle_root.as_slice(), branch_node.as_slice())
+        };
+        merkle_root = hash32_concat(left, right);
     }
 
-    H256::from_slice(&merkle_root)
+    H256::from(merkle_root)
 }
 
 impl From<ArithError> for MerkleTreeError {

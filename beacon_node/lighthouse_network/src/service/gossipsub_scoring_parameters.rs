@@ -1,6 +1,8 @@
 use crate::TopicHash;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use gossipsub::{IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams};
+use libp2p::gossipsub::{
+    IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams,
+};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::marker::PhantomData;

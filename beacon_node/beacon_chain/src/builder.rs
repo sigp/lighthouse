@@ -9,7 +9,7 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::build_data_column_sidecars;
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -21,7 +21,9 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
+use bls::Signature;
 use execution_layer::ExecutionLayer;
+use fixed_bytes::FixedBytesExtended;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
@@ -40,10 +42,11 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
-use types::data_column_custody_group::CustodyIndex;
+use tree_hash::TreeHash;
+use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -1027,7 +1030,6 @@ where
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
-            attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),
             light_client_server_tx: self.light_client_server_tx,
@@ -1058,16 +1060,6 @@ where
         };
 
         let head = beacon_chain.head_snapshot();
-
-        // Prime the attester cache with the head state.
-        beacon_chain
-            .attester_cache
-            .maybe_cache_state(
-                &head.beacon_state,
-                head.beacon_block_root,
-                &beacon_chain.spec,
-            )
-            .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint
@@ -1222,17 +1214,30 @@ fn build_data_columns_from_blobs<E: EthSpec>(
             .blob_kzg_commitments()
             .cloned()
             .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
-        let kzg_commitments_inclusion_proof = beacon_block_body
-            .kzg_commitments_merkle_proof()
-            .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
-        build_data_column_sidecars(
-            kzg_commitments,
-            kzg_commitments_inclusion_proof,
-            block.signed_block_header(),
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+
+        if block.fork_name_unchecked().gloas_enabled() {
+            build_data_column_sidecars_gloas(
+                kzg_commitments,
+                block.message().tree_hash_root(),
+                block.slot(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        } else {
+            let kzg_commitments_inclusion_proof = beacon_block_body
+                .kzg_commitments_merkle_proof()
+                .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
+
+            build_data_column_sidecars_fulu(
+                kzg_commitments,
+                kzg_commitments_inclusion_proof,
+                block.signed_block_header(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        }
     };
     Ok(data_columns)
 }
