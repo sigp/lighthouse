@@ -863,7 +863,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
             // Set the next_unsubscribe delay.
             let unsubscribe_delay = Duration::from_secs(
-                UNSUBSCRIBE_DELAY_EPOCHS * self.beacon_chain.spec.get_slot_duration().as_secs(),
+                UNSUBSCRIBE_DELAY_EPOCHS
+                    * self.beacon_chain.spec.get_slot_duration().as_secs()
+                    * T::EthSpec::slots_per_epoch(),
             );
 
             // Update the `next_topic_subscriptions` timer if the next change in the fork digest is known.
