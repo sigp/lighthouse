@@ -329,7 +329,7 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
                 );
             } else {
                 // 1. Store snapshot or diff at this slot (if required).
-                let storage_strategy = db.hot_storage_strategy(slot)?;
+                let storage_strategy = db.hot_storage_strategy(slot, Slot::new(0), false)?;
                 debug!(
                     %slot,
                     ?state_root,
@@ -394,6 +394,8 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
                             slot,
                             latest_block_root: old_summary.latest_block_root,
                             latest_block_slot: old_summary.latest_block_slot,
+                            // TODO(gloas): this migration is using the previous type
+                            latest_block_is_full: false,
                             previous_state_root,
                             diff_base_state,
                         };

@@ -42,6 +42,8 @@ pub struct FinalizedState<E: EthSpec> {
 }
 
 /// Map from block_root -> slot -> payload_status -> state_root.
+/// TODO(gloas): Before gloas there's a state for each (block_root, slot). After Gloas there's a
+/// state for each (block_root, payload_status, slot), in that order.
 #[derive(Debug, Default)]
 pub struct BlockMap {
     blocks: HashMap<Hash256, SlotMap>,
@@ -286,7 +288,7 @@ impl<E: EthSpec> StateCache<E> {
         self.block_map.insert(
             block_root,
             state.slot(),
-            PayloadStatus::from_state(&state),
+            PayloadStatus::from_state(state),
             state_root,
         );
 
