@@ -112,6 +112,14 @@ pub struct ChainSpec {
     pub contribution_due_bps: u64,
 
     /*
+     * Derived time values (computed at startup via `finalize()`)
+     */
+    pub unaggregated_attestation_due: Duration,
+    pub aggregate_attestation_due: Duration,
+    pub sync_message_due: Duration,
+    pub contribution_and_proof_due: Duration,
+
+    /*
      * Reward and penalty quotients
      */
     pub base_reward_factor: u64,
@@ -853,28 +861,32 @@ impl ChainSpec {
         )
     }
 
-    /// Get the duration into a slot in which an unaggregated attestation is due
-    pub fn get_unaggregated_attestation_due(&self) -> Result<Duration, ArithError> {
-        self.get_slot_component_duration(self.attestation_due_bps)
+    /// Get the duration into a slot in which an unaggregated attestation is due.
+    /// Returns the pre-computed value from `finalize()`.
+    pub fn get_unaggregated_attestation_due(&self) -> Duration {
+        self.unaggregated_attestation_due
     }
 
-    /// Get the duration into a slot in which an aggregated attestation is due
-    pub fn get_aggregate_attestation_due(&self) -> Result<Duration, ArithError> {
-        self.get_slot_component_duration(self.aggregate_due_bps)
+    /// Get the duration into a slot in which an aggregated attestation is due.
+    /// Returns the pre-computed value from `finalize()`.
+    pub fn get_aggregate_attestation_due(&self) -> Duration {
+        self.aggregate_attestation_due
     }
 
-    /// Get the duration into a slot in which a `SignedContributionAndProof` is due
-    pub fn get_contribution_message_due(&self) -> Result<Duration, ArithError> {
-        self.get_slot_component_duration(self.contribution_due_bps)
+    /// Get the duration into a slot in which a `SignedContributionAndProof` is due.
+    /// Returns the pre-computed value from `finalize()`.
+    pub fn get_contribution_message_due(&self) -> Duration {
+        self.contribution_and_proof_due
     }
 
-    /// Get the duration into a slot in which a sync committee message is due
-    pub fn get_sync_message_due(&self) -> Result<Duration, ArithError> {
-        self.get_slot_component_duration(self.sync_message_due_bps)
+    /// Get the duration into a slot in which a sync committee message is due.
+    /// Returns the pre-computed value from `finalize()`.
+    pub fn get_sync_message_due(&self) -> Duration {
+        self.sync_message_due
     }
 
     /// Calculate the duration into a slot for a given slot component
-    fn get_slot_component_duration(
+    fn compute_slot_component_duration(
         &self,
         component_basis_points: u64,
     ) -> Result<Duration, ArithError> {
@@ -888,6 +900,45 @@ impl ChainSpec {
     /// Get the duration of a slot
     pub fn get_slot_duration(&self) -> Duration {
         Duration::from_millis(self.slot_duration_ms)
+    }
+
+    /// Compute derived timing values. Must be called after loading a ChainSpec.
+    /// Panics if any timing computation fails (indicates invalid config).
+    pub fn finalize(mut self) -> Self {
+        assert!(
+            self.attestation_due_bps <= BASIS_POINTS,
+            "invalid chain spec: attestation_due_bps ({}) exceeds slot duration",
+            self.attestation_due_bps
+        );
+        assert!(
+            self.aggregate_due_bps <= BASIS_POINTS,
+            "invalid chain spec: aggregate_due_bps ({}) exceeds slot duration",
+            self.aggregate_due_bps
+        );
+        assert!(
+            self.sync_message_due_bps <= BASIS_POINTS,
+            "invalid chain spec: sync_message_due_bps ({}) exceeds slot duration",
+            self.sync_message_due_bps
+        );
+        assert!(
+            self.contribution_due_bps <= BASIS_POINTS,
+            "invalid chain spec: contribution_due_bps ({}) exceeds slot duration",
+            self.contribution_due_bps
+        );
+
+        self.unaggregated_attestation_due = self
+            .compute_slot_component_duration(self.attestation_due_bps)
+            .expect("invalid chain spec: cannot compute unaggregated_attestation_due");
+        self.aggregate_attestation_due = self
+            .compute_slot_component_duration(self.aggregate_due_bps)
+            .expect("invalid chain spec: cannot compute aggregate_attestation_due");
+        self.sync_message_due = self
+            .compute_slot_component_duration(self.sync_message_due_bps)
+            .expect("invalid chain spec: cannot compute sync_message_due");
+        self.contribution_and_proof_due = self
+            .compute_slot_component_duration(self.contribution_due_bps)
+            .expect("invalid chain spec: cannot compute contribution_and_proof_due");
+        self
     }
 
     /// Returns the slot at which the proposer shuffling was decided.
@@ -994,6 +1045,14 @@ impl ChainSpec {
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
+
+            /*
+             * Derived time values (set by `finalize()`)
+             */
+            unaggregated_attestation_due: Duration::from_millis(3999),
+            aggregate_attestation_due: Duration::from_millis(8000),
+            sync_message_due: Duration::from_millis(3999),
+            contribution_and_proof_due: Duration::from_millis(8000),
 
             /*
              * Reward and penalty quotients
@@ -1368,6 +1427,15 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             aggregate_due_bps: 6667,
+
+            /*
+             * Derived time values (set by `finalize()`)
+             * Precomputed for 5000ms slot: 3333 bps = 1666ms, 6667 bps = 3333ms
+             */
+            unaggregated_attestation_due: Duration::from_millis(1666),
+            aggregate_attestation_due: Duration::from_millis(3333),
+            sync_message_due: Duration::from_millis(1666),
+            contribution_and_proof_due: Duration::from_millis(3333),
 
             /*
              * Reward and penalty quotients
@@ -1932,6 +2000,22 @@ pub struct Config {
     #[serde(default = "default_min_epochs_for_data_column_sidecars_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_data_column_sidecars_requests: u64,
+
+    #[serde(default = "default_proposer_reorg_cutoff_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    proposer_reorg_cutoff_bps: u64,
+    #[serde(default = "default_attestation_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_due_bps: u64,
+    #[serde(default = "default_aggregate_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    aggregate_due_bps: u64,
+    #[serde(default = "default_sync_message_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    sync_message_due_bps: u64,
+    #[serde(default = "default_contribution_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    contribution_due_bps: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2135,6 +2219,26 @@ const fn default_balance_per_additional_custody_group() -> u64 {
 
 const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
     4096
+}
+
+const fn default_proposer_reorg_cutoff_bps() -> u64 {
+    1667
+}
+
+const fn default_attestation_due_bps() -> u64 {
+    3333
+}
+
+const fn default_aggregate_due_bps() -> u64 {
+    6667
+}
+
+const fn default_sync_message_due_bps() -> u64 {
+    3333
+}
+
+const fn default_contribution_due_bps() -> u64 {
+    6667
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2359,6 +2463,12 @@ impl Config {
             balance_per_additional_custody_group: spec.balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests: spec
                 .min_epochs_for_data_column_sidecars_requests,
+
+            proposer_reorg_cutoff_bps: spec.proposer_reorg_cutoff_bps,
+            attestation_due_bps: spec.attestation_due_bps,
+            aggregate_due_bps: spec.aggregate_due_bps,
+            sync_message_due_bps: spec.sync_message_due_bps,
+            contribution_due_bps: spec.contribution_due_bps,
         }
     }
 
@@ -2445,6 +2555,11 @@ impl Config {
             validator_custody_requirement,
             balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests,
+            proposer_reorg_cutoff_bps,
+            attestation_due_bps,
+            aggregate_due_bps,
+            sync_message_due_bps,
+            contribution_due_bps,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2542,6 +2657,12 @@ impl Config {
             validator_custody_requirement,
             balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests,
+
+            proposer_reorg_cutoff_bps,
+            attestation_due_bps,
+            aggregate_due_bps,
+            sync_message_due_bps,
+            contribution_due_bps,
 
             ..chain_spec.clone()
         })
@@ -3191,22 +3312,22 @@ mod yaml_tests {
 
     #[test]
     fn test_slot_component_duration_calculations() {
-        let spec = ChainSpec::mainnet();
+        let spec = ChainSpec::mainnet().finalize();
 
         // Test unaggregated attestation (3333 bps = 33.33% of 12s = 4s)
-        let unagg_due = spec.get_unaggregated_attestation_due().unwrap();
+        let unagg_due = spec.get_unaggregated_attestation_due();
         assert_eq!(unagg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
 
         // Test aggregate attestation (6667 bps = 66.67% of 12s = 8s)
-        let agg_due = spec.get_aggregate_attestation_due().unwrap();
+        let agg_due = spec.get_aggregate_attestation_due();
         assert_eq!(agg_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
 
         // Test sync message (3333 bps = 33.33% of 12s = 4s)
-        let sync_msg_due = spec.get_sync_message_due().unwrap();
+        let sync_msg_due = spec.get_sync_message_due();
         assert_eq!(sync_msg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
 
         // Test contribution message (6667 bps = 66.67% of 12s = 8s)
-        let contribution_due = spec.get_contribution_message_due().unwrap();
+        let contribution_due = spec.get_contribution_message_due();
         assert_eq!(contribution_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
 
         // Test slot duration
@@ -3219,35 +3340,90 @@ mod yaml_tests {
 
         // Edge case: 0 bps should give 0 duration
         custom_spec.attestation_due_bps = 0;
-        let zero_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        let custom_spec = custom_spec.finalize();
+        let zero_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(zero_due, Duration::from_millis(0));
 
         // Edge case: 10000 bps (100%) should give full slot duration
+        let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 10_000;
-        let full_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        let custom_spec = custom_spec.finalize();
+        let full_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(full_due, Duration::from_millis(12000));
 
         // Edge case: 5000 bps (50%) should give half slot duration
+        let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 5_000;
-        let half_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        let custom_spec = custom_spec.finalize();
+        let half_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(half_due, Duration::from_millis(6000));
 
         // Test with different slot duration (Gnosis: 5s slots)
+        let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 5000;
         custom_spec.attestation_due_bps = 3333;
-        let gnosis_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        let custom_spec = custom_spec.finalize();
+        let gnosis_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(gnosis_due, Duration::from_millis(1666)); // 5000 * 3333 / 10000
 
         // Test with very small slot duration
+        let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 1000; // 1 second
         custom_spec.attestation_due_bps = 3333;
-        let small_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        let custom_spec = custom_spec.finalize();
+        let small_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(small_due, Duration::from_millis(333)); // 1000 * 3333 / 10000
 
         // Test rounding behavior with non-divisible values
+        let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 12000;
         custom_spec.attestation_due_bps = 1; // 0.01%
-        let tiny_due = custom_spec.get_unaggregated_attestation_due().unwrap();
+        let custom_spec = custom_spec.finalize();
+        let tiny_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
+    }
+
+    #[test]
+    fn test_default_duration_values_without_finalize() {
+        // Verify that mainnet and gnosis have correct pre-computed defaults
+        // without needing to call finalize()
+        let mainnet = ChainSpec::mainnet();
+        assert_eq!(
+            mainnet.get_unaggregated_attestation_due(),
+            Duration::from_millis(3999)
+        );
+        assert_eq!(
+            mainnet.get_aggregate_attestation_due(),
+            Duration::from_millis(8000)
+        );
+        assert_eq!(mainnet.get_sync_message_due(), Duration::from_millis(3999));
+        assert_eq!(
+            mainnet.get_contribution_message_due(),
+            Duration::from_millis(8000)
+        );
+
+        let gnosis = ChainSpec::gnosis();
+        assert_eq!(
+            gnosis.get_unaggregated_attestation_due(),
+            Duration::from_millis(1666)
+        );
+        assert_eq!(
+            gnosis.get_aggregate_attestation_due(),
+            Duration::from_millis(3333)
+        );
+        assert_eq!(gnosis.get_sync_message_due(), Duration::from_millis(1666));
+        assert_eq!(
+            gnosis.get_contribution_message_due(),
+            Duration::from_millis(3333)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds slot duration")]
+    fn test_finalize_panics_on_invalid_bps_values() {
+        let mut spec = ChainSpec::mainnet();
+        // 15000 bps = 150% of slot duration, which is invalid
+        spec.attestation_due_bps = 15000;
+        spec.finalize();
     }
 }

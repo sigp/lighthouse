@@ -5005,13 +5005,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_of(slot)
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
-        block_delays.observed.is_some_and(|delay| {
-            delay
-                >= self
-                    .spec
-                    .get_unaggregated_attestation_due()
-                    .unwrap_or_else(|_| Duration::from_secs(0))
-        })
+        block_delays
+            .observed
+            .is_some_and(|delay| delay >= self.spec.get_unaggregated_attestation_due())
     }
 
     /// Produce a block for some `slot` upon the given `state`.

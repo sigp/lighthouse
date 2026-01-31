@@ -106,9 +106,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let executor = self.executor.clone();
 
-        let sync_message_slot_component = spec
-            .get_sync_message_due()
-            .map_err(|_| "Failed to get sync message due duration".to_string())?;
+        let sync_message_slot_component = spec.get_sync_message_due();
 
         let interval_fut = async move {
             loop {

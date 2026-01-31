@@ -75,10 +75,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             .slot_clock
             .start_of(rcv_finality_update.signature_slot())
             .ok_or(Error::SigSlotStartIsNone)?;
-        let one_third_slot_duration = chain
-            .spec
-            .get_sync_message_due()
-            .map_err(|_| Error::Ignore)?;
+        let one_third_slot_duration = chain.spec.get_sync_message_due();
         if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
             < start_time + one_third_slot_duration
         {
