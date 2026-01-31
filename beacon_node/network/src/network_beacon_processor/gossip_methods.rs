@@ -331,7 +331,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         seen_timestamp,
                         indexed_attestation,
                         &self.chain.slot_clock,
-                        &self.chain.spec,
                     );
 
                 // If the attestation is still timely, propagate it.

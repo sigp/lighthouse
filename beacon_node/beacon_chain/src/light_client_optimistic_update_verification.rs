@@ -71,10 +71,10 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .start_of(rcv_optimistic_update.signature_slot())
             .ok_or(Error::SigSlotStartIsNone)?;
 
-        let one_third_slot_duration = chain.spec.get_sync_message_due();
+        let sync_message_due = chain.spec.get_sync_message_due();
 
         if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
-            < start_time + one_third_slot_duration
+            < start_time + sync_message_due
         {
             return Err(Error::TooEarly);
         }

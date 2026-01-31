@@ -1180,14 +1180,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
-        spec: &ChainSpec,
     ) {
         self.register_unaggregated_attestation(
             "gossip",
             seen_timestamp,
             indexed_attestation,
             slot_clock,
-            spec,
         )
     }
 
@@ -1197,14 +1195,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
-        spec: &ChainSpec,
     ) {
         self.register_unaggregated_attestation(
             "api",
             seen_timestamp,
             indexed_attestation,
             slot_clock,
-            spec,
         )
     }
 
@@ -1214,14 +1210,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         seen_timestamp: Duration,
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
-        spec: &ChainSpec,
     ) {
         let data = indexed_attestation.data();
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            spec.get_unaggregated_attestation_due(),
+            Duration::from_secs(0),
             slot_clock,
         );
 
