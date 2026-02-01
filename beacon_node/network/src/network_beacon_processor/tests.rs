@@ -10,7 +10,7 @@ use crate::{
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::custody_context::NodeCustodyType;
-use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
+use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
@@ -39,12 +39,14 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
-    DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
-    SubnetId,
+    AttesterSlashing, BlobSidecar, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
+    EthSpec, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+};
+use types::{
+    BlobSidecarList,
+    data::{BlobIdentifier, FixedBlobSidecarList},
 };
 
 type E = MainnetEthSpec;
@@ -309,7 +311,7 @@ impl TestRig {
                 )
                 .unwrap()
                 .into_iter()
-                .filter(|c| sampling_indices.contains(&c.index))
+                .filter(|c| sampling_indices.contains(c.index()))
                 .collect::<Vec<_>>();
 
                 (None, Some(custody_columns))
@@ -386,7 +388,7 @@ impl TestRig {
                 .send_gossip_data_column_sidecar(
                     junk_message_id(),
                     junk_peer_id(),
-                    DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
+                    DataColumnSubnetId::from_column_index(*data_column.index(), &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
                 )
@@ -399,7 +401,13 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new(
+                    self.next_block.clone(),
+                    None,
+                    &self._harness.chain.data_availability_checker,
+                    self._harness.spec.clone(),
+                )
+                .unwrap(),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
@@ -411,7 +419,13 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new(
+                    self.next_block.clone(),
+                    None,
+                    &self._harness.chain.data_availability_checker,
+                    self._harness.spec.clone(),
+                )
+                .unwrap(),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
@@ -1115,8 +1129,8 @@ async fn accept_processed_gossip_data_columns_without_import() {
         .into_iter()
         .map(|data_column| {
             let subnet_id =
-                DataColumnSubnetId::from_column_index(data_column.index, &rig.chain.spec);
-            validate_data_column_sidecar_for_gossip::<_, DoNotObserve>(
+                DataColumnSubnetId::from_column_index(*data_column.index(), &rig.chain.spec);
+            validate_data_column_sidecar_for_gossip_fulu::<_, DoNotObserve>(
                 data_column,
                 subnet_id,
                 &rig.chain,
@@ -1948,7 +1962,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
         } = next
         {
             if let Some(column) = data_column {
-                received_columns.push(column.index);
+                received_columns.push(*column.index());
             } else {
                 break;
             }
