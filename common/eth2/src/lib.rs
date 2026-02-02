@@ -2800,9 +2800,12 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
+        // Long timeout for events, some events are quite infrequent.
+        let event_timeout = Duration::from_secs(5 * 60);
         let mut es = self
             .client
             .get(path)
+            .timeout(event_timeout)
             .eventsource()
             .map_err(Error::SseEventSource)?;
         // If we don't await `Event::Open` here, then the consumer
