@@ -3205,7 +3205,15 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let s = futures::stream::select_all(receivers);
 
-                    Ok(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                    Ok(warp::reply::with_header(
+                        warp::reply::with_header(
+                            warp::sse::reply(warp::sse::keep_alive().stream(s)),
+                            "X-Accel-Buffering",
+                            "no",
+                        ),
+                        "Cache-Control",
+                        "no-cache, no-store, must-revalidate",
+                    ))
                 })
             },
         );
