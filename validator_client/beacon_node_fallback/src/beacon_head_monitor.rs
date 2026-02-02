@@ -179,7 +179,9 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                 continue;
             }
             Err(e) => {
-                return Err(format!("Head monitoring stream error {e:?}"));
+                return Err(format!(
+                    "Head monitoring stream error, node: {candidate_index}, error: {e:?}"
+                ));
             }
         }
     }
