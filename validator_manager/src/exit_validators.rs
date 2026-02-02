@@ -280,7 +280,7 @@ pub fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Opt
     let slot_clock = SystemTimeSlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_time),
-        Duration::from_millis(spec.slot_duration_ms),
+        spec.get_slot_duration(),
     );
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }

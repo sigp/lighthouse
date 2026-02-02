@@ -98,7 +98,8 @@ pub struct ChainSpec {
     pub genesis_delay: u64,
     // TODO deprecate seconds_per_slot
     pub seconds_per_slot: u64,
-    pub slot_duration_ms: u64,
+    // Private so that this value can't get changed except via the `set_slot_duration_ms` function.
+    slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
@@ -902,10 +903,18 @@ impl ChainSpec {
         Duration::from_millis(self.slot_duration_ms)
     }
 
-    /// Compute derived timing values from basis point configurations.
-    /// Must be called after loading or modifying a ChainSpec's timing-related fields.
-    /// Panics if any timing computation fails (indicates invalid config).
-    pub fn compute_derived_values(mut self) -> Self {
+    /// Set the duration of a slot (in ms).
+    pub fn set_slot_duration_ms<E: EthSpec>(mut self, slot_duration_ms: u64) -> Self {
+        self.slot_duration_ms = slot_duration_ms;
+        self.compute_derived_values::<E>()
+    }
+
+    /// Compute values that are derived from other config values.
+    ///
+    /// Must be called after loading or modifying a ChainSpec's fields.
+    ///
+    /// Panics if any computation fails (indicates invalid config).
+    pub fn compute_derived_values<E: EthSpec>(mut self) -> Self {
         assert!(
             self.attestation_due_bps <= BASIS_POINTS,
             "invalid chain spec: attestation_due_bps ({}) exceeds slot duration",
@@ -939,6 +948,21 @@ impl ChainSpec {
         self.contribution_and_proof_due = self
             .compute_slot_component_duration(self.contribution_due_bps)
             .expect("invalid chain spec: cannot compute contribution_and_proof_due");
+
+        self.attestation_subnet_prefix_bits = compute_attestation_subnet_prefix_bits(
+            self.attestation_subnet_count,
+            self.attestation_subnet_extra_bits,
+        );
+
+        self.max_blocks_by_root_request =
+            max_blocks_by_root_request_common(self.max_request_blocks);
+        self.max_blocks_by_root_request_deneb =
+            max_blocks_by_root_request_common(self.max_request_blocks_deneb);
+        self.max_blobs_by_root_request =
+            max_blobs_by_root_request_common(self.max_request_blob_sidecars);
+        self.max_data_columns_by_root_request =
+            max_data_columns_by_root_request_common::<E>(self.max_request_blocks_deneb);
+
         self
     }
 
@@ -2577,7 +2601,7 @@ impl Config {
             return None;
         }
 
-        Some(ChainSpec {
+        let spec = ChainSpec {
             config_name: config_name.clone(),
             min_genesis_active_validator_count,
             min_genesis_time,
@@ -2629,11 +2653,6 @@ impl Config {
             resp_timeout,
             message_domain_invalid_snappy,
             message_domain_valid_snappy,
-            // Compute attestation_subnet_prefix_bits dynamically
-            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(
-                attestation_subnet_count,
-                attestation_subnet_extra_bits,
-            ),
             max_request_blocks,
             attestation_propagation_slot_range,
             maximum_gossip_clock_disparity,
@@ -2649,16 +2668,6 @@ impl Config {
             max_blobs_per_block_electra,
             max_request_blob_sidecars_electra,
             blob_sidecar_subnet_count_electra,
-
-            // We need to re-derive any values that might have changed in the config.
-            max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
-            max_blocks_by_root_request_deneb: max_blocks_by_root_request_common(
-                max_request_blocks_deneb,
-            ),
-            max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
-            max_data_columns_by_root_request: max_data_columns_by_root_request_common::<E>(
-                max_request_blocks_deneb,
-            ),
 
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
@@ -2676,7 +2685,8 @@ impl Config {
             contribution_due_bps,
 
             ..chain_spec.clone()
-        })
+        };
+        Some(spec.compute_derived_values::<E>())
     }
 }
 
@@ -3323,7 +3333,7 @@ mod yaml_tests {
 
     #[test]
     fn test_slot_component_duration_calculations() {
-        let spec = ChainSpec::mainnet().compute_derived_values();
+        let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
 
         // Test unaggregated attestation (3333 bps = 33.33% of 12s = 4s)
         let unagg_due = spec.get_unaggregated_attestation_due();
@@ -3351,21 +3361,21 @@ mod yaml_tests {
 
         // Edge case: 0 bps should give 0 duration
         custom_spec.attestation_due_bps = 0;
-        let custom_spec = custom_spec.compute_derived_values();
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let zero_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(zero_due, Duration::from_millis(0));
 
         // Edge case: 10000 bps (100%) should give full slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 10_000;
-        let custom_spec = custom_spec.compute_derived_values();
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let full_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(full_due, Duration::from_millis(12000));
 
         // Edge case: 5000 bps (50%) should give half slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 5_000;
-        let custom_spec = custom_spec.compute_derived_values();
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let half_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(half_due, Duration::from_millis(6000));
 
@@ -3373,7 +3383,7 @@ mod yaml_tests {
         let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 5000;
         custom_spec.attestation_due_bps = 3333;
-        let custom_spec = custom_spec.compute_derived_values();
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let gnosis_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(gnosis_due, Duration::from_millis(1666)); // 5000 * 3333 / 10000
 
@@ -3381,7 +3391,7 @@ mod yaml_tests {
         let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 1000; // 1 second
         custom_spec.attestation_due_bps = 3333;
-        let custom_spec = custom_spec.compute_derived_values();
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let small_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(small_due, Duration::from_millis(333)); // 1000 * 3333 / 10000
 
@@ -3389,7 +3399,7 @@ mod yaml_tests {
         let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 12000;
         custom_spec.attestation_due_bps = 1; // 0.01%
-        let custom_spec = custom_spec.compute_derived_values();
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let tiny_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
     }
@@ -3452,6 +3462,6 @@ mod yaml_tests {
         let mut spec = ChainSpec::mainnet();
         // 15000 bps = 150% of slot duration, which is invalid
         spec.attestation_due_bps = 15000;
-        spec.compute_derived_values();
+        spec.compute_derived_values::<MainnetEthSpec>();
     }
 }
