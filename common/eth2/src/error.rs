@@ -15,8 +15,10 @@ pub enum Error {
     /// The `reqwest` client raised an error.
     HttpClient(PrettyReqwestError),
     #[cfg(feature = "events")]
-    /// Error from SSE stream processing.
-    SseStream(String),
+    /// The `reqwest_eventsource` client raised an error.
+    SseClient(Box<reqwest_eventsource::Error>),
+    #[cfg(feature = "events")]
+    SseEventSource(reqwest_eventsource::CannotCloneRequestError),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message with an array of errors.
@@ -93,7 +95,14 @@ impl Error {
         match self {
             Error::HttpClient(error) => error.inner().status(),
             #[cfg(feature = "events")]
-            Error::SseStream(_) => None,
+            Error::SseClient(error) => {
+                if let reqwest_eventsource::Error::InvalidStatusCode(status, _) = error.as_ref() {
+                    Some(*status)
+                } else {
+                    None
+                }
+            }
+            Error::SseEventSource(_) => None,
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
