@@ -112,7 +112,7 @@ pub struct ChainSpec {
     pub contribution_due_bps: u64,
 
     /*
-     * Derived time values (computed at startup via `finalize()`)
+     * Derived time values (computed at startup via `compute_derived_values()`)
      */
     pub unaggregated_attestation_due: Duration,
     pub aggregate_attestation_due: Duration,
@@ -862,25 +862,25 @@ impl ChainSpec {
     }
 
     /// Get the duration into a slot in which an unaggregated attestation is due.
-    /// Returns the pre-computed value from `finalize()`.
+    /// Returns the pre-computed value from `compute_derived_values()`.
     pub fn get_unaggregated_attestation_due(&self) -> Duration {
         self.unaggregated_attestation_due
     }
 
     /// Get the duration into a slot in which an aggregated attestation is due.
-    /// Returns the pre-computed value from `finalize()`.
+    /// Returns the pre-computed value from `compute_derived_values()`.
     pub fn get_aggregate_attestation_due(&self) -> Duration {
         self.aggregate_attestation_due
     }
 
     /// Get the duration into a slot in which a `SignedContributionAndProof` is due.
-    /// Returns the pre-computed value from `finalize()`.
+    /// Returns the pre-computed value from `compute_derived_values()`.
     pub fn get_contribution_message_due(&self) -> Duration {
         self.contribution_and_proof_due
     }
 
     /// Get the duration into a slot in which a sync committee message is due.
-    /// Returns the pre-computed value from `finalize()`.
+    /// Returns the pre-computed value from `compute_derived_values()`.
     pub fn get_sync_message_due(&self) -> Duration {
         self.sync_message_due
     }
@@ -902,9 +902,10 @@ impl ChainSpec {
         Duration::from_millis(self.slot_duration_ms)
     }
 
-    /// Compute derived timing values. Must be called after loading a ChainSpec.
+    /// Compute derived timing values from basis point configurations.
+    /// Must be called after loading or modifying a ChainSpec's timing-related fields.
     /// Panics if any timing computation fails (indicates invalid config).
-    pub fn finalize(mut self) -> Self {
+    pub fn compute_derived_values(mut self) -> Self {
         assert!(
             self.attestation_due_bps <= BASIS_POINTS,
             "invalid chain spec: attestation_due_bps ({}) exceeds slot duration",
@@ -1047,7 +1048,7 @@ impl ChainSpec {
             contribution_due_bps: 6667,
 
             /*
-             * Derived time values (set by `finalize()`)
+             * Derived time values (set by `compute_derived_values()`)
              */
             unaggregated_attestation_due: Duration::from_millis(3999),
             aggregate_attestation_due: Duration::from_millis(8000),
@@ -1346,7 +1347,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
 
             /*
-             * Derived time values (set by `finalize()`)
+             * Derived time values (set by `compute_derived_values()`)
              * Precomputed for 6000ms slot: 3333 bps = 1999ms, 6667 bps = 4000ms
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
@@ -1439,7 +1440,7 @@ impl ChainSpec {
             aggregate_due_bps: 6667,
 
             /*
-             * Derived time values (set by `finalize()`)
+             * Derived time values (set by `compute_derived_values()`)
              * Precomputed for 5000ms slot: 3333 bps = 1666ms, 6667 bps = 3333ms
              */
             unaggregated_attestation_due: Duration::from_millis(1666),
@@ -3322,7 +3323,7 @@ mod yaml_tests {
 
     #[test]
     fn test_slot_component_duration_calculations() {
-        let spec = ChainSpec::mainnet().finalize();
+        let spec = ChainSpec::mainnet().compute_derived_values();
 
         // Test unaggregated attestation (3333 bps = 33.33% of 12s = 4s)
         let unagg_due = spec.get_unaggregated_attestation_due();
@@ -3350,21 +3351,21 @@ mod yaml_tests {
 
         // Edge case: 0 bps should give 0 duration
         custom_spec.attestation_due_bps = 0;
-        let custom_spec = custom_spec.finalize();
+        let custom_spec = custom_spec.compute_derived_values();
         let zero_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(zero_due, Duration::from_millis(0));
 
         // Edge case: 10000 bps (100%) should give full slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 10_000;
-        let custom_spec = custom_spec.finalize();
+        let custom_spec = custom_spec.compute_derived_values();
         let full_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(full_due, Duration::from_millis(12000));
 
         // Edge case: 5000 bps (50%) should give half slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 5_000;
-        let custom_spec = custom_spec.finalize();
+        let custom_spec = custom_spec.compute_derived_values();
         let half_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(half_due, Duration::from_millis(6000));
 
@@ -3372,7 +3373,7 @@ mod yaml_tests {
         let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 5000;
         custom_spec.attestation_due_bps = 3333;
-        let custom_spec = custom_spec.finalize();
+        let custom_spec = custom_spec.compute_derived_values();
         let gnosis_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(gnosis_due, Duration::from_millis(1666)); // 5000 * 3333 / 10000
 
@@ -3380,7 +3381,7 @@ mod yaml_tests {
         let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 1000; // 1 second
         custom_spec.attestation_due_bps = 3333;
-        let custom_spec = custom_spec.finalize();
+        let custom_spec = custom_spec.compute_derived_values();
         let small_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(small_due, Duration::from_millis(333)); // 1000 * 3333 / 10000
 
@@ -3388,15 +3389,15 @@ mod yaml_tests {
         let mut custom_spec = custom_spec;
         custom_spec.slot_duration_ms = 12000;
         custom_spec.attestation_due_bps = 1; // 0.01%
-        let custom_spec = custom_spec.finalize();
+        let custom_spec = custom_spec.compute_derived_values();
         let tiny_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
     }
 
     #[test]
-    fn test_default_duration_values_without_finalize() {
+    fn test_default_duration_values_without_compute_derived_values() {
         // Verify that mainnet, minimal, and gnosis have correct pre-computed defaults
-        // without needing to call finalize()
+        // without needing to call compute_derived_values()
         let mainnet = ChainSpec::mainnet();
         assert_eq!(
             mainnet.get_unaggregated_attestation_due(),
@@ -3447,10 +3448,10 @@ mod yaml_tests {
 
     #[test]
     #[should_panic(expected = "exceeds slot duration")]
-    fn test_finalize_panics_on_invalid_bps_values() {
+    fn test_compute_derived_values_panics_on_invalid_bps_values() {
         let mut spec = ChainSpec::mainnet();
         // 15000 bps = 150% of slot duration, which is invalid
         spec.attestation_due_bps = 15000;
-        spec.finalize();
+        spec.compute_derived_values();
     }
 }

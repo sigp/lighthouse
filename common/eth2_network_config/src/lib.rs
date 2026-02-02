@@ -193,7 +193,7 @@ impl Eth2NetworkConfig {
     /// Construct a consolidated `ChainSpec` from the YAML config.
     pub fn chain_spec<E: EthSpec>(&self) -> Result<ChainSpec, String> {
         ChainSpec::from_config::<E>(&self.config)
-            .map(ChainSpec::finalize)
+            .map(ChainSpec::compute_derived_values)
             .ok_or_else(|| {
                 format!(
                     "YAML configuration incompatible with spec constants for {}",
