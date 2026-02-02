@@ -119,7 +119,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
+                    if let Err(e) = self.spawn_contribution_tasks().await {
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
@@ -142,7 +142,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    async fn spawn_contribution_tasks(&self) -> Result<(), String> {
+        let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -151,11 +152,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         // If a validator needs to publish a sync aggregate, they must do so at 2/3
         // through the slot. This delay triggers at this time
-
-        // TODO(slot-duration) this should pull from CONTRIBUTION_DUE_BPS
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_sub(slot_duration / 3)
+                .checked_add(spec.get_contribution_message_due())
+                .and_then(|offset| offset.checked_sub(spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let Some(slot_duties) = self
