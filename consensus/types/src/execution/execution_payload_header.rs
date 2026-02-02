@@ -275,7 +275,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderElectra<E> {
 }
 
 impl<E: EthSpec> ExecutionPayloadHeaderFulu<E> {
-    pub fn upgrade_to_gloas(&self) -> ExecutionPayloadHeaderGloas<E> {
+    pub fn upgrade_to_gloas(&self, slot_number: u64) -> ExecutionPayloadHeaderGloas<E> {
         ExecutionPayloadHeaderGloas {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
@@ -295,7 +295,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderFulu<E> {
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
             block_access_list_root: Hash256::zero(),
-            slot_number: 0,
+            slot_number,
         }
     }
 }

@@ -64,7 +64,9 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution - upgrade header from Fulu to Gloas
-        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_gloas(),
+        latest_execution_payload_header: pre
+            .latest_execution_payload_header
+            .upgrade_to_gloas(pre.latest_block_header.slot.into()),
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
