@@ -187,7 +187,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
-    // Recalculate timing values after modifying slot_duration_ms
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
