@@ -254,4 +254,12 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .filter(|item| item.beacon_block_root == block_root)
             .map(|item| item.proto_block.clone())
     }
+
+    /// Fetch the slot and block root of the current head block.
+    pub fn get_head_block_root(&self) -> Option<(Slot, Hash256)> {
+        self.item
+            .read()
+            .as_ref()
+            .map(|item| (item.block.slot(), item.beacon_block_root))
+    }
 }

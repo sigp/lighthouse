@@ -73,23 +73,33 @@ fn default_mock_execution_config<E: EthSpec>(
     if let Some(capella_fork_epoch) = spec.capella_fork_epoch {
         mock_execution_config.shanghai_time = Some(
             genesis_time
-                + spec.seconds_per_slot * E::slots_per_epoch() * capella_fork_epoch.as_u64(),
+                + (spec.get_slot_duration().as_secs())
+                    * E::slots_per_epoch()
+                    * capella_fork_epoch.as_u64(),
         )
     }
     if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
         mock_execution_config.cancun_time = Some(
-            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * deneb_fork_epoch.as_u64(),
+            genesis_time
+                + (spec.get_slot_duration().as_secs())
+                    * E::slots_per_epoch()
+                    * deneb_fork_epoch.as_u64(),
         )
     }
     if let Some(electra_fork_epoch) = spec.electra_fork_epoch {
         mock_execution_config.prague_time = Some(
             genesis_time
-                + spec.seconds_per_slot * E::slots_per_epoch() * electra_fork_epoch.as_u64(),
+                + (spec.get_slot_duration().as_secs())
+                    * E::slots_per_epoch()
+                    * electra_fork_epoch.as_u64(),
         )
     }
     if let Some(fulu_fork_epoch) = spec.fulu_fork_epoch {
         mock_execution_config.osaka_time = Some(
-            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * fulu_fork_epoch.as_u64(),
+            genesis_time
+                + (spec.get_slot_duration().as_secs())
+                    * E::slots_per_epoch()
+                    * fulu_fork_epoch.as_u64(),
         )
     }
 

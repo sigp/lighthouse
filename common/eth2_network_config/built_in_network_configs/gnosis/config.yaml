@@ -55,6 +55,8 @@ GLOAS_FORK_EPOCH: 18446744073709551615
 # ---------------------------------------------------------------
 # 5 seconds
 SECONDS_PER_SLOT: 5
+# 5 seconds
+SLOT_DURATION_MS: 5000
 # 6 (estimate from Gnosis Chain)
 SECONDS_PER_ETH1_BLOCK: 6
 # 2**8 (= 256) epochs ~8 hours
@@ -63,6 +65,18 @@ MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
 SHARD_COMMITTEE_PERIOD: 256
 # 2**10 (= 1024) ~1.4 hour
 ETH1_FOLLOW_DISTANCE: 1024
+# 1667 basis points, ~17% of SLOT_DURATION_MS
+PROPOSER_REORG_CUTOFF_BPS: 1667
+# 3333 basis points, ~33% of SLOT_DURATION_MS
+ATTESTATION_DUE_BPS: 3333
+# 6667 basis points, ~67% of SLOT_DURATION_MS
+AGGREGATE_DUE_BPS: 6667
+
+# Altair
+# 3333 basis points, ~33% of SLOT_DURATION_MS
+SYNC_MESSAGE_DUE_BPS: 3333
+# 6667 basis points, ~67% of SLOT_DURATION_MS
+CONTRIBUTION_DUE_BPS: 6667
 
 # Validator cycle
 # ---------------------------------------------------------------

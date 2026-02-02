@@ -160,7 +160,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             return Ok(());
         }
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -173,6 +173,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         let executor = self.executor.clone();
 
+        let unaggregated_attestation_due = self.chain_spec.get_unaggregated_attestation_due();
+
         let interval_fut = async move {
             loop {
                 let Some(duration) = self.slot_clock.duration_to_next_slot() else {
@@ -181,14 +183,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 };
 
-                let slot_trigger_delay = slot_duration / 3;
                 let beacon_node_index = if self.head_monitor_rx.is_some() {
                     tokio::select! {
-                        _ = sleep(duration + slot_trigger_delay) => None,
+                        _ = sleep(duration + unaggregated_attestation_due) => None,
                         event = self.poll_for_head_events() => event.map(|event| event.beacon_node_index),
                     }
                 } else {
-                    sleep(duration + slot_trigger_delay).await;
+                    sleep(duration + unaggregated_attestation_due).await;
                     None
                 };
 
@@ -204,7 +205,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 }
 
-                match self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
+                match self.spawn_attestation_tasks(beacon_node_index) {
                     Ok(_) => {
                         *last_slot = current_slot;
                     }
@@ -246,11 +247,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// Spawn only one new task for attestation post-Electra
     /// For each required aggregates, spawn a new task that downloads, signs and uploads the
     /// aggregates to the beacon node.
-    fn spawn_attestation_tasks(
-        &self,
-        slot_duration: Duration,
-        beacon_node_index: Option<usize>,
-    ) -> Result<(), String> {
+    fn spawn_attestation_tasks(&self, beacon_node_index: Option<usize>) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -320,7 +317,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         // through the slot. This delay triggers at this time
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_sub(slot_duration / 3)
+                .checked_add(self.chain_spec.get_aggregate_attestation_due())
+                .and_then(|offset| offset.checked_sub(self.chain_spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let aggregate_duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
