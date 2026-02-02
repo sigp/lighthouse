@@ -1250,7 +1250,7 @@ mod test {
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(0),
-            Duration::from_secs(spec.seconds_per_slot),
+            spec.get_slot_duration(),
         );
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
