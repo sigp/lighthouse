@@ -1192,13 +1192,16 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(priority, move || {
                     // Fast-path for the head block root. We read from the early attester cache
                     // so that we can produce sync committee messages for the new head prior
-                    // to it being fully imported (written to the DB/etc).
+                    // to it being fully imported (written to the DB/etc). We also check that the
+                    // cache is not stale or out of date by comparing against the cached head
+                    // prior to using it.
                     //
                     // See: https://github.com/sigp/lighthouse/issues/8667
                     let (block_root, execution_optimistic, finalized) =
                         if let BlockId(eth2::types::BlockId::Head) = block_id
-                            && let Some(head_block_root) =
+                            && let Some((head_block_slot, head_block_root)) =
                                 chain.early_attester_cache.get_head_block_root()
+                            && head_block_slot >= chain.canonical_head.cached_head().head_slot()
                         {
                             // We know execution is NOT optimistic if the block is from the early
                             // attester cache because only properly validated blocks are added.
