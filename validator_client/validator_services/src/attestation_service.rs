@@ -183,11 +183,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 };
 
-                let beacon_node_index = if self.head_monitor_rx.is_some() {
+                let beacon_node_data = if self.head_monitor_rx.is_some() {
                     tokio::select! {
                         _ = sleep(duration + unaggregated_attestation_due) => None,
                         event = self.poll_for_head_events() =>
-                        event.map(|event| (event.beacon_node_index, event.beacon_block_root)),
+                            event.map(|event| (event.beacon_node_index, event.beacon_block_root)),
                     }
                 } else {
                     sleep(duration + unaggregated_attestation_due).await;
@@ -206,7 +206,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 }
 
-                match self.spawn_attestation_tasks(beacon_node_index) {
+                match self.spawn_attestation_tasks(beacon_node_data) {
                     Ok(_) => {
                         *last_slot = current_slot;
                     }
