@@ -1117,6 +1117,17 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
     fn handler_name(&self) -> String {
         O::handler_name()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // TODO(gloas): So far only withdrawals tests are enabled for Gloas.
+        Self::Case::is_enabled_for_fork(fork_name)
+            && (!fork_name.gloas_enabled() || self.handler_name() == "withdrawals")
+    }
 }
 
 #[derive(Educe)]
