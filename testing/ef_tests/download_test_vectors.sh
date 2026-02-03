@@ -4,7 +4,7 @@ set -Eeuo pipefail
 TESTS=("general" "minimal" "mainnet")
 
 version=${1}
-if [[ "$version" == "nightly" ]]; then
+if [[ "$version" == "nightly" || "$version" == nightly-* ]]; then
 	if [[ -z "${GITHUB_TOKEN:-}" ]]; then
 		echo "Error GITHUB_TOKEN is not set"
 		exit 1
@@ -21,17 +21,22 @@ if [[ "$version" == "nightly" ]]; then
 	api="https://api.github.com"
 	auth_header="Authorization: token ${GITHUB_TOKEN}"
 
-	run_id=$(curl -s -H "${auth_header}" \
-		"${api}/repos/${repo}/actions/workflows/generate_vectors.yml/runs?branch=dev&status=success&per_page=1" |
-		jq -r '.workflow_runs[0].id')
+	if [[ "$version" == nightly-* ]]; then
+		# Extract run_id from nightly-<run_id> format
+		run_id="${version#nightly-}"
+	else
+		run_id=$(curl -v -H "${auth_header}" \
+			"${api}/repos/${repo}/actions/workflows/generate_vectors.yml/runs?branch=dev&status=success&per_page=1" |
+			jq -r '.workflow_runs[0].id')
 
-	if [[ "${run_id}" == "null" || -z "${run_id}" ]]; then
-		echo "No successful nightly workflow run found"
-		exit 1
+		if [[ "${run_id}" == "null" || -z "${run_id}" ]]; then
+			echo "No successful nightly workflow run found"
+			exit 1
+		fi
 	fi
 
 	echo "Downloading nightly test vectors for run: ${run_id}"
-	curl -s -H "${auth_header}" "${api}/repos/${repo}/actions/runs/${run_id}/artifacts" |
+	curl -v -H "${auth_header}" "${api}/repos/${repo}/actions/runs/${run_id}/artifacts" |
 		jq -c '.artifacts[] | {name, url: .archive_download_url}' |
 		while read -r artifact; do
 			name=$(echo "${artifact}" | jq -r .name)
