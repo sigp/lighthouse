@@ -35,7 +35,7 @@ if [[ "$version" == "nightly" || "$version" =~ ^nightly-[0-9]+$ ]]; then
 	fi
 
 	echo "Downloading nightly test vectors for run: ${run_id}"
-	curl --fail -v -H "${auth_header}" "${api}/repos/${repo}/actions/runs/${run_id}/artifacts" | cat |
+	curl --fail -H "${auth_header}" "${api}/repos/${repo}/actions/runs/${run_id}/artifacts" |
 		jq -c '.artifacts[] | {name, url: .archive_download_url}' |
 		while read -r artifact; do
 			name=$(echo "${artifact}" | jq -r .name)
@@ -46,7 +46,7 @@ if [[ "$version" == "nightly" || "$version" =~ ^nightly-[0-9]+$ ]]; then
 			fi
 
 			echo "Downloading artifact: ${name}"
-			curl --fail --progress-bar --location --show-error --retry 3 --retry-all-errors --fail \
+			curl --progress-bar --location --show-error --retry 3 --retry-all-errors --fail \
 				-H "${auth_header}" -H "Accept: application/vnd.github+json" \
 				--output "${name}.zip" "${url}" || {
 				echo "Failed to download ${name}"
@@ -60,7 +60,7 @@ else
 	for test in "${TESTS[@]}"; do
 		if [[ ! -e "${test}.tar.gz" ]]; then
 			echo "Downloading: ${version}/${test}.tar.gz"
-			curl --fail --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
+			curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
 				"https://github.com/ethereum/consensus-specs/releases/download/${version}/${test}.tar.gz" \
 				|| {
 					echo "Curl failed. Aborting"
