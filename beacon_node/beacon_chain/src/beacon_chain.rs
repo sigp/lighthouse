@@ -1296,6 +1296,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_blinded_block(block_root)?)
     }
 
+    pub fn get_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {
+        Ok(self.store.get_payload_envelope(block_root)?)
+    }
+
     /// Return the status of a block as it progresses through the various caches of the beacon
     /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
     /// processing attempts.
