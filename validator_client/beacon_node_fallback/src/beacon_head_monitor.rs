@@ -10,7 +10,7 @@ use types::EthSpec;
 
 type CacheHashMap = HashMap<usize, SseHead>;
 
-// This is used send the index derived from `CandidateBeaconNode` to the
+// This is used to send the index derived from `CandidateBeaconNode` to the
 // `AttestationService` for further processing
 #[derive(Debug)]
 pub struct HeadEvent {
@@ -69,7 +69,7 @@ impl Default for BeaconHeadCache {
 
 // Runs a non-terminating loop to update the `BeaconHeadCache` with the latest head received
 // from the candidate beacon_nodes. This is an attempt to stream events to beacon nodes and
-// potential start attestion duties earlier as soon as latest head is receive from any of the
+// potential start attestation duties earlier as soon as latest head is receive from any of the
 // beacon node in contrast to attest at the 1/3rd mark in the slot.
 //
 //
