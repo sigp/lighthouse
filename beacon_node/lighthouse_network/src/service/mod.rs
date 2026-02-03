@@ -232,7 +232,7 @@ impl<E: EthSpec> Network<E> {
             config.network_load,
             ctx.fork_context.clone(),
             gossipsub_config_params,
-            ctx.chain_spec.seconds_per_slot,
+            ctx.chain_spec.get_slot_duration(),
             E::slots_per_epoch(),
             config.idontwant_message_size_threshold,
         );
@@ -240,13 +240,12 @@ impl<E: EthSpec> Network<E> {
         let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
-            let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
-            let half_epoch = std::time::Duration::from_secs(
-                ctx.chain_spec.seconds_per_slot * E::slots_per_epoch() / 2,
+            let half_epoch = std::time::Duration::from_millis(
+                (ctx.chain_spec.get_slot_duration().as_millis() as u64) * E::slots_per_epoch() / 2,
             );
 
             GossipCache::builder()
-                .beacon_block_timeout(slot_duration)
+                .beacon_block_timeout(ctx.chain_spec.get_slot_duration())
                 .aggregates_timeout(half_epoch)
                 .attestation_timeout(half_epoch)
                 .voluntary_exit_timeout(half_epoch * 2)

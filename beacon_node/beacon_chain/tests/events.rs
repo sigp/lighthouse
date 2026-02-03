@@ -213,3 +213,45 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
         EventKind::DataColumnSidecar(expected_sse_data_column)
     );
 }
+
+/// Verifies that a head event is emitted when a block is imported and becomes the head.
+#[tokio::test]
+async fn head_event_on_block_import() {
+    let spec = Arc::new(test_spec::<E>());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(8)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    // Subscribe to head events before importing the block
+    let event_handler = harness.chain.event_handler.as_ref().unwrap();
+    let mut head_event_receiver = event_handler.subscribe_head();
+
+    // Build and process a block that will become the new head
+    let head_state = harness.get_current_state();
+    let target_slot = head_state.slot() + 1;
+    harness.advance_slot();
+    let ((signed_block, blobs), _) = harness.make_block(head_state, target_slot).await;
+
+    let block_root = signed_block.canonical_root();
+    let state_root = signed_block.message().state_root();
+
+    harness
+        .process_block(target_slot, block_root, (signed_block, blobs))
+        .await
+        .unwrap();
+
+    // Verify the head event was emitted with correct data
+    let head_event = head_event_receiver.try_recv().unwrap();
+    if let EventKind::Head(sse_head) = head_event {
+        assert_eq!(sse_head.slot, target_slot);
+        assert_eq!(sse_head.block, block_root);
+        assert_eq!(sse_head.state, state_root);
+        // execution_optimistic should be false since we're using mock execution layer
+        assert!(!sse_head.execution_optimistic);
+    } else {
+        panic!("Expected Head event, got {:?}", head_event);
+    }
+}
