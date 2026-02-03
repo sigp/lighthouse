@@ -369,6 +369,13 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
         SszStaticHandler::<BeaconBlockBodyFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
+        /* TODO(gloas): broken while we are between spec versions
+         * TODO(gloas): there are more types in this file that need coverage added too
+        SszStaticHandler::<BeaconBlockBodyGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        */
     }
 
     // Altair and later

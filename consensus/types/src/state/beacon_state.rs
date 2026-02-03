@@ -548,7 +548,7 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid,
+    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
