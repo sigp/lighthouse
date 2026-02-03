@@ -85,12 +85,8 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                     poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await
                 {
                     warn!(error, "Head service failed retrying starting next slot");
-                    let sleep_time = beacon_nodes_ref
-                        .slot_clock
-                        .as_ref()
-                        .and_then(|slot_clock| slot_clock.duration_to_next_slot())
-                        .unwrap_or_else(|| Duration::from_secs(12));
 
+                    let sleep_time = beacon_nodes_ref.spec.get_slot_duration();
                     sleep(sleep_time).await
                 }
             }

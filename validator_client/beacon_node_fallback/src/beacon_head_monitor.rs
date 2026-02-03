@@ -1,5 +1,5 @@
 use crate::BeaconNodeFallback;
-use eth2::types::{EventKind, EventTopic, SseHead};
+use eth2::types::{EventKind, EventTopic, Hash256, SseHead};
 use futures::StreamExt;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -16,6 +16,7 @@ type CacheHashMap = HashMap<usize, SseHead>;
 pub struct HeadEvent {
     pub beacon_node_index: usize,
     pub slot: types::Slot,
+    pub beacon_block_root: Hash256,
 }
 
 /// Cache to maintain the latest head received from each of the beacon nodes
@@ -164,6 +165,7 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                     .send(HeadEvent {
                         beacon_node_index: candidate_index,
                         slot: head.slot,
+                        beacon_block_root: head.block,
                     })
                     .await
                     .is_err()
@@ -300,12 +302,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_head_event_creation() {
+        let block_root = Hash256::from_low_u64_be(99);
         let event = HeadEvent {
             beacon_node_index: 42,
             slot: Slot::new(123),
+            beacon_block_root: block_root,
         };
         assert_eq!(event.beacon_node_index, 42);
         assert_eq!(event.slot, Slot::new(123));
+        assert_eq!(event.beacon_block_root, block_root);
     }
 
     #[tokio::test]

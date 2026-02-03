@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -186,7 +186,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 let beacon_node_index = if self.head_monitor_rx.is_some() {
                     tokio::select! {
                         _ = sleep(duration + unaggregated_attestation_due) => None,
-                        event = self.poll_for_head_events() => event.map(|event| event.beacon_node_index),
+                        event = self.poll_for_head_events() =>
+                        event.map(|event| (event.beacon_node_index, event.beacon_block_root)),
                     }
                 } else {
                     sleep(duration + unaggregated_attestation_due).await;
@@ -247,7 +248,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// Spawn only one new task for attestation post-Electra
     /// For each required aggregates, spawn a new task that downloads, signs and uploads the
     /// aggregates to the beacon node.
-    fn spawn_attestation_tasks(&self, beacon_node_index: Option<usize>) -> Result<(), String> {
+    fn spawn_attestation_tasks(
+        &self,
+        beacon_node_data: Option<(usize, Hash256)>,
+    ) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -265,7 +269,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         debug!(
             %slot,
-            from_head_monitor = beacon_node_index.is_some(),
+            from_head_monitor = beacon_node_data.is_some(),
             "Starting attestation production"
         );
 
@@ -276,6 +280,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .executor
             .spawn_handle(
                 async move {
+                    let (beacon_node_index, expected_block_root) = beacon_node_data.unzip();
                     let attestation_data = attestation_service
                         .beacon_nodes
                         .first_success_from_index(beacon_node_index, |beacon_node| async move {
@@ -283,11 +288,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                                 &validator_metrics::ATTESTATION_SERVICE_TIMES,
                                 &[validator_metrics::ATTESTATIONS_HTTP_GET],
                             );
-                            beacon_node
+                            let data = beacon_node
                                 .get_validator_attestation_data(slot, 0)
                                 .await
-                                .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
-                                .map(|result| result.data)
+                                .map_err(|e| {
+                                    format!("Failed to produce attestation data: {:?}", e)
+                                })?
+                                .data;
+
+                            if let Some(root) = expected_block_root
+                                && data.beacon_block_root != root
+                            {
+                                return Err(format!(
+                                    "Attestation block root mismatch: expected {:?}, got {:?}",
+                                    root, data.beacon_block_root
+                                ));
+                            }
+                            Ok(data)
                         })
                         .await
                         .map_err(|e| e.to_string())?;
