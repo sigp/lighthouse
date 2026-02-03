@@ -334,6 +334,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
             Self::PayloadAndBlobs { block_value, .. } => block_value,
         }
     }
+    pub fn blob_kzg_commitments(&self) -> Option<&KzgCommitments<E>> {
+        match self {
+            Self::Payload { .. } => None,
+            Self::PayloadAndBlobs {
+                kzg_commitments, ..
+            } => Some(kzg_commitments),
+        }
+    }
 }
 
 // This just groups together a bunch of parameters that commonly

@@ -1,6 +1,7 @@
 pub mod attestation_rewards;
 pub mod attestation_simulator;
 pub mod attestation_verification;
+mod beacon_block;
 pub mod beacon_block_reward;
 mod beacon_block_streamer;
 mod beacon_chain;
@@ -23,6 +24,7 @@ mod early_attester_cache;
 mod errors;
 pub mod events;
 pub mod execution_payload;
+pub mod execution_payload_bid;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;
