@@ -1120,7 +1120,7 @@ mod test {
                             let invalid_sidecar = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
                                 column: DataColumn::<E>::empty(),
                                 index: *d.index(),
-                                kzg_commitments: d.kzg_commitments().clone(),
+                                kzg_commitments: d.kzg_commitments().unwrap().clone(),
                                 kzg_proofs: d.kzg_proofs().clone(),
                                 signed_block_header: d.signed_block_header().unwrap().clone(),
                                 kzg_commitments_inclusion_proof: d
