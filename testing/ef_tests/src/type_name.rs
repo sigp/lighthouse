@@ -87,6 +87,8 @@ type_name_generic!(ExecutionPayloadHeaderCapella, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderFulu, "ExecutionPayloadHeader");
+type_name_generic!(ExecutionPayloadBid);
+type_name_generic!(SignedExecutionPayloadBid);
 type_name_generic!(ExecutionRequests);
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);

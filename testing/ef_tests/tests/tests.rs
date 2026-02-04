@@ -369,13 +369,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
         SszStaticHandler::<BeaconBlockBodyFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
-        /* TODO(gloas): broken while we are between spec versions
-         * TODO(gloas): there are more types in this file that need coverage added too
         SszStaticHandler::<BeaconBlockBodyGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
             .run();
         SszStaticHandler::<BeaconBlockBodyGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
-        */
     }
 
     // Altair and later
@@ -602,7 +599,11 @@ mod ssz_static {
         SszStaticHandler::<ExecutionPayloadElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
             .run();
         SszStaticHandler::<ExecutionPayloadFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
-        SszStaticHandler::<ExecutionPayloadFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
+        SszStaticHandler::<ExecutionPayloadFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
+        SszStaticHandler::<ExecutionPayloadGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
     }
 
     #[test]
@@ -627,6 +628,20 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadHeaderFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
             .run();
+    }
+
+    #[test]
+    fn execution_payload_bid() {
+        SszStaticHandler::<ExecutionPayloadBid<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<ExecutionPayloadBid<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+            .run();
+    }
+
+    #[test]
+    fn signed_execution_payload_bid() {
+        SszStaticHandler::<SignedExecutionPayloadBid<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBid<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later().run();
     }
 
     #[test]
