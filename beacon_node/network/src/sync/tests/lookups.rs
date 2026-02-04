@@ -10,7 +10,7 @@ use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, NotifyExecutionLayer,
-    block_verification_types::AsBlock,
+    block_verification_types::{AsBlock, AvailableBlockData},
     data_availability_checker::Availability,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
@@ -148,6 +148,8 @@ enum QueuePick {
 pub(crate) struct TestRigConfig {
     fulu_test_type: FuluTestType,
     dequeue_strategy: DequeueEventStrategy,
+    /// Override the node custody type derived from `fulu_test_type`
+    node_custody_type_override: Option<NodeCustodyType>,
 }
 
 impl TestRig {
@@ -167,7 +169,11 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(clock.clone())
-            .node_custody_type(test_rig_config.fulu_test_type.we_node_custody_type())
+            .node_custody_type(
+                test_rig_config
+                    .node_custody_type_override
+                    .unwrap_or_else(|| test_rig_config.fulu_test_type.we_node_custody_type()),
+            )
             .build();
 
         let chain = harness.chain.clone();
@@ -257,6 +263,15 @@ impl TestRig {
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
             dequeue_strategy: DequeueEventStrategy::FIFO,
+            node_custody_type_override: None,
+        })
+    }
+
+    pub fn with_custody_type(node_custody_type: NodeCustodyType) -> Self {
+        Self::new(TestRigConfig {
+            fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
+            dequeue_strategy: DequeueEventStrategy::FIFO,
+            node_custody_type_override: Some(node_custody_type),
         })
     }
 
@@ -497,7 +512,8 @@ impl TestRig {
                             .unwrap_or_else(|| {
                                 panic!("Test consumer requested unknown block: {id:?}")
                             })
-                            .blobs()
+                            .block_data()
+                            .and_then(|d| d.blobs())
                             .unwrap_or_else(|| panic!("Block {id:?} has no blobs"))
                             .iter()
                             .find(|blob| blob.index == id.index)
@@ -560,7 +576,8 @@ impl TestRig {
                             .unwrap_or_else(|| {
                                 panic!("Test consumer requested unknown block: {id:?}")
                             })
-                            .custody_columns()
+                            .block_data()
+                            .and_then(|d| d.data_columns())
                             .unwrap_or_else(|| panic!("Block id {id:?} has no columns"));
                         id.columns
                             .iter()
@@ -568,11 +585,10 @@ impl TestRig {
                             .map(move |index| {
                                 block_columns
                                     .iter()
-                                    .find(|c| c.index() == *index)
+                                    .find(|c| *c.index() == *index)
                                     .unwrap_or_else(|| {
                                         panic!("Column {index:?} {:?} not found", id.block_root)
                                     })
-                                    .as_data_column()
                                     .clone()
                             })
                     })
@@ -591,9 +607,12 @@ impl TestRig {
                     self.complete_strategy
                         .return_wrong_sidecar_for_block_n_times -= 1;
                     let first = columns.first_mut().expect("empty columns");
-                    let mut column = Arc::make_mut(first).clone();
-                    column.signed_block_header.message.body_root = Hash256::ZERO;
-                    *first = Arc::new(column);
+                    let column = Arc::make_mut(first);
+                    column
+                        .signed_block_header_mut()
+                        .expect("not fulu")
+                        .message
+                        .body_root = Hash256::ZERO;
                 }
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
             }
@@ -624,8 +643,8 @@ impl TestRig {
                 // - Some blocks may not have blobs as the blob count is random
                 let blobs = (req.start_slot..req.start_slot + req.count)
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
-                    .filter_map(|block| block.blobs())
-                    .flat_map(|blobs| blobs.iter().cloned())
+                    .filter_map(|block| block.block_data().and_then(|d| d.blobs()))
+                    .flat_map(|blobs| blobs.into_iter())
                     .collect::<Vec<_>>();
                 self.send_rpc_blobs_response(req_id, peer_id, &blobs);
             }
@@ -640,12 +659,11 @@ impl TestRig {
                 // - Some blocks may not have columns as the blob count is random
                 let columns = (req.start_slot..req.start_slot + req.count)
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
-                    .filter_map(|block| block.custody_columns())
+                    .filter_map(|block| block.block_data().and_then(|d| d.data_columns()))
                     .flat_map(|columns| {
                         columns
-                            .iter()
-                            .map(|c| c.as_data_column().clone())
-                            .filter(|c| req.columns.contains(&c.index))
+                            .into_iter()
+                            .filter(|c| req.columns.contains(c.index()))
                     })
                     .collect::<Vec<_>>();
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
@@ -730,7 +748,7 @@ impl TestRig {
             .collect::<Vec<_>>();
         let indices = columns
             .iter()
-            .map(|column| column.index)
+            .map(|column| *column.index())
             .unique()
             .collect::<Vec<_>>();
         self.log(&format!(
@@ -819,8 +837,8 @@ impl TestRig {
     fn corrupt_last_block_signature(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let mut block = (*rpc_block.block_cloned()).clone();
-        let blobs = rpc_block.blobs().cloned();
-        let columns = rpc_block.custody_columns().cloned();
+        let blobs = rpc_block.block_data().and_then(|d| d.blobs());
+        let columns = rpc_block.block_data().and_then(|d| d.data_columns());
         *block.signature_mut() = self.valid_signature();
         self.re_insert_block(Arc::new(block), blobs, columns);
     }
@@ -835,12 +853,12 @@ impl TestRig {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
         let mut blobs = rpc_block
-            .blobs()
-            .cloned()
+            .block_data()
+            .and_then(|d| d.blobs())
             .expect("no blobs")
             .into_iter()
             .collect::<Vec<_>>();
-        let columns = rpc_block.custody_columns().cloned();
+        let columns = rpc_block.block_data().and_then(|d| d.data_columns());
         let first = blobs.first_mut().expect("empty blobs");
         Arc::make_mut(first).signed_block_header.signature = self.valid_signature();
         let max_blobs =
@@ -856,12 +874,12 @@ impl TestRig {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
         let mut blobs = rpc_block
-            .blobs()
-            .cloned()
+            .block_data()
+            .and_then(|d| d.blobs())
             .expect("no blobs")
             .into_iter()
             .collect::<Vec<_>>();
-        let columns = rpc_block.custody_columns().cloned();
+        let columns = rpc_block.block_data().and_then(|d| d.data_columns());
         let first = blobs.first_mut().expect("empty blobs");
         Arc::make_mut(first).kzg_proof = kzg::KzgProof::empty();
         let max_blobs =
@@ -876,28 +894,31 @@ impl TestRig {
     fn corrupt_last_column_proposer_signature(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
-        let blobs = rpc_block.blobs().cloned();
-        let mut columns = rpc_block.custody_columns().cloned().expect("no columns");
+        let blobs = rpc_block.block_data().and_then(|d| d.blobs());
+        let mut columns = rpc_block
+            .block_data()
+            .and_then(|d| d.data_columns())
+            .expect("no columns");
         let first = columns.first_mut().expect("empty columns");
-        let mut data = first.clone_arc();
-        Arc::make_mut(&mut data).signed_block_header.signature = self.valid_signature();
-        *first =
-            beacon_chain::data_column_verification::CustodyDataColumn::from_asserted_custody(data);
+        Arc::make_mut(first)
+            .signed_block_header_mut()
+            .expect("not fulu")
+            .signature = self.valid_signature();
         self.re_insert_block(block, blobs, Some(columns));
     }
 
     fn corrupt_last_column_kzg_proof(&mut self) {
         let rpc_block = self.get_last_block().clone();
         let block = rpc_block.block_cloned();
-        let blobs = rpc_block.blobs().cloned();
-        let mut columns = rpc_block.custody_columns().cloned().expect("no columns");
+        let blobs = rpc_block.block_data().and_then(|d| d.blobs());
+        let mut columns = rpc_block
+            .block_data()
+            .and_then(|d| d.data_columns())
+            .expect("no columns");
         let first = columns.first_mut().expect("empty columns");
-        let mut data = first.clone_arc();
-        let column = Arc::make_mut(&mut data);
-        let proof = column.kzg_proofs.first_mut().expect("no kzg proofs");
+        let column = Arc::make_mut(first);
+        let proof = column.kzg_proofs_mut().first_mut().expect("no kzg proofs");
         *proof = kzg::KzgProof::empty();
-        *first =
-            beacon_chain::data_column_verification::CustodyDataColumn::from_asserted_custody(data);
         self.re_insert_block(block, blobs, Some(columns));
     }
 
@@ -914,21 +935,26 @@ impl TestRig {
         &mut self,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<types::BlobSidecarList<E>>,
-        columns: Option<beacon_chain::data_column_verification::CustodyDataColumnList<E>>,
+        columns: Option<types::DataColumnSidecarList<E>>,
     ) {
         self.network_blocks_by_slot.clear();
         self.network_blocks_by_root.clear();
         let block_root = block.canonical_root();
         let block_slot = block.slot();
-        let rpc_block = match (block.fork_name_unchecked().fulu_enabled(), columns, blobs) {
-            (true, Some(columns), _) => RpcBlock::new_with_custody_columns(
-                Some(block_root),
-                block,
-                columns.into_iter().collect(),
-            )
-            .unwrap(),
-            (_, _, blobs) => RpcBlock::new(Some(block_root), block, blobs).unwrap(),
+        let block_data = if let Some(columns) = columns {
+            Some(AvailableBlockData::new_with_data_columns(columns))
+        } else if let Some(blobs) = blobs {
+            Some(AvailableBlockData::new_with_blobs(blobs))
+        } else {
+            Some(AvailableBlockData::NoData)
         };
+        let rpc_block = RpcBlock::new(
+            block,
+            block_data,
+            &self.harness.chain.data_availability_checker,
+            self.harness.chain.spec.clone(),
+        )
+        .unwrap();
         self.network_blocks_by_slot
             .insert(block_slot, rpc_block.clone());
         self.network_blocks_by_root.insert(block_root, rpc_block);
@@ -976,24 +1002,24 @@ impl TestRig {
 
     fn trigger_with_last_unknown_blob_parent(&mut self) {
         let peer_id = self.new_connected_supernode_peer();
-        let blob = self
+        let blobs = self
             .get_last_block()
-            .blobs()
-            .expect("no blobs")
-            .first()
-            .expect("empty blobs");
+            .block_data()
+            .and_then(|d| d.blobs())
+            .expect("no blobs");
+        let blob = blobs.first().expect("empty blobs");
         self.trigger_unknown_parent_blob(peer_id, blob.clone());
     }
 
     fn trigger_with_last_unknown_data_column_parent(&mut self) {
         let peer_id = self.new_connected_supernode_peer();
-        let column = self
+        let columns = self
             .get_last_block()
-            .custody_columns()
-            .expect("No custody columns")
-            .first()
-            .expect("empty columns");
-        self.trigger_unknown_parent_column(peer_id, column.as_data_column().clone());
+            .block_data()
+            .and_then(|d| d.data_columns())
+            .expect("No data columns");
+        let column = columns.first().expect("empty columns");
+        self.trigger_unknown_parent_column(peer_id, column.clone());
     }
 
     // Post-test assertions
@@ -1202,6 +1228,7 @@ impl TestRig {
             Self::new(TestRigConfig {
                 fulu_test_type,
                 dequeue_strategy: DequeueEventStrategy::FIFO,
+                node_custody_type_override: None,
             })
         })
     }
@@ -1476,7 +1503,7 @@ impl TestRig {
             .expect("missing block")
             .clone();
         // Import blobs to da_checker first
-        if let Some(blobs) = block.blobs() {
+        if let Some(blobs) = block.block_data().and_then(|d| d.blobs()) {
             let blobs_vector = FixedBlobSidecarList::new(
                 blobs.iter().map(|b| Some(b.clone())).collect::<Vec<_>>(),
             );
@@ -1487,11 +1514,7 @@ impl TestRig {
                 .expect("Error adding blobs");
         }
         // Or import columns to da_checker first
-        if let Some(columns) = block.custody_columns() {
-            let columns = columns
-                .into_iter()
-                .map(|c| c.clone_arc())
-                .collect::<Vec<_>>();
+        if let Some(columns) = block.block_data().and_then(|d| d.data_columns()) {
             self.harness
                 .chain
                 .data_availability_checker
@@ -1511,11 +1534,12 @@ impl TestRig {
     ) -> AvailabilityProcessingStatus {
         // Simulate importing block from another source. Don't use GossipVerified as it checks with
         // the clock, which does not match the timestamp in the payload.
-        let rpc_block = RpcBlock::new_without_blobs(None, block);
+        let block_root = block.canonical_root();
+        let rpc_block = RpcBlock::BlockOnly { block_root, block };
         self.harness
             .chain
             .process_block(
-                rpc_block.block_root(),
+                block_root,
                 rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Gossip,
@@ -2220,7 +2244,11 @@ async fn blobs_in_da_checker_skip_download() {
     };
     r.build_chain(1).await;
     let block = r.get_last_block().clone();
-    for blob in block.blobs().expect("block with no blobs") {
+    let blobs = block
+        .block_data()
+        .and_then(|d| d.blobs())
+        .expect("block with no blobs");
+    for blob in &blobs {
         r.insert_blob_to_da_checker(blob.clone());
     }
     r.trigger_with_last_block();
