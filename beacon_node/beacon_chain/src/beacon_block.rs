@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::u64;
 
 use bls::Signature;
 use operation_pool::CompactAttestationRef;
@@ -179,6 +178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
     fn produce_partial_beacon_block_gloas(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -415,6 +415,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ))
     }
 
+    #[allow(clippy::type_complexity)]
     fn complete_partial_beacon_block_gloas(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,

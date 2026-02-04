@@ -679,12 +679,28 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             "Signed execution payload envelope, publishing"
         );
 
-        // TODO(gloas): Publish the signed envelope
-        // For now, just log that we would publish it
-        debug!(
+        // Publish the signed envelope
+        proposer_fallback
+            .request_proposers_first(|beacon_node| {
+                let signed_envelope = signed_envelope.clone();
+                async move {
+                    beacon_node
+                        .post_beacon_execution_payload_envelope(&signed_envelope)
+                        .await
+                        .map_err(|e| {
+                            BlockError::Recoverable(format!(
+                                "Error publishing execution payload envelope: {:?}",
+                                e
+                            ))
+                        })
+                }
+            })
+            .await?;
+
+        info!(
             slot = slot.as_u64(),
             beacon_block_root = %signed_envelope.message.beacon_block_root,
-            "Would publish signed execution payload envelope (not yet implemented)"
+            "Successfully published signed execution payload envelope"
         );
 
         Ok(())

@@ -23,6 +23,7 @@ mod produce_block;
 mod proposer_duties;
 mod publish_attestations;
 mod publish_blocks;
+mod publish_execution_payload_envelope;
 mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
@@ -71,7 +72,7 @@ pub use publish_blocks::{
 };
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
-use ssz::Encode;
+use ssz::{Decode, Encode};
 pub use state_id::StateId;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -90,7 +91,7 @@ use tokio_stream::{
 use tracing::{debug, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, Slot,
+    SignedBlindedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 use version::{
     ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
@@ -1485,6 +1486,60 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/bls_to_execution_changes
     let post_beacon_pool_bls_to_execution_changes =
         post_beacon_pool_bls_to_execution_changes(&network_tx_filter, &beacon_pool_path);
+
+    // POST beacon/execution_payload_envelope
+    let post_beacon_execution_payload_envelope = eth_v1
+        .clone()
+        .and(warp::path("beacon"))
+        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    publish_execution_payload_envelope::publish_execution_payload_envelope(
+                        envelope, chain, &network_tx,
+                    )
+                    .await
+                })
+            },
+        );
+
+    // POST beacon/execution_payload_envelope (SSZ)
+    let post_beacon_execution_payload_envelope_ssz = eth_v1
+        .clone()
+        .and(warp::path("beacon"))
+        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path::end())
+        .and(warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER))
+        .and(warp::body::bytes())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |body_bytes: Bytes,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let envelope =
+                        SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(&body_bytes)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                            })?;
+                    publish_execution_payload_envelope::publish_execution_payload_envelope(
+                        envelope, chain, &network_tx,
+                    )
+                    .await
+                })
+            },
+        );
 
     let beacon_rewards_path = eth_v1
         .clone()
@@ -3374,7 +3429,8 @@ pub fn serve<T: BeaconChainTypes>(
                         post_beacon_blocks_ssz
                             .uor(post_beacon_blocks_v2_ssz)
                             .uor(post_beacon_blinded_blocks_ssz)
-                            .uor(post_beacon_blinded_blocks_v2_ssz),
+                            .uor(post_beacon_blinded_blocks_v2_ssz)
+                            .uor(post_beacon_execution_payload_envelope_ssz),
                     )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
@@ -3386,6 +3442,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_voluntary_exits)
                     .uor(post_beacon_pool_sync_committees)
                     .uor(post_beacon_pool_bls_to_execution_changes)
+                    .uor(post_beacon_execution_payload_envelope)
                     .uor(post_beacon_state_validators)
                     .uor(post_beacon_state_validator_balances)
                     .uor(post_beacon_state_validator_identities)

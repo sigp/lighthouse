@@ -1,4 +1,4 @@
-use std::{sync::Arc, u64};
+use std::sync::Arc;
 
 use bls::Signature;
 use execution_layer::{BlockProposalContentsType, BuilderParams};
@@ -34,6 +34,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// For local building, payload data is always returned (`Some`).
     /// For trustless building, the builder provides the envelope separately, so `None` is returned.
+    #[allow(clippy::type_complexity)]
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,

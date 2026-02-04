@@ -6,7 +6,7 @@ use crate::utils::{
     AnyVersionFilter, ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter,
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
-use crate::version::{V3, V4};
+use crate::version::V3;
 use crate::{StateId, attester_duties, proposer_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -336,6 +336,7 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
 }
 
 // GET validator/execution_payload_bid/
+#[allow(dead_code)]
 pub fn get_validator_execution_payload_bid<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     chain_filter: ChainFilter<T>,
@@ -357,10 +358,10 @@ pub fn get_validator_execution_payload_bid<T: BeaconChainTypes>(
         .and(chain_filter)
         .then(
             |slot: Slot,
-             accept_header: Option<Accept>,
+             _accept_header: Option<Accept>,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
+             _chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     debug!(
                         ?slot,
