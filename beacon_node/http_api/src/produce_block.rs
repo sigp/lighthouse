@@ -70,7 +70,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
-    let (block, _state, consensus_block_value) = chain
+    let (block, consensus_block_value) = chain
         .produce_block_with_verification_gloas(
             randao_reveal,
             slot,
@@ -83,7 +83,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
         })?;
 
-    build_response_v4(chain, block, consensus_block_value, accept_header)
+    build_response_v4::<T>(block, consensus_block_value, accept_header, &chain.spec)
 }
 
 #[instrument(
@@ -131,14 +131,14 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
 }
 
 pub fn build_response_v4<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
     block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     consensus_block_value: u64,
     accept_header: Option<api_types::Accept>,
+    spec: &ChainSpec,
 ) -> Result<Response<Body>, warp::Rejection> {
     let fork_name = block
         .to_ref()
-        .fork_name(&chain.spec)
+        .fork_name(&spec)
         .map_err(inconsistent_fork_rejection)?;
     let consensus_block_value_wei =
         Uint256::from(consensus_block_value) * Uint256::from(1_000_000_000u64);
