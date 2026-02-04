@@ -10,7 +10,6 @@ use lighthouse_network::{
     service::api_types::{CustodyBackFillBatchRequestId, CustodyBackfillBatchId},
     types::CustodyBackFillState,
 };
-use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
 use logging::crit;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use tracing::{debug, error, info, info_span, warn};
@@ -1004,7 +1003,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<(), CustodyBackfillError> {
-        let span = info_span!(SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST);
+        let span = info_span!("lh_custody_backfill_sync_batch_request");
         let _enter = span.enter();
 
         if let Some(batch) = self.batches.get_mut(&batch_id) {

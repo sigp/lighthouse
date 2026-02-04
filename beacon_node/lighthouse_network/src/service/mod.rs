@@ -21,11 +21,11 @@ use crate::types::{
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
-use gossipsub::{
-    IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
+use libp2p::gossipsub::{
+    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
 };
-use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
@@ -232,7 +232,7 @@ impl<E: EthSpec> Network<E> {
             config.network_load,
             ctx.fork_context.clone(),
             gossipsub_config_params,
-            ctx.chain_spec.seconds_per_slot,
+            ctx.chain_spec.get_slot_duration(),
             E::slots_per_epoch(),
             config.idontwant_message_size_threshold,
         );
@@ -240,13 +240,12 @@ impl<E: EthSpec> Network<E> {
         let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
-            let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
-            let half_epoch = std::time::Duration::from_secs(
-                ctx.chain_spec.seconds_per_slot * E::slots_per_epoch() / 2,
+            let half_epoch = std::time::Duration::from_millis(
+                (ctx.chain_spec.get_slot_duration().as_millis() as u64) * E::slots_per_epoch() / 2,
             );
 
             GossipCache::builder()
-                .beacon_block_timeout(slot_duration)
+                .beacon_block_timeout(ctx.chain_spec.get_slot_duration())
                 .aggregates_timeout(half_epoch)
                 .attestation_timeout(half_epoch)
                 .voluntary_exit_timeout(half_epoch * 2)
@@ -1764,9 +1763,9 @@ impl<E: EthSpec> Network<E> {
 
     fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
         match event {
-            libp2p::upnp::Event::NewExternalAddr(addr) => {
-                info!(%addr, "UPnP route established");
-                let mut iter = addr.iter();
+            libp2p::upnp::Event::NewExternalAddr { external_addr, .. } => {
+                info!(%external_addr, "UPnP route established");
+                let mut iter = external_addr.iter();
                 let is_ip6 = {
                     let addr = iter.next();
                     matches!(addr, Some(MProtocol::Ip6(_)))
@@ -1781,7 +1780,7 @@ impl<E: EthSpec> Network<E> {
                             }
                         }
                         _ => {
-                            trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                            trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                         }
                     },
                     Some(multiaddr::Protocol::Tcp(tcp_port)) => {
@@ -1790,11 +1789,11 @@ impl<E: EthSpec> Network<E> {
                         }
                     }
                     _ => {
-                        trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                        trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                     }
                 }
             }
-            libp2p::upnp::Event::ExpiredExternalAddr(_) => {}
+            libp2p::upnp::Event::ExpiredExternalAddr { .. } => {}
             libp2p::upnp::Event::GatewayNotFound => {
                 info!("UPnP not available");
             }

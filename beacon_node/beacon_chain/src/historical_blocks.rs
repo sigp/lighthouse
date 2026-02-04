@@ -157,12 +157,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             match &block_data {
-                AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(..) => {
-                    new_oldest_blob_slot = Some(block.slot());
-                }
+                AvailableBlockData::NoData => (),
+                AvailableBlockData::Blobs(_) => new_oldest_blob_slot = Some(block.slot()),
                 AvailableBlockData::DataColumns(_) => {
-                    new_oldest_data_column_slot = Some(block.slot());
+                    new_oldest_data_column_slot = Some(block.slot())
                 }
             }
 

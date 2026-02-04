@@ -6,7 +6,6 @@ use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
-use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
@@ -69,7 +68,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     ) -> Self {
         let span = debug_span!(
             parent: Span::current(),
-            SPAN_OUTGOING_CUSTODY_REQUEST,
+            "lh_outgoing_custody_request",
             %block_root,
         );
         Self {
@@ -128,7 +127,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 // requested index. The worse case is 128 loops over a 128 item vec + mutation to
                 // drop the consumed columns.
                 let mut data_columns = HashMap::<ColumnIndex, _>::from_iter(
-                    data_columns.into_iter().map(|d| (d.index, d)),
+                    data_columns.into_iter().map(|d| (*d.index(), d)),
                 );
                 // Accumulate columns that the peer does not have to issue a single log per request
                 let mut missing_column_indexes = vec![];
@@ -217,7 +216,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     peers
                         .entry(peer)
                         .or_default()
-                        .push(data_column.index as usize);
+                        .push(*data_column.index() as usize);
                     seen_timestamps.push(seen_timestamp);
                     Ok(data_column)
                 })

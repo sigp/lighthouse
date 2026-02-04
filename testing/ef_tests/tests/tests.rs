@@ -241,8 +241,9 @@ mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
     use types::state::HistoricalSummary;
     use types::{
-        AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
-        LightClientBootstrapAltair, PendingDeposit, PendingPartialWithdrawal, WithdrawalRequest, *,
+        AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DataColumnSidecarFulu,
+        DataColumnSidecarGloas, DepositRequest, LightClientBootstrapAltair, PendingDeposit,
+        PendingPartialWithdrawal, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -368,6 +369,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
         SszStaticHandler::<BeaconBlockBodyFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
+        SszStaticHandler::<BeaconBlockBodyGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
     }
 
     // Altair and later
@@ -595,6 +600,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
         SszStaticHandler::<ExecutionPayloadFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
+        SszStaticHandler::<ExecutionPayloadGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
     }
 
     #[test]
@@ -619,6 +628,20 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadHeaderFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
             .run();
+    }
+
+    #[test]
+    fn execution_payload_bid() {
+        SszStaticHandler::<ExecutionPayloadBid<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<ExecutionPayloadBid<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+            .run();
+    }
+
+    #[test]
+    fn signed_execution_payload_bid() {
+        SszStaticHandler::<SignedExecutionPayloadBid<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBid<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later().run();
     }
 
     #[test]
@@ -659,9 +682,13 @@ mod ssz_static {
 
     #[test]
     fn data_column_sidecar() {
-        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::fulu_and_later()
+        SszStaticHandler::<DataColumnSidecarFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only()
             .run();
-        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::fulu_and_later()
+        SszStaticHandler::<DataColumnSidecarFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
     }
 

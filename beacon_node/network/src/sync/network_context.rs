@@ -31,7 +31,6 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
-use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -546,7 +545,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<Id, RpcRequestSendError> {
         let range_request_span = debug_span!(
             parent: None,
-            SPAN_OUTGOING_RANGE_REQUEST,
+            "lh_outgoing_range_request",
             range_req_id = %requester,
             block_peers = block_peers.len(),
             column_peers = column_peers.len()
@@ -777,7 +776,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         let range_req = entry.get_mut();
-        if let Some(blocks_result) = range_req.responses(&self.chain.spec) {
+        if let Some(blocks_result) = range_req.responses(
+            self.chain.data_availability_checker.clone(),
+            self.chain.spec.clone(),
+        ) {
             if let Err(CouplingError::DataColumnPeerFailure {
                 error,
                 faulty_peers: _,
@@ -908,7 +910,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let request_span = debug_span!(
             parent: Span::current(),
-            SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST,
+            "lh_outgoing_block_by_root_request",
             %block_root,
         );
         self.blocks_by_root_requests.insert(
@@ -1607,7 +1609,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let block = RpcBlock::new_without_blobs(Some(block_root), block);
+        let block = RpcBlock::new(
+            block,
+            None,
+            &self.chain.data_availability_checker,
+            self.chain.spec.clone(),
+        )
+        .map_err(|_| SendErrorProcessor::SendError)?;
 
         debug!(block = ?block_root, block_slot = %block.slot(), id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync

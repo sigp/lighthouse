@@ -17,9 +17,9 @@ use tokio::time::sleep;
 use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
-    EthSpec, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
+    DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
+    KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -952,9 +952,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     })
 }
 
-#[test]
-#[allow(clippy::single_match)]
-fn test_tcp_columns_by_root_chunked_rpc() {
+fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -963,14 +961,17 @@ fn test_tcp_columns_by_root_chunked_rpc() {
     let messages_to_send = 32 * num_of_columns;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
-    let current_fork_name = ForkName::Fulu;
+    let slot = spec
+        .fork_epoch(fork_name)
+        .expect("fork must be scheduled")
+        .start_slot(E::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            current_fork_name,
+            fork_name,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -980,7 +981,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
 
         // DataColumnsByRootRequest Request
 
-        let max_request_blocks = spec.max_request_blocks(current_fork_name);
+        let max_request_blocks = spec.max_request_blocks(fork_name);
         let req = DataColumnsByRootRequest::new(
             vec![
                 DataColumnsByRootIdentifier {
@@ -999,7 +1000,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         let req_decoded = DataColumnsByRootRequest {
             data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
                 &req_bytes,
-                spec.max_request_blocks(current_fork_name),
+                spec.max_request_blocks(fork_name),
             )
             .unwrap(),
         };
@@ -1007,30 +1008,43 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         let rpc_request = RequestType::DataColumnsByRoot(req);
 
         // DataColumnsByRoot Response
-        let data_column = Arc::new(DataColumnSidecar {
-            index: 1,
-            signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader {
-                    slot: 320u64.into(),
-                    proposer_index: 1,
-                    parent_root: Hash256::zero(),
-                    state_root: Hash256::zero(),
-                    body_root: Hash256::zero(),
+        let data_column = if fork_name.gloas_enabled() {
+            Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+                index: 1,
+                slot,
+                beacon_block_root: Hash256::zero(),
+
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+            }))
+        } else {
+            Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                index: 1,
+                signed_block_header: SignedBeaconBlockHeader {
+                    message: BeaconBlockHeader {
+                        slot,
+                        proposer_index: 1,
+                        parent_root: Hash256::zero(),
+                        state_root: Hash256::zero(),
+                        body_root: Hash256::zero(),
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            },
-            column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+                kzg_commitments_inclusion_proof: vec![
+                    Hash256::zero();
+                    E::kzg_commitments_inclusion_proof_depth()
+                ]
                 .try_into()
                 .unwrap(),
-            kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
-            kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
-            kzg_commitments_inclusion_proof: vec![
-                Hash256::zero();
-                E::kzg_commitments_inclusion_proof_depth()
-            ]
-            .try_into()
-            .unwrap(),
-        });
+            }))
+        };
 
         let rpc_response = Response::DataColumnsByRoot(Some(data_column.clone()));
 
@@ -1120,7 +1134,17 @@ fn test_tcp_columns_by_root_chunked_rpc() {
 
 #[test]
 #[allow(clippy::single_match)]
-fn test_tcp_columns_by_range_chunked_rpc() {
+fn test_tcp_columns_by_root_chunked_rpc_fulu() {
+    test_tcp_columns_by_root_chunked_rpc_for_fork(ForkName::Fulu);
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_root_chunked_rpc_gloas() {
+    test_tcp_columns_by_root_chunked_rpc_for_fork(ForkName::Gloas);
+}
+
+fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -1129,14 +1153,17 @@ fn test_tcp_columns_by_range_chunked_rpc() {
     let messages_to_send = 32;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
-    let current_fork_name = ForkName::Fulu;
+    let slot = spec
+        .fork_epoch(fork_name)
+        .expect("fork must be scheduled")
+        .start_slot(E::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            current_fork_name,
+            fork_name,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -1146,36 +1173,48 @@ fn test_tcp_columns_by_range_chunked_rpc() {
 
         // DataColumnsByRange Request
         let rpc_request = RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
-            start_slot: 320,
+            start_slot: slot.as_u64(),
             count: 32,
             columns: (0..E::number_of_columns() as u64).collect(),
         });
 
         // DataColumnsByRange Response
-        let data_column = Arc::new(DataColumnSidecar {
-            index: 1,
-            signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader {
-                    slot: 320u64.into(),
-                    proposer_index: 1,
-                    parent_root: Hash256::zero(),
-                    state_root: Hash256::zero(),
-                    body_root: Hash256::zero(),
+        let data_column = if fork_name.gloas_enabled() {
+            Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+                index: 1,
+                slot,
+                beacon_block_root: Hash256::zero(),
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+            }))
+        } else {
+            Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                index: 1,
+                signed_block_header: SignedBeaconBlockHeader {
+                    message: BeaconBlockHeader {
+                        slot,
+                        proposer_index: 1,
+                        parent_root: Hash256::zero(),
+                        state_root: Hash256::zero(),
+                        body_root: Hash256::zero(),
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            },
-            column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+                kzg_commitments_inclusion_proof: vec![
+                    Hash256::zero();
+                    E::kzg_commitments_inclusion_proof_depth()
+                ]
                 .try_into()
                 .unwrap(),
-            kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
-            kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
-            kzg_commitments_inclusion_proof: vec![
-                Hash256::zero();
-                E::kzg_commitments_inclusion_proof_depth()
-            ]
-            .try_into()
-            .unwrap(),
-        });
+            }))
+        };
 
         let rpc_response = Response::DataColumnsByRange(Some(data_column.clone()));
 
@@ -1218,34 +1257,27 @@ fn test_tcp_columns_by_range_chunked_rpc() {
         // build the receiver future
         let receiver_future = async {
             loop {
-                match receiver.next_event().await {
-                    NetworkEvent::RequestReceived {
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    inbound_request_id,
+                    request_type,
+                } = receiver.next_event().await
+                    && request_type == rpc_request
+                {
+                    // send the response
+                    info!("Receiver got request");
+
+                    for _ in 0..messages_to_send {
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                        info!("Sending message");
+                    }
+                    // send the stream termination
+                    receiver.send_response(
                         peer_id,
                         inbound_request_id,
-                        request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            info!("Receiver got request");
-
-                            for _ in 0..messages_to_send {
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                                info!("Sending message");
-                            }
-                            // send the stream termination
-                            receiver.send_response(
-                                peer_id,
-                                inbound_request_id,
-                                Response::DataColumnsByRange(None),
-                            );
-                            info!("Send stream term");
-                        }
-                    }
-                    _ => {} // Ignore other events
+                        Response::DataColumnsByRange(None),
+                    );
+                    info!("Send stream term");
                 }
             }
         }
@@ -1258,6 +1290,18 @@ fn test_tcp_columns_by_range_chunked_rpc() {
             }
         }
     })
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_range_chunked_rpc_fulu() {
+    test_tcp_columns_by_range_chunked_rpc_for_fork(ForkName::Fulu);
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_range_chunked_rpc_gloas() {
+    test_tcp_columns_by_range_chunked_rpc_for_fork(ForkName::Gloas);
 }
 
 // Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received

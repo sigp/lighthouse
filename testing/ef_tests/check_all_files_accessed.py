@@ -59,11 +59,15 @@ excluded_paths = [
     # Ignore full epoch tests for now (just test the sub-transitions).
     "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
+    # Ignore inactivity_scores tests for now (should implement soon).
+    "tests/.*/.*/rewards/inactivity_scores/.*",
     # Ignore gloas tests for now
     "tests/.*/gloas/.*",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",
+    # We don't need these manifest files at the moment.
+    "tests/.*/manifest.yaml"
 ]
 
 

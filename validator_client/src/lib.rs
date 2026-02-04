@@ -268,7 +268,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
             let i = x.0;
             let url = x.1;
-            let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+            let slot_duration = context.eth2_config.spec.get_slot_duration();
 
             let mut beacon_node_http_client_builder = ClientBuilder::new();
 
@@ -389,7 +389,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
+            context.eth2_config.spec.get_slot_duration(),
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());

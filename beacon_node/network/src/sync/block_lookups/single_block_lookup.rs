@@ -7,7 +7,6 @@ use crate::sync::network_context::{
 use beacon_chain::{BeaconChainTypes, BlockProcessStatus};
 use educe::Educe;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_tracing::SPAN_SINGLE_BLOCK_LOOKUP;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -93,7 +92,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         awaiting_parent: Option<Hash256>,
     ) -> Self {
         let lookup_span = debug_span!(
-            SPAN_SINGLE_BLOCK_LOOKUP,
+            "lh_single_block_lookup",
             block_root = %requested_block_root,
             id = id,
         );
