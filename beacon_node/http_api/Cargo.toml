@@ -55,6 +55,7 @@ warp_utils = { workspace = true }
 genesis = { workspace = true }
 proto_array = { workspace = true }
 reqwest = { workspace = true }
+oas3 = { version = "0.20.1", features = ["yaml-spec"] }
 serde_yaml = { workspace = true }
 
 [[test]]
