@@ -84,11 +84,8 @@ pub fn get_builder_withdrawals<E: EthSpec>(
         return Ok(None);
     };
 
-    // TODO(gloas): this has already changed on `master`, we need to update at next spec release
-    let withdrawals_limit = E::max_withdrawals_per_payload();
+    let withdrawals_limit = E::max_withdrawals_per_payload().safe_sub(1)?;
 
-    // TODO(gloas): this assert is from `master`, remove this comment once it is part of the tested
-    // spec version.
     block_verify!(
         withdrawals.len() <= withdrawals_limit,
         BlockProcessingError::WithdrawalsLimitExceeded {
@@ -138,8 +135,6 @@ pub fn get_pending_partial_withdrawals<E: EthSpec>(
         E::max_withdrawals_per_payload().safe_sub(1)?,
     );
 
-    // TODO(gloas): this assert is from `master`, remove this comment once it is part of the tested
-    // spec version.
     block_verify!(
         withdrawals.len() <= withdrawals_limit,
         BlockProcessingError::WithdrawalsLimitExceeded {
@@ -205,11 +200,8 @@ pub fn get_builders_sweep_withdrawals<E: EthSpec>(
     let epoch = state.current_epoch();
     let builders_limit = std::cmp::min(builders.len(), E::max_builders_per_withdrawals_sweep());
 
-    // TODO(gloas): this has already changed on `master`, we should update at the next spec release
-    let withdrawals_limit = E::max_withdrawals_per_payload();
+    let withdrawals_limit = E::max_withdrawals_per_payload().safe_sub(1)?;
 
-    // TODO(gloas): this assert is from `master`, remove this comment once it is part of the tested
-    // spec version.
     block_verify!(
         withdrawals.len() <= withdrawals_limit,
         BlockProcessingError::WithdrawalsLimitExceeded {

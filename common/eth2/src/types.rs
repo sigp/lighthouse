@@ -1016,7 +1016,11 @@ impl SseDataColumnSidecar {
     pub fn from_data_column_sidecar<E: EthSpec>(
         data_column_sidecar: &DataColumnSidecar<E>,
     ) -> SseDataColumnSidecar {
-        let kzg_commitments = data_column_sidecar.kzg_commitments().to_vec();
+        // TODO(gloas): fetch kzg_commitments from block for Gloas SSE events
+        let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
+            DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
+            DataColumnSidecar::Gloas(_) => vec![],
+        };
         let versioned_hashes = kzg_commitments
             .iter()
             .map(|c| c.calculate_versioned_hash())
