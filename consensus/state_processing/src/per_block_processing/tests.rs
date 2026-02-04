@@ -43,6 +43,7 @@ async fn get_harness<E: EthSpec>(
         .default_spec()
         .keypairs(KEYPAIRS[0..num_validators].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let state = harness.get_current_state();
     if last_slot_of_epoch > Slot::new(0) {

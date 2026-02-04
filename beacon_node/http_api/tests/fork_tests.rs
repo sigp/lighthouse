@@ -404,7 +404,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         bls_withdrawal_credentials(&keypair.pk, spec)
     }
 
-    let header = generate_genesis_header(&spec, true);
+    let header = generate_genesis_header(&spec);
 
     let genesis_state = InteropGenesisBuilder::new()
         .set_opt_execution_payload_header(header)

@@ -29,10 +29,7 @@ use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
     auth::JwtKey,
-    test_utils::{
-        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, ExecutionBlockGenerator, MockBuilder,
-        MockExecutionLayer,
-    },
+    test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
 use fixed_bytes::FixedBytesExtended;
 use futures::channel::mpsc::Receiver;
@@ -202,11 +199,12 @@ pub fn fork_name_from_env() -> Option<ForkName> {
 /// Return a `ChainSpec` suitable for test usage.
 ///
 /// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
-/// variable. Otherwise use the default spec.
+/// variable. Otherwise we default to Bellatrix as the minimum fork (we no longer support
+/// starting test networks prior to Bellatrix).
 pub fn test_spec<E: EthSpec>() -> ChainSpec {
     let mut spec = fork_name_from_env()
         .map(|fork| fork.make_genesis_spec(E::default_spec()))
-        .unwrap_or_else(|| E::default_spec());
+        .unwrap_or_else(|| ForkName::Bellatrix.make_genesis_spec(E::default_spec()));
 
     // Set target aggregators to a high value by default.
     spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
@@ -277,16 +275,25 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec(), false);
+            let spec = builder.get_spec();
+            let header = generate_genesis_header::<E>(spec);
             let genesis_state = genesis_state_builder
-                .set_opt_execution_payload_header(header)
+                .set_opt_execution_payload_header(header.clone())
                 .build_genesis_state(
                     &validator_keypairs,
                     HARNESS_GENESIS_TIME,
                     Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                    builder.get_spec(),
+                    spec,
                 )
                 .expect("should generate interop state");
+            // For post-Bellatrix forks, verify the merge is complete at genesis
+            if header.is_some() {
+                assert!(
+                    state_processing::per_block_processing::is_merge_transition_complete(
+                        &genesis_state
+                    )
+                );
+            }
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
@@ -344,7 +351,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
         });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec(), false);
+            let header = generate_genesis_header::<E>(builder.get_spec());
             let genesis_state = genesis_state_builder
                 .set_opt_execution_payload_header(header)
                 .build_genesis_state(
@@ -688,7 +695,6 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
 
     MockExecutionLayer::new(
         task_executor,
-        DEFAULT_TERMINAL_BLOCK,
         shanghai_time,
         cancun_time,
         prague_time,

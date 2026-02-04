@@ -1074,7 +1074,6 @@ impl TestRig {
         );
         let payload_verification_outcome = PayloadVerificationOutcome {
             payload_verification_status: PayloadVerificationStatus::Verified,
-            is_valid_merge_transition_block: false,
         };
         let executed_block =
             AvailabilityPendingExecutedBlock::new(block, import_data, payload_verification_outcome);

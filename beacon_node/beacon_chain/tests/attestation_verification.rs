@@ -14,6 +14,7 @@ use beacon_chain::{
     },
 };
 use bls::{AggregateSignature, Keypair, SecretKey};
+use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
@@ -79,11 +80,13 @@ fn get_harness_capella_spec(
     let spec = Arc::new(spec);
 
     let validator_keypairs = KEYPAIRS[0..validator_count].to_vec();
+    // Use the proper genesis execution payload header that matches the mock execution layer
+    let execution_payload_header = generate_genesis_header(&spec);
     let genesis_state = interop_genesis_state(
         &validator_keypairs,
         HARNESS_GENESIS_TIME,
         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-        None,
+        execution_payload_header,
         &spec,
     )
     .unwrap();
@@ -105,11 +108,6 @@ fn get_harness_capella_spec(
         .genesis_state_ephemeral_store(genesis_state)
         .mock_execution_layer()
         .build();
-
-    harness
-        .execution_block_generator()
-        .move_to_terminal_block()
-        .unwrap();
 
     harness.advance_slot();
 
