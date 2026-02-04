@@ -55,7 +55,7 @@ use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
-    PayloadStatusFilter, Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig,
+    Error as StoreError, KeyValueStore, KeyValueStoreOp, PayloadStatusFilter, StoreConfig,
     iter::StateRootsIterator,
 };
 use task_executor::{JoinHandle, ShutdownReason};
@@ -307,7 +307,12 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let current_slot = fork_choice.fc_store().get_current_slot();
         let (_, beacon_state) = store
-            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root(), PayloadStatusFilter::Any)?
+            .get_advanced_hot_state(
+                beacon_block_root,
+                current_slot,
+                beacon_block.state_root(),
+                PayloadStatusFilter::Any,
+            )?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {

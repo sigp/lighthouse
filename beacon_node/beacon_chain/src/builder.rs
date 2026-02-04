@@ -39,7 +39,7 @@ use state_processing::{AllCaches, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{PayloadStatusFilter, Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
+use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp, PayloadStatusFilter};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
 use tree_hash::TreeHash;
@@ -805,7 +805,12 @@ where
             };
 
         let (_head_state_root, head_state) = store
-            .get_advanced_hot_state(head_block_root, current_slot, head_block.state_root(), PayloadStatusFilter::Any)
+            .get_advanced_hot_state(
+                head_block_root,
+                current_slot,
+                head_block.state_root(),
+                PayloadStatusFilter::Any,
+            )
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 

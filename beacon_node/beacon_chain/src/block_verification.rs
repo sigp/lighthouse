@@ -91,7 +91,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
-use store::{PayloadStatusFilter, Error as DBError, KeyValueStore};
+use store::{Error as DBError, KeyValueStore, PayloadStatusFilter};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
@@ -1935,7 +1935,12 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
         let (parent_state_root, state) = chain
             .store
-            .get_advanced_hot_state(root, block.slot(), parent_block.state_root(), PayloadStatusFilter::Any)?
+            .get_advanced_hot_state(
+                root,
+                block.slot(),
+                parent_block.state_root(),
+                PayloadStatusFilter::Any,
+            )?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),
