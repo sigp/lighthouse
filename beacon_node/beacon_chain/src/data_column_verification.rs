@@ -573,12 +573,18 @@ fn verify_data_column_sidecar<E: EthSpec>(
             *data_column.index(),
         ));
     }
-    if data_column.kzg_commitments().is_empty() {
+
+    // TODO(gloas): implement Gloas verification that takes kzg_commitments from block as parameter
+    let commitments_len = match data_column {
+        DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.len(),
+        DataColumnSidecar::Gloas(_) => return Err(GossipDataColumnError::InvalidVariant),
+    };
+
+    if commitments_len == 0 {
         return Err(GossipDataColumnError::UnexpectedDataColumn);
     }
 
     let cells_len = data_column.column().len();
-    let commitments_len = data_column.kzg_commitments().len();
     let proofs_len = data_column.kzg_proofs().len();
     let max_blobs_per_block = spec.max_blobs_per_block(data_column.epoch()) as usize;
 

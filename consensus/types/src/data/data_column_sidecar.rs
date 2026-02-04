@@ -81,7 +81,9 @@ pub struct DataColumnSidecar<E: EthSpec> {
     pub index: ColumnIndex,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub column: DataColumn<E>,
-    /// All the KZG commitments and proofs associated with the block, used for verifying sample cells.
+    /// All the KZG commitments associated with the block, used for verifying sample cells.
+    /// In Gloas, commitments come from `block.body.signed_execution_payload_bid.message.blob_kzg_commitments`.
+    #[superstruct(only(Fulu))]
     pub kzg_commitments: KzgCommitments<E>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu))]
@@ -210,7 +212,6 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
         Self {
             index: 0,
             column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
-            kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
@@ -223,11 +224,6 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
         Self {
             index: 0,
             column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
-            kzg_commitments: VariableList::new(vec![
-                KzgCommitment::empty_for_testing();
-                max_blobs_per_block
-            ])
-            .unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
