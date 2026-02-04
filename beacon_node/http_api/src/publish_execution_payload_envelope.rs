@@ -17,9 +17,9 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     let beacon_block_root = envelope.message.beacon_block_root;
 
     // Basic validation: check that the slot is reasonable
-    let current_slot = chain
-        .slot()
-        .map_err(|_| warp_utils::reject::custom_server_error("Unable to get current slot".into()))?;
+    let current_slot = chain.slot().map_err(|_| {
+        warp_utils::reject::custom_server_error("Unable to get current slot".into())
+    })?;
 
     // Don't accept envelopes too far in the future
     if slot > current_slot + 1 {

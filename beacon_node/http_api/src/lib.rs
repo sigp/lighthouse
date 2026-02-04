@@ -1504,7 +1504,9 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_execution_payload_envelope::publish_execution_payload_envelope(
-                        envelope, chain, &network_tx,
+                        envelope,
+                        chain,
+                        &network_tx,
                     )
                     .await
                 })
@@ -1517,7 +1519,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelope"))
         .and(warp::path::end())
-        .and(warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER))
+        .and(warp::header::exact(
+            CONTENT_TYPE_HEADER,
+            SSZ_CONTENT_TYPE_HEADER,
+        ))
         .and(warp::body::bytes())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
@@ -1531,10 +1536,12 @@ pub fn serve<T: BeaconChainTypes>(
                     let envelope =
                         SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(&body_bytes)
                             .map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                            })?;
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
                     publish_execution_payload_envelope::publish_execution_payload_envelope(
-                        envelope, chain, &network_tx,
+                        envelope,
+                        chain,
+                        &network_tx,
                     )
                     .await
                 })

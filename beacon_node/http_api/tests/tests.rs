@@ -7721,7 +7721,6 @@ async fn block_production_v4_ssz() {
         .await;
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn blinded_block_production_full_payload_premerge() {
     ApiTester::new().await.test_blinded_block_production().await;
