@@ -333,6 +333,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
 
+    pub fn gloas_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[7..].to_vec())
+    }
+
     pub fn pre_electra() -> Self {
         Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
