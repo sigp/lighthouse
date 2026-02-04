@@ -631,6 +631,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
     /// Fetch, sign, and publish the execution payload envelope for Gloas.
     /// This should be called after the block has been published.
+    ///
+    /// TODO(gloas): For multi-BN setups, we need to track which beacon node produced the block
+    /// and fetch/publish the envelope from that same node. The envelope is cached per-BN,
+    /// so fetching from a different BN than the one that built the block will fail.
+    /// See: https://github.com/sigp/lighthouse/pull/8313
     #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
     async fn fetch_sign_and_publish_payload_envelope(
         &self,

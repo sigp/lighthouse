@@ -196,14 +196,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        // TODO(gloas)
-        // let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
+        let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
 
         // Ensure the state has performed a complete transition into the required slot.
         complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
 
-        // TODO(gloas)
-        // drop(slot_timer);
+        drop(slot_timer);
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         state.apply_pending_mutations()?;
@@ -238,9 +236,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // are included in the operation pool.
         {
             let _guard = debug_span!("import_naive_aggregation_pool").entered();
-            // TODO(gloas)
-            // let _unagg_import_timer =
-            // metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
+            let _unagg_import_timer =
+                metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
             for attestation in self.naive_aggregation_pool.read().iter() {
                 let import = |attestation: &Attestation<T::EthSpec>| {
                     let attesting_indices =
@@ -260,9 +257,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut attestations = {
             let _guard = debug_span!("pack_attestations").entered();
-            // TODO(gloas)
-            // let _attestation_packing_timer =
-            //    metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
+            let _attestation_packing_timer =
+                metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
             // Epoch cache and total balance cache are required for op pool packing.
             state.build_total_active_balance_cache(&self.spec)?;
@@ -528,19 +524,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Signature::empty(),
         );
 
-        // TODO(gloas) ensure block size is measured from the signed block
         let block_size = signed_beacon_block.ssz_bytes_len();
         debug!(%block_size, "Produced block on state");
 
-        // TODO(gloas)
-        // metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
+        metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
 
         if block_size > self.config.max_network_size {
             return Err(BlockProductionError::BlockTooLarge(block_size));
         }
 
-        // TODO(gloas)
-        // let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
+        let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
         let signature_strategy = match verification {
             ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
             ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
@@ -562,16 +555,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut ctxt,
             &self.spec,
         )?;
-        // TODO(gloas)
-        // drop(process_timer);
+        drop(process_timer);
 
-        // TODO(gloas)
-        //let state_root_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_ROOT_TIMES);
+        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_ROOT_TIMES);
 
         let state_root = state.update_tree_hash_cache()?;
 
-        // TODO(gloas)
-        // drop(state_root_timer);
+        drop(state_root_timer);
 
         let (mut block, _) = signed_beacon_block.deconstruct();
         *block.state_root_mut() = state_root;
@@ -603,8 +593,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // TODO(gloas)
-        // metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
         trace!(
             parent = ?block.parent_root(),
