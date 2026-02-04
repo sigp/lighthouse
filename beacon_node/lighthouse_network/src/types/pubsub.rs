@@ -49,7 +49,7 @@ pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a payload attestation message.
     PayloadAttestation(Box<PayloadAttestationMessage>),
     /// Gossipsub message providing notification of a signed execution payload bid.
-    ExecutionPayloadBid(Box<SignedExecutionPayloadBid>),
+    ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
     /// Gossipsub message providing notification of signed proposer preferences.
     ProposerPreferences(Box<SignedProposerPreferences>),
     /// Gossipsub message providing notification of a light client finality update.
