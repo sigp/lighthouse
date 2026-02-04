@@ -984,7 +984,6 @@ where
                 complete_blob_backfill,
                 slot_clock.clone(),
                 self.kzg.clone(),
-                store.clone(),
                 custody_context.clone(),
                 self.spec.clone(),
             )
@@ -1238,7 +1237,6 @@ fn build_data_columns_from_blobs<E: EthSpec>(
 
         if block.fork_name_unchecked().gloas_enabled() {
             build_data_column_sidecars_gloas(
-                kzg_commitments,
                 block.message().tree_hash_root(),
                 block.slot(),
                 blob_cells_and_proofs_vec,

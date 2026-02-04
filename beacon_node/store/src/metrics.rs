@@ -270,13 +270,6 @@ pub static STORE_BEACON_BLOB_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::
         "Current count of items in beacon store blob cache",
     )
 });
-pub static STORE_BEACON_PAYLOAD_ENVELOPE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
-    LazyLock::new(|| {
-        try_create_int_gauge(
-            "store_beacon_payload_envelope_cache_size",
-            "Current count of items in beacon store payload envelope cache",
-        )
-    });
 pub static STORE_BEACON_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "store_beacon_state_cache_size",
