@@ -48,7 +48,7 @@ const D: Duration = Duration::new(0, 0);
 /// to configure specific failure scenarios.
 #[derive(Default, Educe)]
 #[educe(Debug)]
-pub struct CompleteStrategy {
+pub struct SimulateConfig {
     return_rpc_error: Option<RPCError>,
     return_wrong_blocks_n_times: usize,
     return_wrong_sidecar_for_block_n_times: usize,
@@ -65,7 +65,7 @@ pub struct CompleteStrategy {
     block_imported_while_processing: Option<Hash256>,
 }
 
-impl CompleteStrategy {
+impl SimulateConfig {
     fn new() -> Self {
         Self::default()
     }
@@ -265,7 +265,7 @@ impl TestRig {
     /// Processes events from network, beacon processor, and sync queues in random order
     /// to test for race conditions. The `complete_strategy` controls how the simulated
     /// peers respond to requests (e.g., returning errors, wrong data, or valid responses).
-    async fn simulate(&mut self, complete_strategy: CompleteStrategy) {
+    async fn simulate(&mut self, complete_strategy: SimulateConfig) {
         self.complete_strategy = complete_strategy;
         self.log(&format!(
             "Running simulate with config {:?}",
@@ -1716,7 +1716,7 @@ async fn happy_path_unknown_attestation(depth: usize) {
     // We get attestation for a block descendant (depth) blocks of current head
     r.build_chain_and_trigger_last_block(depth).await;
     // Complete the request with good peer behaviour
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
@@ -1724,7 +1724,7 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     let mut r = TestRig::default();
     r.build_chain(depth).await;
     r.trigger_with_last_unknown_block_parent();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     // All lookups should NOT complete on this test, however note the following for the tip lookup,
     // it's the lookup for the tip block which has 0 peers and a block cached:
     // - before deneb the block is cached, so it's sent for processing, and success
@@ -1750,7 +1750,7 @@ async fn happy_path_unknown_data_parent(depth: usize) {
     } else if r.is_after_deneb() {
         r.trigger_with_last_unknown_blob_parent();
     }
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync_parent_trigger();
 }
 
@@ -1768,7 +1768,7 @@ async fn happy_path_multiple_triggers(depth: usize) {
     } else if r.is_after_deneb() {
         r.trigger_with_last_unknown_blob_parent();
     }
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     assert_eq!(r.created_lookups(), depth + 1, "Don't create extra lookups");
     r.assert_successful_lookup_sync();
 }
@@ -1780,7 +1780,7 @@ async fn bad_peer_empty_block_response(depth: usize) {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that peer returns empty response once, then good behaviour
-    r.simulate(CompleteStrategy::new().return_no_blocks_once())
+    r.simulate(SimulateConfig::new().return_no_blocks_once())
         .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["NotEnoughResponsesReturned"]);
@@ -1796,7 +1796,7 @@ async fn bad_peer_empty_data_response(depth: usize) {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
-    r.simulate(CompleteStrategy::new().return_no_data_once())
+    r.simulate(SimulateConfig::new().return_no_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["NotEnoughResponsesReturned"]);
@@ -1811,7 +1811,7 @@ async fn bad_peer_too_few_data_response(depth: usize) {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
-    r.simulate(CompleteStrategy::new().return_too_few_data_once())
+    r.simulate(SimulateConfig::new().return_too_few_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["NotEnoughResponsesReturned"]);
@@ -1823,7 +1823,7 @@ async fn bad_peer_too_few_data_response(depth: usize) {
 async fn bad_peer_wrong_block_response(depth: usize) {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(depth).await;
-    r.simulate(CompleteStrategy::new().return_wrong_blocks_once())
+    r.simulate(SimulateConfig::new().return_wrong_blocks_once())
         .await;
     r.expect_penalties(&["UnrequestedBlockRoot"]);
     r.assert_successful_lookup_sync();
@@ -1837,7 +1837,7 @@ async fn bad_peer_wrong_data_response(depth: usize) {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
-    r.simulate(CompleteStrategy::new().return_wrong_sidecar_for_block_once())
+    r.simulate(SimulateConfig::new().return_wrong_sidecar_for_block_once())
         .await;
     // We register a penalty, retry and complete sync successfully
     r.expect_penalties(&["UnrequestedBlockRoot"]);
@@ -1849,7 +1849,7 @@ async fn bad_peer_wrong_data_response(depth: usize) {
 async fn bad_peer_rpc_failure(depth: usize) {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(depth).await;
-    r.simulate(CompleteStrategy::new().return_rpc_error(RPCError::UnsupportedProtocol))
+    r.simulate(SimulateConfig::new().return_rpc_error(RPCError::UnsupportedProtocol))
         .await;
     r.expect_no_penalties();
     r.assert_successful_lookup_sync();
@@ -1862,7 +1862,7 @@ async fn too_many_download_failures(depth: usize) {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
-    r.simulate(CompleteStrategy::new().return_no_blocks_always())
+    r.simulate(SimulateConfig::new().return_no_blocks_always())
         .await;
     // We register multiple penalties, the lookup fails and sync does not progress
     r.expect_penalties_of_type("NotEnoughResponsesReturned");
@@ -1872,7 +1872,7 @@ async fn too_many_download_failures(depth: usize) {
     // Asserts that the lookup is not on a blacklist
     r.capture_metrics_baseline();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
@@ -1882,7 +1882,7 @@ async fn too_many_processing_failures(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
-        CompleteStrategy::new()
+        SimulateConfig::new()
             .with_process_result(|| BlockProcessingResult::Err(BlockError::BlockSlotLimitReached)),
     )
     .await;
@@ -1894,7 +1894,7 @@ async fn too_many_processing_failures(depth: usize) {
     // Asserts that the lookup is not on a blacklist
     r.capture_metrics_baseline();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
@@ -1913,7 +1913,7 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
     } else if r.is_after_deneb() {
         r.trigger_with_last_unknown_blob_parent();
     }
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_peers_at_lookup_of_slot(2, 0);
     r.assert_peers_at_lookup_of_slot(1, 3);
     assert_eq!(r.created_lookups(), 2, "Don't create extra lookups");
@@ -1936,7 +1936,7 @@ async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
     // Send an Ignored response, the request should be dropped
-    r.simulate(CompleteStrategy::new().with_process_result(|| BlockProcessingResult::Ignored))
+    r.simulate(SimulateConfig::new().with_process_result(|| BlockProcessingResult::Ignored))
         .await;
     // The block was not actually imported
     r.assert_head_slot(0);
@@ -1951,7 +1951,7 @@ async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
     // Send an Ignored response, the request should be dropped
-    r.simulate(CompleteStrategy::new().with_process_result(|| {
+    r.simulate(SimulateConfig::new().with_process_result(|| {
         BlockProcessingResult::Err(BlockError::DuplicateFullyImported(Hash256::ZERO))
     }))
     .await;
@@ -1969,7 +1969,7 @@ async fn peer_disconnected_then_rpc_error(depth: usize) {
     r.disconnect_all_peers();
     // The lookup is not removed as it can still potentially make progress.
     r.assert_single_lookups_count(1);
-    r.simulate(CompleteStrategy::new().return_rpc_error(RPCError::Disconnected))
+    r.simulate(SimulateConfig::new().return_rpc_error(RPCError::Disconnected))
         .await;
 
     // Regardless of depth, only the initial lookup is created, because the peer disconnects before
@@ -1992,7 +1992,7 @@ async fn lookups_form_chain() {
         r.trigger_with_block_at_slot(slot as u64);
     }
     // TODO(tree-sync): Assert that there are `depth` disjoint chains
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
 
     // Assert that the peers are added to ancestor lookups,
@@ -2014,7 +2014,7 @@ async fn test_parent_lookup_too_deep_grow_ancestor_one() {
     let mut r = TestRig::default();
     r.build_chain(PARENT_DEPTH_TOLERANCE + 1).await;
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
 
     r.assert_head_slot(PARENT_DEPTH_TOLERANCE as u64 + 1);
     r.expect_no_penalties();
@@ -2041,7 +2041,7 @@ async fn test_parent_lookup_too_deep_grow_ancestor_zero() {
     let mut r = TestRig::default();
     r.build_chain(PARENT_DEPTH_TOLERANCE).await;
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
 
     r.assert_head_slot(PARENT_DEPTH_TOLERANCE as u64);
     r.expect_no_penalties();
@@ -2062,7 +2062,7 @@ async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing
     let depth = PARENT_DEPTH_TOLERANCE + 1;
     r.build_chain(depth + 1).await;
     r.trigger_with_block_at_slot(depth as u64);
-    r.simulate(CompleteStrategy::new().no_range_sync()).await;
+    r.simulate(SimulateConfig::new().no_range_sync()).await;
 
     // At this point, the chain should have been deemed too deep and pruned.
     // The tip root should have been inserted into ignored chains.
@@ -2091,7 +2091,7 @@ async fn test_parent_lookup_too_deep_grow_tip() {
     for slot in (1..=depth).rev() {
         r.trigger_with_block_at_slot(slot as u64);
     }
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
 
     // Even if the chain is longer than `PARENT_DEPTH_TOLERANCE` because the lookups are created all
     // at once they chain by sections and it's possible that the oldest ancestors start processing
@@ -2114,7 +2114,7 @@ async fn test_skip_creating_ignored_parent_lookup() {
     r.build_chain(2).await;
     r.insert_ignored_chain(r.block_root_at_slot(1));
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.expect_no_penalties();
     // Both current and parent lookup should not be created
     r.expect_no_active_lookups();
@@ -2136,7 +2136,7 @@ async fn test_same_chain_race_condition() {
     r.trigger_with_last_block();
 
     let block_root_to_skip = r.block_root_at_slot(3);
-    r.simulate(CompleteStrategy::new().with_block_imported_while_processing(block_root_to_skip))
+    r.simulate(SimulateConfig::new().with_block_imported_while_processing(block_root_to_skip))
         .await;
 
     // Try to get this block again while the chain is being processed. We should not request it again.
@@ -2158,7 +2158,7 @@ async fn block_in_da_checker_skips_download() {
     r.insert_block_to_da_chain_and_assert_missing_componens(r.block_at_slot(1))
         .await;
     r.trigger_with_block_at_slot(1);
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
     assert_eq!(
         r.requests
@@ -2179,14 +2179,14 @@ async fn block_in_processing_cache_becomes_invalid() {
     let block = r.block_at_slot(1);
     r.insert_block_to_da_checker_as_pre_execution(block.clone());
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_pending_lookup_sync();
     // Here the only active lookup is waiting for the block to finish processing
 
     // Simulate invalid block, removing it from processing cache
     r.simulate_block_gossip_processing_becomes_invalid(block.canonical_root());
     // Should download block, then issue blobs request
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
 }
 
@@ -2199,7 +2199,7 @@ async fn block_in_processing_cache_becomes_valid_imported() {
     let block = r.block_at_slot(1);
     r.insert_block_to_da_checker_as_pre_execution(block.clone());
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.assert_pending_lookup_sync();
     // Here the only active lookup is waiting for the block to finish processing
 
@@ -2224,7 +2224,7 @@ async fn blobs_in_da_checker_skip_download() {
         r.insert_blob_to_da_checker(blob.clone());
     }
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
 
     r.assert_successful_lookup_sync();
     assert_eq!(
@@ -2278,7 +2278,7 @@ async fn custody_lookup_happy_path(test_type: FuluTestType) {
     r.build_chain(1).await;
     r.new_connected_peers_for_peerdas();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     r.expect_no_penalties();
     r.assert_successful_lookup_sync();
 }
@@ -2293,7 +2293,7 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
         r.trigger_unknown_block_from_attestation(block_root, peer);
     }
     let custody_columns = r.custody_columns();
-    r.simulate(CompleteStrategy::new().return_no_columns_on_indices(&custody_columns[..4], 3))
+    r.simulate(SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3))
         .await;
     r.expect_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_successful_lookup_sync();
@@ -2312,7 +2312,7 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
 
     let custody_columns = r.custody_columns();
     r.simulate(
-        CompleteStrategy::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX),
+        SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX),
     )
     .await;
     // Every peer that does not return a column is part of the lookup because it claimed to have
@@ -2339,7 +2339,7 @@ async fn crypto_on_fail_with_invalid_block_signature() {
     r.build_chain(1).await;
     r.corrupt_last_block_signature();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
         r.expect_no_penalties();
@@ -2357,7 +2357,7 @@ async fn crypto_on_fail_with_bad_blob_proposer_signature() {
     r.build_chain(1).await;
     r.corrupt_last_blob_proposer_signature();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
         r.expect_no_penalties();
@@ -2375,7 +2375,7 @@ async fn crypto_on_fail_with_bad_blob_kzg_proof() {
     r.build_chain(1).await;
     r.corrupt_last_blob_kzg_proof();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
         r.expect_no_penalties();
@@ -2393,7 +2393,7 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
     r.build_chain(1).await;
     r.corrupt_last_column_proposer_signature();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
         r.expect_no_penalties();
@@ -2411,7 +2411,7 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
     r.build_chain(1).await;
     r.corrupt_last_column_kzg_proof();
     r.trigger_with_last_block();
-    r.simulate(CompleteStrategy::happy_path()).await;
+    r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
         r.expect_no_penalties();

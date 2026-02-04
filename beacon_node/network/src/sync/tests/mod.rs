@@ -2,7 +2,7 @@ use crate::NetworkMessage;
 use crate::sync::SyncMessage;
 use crate::sync::block_lookups::BlockLookupsMetrics;
 use crate::sync::manager::SyncManager;
-use crate::sync::tests::lookups::CompleteStrategy;
+use crate::sync::tests::lookups::SimulateConfig;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::Witness;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -86,7 +86,7 @@ struct TestRig {
     /// Registry of all requests done by the test
     requests: Vec<(RequestType<E>, AppRequestId)>,
     /// Persistent config on how to complete request
-    complete_strategy: CompleteStrategy,
+    complete_strategy: SimulateConfig,
     /// Configure how to deque events
     sync_rx_dequeue_strategy: DequeueEventStrategy,
     network_rx_dequeue_strategy: DequeueEventStrategy,
