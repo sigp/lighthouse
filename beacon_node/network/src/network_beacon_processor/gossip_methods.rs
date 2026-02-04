@@ -3252,7 +3252,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_bid: SignedExecutionPayloadBid,
+        payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
     ) {
         // TODO(EIP-7732): Implement proper payload bid gossip processing.
         // This should integrate with a payload execution bid verification module once it's implemented.

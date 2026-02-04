@@ -167,7 +167,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra, Fulu))]
     pub execution_requests: ExecutionRequests<E>,
     #[superstruct(only(Gloas))]
-    pub signed_execution_payload_bid: SignedExecutionPayloadBid,
+    pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
     #[superstruct(only(Gloas))]
     pub payload_attestations: VariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
     #[superstruct(only(Base, Altair, Gloas))]
