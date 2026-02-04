@@ -1,4 +1,4 @@
-use crate::data_availability_checker_v2::overflow_lru_cache::{
+use crate::data_availability_checker_v2::pending_components_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
 
@@ -18,7 +18,7 @@ use types::{
     SignedExecutionPayloadBid, Slot,
 };
 
-mod overflow_lru_cache;
+mod pending_components_cache;
 
 use crate::data_column_verification::{
     GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,

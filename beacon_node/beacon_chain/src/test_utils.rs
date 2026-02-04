@@ -24,7 +24,7 @@ use bls::get_withdrawal_credentials;
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
 };
-use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple, SignedPayloadEnvelopeContentsTuple};
+use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
