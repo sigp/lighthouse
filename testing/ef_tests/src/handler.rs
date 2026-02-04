@@ -401,10 +401,7 @@ where
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // TODO(gloas): DataColumnSidecar tests are disabled until we update the DataColumnSidecar
-        // type.
         self.supported_forks.contains(&fork_name)
-            && !(fork_name == ForkName::Gloas && T::name() == "DataColumnSidecar")
     }
 }
 
