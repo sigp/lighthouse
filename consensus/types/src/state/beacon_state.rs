@@ -23,13 +23,13 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal, ExecutionBlockHash,
-    ExecutionPayloadBid, Withdrawal,
+    ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
     },
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
+    builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
     deposit::PendingDeposit,
@@ -68,6 +68,7 @@ pub enum BeaconStateError {
     EpochOutOfBounds,
     SlotOutOfBounds,
     UnknownValidator(usize),
+    UnknownBuilder(BuilderIndex),
     UnableToDetermineProducer,
     InvalidBitfield,
     EmptyCommittee,
