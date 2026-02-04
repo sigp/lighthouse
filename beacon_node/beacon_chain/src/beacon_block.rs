@@ -589,14 +589,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 state_root: payload_data.state_root,
             };
 
-            // Cache the envelope for later retrieval for signing and publishing.
+            // Cache the envelope for later retrieval by the validator for signing and publishing.
+            let envelope_slot = payload_data.slot;
             self.pending_payload_envelopes
                 .write()
-                .insert(beacon_block_root, execution_payload_envelope);
+                .insert(envelope_slot, execution_payload_envelope);
 
             debug!(
                 %beacon_block_root,
-                slot = %block.slot(),
+                slot = %envelope_slot,
                 "Cached pending execution payload envelope"
             );
         }

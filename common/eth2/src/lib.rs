@@ -42,7 +42,7 @@ use reqwest::{
 #[cfg(feature = "events")]
 use reqwest_eventsource::{Event, EventSource};
 use serde::{Serialize, de::DeserializeOwned};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
@@ -2579,6 +2579,48 @@ impl BeaconNodeHttpClient {
             .await?;
 
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
+    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}`
+    pub async fn get_validator_execution_payload_envelope<E: EthSpec>(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+    ) -> Result<GenericResponse<ExecutionPayloadEnvelope<E>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_envelope")
+            .push(&slot.to_string())
+            .push(&builder_index.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}` in SSZ format
+    pub async fn get_validator_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+    ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_envelope")
+            .push(&slot.to_string())
+            .push(&builder_index.to_string());
+
+        let opt_response = self
+            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
+            .await?;
+
+        let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
+
+        ExecutionPayloadEnvelope::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format
