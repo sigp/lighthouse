@@ -28,6 +28,49 @@ impl<E: EthSpec> SignedRoot for ExecutionPayloadEnvelope<E> {}
 mod tests {
     use super::*;
     use crate::MainnetEthSpec;
+    use crate::test_utils::TestRandom;
+    use rand::SeedableRng;
+    use rand_xorshift::XorShiftRng;
 
     ssz_and_tree_hash_tests!(ExecutionPayloadEnvelope<MainnetEthSpec>);
+
+    #[test]
+    fn signing_root_is_deterministic() {
+        let mut rng = XorShiftRng::from_seed([0x42; 16]);
+        let envelope = ExecutionPayloadEnvelope::<MainnetEthSpec>::random_for_test(&mut rng);
+        let domain = Hash256::random_for_test(&mut rng);
+
+        let signing_root_1 = envelope.signing_root(domain);
+        let signing_root_2 = envelope.signing_root(domain);
+
+        assert_eq!(signing_root_1, signing_root_2);
+    }
+
+    #[test]
+    fn signing_root_changes_with_domain() {
+        let mut rng = XorShiftRng::from_seed([0x42; 16]);
+        let envelope = ExecutionPayloadEnvelope::<MainnetEthSpec>::random_for_test(&mut rng);
+        let domain_1 = Hash256::random_for_test(&mut rng);
+        let domain_2 = Hash256::random_for_test(&mut rng);
+
+        let signing_root_1 = envelope.signing_root(domain_1);
+        let signing_root_2 = envelope.signing_root(domain_2);
+
+        assert_ne!(signing_root_1, signing_root_2);
+    }
+
+    #[test]
+    fn signing_root_changes_with_envelope_data() {
+        let mut rng = XorShiftRng::from_seed([0x42; 16]);
+        let envelope_1 = ExecutionPayloadEnvelope::<MainnetEthSpec>::random_for_test(&mut rng);
+        let mut envelope_2 = envelope_1.clone();
+        envelope_2.beacon_block_root = Hash256::random_for_test(&mut rng);
+
+        let domain = Hash256::random_for_test(&mut rng);
+
+        let signing_root_1 = envelope_1.signing_root(domain);
+        let signing_root_2 = envelope_2.signing_root(domain);
+
+        assert_ne!(signing_root_1, signing_root_2);
+    }
 }

@@ -3978,8 +3978,26 @@ impl ApiTester {
                 .unwrap();
 
             let envelope = envelope_response.data;
-            assert_eq!(envelope.beacon_block_root, block_root);
-            assert_eq!(envelope.slot, slot);
+
+            // Verify envelope fields match the produced block
+            assert_eq!(
+                envelope.beacon_block_root, block_root,
+                "Envelope beacon_block_root should match the produced block's root"
+            );
+            assert_eq!(
+                envelope.slot, slot,
+                "Envelope slot should match the block's slot"
+            );
+            assert_eq!(
+                envelope.builder_index,
+                u64::MAX,
+                "Builder index should be u64::MAX for local building"
+            );
+            assert_ne!(
+                envelope.state_root,
+                Hash256::ZERO,
+                "State root should not be zero"
+            );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
@@ -4054,8 +4072,25 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            assert_eq!(envelope.beacon_block_root, block_root);
-            assert_eq!(envelope.slot, slot);
+            // Verify envelope fields match the produced block
+            assert_eq!(
+                envelope.beacon_block_root, block_root,
+                "Envelope beacon_block_root should match the produced block's root"
+            );
+            assert_eq!(
+                envelope.slot, slot,
+                "Envelope slot should match the block's slot"
+            );
+            assert_eq!(
+                envelope.builder_index,
+                u64::MAX,
+                "Builder index should be u64::MAX for local building"
+            );
+            assert_ne!(
+                envelope.state_root,
+                Hash256::ZERO,
+                "State root should not be zero"
+            );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }

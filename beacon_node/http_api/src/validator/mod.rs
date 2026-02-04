@@ -403,9 +403,9 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
         .and(chain_filter)
         .then(
             |slot: Slot,
-            // TODO(gloas) we're only doing local building
-            // we'll need to implement builder index logic 
-            // eventually.
+             // TODO(gloas) we're only doing local building
+             // we'll need to implement builder index logic
+             // eventually.
              _builder_index: u64,
              accept_header: Option<Accept>,
              not_synced_filter: Result<(), Rejection>,

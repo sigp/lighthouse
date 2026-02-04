@@ -143,6 +143,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
 
 // Combines a set of non-block-proposing `beacon_nodes` and only-block-proposing
 // `proposer_nodes`.
+#[derive(Clone)]
 pub struct ProposerFallback<T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
@@ -610,13 +611,81 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         self_ref
             .sign_and_publish_block(
-                proposer_fallback,
+                proposer_fallback.clone(),
                 slot,
                 graffiti,
                 &validator_pubkey,
                 unsigned_block,
             )
             .await?;
+
+        // For Gloas, fetch the execution payload envelope, sign it, and publish it
+        if fork_name.gloas_enabled() {
+            self_ref
+                .fetch_sign_and_publish_payload_envelope(proposer_fallback, slot, &validator_pubkey)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Fetch, sign, and publish the execution payload envelope for Gloas.
+    /// This should be called after the block has been published.
+    #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
+    async fn fetch_sign_and_publish_payload_envelope(
+        &self,
+        proposer_fallback: ProposerFallback<T>,
+        slot: Slot,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Result<(), BlockError> {
+        info!(slot = slot.as_u64(), "Fetching execution payload envelope");
+
+        // Fetch the envelope from the beacon node (builder_index=0 for local building)
+        let envelope = proposer_fallback
+            .request_proposers_last(|beacon_node| async move {
+                beacon_node
+                    .get_validator_execution_payload_envelope::<S::E>(slot, 0)
+                    .await
+                    .map(|response| response.data)
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!(
+                            "Error fetching execution payload envelope: {:?}",
+                            e
+                        ))
+                    })
+            })
+            .await?;
+
+        info!(
+            slot = slot.as_u64(),
+            beacon_block_root = %envelope.beacon_block_root,
+            "Received execution payload envelope, signing"
+        );
+
+        // Sign the envelope
+        let signed_envelope = self
+            .validator_store
+            .sign_execution_payload_envelope(*validator_pubkey, envelope)
+            .await
+            .map_err(|e| {
+                BlockError::Recoverable(format!(
+                    "Error signing execution payload envelope: {:?}",
+                    e
+                ))
+            })?;
+
+        info!(
+            slot = slot.as_u64(),
+            "Signed execution payload envelope, publishing"
+        );
+
+        // TODO(gloas): Publish the signed envelope
+        // For now, just log that we would publish it
+        debug!(
+            slot = slot.as_u64(),
+            beacon_block_root = %signed_envelope.message.beacon_block_root,
+            "Would publish signed execution payload envelope (not yet implemented)"
+        );
 
         Ok(())
     }
