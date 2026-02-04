@@ -93,8 +93,6 @@ type_name_generic!(ExecutionPayloadHeaderFulu, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadBid);
 type_name_generic!(SignedExecutionPayloadBid);
 type_name_generic!(ExecutionRequests);
-type_name_generic!(ExecutionPayloadBid);
-type_name_generic!(SignedExecutionPayloadBid);
 type_name_generic!(ExecutionPayloadEnvelope);
 type_name_generic!(SignedExecutionPayloadEnvelope);
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
