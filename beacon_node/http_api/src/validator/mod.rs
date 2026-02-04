@@ -1,4 +1,6 @@
-use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3, produce_block_v4};
+use crate::produce_block::{
+    produce_blinded_block_v2, produce_block_v2, produce_block_v3, produce_block_v4,
+};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{
     AnyVersionFilter, ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter,

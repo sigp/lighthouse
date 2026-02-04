@@ -1742,7 +1742,6 @@ pub struct ProduceBlockV3Metadata {
     pub consensus_block_value: Uint256,
 }
 
-
 /// Metadata about a `ProduceBlockV3Response` which is returned in the body & headers.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProduceBlockV4Metadata {

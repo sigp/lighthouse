@@ -140,7 +140,8 @@ pub fn build_response_v4<T: BeaconChainTypes>(
         .to_ref()
         .fork_name(&chain.spec)
         .map_err(inconsistent_fork_rejection)?;
-    let consensus_block_value_wei = Uint256::from(consensus_block_value) * Uint256::from(1_000_000_000u64);
+    let consensus_block_value_wei =
+        Uint256::from(consensus_block_value) * Uint256::from(1_000_000_000u64);
 
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()

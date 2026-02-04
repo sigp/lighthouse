@@ -4,8 +4,8 @@ use bls::Signature;
 use execution_layer::{BlockProposalContentsType, BuilderParams};
 use tracing::instrument;
 use types::{
-    Address, BeaconState, BlockProductionVersion, BuilderIndex, ExecutionPayloadBid, Hash256,
-    SignedExecutionPayloadBid, Slot,
+    Address, BeaconState, BlockProductionVersion, BuilderIndex, ExecutionPayloadBid,
+    ExecutionPayloadGloas, ExecutionRequests, Hash256, SignedExecutionPayloadBid, Slot,
 };
 
 use crate::{
@@ -13,11 +13,27 @@ use crate::{
     execution_payload::get_execution_payload,
 };
 
+/// Data needed to construct an ExecutionPayloadEnvelope.
+/// The envelope requires the beacon_block_root which can only be computed after the block exists.
+pub struct ExecutionPayloadData<E: types::EthSpec> {
+    pub payload: ExecutionPayloadGloas<E>,
+    pub execution_requests: ExecutionRequests<E>,
+    pub builder_index: BuilderIndex,
+    pub slot: Slot,
+    pub state_root: Hash256,
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
     // bid building. Right now this only works for local building.
     /// Produce an `ExecutionPayloadBid` for some `slot` upon the given `state`.
     /// This function assumes we've already done the state advance.
+    ///
+    /// Returns the signed bid, the state, and optionally the payload data needed to construct
+    /// the `ExecutionPayloadEnvelope` after the beacon block is created.
+    ///
+    /// For local building, payload data is always returned (`Some`).
+    /// For trustless building, the builder provides the envelope separately, so `None` is returned.
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
@@ -30,6 +46,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         (
             SignedExecutionPayloadBid<T::EthSpec>,
             BeaconState<T::EthSpec>,
+            Option<ExecutionPayloadData<T::EthSpec>>,
         ),
         BlockProductionError,
     > {
@@ -82,33 +99,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BlockProductionError::TokioJoin)?
             .ok_or(BlockProductionError::ShuttingDown)??;
 
-        let (execution_payload, blob_kzg_commitments) = match block_contents_type {
-            BlockProposalContentsType::Full(block_proposal_contents) => {
-                let blob_kzg_commitments =
-                    block_proposal_contents.blob_kzg_commitments().cloned();
+        let (execution_payload, blob_kzg_commitments, execution_requests) =
+            match block_contents_type {
+                BlockProposalContentsType::Full(block_proposal_contents) => {
+                    let (payload, blob_kzg_commitments, _, execution_requests, _) =
+                        block_proposal_contents.deconstruct();
 
-                if let Some(blob_kzg_commitments) = blob_kzg_commitments {
-                    (
-                        block_proposal_contents.to_payload().execution_payload(),
-                        blob_kzg_commitments,
-                    )
-                } else {
-                    return Err(BlockProductionError::MissingKzgCommitment(
-                        "No KZG commitments from the payload".to_owned(),
-                    ));
+                    if let Some(blob_kzg_commitments) = blob_kzg_commitments
+                        && let Some(execution_requests) = execution_requests
+                    {
+                        (
+                            payload.execution_payload(),
+                            blob_kzg_commitments,
+                            execution_requests,
+                        )
+                    } else {
+                        return Err(BlockProductionError::MissingKzgCommitment(
+                            "No KZG commitments from the payload".to_owned(),
+                        ));
+                    }
                 }
-            }
-            // TODO(gloas) we should never receive a blinded response.
-            // Should return some type of `Unexpected` error variant as this should never happen
-            // in the V4 block production flow
-            BlockProposalContentsType::Blinded(_) => {
-                return Err(BlockProductionError::GloasNotImplemented);
-            }
-        };
+                // TODO(gloas) we should never receive a blinded response.
+                // Should return some type of `Unexpected` error variant as this should never happen
+                // in the V4 block production flow
+                BlockProposalContentsType::Blinded(_) => {
+                    return Err(BlockProductionError::GloasNotImplemented);
+                }
+            };
 
-        let state_root = state_root_opt.ok_or_else(|| {
-            BlockProductionError::MissingStateRoot
-        })?;
+        let state_root = state_root_opt.ok_or_else(|| BlockProductionError::MissingStateRoot)?;
+
+        // TODO(gloas) this is just a dummy error variant for now
+        let execution_payload_gloas = execution_payload
+            .as_gloas()
+            .map_err(|_| BlockProductionError::GloasNotImplemented)?
+            .to_owned();
 
         let bid = ExecutionPayloadBid::<T::EthSpec> {
             parent_block_hash: state.latest_block_hash()?.to_owned(),
@@ -124,6 +149,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blob_kzg_commitments,
         };
 
+        // Store payload data for envelope construction after block is created
+        let payload_data = ExecutionPayloadData {
+            payload: execution_payload_gloas,
+            execution_requests,
+            builder_index,
+            slot: produce_at_slot,
+            state_root,
+        };
+
         // TODO(gloas) this is only local building
         // we'll need to implement builder signature for the trustless path
         Ok((
@@ -134,6 +168,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(|_| BlockProductionError::GloasNotImplemented)?,
             },
             state,
+            // Local building always returns payload data.
+            // Trustless building would return None here.
+            Some(payload_data),
         ))
     }
 }

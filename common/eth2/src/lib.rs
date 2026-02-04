@@ -2452,7 +2452,13 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>, ProduceBlockV4Metadata), Error> {
+    ) -> Result<
+        (
+            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
+            ProduceBlockV4Metadata,
+        ),
+        Error,
+    > {
         self.get_validator_blocks_v4_modular(
             slot,
             randao_reveal,
@@ -2473,7 +2479,13 @@ impl BeaconNodeHttpClient {
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>, ProduceBlockV4Metadata), Error> {
+    ) -> Result<
+        (
+            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
+            ProduceBlockV4Metadata,
+        ),
+        Error,
+    > {
         let path = self
             .get_validator_blocks_v4_path(
                 slot,

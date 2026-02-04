@@ -3799,6 +3799,19 @@ impl ApiTester {
             );
             assert!(!metadata.consensus_block_value.is_zero());
 
+            // Verify that the execution payload envelope is cached for local building.
+            // The envelope is stored in the pending cache until publishing.
+            let block_root = block.tree_hash_root();
+            let envelope = self
+                .chain
+                .pending_payload_envelopes
+                .read()
+                .get(&block_root)
+                .cloned()
+                .expect("envelope should exist in pending cache for local building");
+            assert_eq!(envelope.beacon_block_root, block_root);
+            assert_eq!(envelope.slot, slot);
+
             // Sign and publish the block
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =

@@ -14,17 +14,18 @@ use state_processing::{
 };
 use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use tracing::{Span, debug, debug_span, error, trace, warn};
+use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra, BeaconBlock,
-    BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, Deposit, Eth1Data, EthSpec, FullPayload,
-    Graffiti, Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedVoluntaryExit, Slot,
-    SyncAggregate,
+    BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, Deposit, Eth1Data, EthSpec,
+    ExecutionPayloadEnvelope, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
+    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedVoluntaryExit, Slot, SyncAggregate,
 };
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, ProduceBlockVerification,
-    graffiti_calculator::GraffitiSettings, metrics,
+    execution_payload_bid::ExecutionPayloadData, graffiti_calculator::GraffitiSettings, metrics,
 };
 
 pub struct PartialBeaconBlock<E: EthSpec> {
@@ -147,7 +148,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Produce the execution payload bid.
         // TODO(gloas) this is strictly for building local bids
         // We'll need to build out trustless/trusted bid paths.
-        let (execution_payload_bid, state) = self
+        let (execution_payload_bid, state, payload_data) = self
             .clone()
             .produce_execution_payload_bid(state, state_root_opt, produce_at_slot, 0, u64::MAX)
             .await?;
@@ -165,6 +166,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.complete_partial_beacon_block_gloas(
                         partial_beacon_block,
                         execution_payload_bid,
+                        payload_data,
                         state,
                         verification,
                     )
@@ -417,6 +419,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
         signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
     ) -> Result<
@@ -571,6 +574,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let (mut block, _) = signed_beacon_block.deconstruct();
         *block.state_root_mut() = state_root;
+
+        // Construct and cache the ExecutionPayloadEnvelope if we have payload data.
+        // For local building, we always have payload data.
+        // For trustless building, the builder will provide the envelope separately.
+        if let Some(payload_data) = payload_data {
+            let beacon_block_root = block.tree_hash_root();
+            let execution_payload_envelope = ExecutionPayloadEnvelope {
+                payload: payload_data.payload,
+                execution_requests: payload_data.execution_requests,
+                builder_index: payload_data.builder_index,
+                beacon_block_root,
+                slot: payload_data.slot,
+                state_root: payload_data.state_root,
+            };
+
+            // Cache the envelope for later retrieval for signing and publishing.
+            self.pending_payload_envelopes
+                .write()
+                .insert(beacon_block_root, execution_payload_envelope);
+
+            debug!(
+                %beacon_block_root,
+                slot = %block.slot(),
+                "Cached pending execution payload envelope"
+            );
+        }
 
         // TODO(gloas)
         // metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
