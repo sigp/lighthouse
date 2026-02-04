@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::u64;
 
 use bls::Signature;
-use execution_layer::BuilderParams;
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::get_attesting_indices_from_state;
@@ -22,14 +22,12 @@ use types::{
     SyncAggregate,
 };
 
-use crate::BeaconBlockResponse;
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
-    ProduceBlockVerification, graffiti_calculator::GraffitiSettings,
+    BeaconChain, BeaconChainTypes, BlockProductionError, ProduceBlockVerification,
+    graffiti_calculator::GraffitiSettings, metrics,
 };
 
 pub struct PartialBeaconBlock<E: EthSpec> {
-    state: BeaconState<E>,
     slot: Slot,
     proposer_index: u64,
     parent_root: Hash256,
@@ -46,66 +44,136 @@ pub struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
+// We'll need to add that once we include trusted/trustless bids
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub async fn produce_block_on_bid(
+    pub async fn produce_block_with_verification_gloas(
+        self: &Arc<Self>,
+        randao_reveal: Signature,
+        slot: Slot,
+        graffiti_settings: GraffitiSettings,
+        verification: ProduceBlockVerification,
+        _builder_boost_factor: Option<u64>,
+    ) -> Result<
+        (
+            BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
+            BeaconState<T::EthSpec>,
+            u64,
+        ),
+        BlockProductionError,
+    > {
+        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
+        let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
+        // Part 1/2 (blocking)
+        //
+        // Load the parent state from disk.
+        let chain = self.clone();
+        let span = Span::current();
+        let (state, state_root_opt) = self
+            .task_executor
+            .spawn_blocking_handle(
+                move || {
+                    let _guard =
+                        debug_span!(parent: span, "load_state_for_block_production").entered();
+                    chain.load_state_for_block_production(slot)
+                },
+                "load_state_for_block_production",
+            )
+            .ok_or(BlockProductionError::ShuttingDown)?
+            .await
+            .map_err(BlockProductionError::TokioJoin)??;
+
+        // Part 2/2 (async, with some blocking components)
+        //
+        // Produce the block upon the state
+        self.produce_block_on_state_gloas(
+            state,
+            state_root_opt,
+            slot,
+            randao_reveal,
+            graffiti_settings,
+            verification,
+        )
+        .await
+    }
+
+    // TODO(gloas) need to implement builder boost factor logic
+    pub async fn produce_block_on_state_gloas(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
-        execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
         state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
-        builder_boost_factor: Option<u64>,
-    ) -> Result<BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, BlockProductionError> {
+    ) -> Result<
+        (
+            BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
+            BeaconState<T::EthSpec>,
+            u64,
+        ),
+        BlockProductionError,
+    > {
+        // Part 1/3 (blocking)
+        //
+        // Perform the state advance and block-packing functions.
         let chain = self.clone();
         let graffiti = self
             .graffiti_calculator
             .get_graffiti(graffiti_settings)
             .await;
         let span = Span::current();
-        let mut partial_beacon_block = self
+        let (partial_beacon_block, state) = self
             .task_executor
             .spawn_blocking_handle(
                 move || {
                     let _guard =
-                        debug_span!(parent: span, "produce_partial_beacon_block").entered();
+                        debug_span!(parent: span, "produce_partial_beacon_block_gloas").entered();
                     chain.produce_partial_beacon_block_gloas(
                         state,
                         state_root_opt,
                         produce_at_slot,
                         randao_reveal,
                         graffiti,
-                        builder_boost_factor,
                     )
                 },
-                "produce_partial_beacon_block",
+                "produce_partial_beacon_block_gloas",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
 
+        // Part 2/3 (async)
+        //
+        // Produce the execution payload bid.
+        // TODO(gloas) this is strictly for building local bids
+        // We'll need to build out trustless/trusted bid paths.
+        let (execution_payload_bid, state) = self
+            .clone()
+            .produce_execution_payload_bid(state, state_root_opt, produce_at_slot, 0, u64::MAX)
+            .await?;
+
+        // Part 3/3 (blocking)
+        //
+        // Complete the block with the execution payload bid.
         let chain = self.clone();
         let span = Span::current();
-        let beacon_block_response = self
-            .task_executor
+        self.task_executor
             .spawn_blocking_handle(
                 move || {
                     let _guard =
-                        debug_span!(parent: span, "complete_partial_beacon_block").entered();
+                        debug_span!(parent: span, "complete_partial_beacon_block_gloas").entered();
                     chain.complete_partial_beacon_block_gloas(
                         partial_beacon_block,
                         execution_payload_bid,
+                        state,
                         verification,
                     )
                 },
-                "complete_partial_beacon_block",
+                "complete_partial_beacon_block_gloas",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
-            .map_err(BlockProductionError::TokioJoin)??;
-
-        todo!()
+            .map_err(BlockProductionError::TokioJoin)?
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -116,8 +184,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti: Graffiti,
-        builder_boost_factor: Option<u64>,
-    ) -> Result<PartialBeaconBlock<T::EthSpec>, BlockProductionError> {
+    ) -> Result<(PartialBeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError>
+    {
         // It is invalid to try to produce a block using a state from a future slot.
         if state.slot() > produce_at_slot {
             return Err(BlockProductionError::StateSlotTooHigh {
@@ -147,22 +215,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
-
-        let pubkey = state
-            .validators()
-            .get(proposer_index as usize)
-            .map(|v| v.pubkey)
-            .ok_or(BlockProductionError::BeaconChain(Box::new(
-                BeaconChainError::ValidatorIndexUnknown(proposer_index as usize),
-            )))?;
-
-        let builder_params = BuilderParams {
-            pubkey,
-            slot: state.slot(),
-            chain_health: self
-                .is_healthy(&parent_root)
-                .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
-        };
 
         let slashings_and_exits_span = debug_span!("get_slashings_and_exits").entered();
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
@@ -339,30 +391,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(sync_aggregate)
         };
 
-        Ok(PartialBeaconBlock {
+        Ok((
+            PartialBeaconBlock {
+                slot,
+                proposer_index,
+                parent_root,
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                // TODO(gloas) need to implement payload attestations
+                payload_attestations: vec![],
+                bls_to_execution_changes,
+            },
             state,
-            slot,
-            proposer_index,
-            parent_root,
-            randao_reveal,
-            eth1_data,
-            graffiti,
-            proposer_slashings,
-            attester_slashings,
-            attestations,
-            deposits,
-            voluntary_exits,
-            sync_aggregate,
-            // TODO(gloas) need to implement payload attestations
-            payload_attestations: vec![],
-            bls_to_execution_changes,
-        })
+        ))
     }
 
     fn complete_partial_beacon_block_gloas(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
         signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
     ) -> Result<
         (
@@ -373,7 +428,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         BlockProductionError,
     > {
         let PartialBeaconBlock {
-            mut state,
             slot,
             proposer_index,
             parent_root,
@@ -392,36 +446,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let beacon_block = match &state {
             BeaconState::Base(_) => {
-                (
-                    // TODO(gloas) this should be an error
-                    todo!()
-                )
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot construct a block pre-Gloas".to_owned(),
+                ));
             }
             BeaconState::Altair(_) => {
-                (
-                    // TODO(gloas) this should be an error
-                    todo!()
-                )
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot construct a block pre-Gloas".to_owned(),
+                ));
             }
             BeaconState::Bellatrix(_) => {
-                // TODO(gloas) this should be an error
-                todo!()
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot construct a block pre-Gloas".to_owned(),
+                ));
             }
             BeaconState::Capella(_) => {
-                // TODO(gloas) this should be an error
-                todo!()
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot construct a block pre-Gloas".to_owned(),
+                ));
             }
             BeaconState::Deneb(_) => {
-                // TODO(gloas) this should be an error
-                todo!()
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot construct a block pre-Gloas".to_owned(),
+                ));
             }
             BeaconState::Electra(_) => {
-                // TODO(gloas) this should be an error
-                todo!()
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot construct a block pre-Gloas".to_owned(),
+                ));
             }
             BeaconState::Fulu(_) => {
-                // TODO(gloas) this should be an error
-                todo!()
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot construct a block pre-Gloas".to_owned(),
+                ));
             }
             BeaconState::Gloas(_) => BeaconBlock::Gloas(BeaconBlockGloas {
                 slot,

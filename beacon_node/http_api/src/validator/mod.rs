@@ -1,10 +1,10 @@
-use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
+use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3, produce_block_v4};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{
     AnyVersionFilter, ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter,
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
-use crate::version::V3;
+use crate::version::{V3, V4};
 use crate::{StateId, attester_duties, proposer_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -316,11 +316,56 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
 
                     not_synced_filter?;
 
-                    if endpoint_version == V3 {
+                    // Use V4 block production for Gloas fork
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+                    if fork_name.gloas_enabled() {
+                        produce_block_v4(accept_header, chain, slot, query).await
+                    } else if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
                     } else {
                         produce_block_v2(accept_header, chain, slot, query).await
                     }
+                })
+            },
+        )
+        .boxed()
+}
+
+// GET validator/execution_payload_bid/
+pub fn get_validator_execution_payload_bid<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("execution_payload_bid"))
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(warp::header::optional::<Accept>("accept"))
+        .and(not_while_syncing_filter)
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .then(
+            |slot: Slot,
+             accept_header: Option<Accept>,
+             not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    debug!(
+                        ?slot,
+                        "Execution paylaod bid production request from HTTP API"
+                    );
+
+                    not_synced_filter?;
+
+                    todo!()
                 })
             },
         )

@@ -459,73 +459,145 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         info!(slot = slot.as_u64(), "Requesting unsigned block");
 
-        // Request an SSZ block from all beacon nodes in order, returning on the first successful response.
-        // If all nodes fail, run a second pass falling back to JSON.
-        //
-        // Proposer nodes will always be tried last during each pass since it's likely that they don't have a
-        // great view of attestations on the network.
-        let ssz_block_response = proposer_fallback
-            .request_proposers_last(|beacon_node| async move {
-                let _get_timer = validator_metrics::start_timer_vec(
-                    &validator_metrics::BLOCK_SERVICE_TIMES,
-                    &[validator_metrics::BEACON_BLOCK_HTTP_GET],
-                );
-                beacon_node
-                    .get_validator_blocks_v3_ssz::<S::E>(
-                        slot,
-                        randao_reveal_ref,
-                        graffiti.as_ref(),
-                        builder_boost_factor,
-                        self_ref.graffiti_policy,
-                    )
-                    .await
-            })
-            .await;
+        // Check if Gloas fork is active at this slot
+        let fork_name = self_ref.chain_spec.fork_name_at_slot::<S::E>(slot);
 
-        let block_response = match ssz_block_response {
-            Ok((ssz_block_response, _metadata)) => ssz_block_response,
-            Err(e) => {
-                warn!(
-                    slot = slot.as_u64(),
-                    error = %e,
-                    "SSZ block production failed, falling back to JSON"
-                );
+        let (block_proposer, unsigned_block) = if fork_name.gloas_enabled() {
+            // Use V4 block production for Gloas
+            // Request an SSZ block from all beacon nodes in order, returning on the first successful response.
+            // If all nodes fail, run a second pass falling back to JSON.
+            let ssz_block_response = proposer_fallback
+                .request_proposers_last(|beacon_node| async move {
+                    let _get_timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::BLOCK_SERVICE_TIMES,
+                        &[validator_metrics::BEACON_BLOCK_HTTP_GET],
+                    );
+                    beacon_node
+                        .get_validator_blocks_v4_ssz::<S::E>(
+                            slot,
+                            randao_reveal_ref,
+                            graffiti.as_ref(),
+                            builder_boost_factor,
+                            self_ref.graffiti_policy,
+                        )
+                        .await
+                })
+                .await;
 
-                proposer_fallback
-                    .request_proposers_last(|beacon_node| async move {
-                        let _get_timer = validator_metrics::start_timer_vec(
-                            &validator_metrics::BLOCK_SERVICE_TIMES,
-                            &[validator_metrics::BEACON_BLOCK_HTTP_GET],
-                        );
-                        let (json_block_response, _metadata) = beacon_node
-                            .get_validator_blocks_v3::<S::E>(
-                                slot,
-                                randao_reveal_ref,
-                                graffiti.as_ref(),
-                                builder_boost_factor,
-                                self_ref.graffiti_policy,
-                            )
-                            .await
-                            .map_err(|e| {
-                                BlockError::Recoverable(format!(
-                                    "Error from beacon node when producing block: {:?}",
-                                    e
-                                ))
-                            })?;
+            let block_response = match ssz_block_response {
+                Ok((ssz_block_response, _metadata)) => ssz_block_response,
+                Err(e) => {
+                    warn!(
+                        slot = slot.as_u64(),
+                        error = %e,
+                        "SSZ V4 block production failed, falling back to JSON"
+                    );
 
-                        Ok(json_block_response.data)
-                    })
-                    .await
-                    .map_err(BlockError::from)?
-            }
-        };
+                    proposer_fallback
+                        .request_proposers_last(|beacon_node| async move {
+                            let _get_timer = validator_metrics::start_timer_vec(
+                                &validator_metrics::BLOCK_SERVICE_TIMES,
+                                &[validator_metrics::BEACON_BLOCK_HTTP_GET],
+                            );
+                            let (json_block_response, _metadata) = beacon_node
+                                .get_validator_blocks_v4::<S::E>(
+                                    slot,
+                                    randao_reveal_ref,
+                                    graffiti.as_ref(),
+                                    builder_boost_factor,
+                                    self_ref.graffiti_policy,
+                                )
+                                .await
+                                .map_err(|e| {
+                                    BlockError::Recoverable(format!(
+                                        "Error from beacon node when producing block: {:?}",
+                                        e
+                                    ))
+                                })?;
 
-        let (block_proposer, unsigned_block) = match block_response {
-            eth2::types::ProduceBlockV3Response::Full(block) => {
-                (block.block().proposer_index(), UnsignedBlock::Full(block))
-            }
-            eth2::types::ProduceBlockV3Response::Blinded(block) => {
-                (block.proposer_index(), UnsignedBlock::Blinded(block))
+                            Ok(json_block_response.data)
+                        })
+                        .await
+                        .map_err(BlockError::from)?
+                }
+            };
+
+            // Gloas blocks don't have blobs (they're in the execution layer)
+            let block_contents = eth2::types::FullBlockContents::Block(block_response);
+            (
+                block_contents.block().proposer_index(),
+                UnsignedBlock::Full(block_contents),
+            )
+        } else {
+            // Use V3 block production for pre-Gloas forks
+            // Request an SSZ block from all beacon nodes in order, returning on the first successful response.
+            // If all nodes fail, run a second pass falling back to JSON.
+            //
+            // Proposer nodes will always be tried last during each pass since it's likely that they don't have a
+            // great view of attestations on the network.
+            let ssz_block_response = proposer_fallback
+                .request_proposers_last(|beacon_node| async move {
+                    let _get_timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::BLOCK_SERVICE_TIMES,
+                        &[validator_metrics::BEACON_BLOCK_HTTP_GET],
+                    );
+                    beacon_node
+                        .get_validator_blocks_v3_ssz::<S::E>(
+                            slot,
+                            randao_reveal_ref,
+                            graffiti.as_ref(),
+                            builder_boost_factor,
+                            self_ref.graffiti_policy,
+                        )
+                        .await
+                })
+                .await;
+
+            let block_response = match ssz_block_response {
+                Ok((ssz_block_response, _metadata)) => ssz_block_response,
+                Err(e) => {
+                    warn!(
+                        slot = slot.as_u64(),
+                        error = %e,
+                        "SSZ block production failed, falling back to JSON"
+                    );
+
+                    proposer_fallback
+                        .request_proposers_last(|beacon_node| async move {
+                            let _get_timer = validator_metrics::start_timer_vec(
+                                &validator_metrics::BLOCK_SERVICE_TIMES,
+                                &[validator_metrics::BEACON_BLOCK_HTTP_GET],
+                            );
+                            let (json_block_response, _metadata) = beacon_node
+                                .get_validator_blocks_v3::<S::E>(
+                                    slot,
+                                    randao_reveal_ref,
+                                    graffiti.as_ref(),
+                                    builder_boost_factor,
+                                    self_ref.graffiti_policy,
+                                )
+                                .await
+                                .map_err(|e| {
+                                    BlockError::Recoverable(format!(
+                                        "Error from beacon node when producing block: {:?}",
+                                        e
+                                    ))
+                                })?;
+
+                            Ok(json_block_response.data)
+                        })
+                        .await
+                        .map_err(BlockError::from)?
+                }
+            };
+
+            match block_response {
+                eth2::types::ProduceBlockV3Response::Full(block) => {
+                    (block.block().proposer_index(), UnsignedBlock::Full(block))
+                }
+                eth2::types::ProduceBlockV3Response::Blinded(block) => {
+                    (block.proposer_index(), UnsignedBlock::Blinded(block))
+                }
             }
         };
 

@@ -310,6 +310,7 @@ pub enum BlockProductionError {
     MissingSyncAggregate,
     MissingExecutionPayload,
     MissingKzgCommitment(String),
+    MissingStateRoot,
     TokioJoin(JoinError),
     BeaconChain(Box<BeaconChainError>),
     InvalidPayloadFork,
