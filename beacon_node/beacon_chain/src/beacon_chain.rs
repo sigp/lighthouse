@@ -3354,7 +3354,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             // TODO(gloas) handle data column reconstruction for gloas.
-            ReconstructionOutcome::Payload(_data_column_reconstruction_result) => return Err(BlockError::InternalError("Not yet implemented for gloas".to_owned())),
+            ReconstructionOutcome::Payload(_data_column_reconstruction_result) => {
+                return Err(BlockError::InternalError(
+                    "Not yet implemented for gloas".to_owned(),
+                ));
+            }
         }
     }
 
