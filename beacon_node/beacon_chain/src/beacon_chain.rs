@@ -22,10 +22,12 @@ pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::CustodyContextSsz;
 use crate::data_availability_checker::{
-    Availability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
+    Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
-use crate::data_availability_checker_v2::DataAvailabilityChecker as DataAvailabilityCheckerV2;
+use crate::data_availability_checker_v2::{
+    Availability as PayloadAvailability, DataAvailabilityChecker as DataAvailabilityCheckerV2,
+};
 use crate::data_availability_router::{
     AvailabilityOutcome, DataAvailabilityRouter, ReconstructionOutcome,
 };
@@ -3792,18 +3794,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match availability {
             AvailabilityOutcome::Block(availability) => {
                 match availability {
-                    Availability::Available(block) => {
+                    BlockAvailability::Available(block) => {
                         publish_fn()?;
                         // Block is fully available, import into fork choice
                         self.import_available_block(block).await
                     }
-                    Availability::MissingComponents(block_root) => Ok(
+                    BlockAvailability::MissingComponents(block_root) => Ok(
                         AvailabilityProcessingStatus::MissingComponents(slot, block_root),
                     ),
                 }
             }
-            AvailabilityOutcome::Payload(_availability) => todo!(),
+            AvailabilityOutcome::Payload(availability) => match availability {
+                PayloadAvailability::Available(available_payload_data) => {
+                    // TODO(gloas) execution publish_fn
+                    // publish_fn()?;
+
+                    // Payload data is fully available
+                    let (block_root, data_columns) = *available_payload_data;
+                    self.import_available_payload_data(block_root, data_columns)
+                        .await
+                }
+                PayloadAvailability::MissingComponents(block_root) => Ok(
+                    AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+                ),
+            },
         }
+    }
+
+    #[instrument(skip_all)]
+    pub async fn import_available_payload_data(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        _data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        // TODO(gloas) this is just a stub implementation
+        // this function should mark payload data as available somehow
+        Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
 
     #[instrument(skip_all)]
