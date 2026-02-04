@@ -31,7 +31,7 @@ use types::{
     Slot,
 };
 
-/// Unified result from write operations that can come from either DA checker.
+/// Unified result from operations that can come from either DA checker.
 ///
 /// This enum allows callers to handle availability from both v1 (blocks) and v2 (payloads)
 /// through a single type, with downstream processing handled by `BeaconChain::process_availability_outcome()`.
@@ -138,7 +138,7 @@ pub trait AvailabilityCache<T: BeaconChainTypes>: Send + Sync {
     /// V2 returns `DataColumnReconstructionResult` with payload availability.
     type ReconstructionResult;
 
-    /// Returns the custody context used by this checker.
+    /// Returns the custody context.
     fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>>;
 
     /// Returns all cached data columns for the given block root, if any.
@@ -192,12 +192,11 @@ pub trait AvailabilityCache<T: BeaconChainTypes>: Send + Sync {
 
 /// Router that directs data availability checker operations to the appropriate version based on fork.
 ///
-/// This wraps both the legacy (v1) and Gloas (v2) DA checkers, providing:
-/// - Unified operations that dispatch to the correct checker based on fork
-/// - Fork-aware routing for write operations that return `AvailabilityOutcome`
+/// This wraps both the legacy (v1) and Gloas (v2) DA checkers, providing unified operations
+/// that dispatch to the correct checker based on fork.
 ///
 /// After Gloas is fully activated and v1 is deprecated, this router can be deleted and
-/// we can use the Gloas DA checker directly.
+/// we can use the V2 DA checker directly.
 pub struct DataAvailabilityRouter<T: BeaconChainTypes, V1, V2>
 where
     V1: AvailabilityCache<
@@ -265,19 +264,6 @@ where
         } else {
             self.v1.get_data_columns(block_root)
         }
-    }
-
-    /// Query data columns from both checkers, returning the first match.
-    ///
-    /// Use this when you don't know which fork the block belongs to, or during
-    /// the transition period when data might be in either checker.
-    pub fn get_data_columns_any(
-        &self,
-        block_root: Hash256,
-    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
-        self.v1
-            .get_data_columns(block_root)
-            .or_else(|| self.v2.get_data_columns(block_root))
     }
 
     pub fn is_data_column_cached(

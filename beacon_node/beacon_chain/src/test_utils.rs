@@ -2697,25 +2697,6 @@ where
         self.chain.slot_clock.set_slot(slot.into());
     }
 
-    // TODO(gloas) this is a stub implementation for now
-    // we need payload processing functionality for this function
-    // to work
-    pub async fn add_payload_envelope_at_slot(
-        &self,
-        slot: Slot,
-        _state: BeaconState<E>,
-    ) -> Result<
-        (
-            SignedBeaconBlockHash,
-            SignedPayloadEnvelopeContentsTuple<E>,
-            BeaconState<E>,
-        ),
-        BlockError,
-    > {
-        self.set_current_slot(slot);
-        todo!()
-    }
-
     pub async fn add_block_at_slot(
         &self,
         slot: Slot,

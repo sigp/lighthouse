@@ -91,7 +91,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     type Availability = Availability<T::EthSpec>;
     type ReconstructionResult = DataColumnReconstructionResult<T::EthSpec>;
 
-    /// Returns the custody context used by this checker.
+    /// Returns the custody context.
     fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
         &self.custody_context
     }
