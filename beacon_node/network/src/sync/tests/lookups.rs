@@ -33,7 +33,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec, FixedBlobSidecarList,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec,
     ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     test_utils::{SeedableRng, XorShiftRng},
 };
@@ -61,7 +61,6 @@ pub struct SimulateConfig {
     #[educe(Debug(ignore))]
     process_result_conditional:
         Option<Box<dyn Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync>>,
-    block_imported_while_processing: Option<Hash256>,
 }
 
 impl SimulateConfig {
@@ -124,11 +123,6 @@ impl SimulateConfig {
         F: Fn() -> BlockProcessingResult + Send + Sync + 'static,
     {
         self.process_result_conditional = Some(Box::new(move |_| Some(f())));
-        self
-    }
-
-    fn with_block_imported_while_processing(mut self, block_root: Hash256) -> Self {
-        self.block_imported_while_processing = Some(block_root);
         self
     }
 }
@@ -333,21 +327,6 @@ impl TestRig {
                                 process_type: BlockProcessType::SingleBlock { id },
                                 result,
                             });
-                        } else if let Some(imported_block_root) =
-                            self.complete_strategy.block_imported_while_processing
-                            && imported_block_root == beacon_block_root
-                        {
-                            self.fully_import_block(beacon_block_root).await;
-                            let id = self.lookup_by_root(beacon_block_root).id;
-                            self.log(&format!(
-                                "Imported block of lookup id {id} from other source"
-                            ));
-                            self.push_sync_message(SyncMessage::BlockComponentProcessed {
-                                process_type: BlockProcessType::SingleBlock { id },
-                                result: BlockProcessingResult::Err(
-                                    BlockError::DuplicateFullyImported(beacon_block_root),
-                                ),
-                            })
                         } else {
                             process_fn.await
                         }
@@ -1447,38 +1426,6 @@ impl TestRig {
         }
     }
 
-    async fn fully_import_block(&mut self, block_root: Hash256) {
-        let block = self
-            .network_blocks_by_root
-            .get(&block_root)
-            .expect("missing block")
-            .clone();
-        // Import blobs to da_checker first
-        if let Some(blobs) = block.block_data().and_then(|d| d.blobs()) {
-            let blobs_vector = FixedBlobSidecarList::new(
-                blobs.iter().map(|b| Some(b.clone())).collect::<Vec<_>>(),
-            );
-            self.harness
-                .chain
-                .data_availability_checker
-                .put_rpc_blobs(block_root, blobs_vector)
-                .expect("Error adding blobs");
-        }
-        // Or import columns to da_checker first
-        if let Some(columns) = block.block_data().and_then(|d| d.data_columns()) {
-            self.harness
-                .chain
-                .data_availability_checker
-                .put_rpc_custody_columns(block_root, block.slot(), columns)
-                .expect("Error adding custody columns");
-        }
-        // Import block and expect to become available
-        let result = self.import_block_to_da_checker(block.block_cloned()).await;
-        if !matches!(result, AvailabilityProcessingStatus::Imported(_)) {
-            panic!("Block {block_root} not imported {result:?}")
-        }
-    }
-
     async fn import_block_to_da_checker(
         &mut self,
         block: Arc<SignedBeaconBlock<E>>,
@@ -2096,8 +2043,7 @@ async fn test_skip_creating_ignored_parent_lookup() {
 }
 
 // test_same_chain_race_condition removed — originally from #3677 (84c7d8cc), the scenario it
-// tested is no longer reproducible in current lookup sync. The block_imported_while_processing
-// path is covered by other simulate tests.
+// tested is no longer reproducible in current lookup sync.
 
 #[tokio::test]
 /// Assert that if the lookup's block is in the da_checker we don't download it again
