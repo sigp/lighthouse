@@ -87,10 +87,6 @@ struct TestRig {
     requests: Vec<(RequestType<E>, AppRequestId)>,
     /// Persistent config on how to complete request
     complete_strategy: SimulateConfig,
-    /// Configure how to deque events
-    sync_rx_dequeue_strategy: DequeueEventStrategy,
-    network_rx_dequeue_strategy: DequeueEventStrategy,
-    beacon_processor_rx_dequeue_strategy: DequeueEventStrategy,
     /// Metrics values to allow a reset
     initial_block_lookups_metrics: BlockLookupsMetrics,
     /// Fulu test type
@@ -124,25 +120,6 @@ impl FuluTestType {
             Self::WeSupernodeThemFullnodes | Self::WeFullnodeThemFullnodes => {
                 NodeCustodyType::Fullnode
             }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-enum DequeueEventStrategy {
-    Random,
-    FIFO,
-}
-
-impl DequeueEventStrategy {
-    fn dequeue<T>(&self, rng: &mut ChaCha20Rng, v: &mut Vec<T>) -> T {
-        match self {
-            Self::Random => {
-                let idx = rng.random_range(0..v.len());
-                v.remove(idx)
-            }
-            Self::FIFO => v.remove(0),
         }
     }
 }

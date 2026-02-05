@@ -27,7 +27,6 @@ use lighthouse_network::{
     service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
 };
-use rand::prelude::IndexedRandom;
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::sync::Arc;
 use std::time::Duration;
@@ -138,16 +137,8 @@ fn genesis_fork() -> ForkName {
     test_spec::<E>().fork_name_at_slot::<E>(Slot::new(0))
 }
 
-#[derive(Clone, Copy)]
-enum QueuePick {
-    SyncRx,
-    NetworkRx,
-    BeaconProcessorRx,
-}
-
 pub(crate) struct TestRigConfig {
     fulu_test_type: FuluTestType,
-    dequeue_strategy: DequeueEventStrategy,
     /// Override the node custody type derived from `fulu_test_type`
     node_custody_type_override: Option<NodeCustodyType>,
 }
@@ -250,9 +241,6 @@ impl TestRig {
             seen_lookups: <_>::default(),
             requests: <_>::default(),
             complete_strategy: <_>::default(),
-            sync_rx_dequeue_strategy: test_rig_config.dequeue_strategy,
-            network_rx_dequeue_strategy: test_rig_config.dequeue_strategy,
-            beacon_processor_rx_dequeue_strategy: test_rig_config.dequeue_strategy,
             initial_block_lookups_metrics: <_>::default(),
             fulu_test_type: test_rig_config.fulu_test_type,
         }
@@ -262,7 +250,6 @@ impl TestRig {
         // Before Fulu, FuluTestType is irrelevant
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
-            dequeue_strategy: DequeueEventStrategy::FIFO,
             node_custody_type_override: None,
         })
     }
@@ -270,16 +257,14 @@ impl TestRig {
     pub fn with_custody_type(node_custody_type: NodeCustodyType) -> Self {
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
-            dequeue_strategy: DequeueEventStrategy::FIFO,
             node_custody_type_override: Some(node_custody_type),
         })
     }
 
     /// Runs the sync simulation until all event queues are empty.
     ///
-    /// Processes events from network, beacon processor, and sync queues in random order
-    /// to test for race conditions. The `complete_strategy` controls how the simulated
-    /// peers respond to requests (e.g., returning errors, wrong data, or valid responses).
+    /// Processes events from sync_rx (sink), beacon processor, and network queues in fixed
+    /// priority order each tick. Handles completed work before pulling new requests.
     async fn simulate(&mut self, complete_strategy: SimulateConfig) {
         self.complete_strategy = complete_strategy;
         self.log(&format!(
@@ -310,7 +295,7 @@ impl TestRig {
                 }
             }
 
-            // Drain all queues first into Vecs
+            // Drain all channels into queues
             while let Ok(ev) = self.network_rx.try_recv() {
                 self.network_rx_queue.push(ev);
             }
@@ -321,109 +306,76 @@ impl TestRig {
                 self.sync_rx_queue.push(ev);
             }
 
-            // Choose at random which queue to process first
-            let mut choices = vec![];
-            if !self.network_rx_queue.is_empty() {
-                choices.push(QueuePick::NetworkRx);
-            }
-            if !self.beacon_processor_rx_queue.is_empty() {
-                choices.push(QueuePick::BeaconProcessorRx);
-            }
+            // Process one event per tick in fixed priority: sink → processor → network
             if !self.sync_rx_queue.is_empty() {
-                choices.push(QueuePick::SyncRx);
-            }
-
-            let Some(pick) = choices.choose(&mut self.rng) else {
-                // No more events left
+                let sync_message = self.sync_rx_queue.remove(0);
+                self.log(&format!(
+                    "Tick {i}: sync_rx event: {}",
+                    Into::<&'static str>::into(&sync_message)
+                ));
+                self.sync_manager.handle_message(sync_message);
+            } else if !self.beacon_processor_rx_queue.is_empty() {
+                let event = self.beacon_processor_rx_queue.remove(0);
+                self.log(&format!("Tick {i}: beacon_processor event: {event:?}"));
+                match event.work {
+                    Work::RpcBlock {
+                        process_fn,
+                        beacon_block_root,
+                    } => {
+                        if let Some(f) = self.complete_strategy.process_result_conditional.as_ref()
+                            && let Some(result) = f(beacon_block_root)
+                        {
+                            let id = self.lookup_by_root(beacon_block_root).id;
+                            self.log(&format!(
+                                "Sending custom process result to lookup id {id}: {result:?}"
+                            ));
+                            self.push_sync_message(SyncMessage::BlockComponentProcessed {
+                                process_type: BlockProcessType::SingleBlock { id },
+                                result,
+                            });
+                        } else if let Some(imported_block_root) =
+                            self.complete_strategy.block_imported_while_processing
+                            && imported_block_root == beacon_block_root
+                        {
+                            self.fully_import_block(beacon_block_root).await;
+                            let id = self.lookup_by_root(beacon_block_root).id;
+                            self.log(&format!(
+                                "Imported block of lookup id {id} from other source"
+                            ));
+                            self.push_sync_message(SyncMessage::BlockComponentProcessed {
+                                process_type: BlockProcessType::SingleBlock { id },
+                                result: BlockProcessingResult::Err(
+                                    BlockError::DuplicateFullyImported(beacon_block_root),
+                                ),
+                            })
+                        } else {
+                            process_fn.await
+                        }
+                    }
+                    Work::RpcBlobs { process_fn }
+                    | Work::RpcCustodyColumn(process_fn)
+                    | Work::ChainSegment(process_fn) => process_fn.await,
+                    Work::Reprocess(_) => {} // ignore
+                    other => panic!("Unsupported Work event {}", other.str_id()),
+                }
+            } else if !self.network_rx_queue.is_empty() {
+                let event = self.network_rx_queue.remove(0);
+                self.log(&format!("Tick {i}: network_rx event: {event:?}"));
+                match event {
+                    NetworkMessage::SendRequest {
+                        peer_id,
+                        request,
+                        app_request_id,
+                    } => {
+                        self.simulate_on_request(peer_id, request, app_request_id);
+                    }
+                    NetworkMessage::ReportPeer { peer_id, msg, .. } => {
+                        self.penalties.push(ReportedPenalty { peer_id, msg });
+                    }
+                    _ => {}
+                }
+            } else {
                 break;
-            };
-
-            match pick {
-                QueuePick::SyncRx => {
-                    let sync_message = self
-                        .sync_rx_dequeue_strategy
-                        .dequeue(&mut self.rng, &mut self.sync_rx_queue);
-                    self.log(&format!(
-                        "Tick {i}: sync_rx event: {}",
-                        Into::<&'static str>::into(&sync_message)
-                    ));
-                    self.sync_manager.handle_message(sync_message);
-                }
-
-                QueuePick::NetworkRx => {
-                    // TODO(tree-sync): Change the order in which responses are processed. Like:
-                    // - By insertion order
-                    // - First blocks
-                    // - Blocks last
-                    // - Max slot first
-                    // - Min slot first
-                    let event = self
-                        .network_rx_dequeue_strategy
-                        .dequeue(&mut self.rng, &mut self.network_rx_queue);
-                    self.log(&format!("Tick {i}: network_rx event: {event:?}"));
-                    match event {
-                        NetworkMessage::SendRequest {
-                            peer_id,
-                            request,
-                            app_request_id,
-                        } => {
-                            self.simulate_on_request(peer_id, request, app_request_id);
-                        }
-                        NetworkMessage::ReportPeer { peer_id, msg, .. } => {
-                            self.penalties.push(ReportedPenalty { peer_id, msg });
-                        }
-                        _ => {}
-                    }
-                }
-
-                QueuePick::BeaconProcessorRx => {
-                    let event = self
-                        .beacon_processor_rx_dequeue_strategy
-                        .dequeue(&mut self.rng, &mut self.beacon_processor_rx_queue);
-                    self.log(&format!("Tick {i}: beacon_processor event: {event:?}"));
-                    match event.work {
-                        Work::RpcBlock {
-                            process_fn,
-                            beacon_block_root,
-                        } => {
-                            if let Some(f) =
-                                self.complete_strategy.process_result_conditional.as_ref()
-                                && let Some(result) = f(beacon_block_root)
-                            {
-                                let id = self.lookup_by_root(beacon_block_root).id;
-                                self.log(&format!(
-                                    "Sending custom process result to lookup id {id}: {result:?}"
-                                ));
-                                self.push_sync_message(SyncMessage::BlockComponentProcessed {
-                                    process_type: BlockProcessType::SingleBlock { id },
-                                    result,
-                                });
-                            } else if let Some(imported_block_root) =
-                                self.complete_strategy.block_imported_while_processing
-                                && imported_block_root == beacon_block_root
-                            {
-                                self.fully_import_block(beacon_block_root).await;
-                                let id = self.lookup_by_root(beacon_block_root).id;
-                                self.log(&format!(
-                                    "Imported block of lookup id {id} from other source"
-                                ));
-                                self.push_sync_message(SyncMessage::BlockComponentProcessed {
-                                    process_type: BlockProcessType::SingleBlock { id },
-                                    result: BlockProcessingResult::Err(
-                                        BlockError::DuplicateFullyImported(beacon_block_root),
-                                    ),
-                                })
-                            } else {
-                                process_fn.await
-                            }
-                        }
-                        Work::RpcBlobs { process_fn }
-                        | Work::RpcCustodyColumn(process_fn)
-                        | Work::ChainSegment(process_fn) => process_fn.await,
-                        Work::Reprocess(_) => {} // ignore
-                        other => panic!("Unsupported Work event {}", other.str_id()),
-                    }
-                }
             }
         }
 
@@ -1227,7 +1179,6 @@ impl TestRig {
         genesis_fork().fulu_enabled().then(|| {
             Self::new(TestRigConfig {
                 fulu_test_type,
-                dequeue_strategy: DequeueEventStrategy::FIFO,
                 node_custody_type_override: None,
             })
         })
