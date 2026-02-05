@@ -128,7 +128,7 @@ impl SimulateConfig {
         self
     }
 
-    fn import_block_before_process(mut self, block_root: Hash256) -> Self {
+    fn with_import_block_before_process(mut self, block_root: Hash256) -> Self {
         self.import_block_before_process.insert(block_root);
         self
     }
@@ -1896,7 +1896,7 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
 }
 
 #[tokio::test]
-/// Assert that if the beacon processor returns Ignored ???
+/// Assert that if the beacon processor returns Ignored, the lookup is dropped
 async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
@@ -1911,11 +1911,11 @@ async fn test_single_block_lookup_ignored_response() {
 }
 
 #[tokio::test]
-/// Assert that if the beacon processor returns Ignored ???
+/// Assert that if the beacon processor returns DuplicateFullyImported, the lookup completes successfully
 async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
-    // Send an Ignored response, the request should be dropped
+    // Send a DuplicateFullyImported response, the lookup should complete successfully
     r.simulate(SimulateConfig::new().with_process_result(|| {
         BlockProcessingResult::Err(BlockError::DuplicateFullyImported(Hash256::ZERO))
     }))
@@ -2110,7 +2110,7 @@ async fn test_same_chain_race_condition() {
     // Configure simulate to import block 1 right before it's processed by the lookup.
     // This simulates the race condition where block 1 arrives via gossip at the same
     // time the lookup is trying to process it.
-    r.simulate(SimulateConfig::new().import_block_before_process(block_1_root))
+    r.simulate(SimulateConfig::new().with_import_block_before_process(block_1_root))
         .await;
 
     // The chain should complete successfully with head at slot 3, proving that
