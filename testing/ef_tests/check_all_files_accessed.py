@@ -47,8 +47,38 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # TODO(gloas): remove these ignores as more Gloas operations are implemented
+    "tests/.*/gloas/operations/attestation/.*",
+    "tests/.*/gloas/operations/attester_slashing/.*",
+    "tests/.*/gloas/operations/block_header/.*",
+    "tests/.*/gloas/operations/bls_to_execution_change/.*",
+    "tests/.*/gloas/operations/consolidation_request/.*",
+    "tests/.*/gloas/operations/deposit/.*",
+    "tests/.*/gloas/operations/deposit_request/.*",
+    "tests/.*/gloas/operations/execution_payload/.*",
+    "tests/.*/gloas/operations/execution_payload_bid/.*",
+    "tests/.*/gloas/operations/payload_attestation/.*",
+    "tests/.*/gloas/operations/proposer_slashing/.*",
+    "tests/.*/gloas/operations/sync_aggregate/.*",
+    "tests/.*/gloas/operations/voluntary_exit/.*",
+    "tests/.*/gloas/operations/withdrawal_request/.*",
+    # TODO(EIP-7732): remove these ignores as Gloas consensus is implemented
+    "tests/.*/gloas/epoch_processing/.*",
+    "tests/.*/gloas/finality/.*",
+    "tests/.*/gloas/fork/.*",
+    "tests/.*/gloas/fork_choice/.*",
+    "tests/.*/gloas/networking/.*",
+    "tests/.*/gloas/rewards/.*",
+    "tests/.*/gloas/sanity/.*",
+    "tests/.*/gloas/transition/.*",
     # Ignore MatrixEntry SSZ tests for now.
-    "tests/.*/fulu/ssz_static/MatrixEntry/.*",
+    "tests/.*/.*/ssz_static/MatrixEntry/.*",
+    # TODO(gloas): Ignore Gloas light client stuff for now
+    "tests/.*/gloas/ssz_static/LightClient.*/.*",
+    # Execution payload header is irrelevant after Gloas, this type will probably be deleted.
+    "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
+    # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
+    "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
     # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
     "tests/general/phase0/ssz_generic/progressive_bitlist",
     "tests/general/phase0/ssz_generic/basic_progressive_list",
@@ -61,8 +91,6 @@ excluded_paths = [
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
     # Ignore inactivity_scores tests for now (should implement soon).
     "tests/.*/.*/rewards/inactivity_scores/.*",
-    # Ignore gloas tests for now
-    "tests/.*/gloas/.*",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",

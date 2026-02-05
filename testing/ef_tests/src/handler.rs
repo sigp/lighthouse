@@ -422,6 +422,11 @@ where
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
+    }
 }
 
 impl<T, E> Handler for SszStaticWithSpecHandler<T, E>
@@ -442,6 +447,11 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
