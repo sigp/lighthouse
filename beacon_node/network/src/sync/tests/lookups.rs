@@ -61,6 +61,8 @@ pub struct SimulateConfig {
     #[educe(Debug(ignore))]
     process_result_conditional:
         Option<Box<dyn Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync>>,
+    // Import a block directly before processing it (for simulating race conditions)
+    import_block_before_process: HashSet<Hash256>,
 }
 
 impl SimulateConfig {
@@ -123,6 +125,11 @@ impl SimulateConfig {
         F: Fn() -> BlockProcessingResult + Send + Sync + 'static,
     {
         self.process_result_conditional = Some(Box::new(move |_| Some(f())));
+        self
+    }
+
+    fn import_block_before_process(mut self, block_root: Hash256) -> Self {
+        self.import_block_before_process.insert(block_root);
         self
     }
 }
@@ -316,6 +323,19 @@ impl TestRig {
                         process_fn,
                         beacon_block_root,
                     } => {
+                        // Import block before processing if configured (for simulating race conditions)
+                        if self
+                            .complete_strategy
+                            .import_block_before_process
+                            .contains(&beacon_block_root)
+                        {
+                            self.log(&format!(
+                                "Importing block {} before processing (race condition simulation)",
+                                beacon_block_root
+                            ));
+                            self.import_block_by_root(beacon_block_root).await;
+                        }
+
                         if let Some(f) = self.complete_strategy.process_result_conditional.as_ref()
                             && let Some(result) = f(beacon_block_root)
                         {
@@ -923,6 +943,29 @@ impl TestRig {
     async fn build_chain_and_trigger_last_block(&mut self, block_count: usize) {
         self.build_chain(block_count).await;
         self.trigger_with_last_block();
+    }
+
+    /// Import a block directly into the chain without going through lookup sync
+    async fn import_block_by_root(&mut self, block_root: Hash256) {
+        let rpc_block = self
+            .network_blocks_by_root
+            .get(&block_root)
+            .unwrap_or_else(|| panic!("No block for root {block_root}"))
+            .clone();
+
+        self.harness
+            .chain
+            .process_block(
+                block_root,
+                rpc_block,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Gossip,
+                || Ok(()),
+            )
+            .await
+            .unwrap();
+
+        self.harness.chain.recompute_head_at_current_slot().await;
     }
 
     fn trigger_with_last_unknown_block_parent(&mut self) {
@@ -2042,8 +2085,40 @@ async fn test_skip_creating_ignored_parent_lookup() {
     r.expect_no_active_lookups();
 }
 
-// test_same_chain_race_condition removed — originally from #3677 (84c7d8cc), the scenario it
-// tested is no longer reproducible in current lookup sync.
+#[tokio::test]
+/// Assert that if the oldest block in a chain is already imported (DuplicateFullyImported),
+/// the remaining blocks in the chain are still processed successfully. This tests a race
+/// condition where a block gets imported elsewhere while the lookup is processing.
+///
+/// The processing sequence is:
+/// - Block 3: UnknownParent (needs block 2)
+/// - Block 2: UnknownParent (needs block 1)
+/// - Block 1: About to be processed, but gets imported via gossip (race condition)
+/// - Block 1: DuplicateFullyImported (already in chain from race)
+/// - Block 2: Import ok (parent block 1 is available)
+/// - Block 3: Import ok (parent block 2 is available)
+async fn test_same_chain_race_condition() {
+    let mut r = TestRig::default();
+    r.build_chain(3).await;
+
+    let block_1_root = r.block_root_at_slot(1);
+
+    // Trigger a lookup with block 3. This creates a parent lookup chain that will
+    // request blocks 3 → 2 → 1.
+    r.trigger_with_block_at_slot(3);
+
+    // Configure simulate to import block 1 right before it's processed by the lookup.
+    // This simulates the race condition where block 1 arrives via gossip at the same
+    // time the lookup is trying to process it.
+    r.simulate(SimulateConfig::new().import_block_before_process(block_1_root))
+        .await;
+
+    // The chain should complete successfully with head at slot 3, proving that
+    // the lookup correctly handled the DuplicateFullyImported for block 1 and
+    // continued processing blocks 2 and 3.
+    r.assert_head_slot(3);
+    r.assert_successful_lookup_sync();
+}
 
 #[tokio::test]
 /// Assert that if the lookup's block is in the da_checker we don't download it again
