@@ -11,7 +11,6 @@ use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::api_types::{AppRequestId, Id};
 use lighthouse_network::{NetworkGlobals, PeerId};
-use rand::Rng;
 use rand_chacha::ChaCha20Rng;
 use slot_clock::ManualSlotClock;
 use std::collections::{HashMap, HashSet};
