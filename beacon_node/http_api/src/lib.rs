@@ -41,9 +41,7 @@ use crate::beacon::execution_payload_envelope::{
 };
 use crate::beacon::pool::*;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
-use crate::utils::{
-    AnyVersionFilter, EthV1Filter,
-};
+use crate::utils::{AnyVersionFilter, EthV1Filter};
 use crate::validator::execution_payload_bid::get_validator_execution_payload_bid;
 use crate::validator::post_validator_liveness_epoch;
 use crate::validator::*;
