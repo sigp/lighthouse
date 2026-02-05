@@ -33,8 +33,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec,
-    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec, ForkContext, ForkName,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     test_utils::{SeedableRng, XorShiftRng},
 };
 
