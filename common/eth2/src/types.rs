@@ -1718,7 +1718,7 @@ pub type JsonProduceBlockV3Response<E> =
 pub enum FullBlockContents<E: EthSpec> {
     /// This is a full deneb variant with block and blobs.
     BlockContents(BlockContents<E>),
-    /// This variant is for all pre-deneb full blocks.
+    /// This variant is for all pre-deneb full blocks or post-gloas beacon block.
     Block(BeaconBlock<E>),
 }
 

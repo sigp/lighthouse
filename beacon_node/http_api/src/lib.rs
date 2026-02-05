@@ -23,7 +23,6 @@ mod produce_block;
 mod proposer_duties;
 mod publish_attestations;
 mod publish_blocks;
-mod publish_execution_payload_envelope;
 mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
@@ -37,9 +36,15 @@ mod validator_inclusion;
 mod validators;
 mod version;
 
+use crate::beacon::execution_payload_envelope::{
+    post_beacon_execution_payload_envelope, post_beacon_execution_payload_envelope_ssz,
+};
 use crate::beacon::pool::*;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
-use crate::utils::{AnyVersionFilter, EthV1Filter};
+use crate::utils::{
+    AnyVersionFilter, EthV1Filter,
+};
+use crate::validator::execution_payload_bid::get_validator_execution_payload_bid;
 use crate::validator::post_validator_liveness_epoch;
 use crate::validator::*;
 use crate::version::beacon_response;
@@ -72,7 +77,7 @@ pub use publish_blocks::{
 };
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 pub use state_id::StateId;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -91,8 +96,9 @@ use tokio_stream::{
 use tracing::{debug, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    SignedBlindedBeaconBlock, Slot,
 };
+use validator::execution_payload_envelope::get_validator_execution_payload_envelope;
 use version::{
     ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
@@ -1488,65 +1494,20 @@ pub fn serve<T: BeaconChainTypes>(
         post_beacon_pool_bls_to_execution_changes(&network_tx_filter, &beacon_pool_path);
 
     // POST beacon/execution_payload_envelope
-    let post_beacon_execution_payload_envelope = eth_v1
-        .clone()
-        .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .then(
-            |envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    publish_execution_payload_envelope::publish_execution_payload_envelope(
-                        envelope,
-                        chain,
-                        &network_tx,
-                    )
-                    .await
-                })
-            },
-        );
+    let post_beacon_execution_payload_envelope = post_beacon_execution_payload_envelope(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
 
     // POST beacon/execution_payload_envelope (SSZ)
-    let post_beacon_execution_payload_envelope_ssz = eth_v1
-        .clone()
-        .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
-        .and(warp::path::end())
-        .and(warp::header::exact(
-            CONTENT_TYPE_HEADER,
-            SSZ_CONTENT_TYPE_HEADER,
-        ))
-        .and(warp::body::bytes())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .then(
-            |body_bytes: Bytes,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let envelope =
-                        SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(&body_bytes)
-                            .map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                        })?;
-                    publish_execution_payload_envelope::publish_execution_payload_envelope(
-                        envelope,
-                        chain,
-                        &network_tx,
-                    )
-                    .await
-                })
-            },
-        );
+    let post_beacon_execution_payload_envelope_ssz = post_beacon_execution_payload_envelope_ssz(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
 
     let beacon_rewards_path = eth_v1
         .clone()
@@ -2539,6 +2500,14 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // GET validator/execution_payload_bid/
+    let get_validator_execution_payload_bid = get_validator_execution_payload_bid(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/attestation_data?slot,committee_index
     let get_validator_attestation_data = get_validator_attestation_data(
         eth_v1.clone().clone(),
@@ -3398,6 +3367,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_validator_blocks)
                 .uor(get_validator_blinded_blocks)
                 .uor(get_validator_execution_payload_envelope)
+                .uor(get_validator_execution_payload_bid)
                 .uor(get_validator_attestation_data)
                 .uor(get_validator_aggregate_attestation)
                 .uor(get_validator_sync_committee_contribution)

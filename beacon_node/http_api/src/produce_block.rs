@@ -138,7 +138,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
 ) -> Result<Response<Body>, warp::Rejection> {
     let fork_name = block
         .to_ref()
-        .fork_name(&spec)
+        .fork_name(spec)
         .map_err(inconsistent_fork_rejection)?;
     let consensus_block_value_wei =
         Uint256::from(consensus_block_value) * Uint256::from(1_000_000_000u64);
