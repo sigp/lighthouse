@@ -2095,29 +2095,9 @@ async fn test_skip_creating_ignored_parent_lookup() {
     r.expect_no_active_lookups();
 }
 
-/// This is a regression test.
-/// Test added in https://github.com/sigp/lighthouse/commit/84c7d8cc7006a6f1f1bb5729ab222b9f85f72727
-/// TODO: This test was added on a very old version of lookup sync. It's unclear if the situation
-/// it wants to recreate is possible or problematic in current code. Skipping.
-#[ignore]
-#[tokio::test]
-async fn test_same_chain_race_condition() {
-    let mut r = TestRig::default();
-
-    // if we use one or two blocks it will match on the hash or the parent hash, so make a longer
-    // chain.
-    let depth = 4;
-    r.build_chain(depth).await;
-    r.trigger_with_last_block();
-
-    let block_root_to_skip = r.block_root_at_slot(3);
-    r.simulate(SimulateConfig::new().with_block_imported_while_processing(block_root_to_skip))
-        .await;
-
-    // Try to get this block again while the chain is being processed. We should not request it again.
-    r.trigger_with_last_block();
-    r.assert_successful_lookup_sync();
-}
+// test_same_chain_race_condition removed — originally from #3677 (84c7d8cc), the scenario it
+// tested is no longer reproducible in current lookup sync. The block_imported_while_processing
+// path is covered by other simulate tests.
 
 #[tokio::test]
 /// Assert that if the lookup's block is in the da_checker we don't download it again
