@@ -77,6 +77,7 @@ use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
+    SseHead,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -1293,6 +1294,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get_blinded_block(block_root)?)
+    }
+
+    pub fn get_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {
+        Ok(self.store.get_payload_envelope(block_root)?)
     }
 
     /// Return the status of a block as it progresses through the various caches of the beacon
@@ -3863,6 +3871,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
+        // Read the cached head prior to taking the fork choice lock to avoid potential deadlocks.
+        let old_head_slot = self.canonical_head.cached_head().head_slot();
+
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -3918,6 +3929,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // This block became the head, add it to the early attester cache.
                 Ok(new_head_root) if new_head_root == block_root => {
                     if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                        let new_head_is_optimistic =
+                            proto_block.execution_status.is_optimistic_or_invalid();
+
                         if let Err(e) = self.early_attester_cache.add_head_block(
                             block_root,
                             &signed_block,
@@ -3936,6 +3950,50 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 signed_block.slot(),
                                 attestable_timestamp,
                             )
+                        }
+
+                        // Register a server-sent-event for a new head.
+                        if let Some(event_handler) = self
+                            .event_handler
+                            .as_ref()
+                            .filter(|handler| handler.has_head_subscribers())
+                        {
+                            let head_slot = state.slot();
+                            let state_root = block.state_root();
+                            let is_epoch_transition = state.current_epoch()
+                                > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
+
+                            let dependent_root = state.attester_shuffling_decision_root(
+                                self.genesis_block_root,
+                                RelativeEpoch::Next,
+                            );
+                            let prev_dependent_root = state.attester_shuffling_decision_root(
+                                self.genesis_block_root,
+                                RelativeEpoch::Current,
+                            );
+
+                            match (dependent_root, prev_dependent_root) {
+                                (
+                                    Ok(current_duty_dependent_root),
+                                    Ok(previous_duty_dependent_root),
+                                ) => {
+                                    event_handler.register(EventKind::Head(SseHead {
+                                        slot: head_slot,
+                                        block: block_root,
+                                        state: state_root,
+                                        current_duty_dependent_root,
+                                        previous_duty_dependent_root,
+                                        epoch_transition: is_epoch_transition,
+                                        execution_optimistic: new_head_is_optimistic,
+                                    }));
+                                }
+                                (Err(e), _) | (_, Err(e)) => {
+                                    warn!(
+                                        error = ?e,
+                                        "Unable to find dependent roots, cannot register head event"
+                                    );
+                                }
+                            }
                         }
                     } else {
                         warn!(?block_root, "Early attester block missing");
@@ -4636,7 +4694,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let proposing_on_time = slot_delay < self.config.re_org_cutoff(self.spec.seconds_per_slot);
+        let proposing_on_time =
+            slot_delay < self.config.re_org_cutoff(self.spec.get_slot_duration());
         if !proposing_on_time {
             debug!(reason = "not proposing on time", "Not attempting re-org");
             return None;
@@ -4830,7 +4889,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
         if head_state.current_epoch() == proposal_epoch {
             return get_expected_withdrawals(&unadvanced_state, &self.spec)
-                .map(|(withdrawals, _)| withdrawals)
+                .map(Into::into)
                 .map_err(Error::PrepareProposerFailed);
         }
 
@@ -4848,7 +4907,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         )?;
         get_expected_withdrawals(&advanced_state, &self.spec)
-            .map(|(withdrawals, _)| withdrawals)
+            .map(Into::into)
             .map_err(Error::PrepareProposerFailed)
     }
 
@@ -4926,7 +4985,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .and_then(|slot_start| {
                     let now = self.slot_clock.now_duration()?;
                     let slot_delay = now.saturating_sub(slot_start);
-                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.seconds_per_slot))
+                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.get_slot_duration()))
                 })
                 .unwrap_or(false)
         } else {
@@ -5043,7 +5102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         block_delays
             .observed
-            .is_some_and(|delay| delay >= self.slot_clock.unagg_attestation_production_delay())
+            .is_some_and(|delay| delay >= self.spec.get_unaggregated_attestation_due())
     }
 
     /// Produce a block for some `slot` upon the given `state`.
