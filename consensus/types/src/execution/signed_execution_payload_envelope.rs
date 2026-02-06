@@ -1,9 +1,10 @@
 use crate::test_utils::TestRandom;
 use crate::{
-    ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash, ExecutionPayloadEnvelope, Fork, Hash256,
-    SignedRoot, Slot,
+    ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash, ExecutionPayloadEnvelope, Fork,
+    ForkName, Hash256, SignedRoot, Slot,
 };
 use bls::{PublicKey, Signature};
+use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -13,6 +14,7 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TestRandom, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
     pub message: ExecutionPayloadEnvelope<E>,
     pub signature: Signature,

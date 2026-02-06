@@ -860,7 +860,8 @@ impl<E: EthSpec> MockBuilder<E> {
                 .data
                 .genesis_time
         };
-        let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
+        let timestamp =
+            (slots_since_genesis * self.spec.get_slot_duration().as_secs()) + genesis_time;
 
         let head_state: BeaconState<E> = self
             .beacon_client

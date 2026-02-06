@@ -144,7 +144,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             return Ok(());
         }
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -157,12 +157,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         let executor = self.executor.clone();
 
+        let unaggregated_attestation_due = self.chain_spec.get_unaggregated_attestation_due();
+
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    sleep(duration_to_next_slot + unaggregated_attestation_due).await;
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                    if let Err(e) = self.spawn_attestation_tasks() {
                         crit!(error = e, "Failed to spawn attestation tasks")
                     } else {
                         trace!("Spawned attestation tasks");
@@ -183,7 +185,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// Spawn only one new task for attestation post-Electra
     /// For each required aggregates, spawn a new task that downloads, signs and uploads the
     /// aggregates to the beacon node.
-    fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    fn spawn_attestation_tasks(&self) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -247,7 +249,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         // through the slot. This delay triggers at this time
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_sub(slot_duration / 3)
+                .checked_add(self.chain_spec.get_aggregate_attestation_due())
+                .and_then(|offset| offset.checked_sub(self.chain_spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let aggregate_duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
