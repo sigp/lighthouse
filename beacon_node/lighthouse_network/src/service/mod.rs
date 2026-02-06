@@ -821,14 +821,13 @@ impl<E: EthSpec> Network<E> {
             .write()
             .insert(topic.clone());
 
-        let config = &self.network_globals.config;
-        let partial = topic.kind().supports_partial_messages();
+        let partial = topic
+            .kind()
+            .use_partial_messages(self.network_globals.config.as_ref());
         let topic: Topic = topic.into();
 
-        let subscribe_result = if partial && !config.disable_partial_messages_support {
-            let request_partials = !config.disable_partial_messages_request;
-            self.gossipsub_mut()
-                .subscribe_partial(&topic, request_partials)
+        let subscribe_result = if partial {
+            self.gossipsub_mut().subscribe_partial(&topic, true)
         } else {
             self.gossipsub_mut().subscribe(&topic)
         };
@@ -876,7 +875,9 @@ impl<E: EthSpec> Network<E> {
                             );
                         }
                         PublishError::NoPeersSubscribedToTopic
-                            if topic.kind().supports_partial_messages() =>
+                            if topic
+                                .kind()
+                                .use_partial_messages(self.network_globals.config.as_ref()) =>
                         {
                             debug!(
                                 kind = %topic.kind(),

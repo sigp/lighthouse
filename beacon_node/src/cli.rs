@@ -671,17 +671,10 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-partial-messages-request")
-                .long("disable-partial-messages-request")
-                .help("Do not request partial messages for data columns.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("disable-partial-messages-support")
-                .long("disable-partial-messages-support")
-                .help("Do not support receiving partial messages for data columns.")
+            Arg::new("enable-partial-columns")
+                .long("enable-partial-columns")
+                .help("Enable partial messages for data columns. This can reduce the amount of \
+                data sent over the network.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)

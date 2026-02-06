@@ -11,7 +11,7 @@ use types::{
     sync_committee::SyncSubnetId,
 };
 
-use crate::Subnet;
+use crate::{NetworkConfig, Subnet};
 
 /// The gossipsub topic names.
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
@@ -178,8 +178,11 @@ pub enum GossipKind {
 }
 
 impl GossipKind {
-    pub fn supports_partial_messages(&self) -> bool {
-        matches!(self, GossipKind::DataColumnSidecar(_))
+    pub fn use_partial_messages(&self, config: &NetworkConfig) -> bool {
+        match self {
+            GossipKind::DataColumnSidecar(_) => config.enable_partial_columns,
+            _ => false,
+        }
     }
 }
 
