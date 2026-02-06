@@ -759,8 +759,12 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     // this cache only needs to be maintained if deneb is configured
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
+        let partial_assembler = chain.data_availability_checker.partial_assembler.clone();
         executor.spawn(
-            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
+            async move {
+                availability_cache_maintenance_service(chain, overflow_cache, partial_assembler)
+                    .await
+            },
             "availability_cache_service",
         );
     } else {
@@ -771,6 +775,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
 async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
+    partial_assembler: Arc<PartialDataColumnAssembler<T::EthSpec>>,
 ) {
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
@@ -822,6 +827,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
                     error!(error = ?e,"Failed to maintain availability cache");
                 }
+                partial_assembler.do_maintenance(cutoff_epoch);
             }
             None => {
                 error!("Failed to read slot clock");
