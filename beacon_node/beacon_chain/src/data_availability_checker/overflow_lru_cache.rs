@@ -788,7 +788,7 @@ mod test {
     use state_processing::ConsensusContext;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
-    use tracing::{debug_span, info};
+    use tracing::info;
     use types::MinimalEthSpec;
     use types::new_non_zero_usize;
 
