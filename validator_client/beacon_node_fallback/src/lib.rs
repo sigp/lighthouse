@@ -476,9 +476,9 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         }
 
         let timeouts: Timeouts = if new_list.len() == 1 || use_long_timeouts {
-            Timeouts::set_all(Duration::from_secs(self.spec.seconds_per_slot))
+            Timeouts::set_all(self.spec.get_slot_duration())
         } else {
-            Timeouts::use_optimized_timeouts(Duration::from_secs(self.spec.seconds_per_slot))
+            Timeouts::use_optimized_timeouts(self.spec.get_slot_duration())
         };
 
         let new_candidates: Vec<CandidateBeaconNode> = new_list

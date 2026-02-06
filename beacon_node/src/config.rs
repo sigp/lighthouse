@@ -766,10 +766,7 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.prepare_payload_lookahead =
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
             .map(Duration::from_millis)
-            .unwrap_or_else(|| {
-                Duration::from_secs(spec.seconds_per_slot)
-                    / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
-            });
+            .unwrap_or_else(|| spec.get_slot_duration() / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR);
 
     client_config.chain.always_prepare_payload = cli_args.get_flag("always-prepare-payload");
 

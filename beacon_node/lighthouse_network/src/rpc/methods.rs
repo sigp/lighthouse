@@ -15,9 +15,9 @@ use superstruct::superstruct;
 use types::data::BlobIdentifier;
 use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
-    ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot, data::BlobSidecar,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch,
+    EthSpec, ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
@@ -762,12 +762,8 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
     pub fn slot(&self) -> Option<Slot> {
         match self {
             Self::BlocksByRange(r) | Self::BlocksByRoot(r) => Some(r.slot()),
-            Self::BlobsByRange(r) | Self::BlobsByRoot(r) => {
-                Some(r.signed_block_header.message.slot)
-            }
-            Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => {
-                Some(r.signed_block_header.message.slot)
-            }
+            Self::BlobsByRange(r) | Self::BlobsByRoot(r) => Some(r.slot()),
+            Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => Some(r.slot()),
             Self::LightClientBootstrap(r) => Some(r.get_slot()),
             Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),
             Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),

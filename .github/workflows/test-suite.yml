@@ -92,10 +92,6 @@ jobs:
           bins: cargo-nextest
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
       run: make test-release
     - name: Show cache stats
@@ -213,10 +209,6 @@ jobs:
       with:
           channel: stable
           bins: cargo-nextest
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:

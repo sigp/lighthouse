@@ -19,7 +19,7 @@ use crate::data_column_verification::{
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_partial_data_columns;
-use crate::observed_block_producers::ProposalKey;
+use crate::observed_data_sidecars::ObservationKey;
 use crate::validator_monitor::timestamp_now;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -175,10 +175,12 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
 
     let mut blob_sidecar_list = build_blob_sidecars(header, response)?;
 
-    if let Some(observed_blobs) = chain_adapter.blobs_known_for_proposal(
+    let observation_key = ObservationKey::new_proposer_key(
         header.signed_block_header.message.proposer_index,
         header.slot(),
-    ) {
+    );
+
+    if let Some(observed_blobs) = chain_adapter.blobs_known_for_observation_key(observation_key) {
         blob_sidecar_list.retain(|blob| !observed_blobs.contains(&blob.blob_index()));
         if blob_sidecar_list.is_empty() {
             debug!(
@@ -417,11 +419,11 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
+                let observation_key =
+                    ObservationKey::from_partial_column_header(&header, block_root, &spec);
+
                 if let Some(observed_columns) =
-                    chain_adapter_cloned.data_column_known_for_proposal(ProposalKey::new(
-                        header.signed_block_header.message.proposer_index,
-                        header.slot(),
-                    ))
+                    chain_adapter_cloned.data_column_known_for_observation_key(observation_key)
                 {
                     custody_columns.retain(|col| !observed_columns.contains(&col.index()));
                     if custody_columns.is_empty() {

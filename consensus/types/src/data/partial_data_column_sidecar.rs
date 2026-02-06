@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{
     AbstractExecPayload, BLOB_KZG_COMMITMENTS_INDEX, BeaconStateError, Cell, ColumnIndex,
-    DataColumnSidecar, EthSpec, Hash256, KzgCommitments, SignedBeaconBlock,
+    DataColumnSidecar, DataColumnSidecarFulu, EthSpec, Hash256, KzgCommitments, SignedBeaconBlock,
     SignedBeaconBlockHeader, Slot,
 };
 use educe::Educe;
@@ -260,7 +260,7 @@ impl<E: EthSpec> PartialDataColumn<E> {
             return None;
         };
 
-        Some(DataColumnSidecar {
+        Some(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: self.index,
             column: VariableList::new(
                 self.sidecar
@@ -274,6 +274,6 @@ impl<E: EthSpec> PartialDataColumn<E> {
             kzg_proofs: self.sidecar.kzg_proofs.clone(),
             signed_block_header: header.signed_block_header.clone(),
             kzg_commitments_inclusion_proof: header.kzg_commitments_inclusion_proof.clone(),
-        })
+        }))
     }
 }
