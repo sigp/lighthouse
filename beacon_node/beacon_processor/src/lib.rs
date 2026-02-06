@@ -1253,10 +1253,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipLightClientOptimisticUpdate => {
                             work_queues.lc_gossip_optimistic_update_queue.len()
                         }
-                        WorkType::RpcBlock => work_queues.rpc_block_queue.len(),
-                        WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
-                            work_queues.rpc_blob_queue.len()
+                        WorkType::RpcBlock | WorkType::IgnoredRpcBlock => {
+                            work_queues.rpc_block_queue.len()
                         }
+                        WorkType::RpcBlobs => work_queues.rpc_blob_queue.len(),
                         WorkType::RpcCustodyColumn => work_queues.rpc_custody_column_queue.len(),
                         WorkType::ColumnReconstruction => {
                             work_queues.column_reconstruction_queue.len()
