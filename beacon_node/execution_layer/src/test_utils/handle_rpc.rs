@@ -1,5 +1,5 @@
 use super::Context;
-use crate::engine_api::{http::*, *};
+use crate::engine_api::{json_rpc::*, *};
 use crate::json_structures::*;
 use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
 use serde::{Deserialize, de::DeserializeOwned};

@@ -1,7 +1,7 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
 use eth2::types::GraffitiPolicy;
-use execution_layer::{CommitPrefix, ExecutionLayer, http::ENGINE_GET_CLIENT_VERSION_V1};
+use execution_layer::{CommitPrefix, ExecutionLayer, json_rpc::ENGINE_GET_CLIENT_VERSION_V1};
 use logging::crit;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;

@@ -4,7 +4,7 @@ use crate::engine_api::{
     EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
     PayloadId,
 };
-use crate::{ClientVersionV1, HttpJsonRpc};
+use crate::{ClientVersionV1, JsonRpc};
 use hashlink::lru_cache::LruCache;
 use std::future::Future;
 use std::sync::Arc;
@@ -121,7 +121,7 @@ pub enum EngineError {
 
 /// An execution engine.
 pub struct Engine {
-    pub api: HttpJsonRpc,
+    pub api: JsonRpc,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
     latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
@@ -130,7 +130,7 @@ pub struct Engine {
 
 impl Engine {
     /// Creates a new, offline engine.
-    pub fn new(api: HttpJsonRpc, executor: TaskExecutor) -> Self {
+    pub fn new(api: JsonRpc, executor: TaskExecutor) -> Self {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),

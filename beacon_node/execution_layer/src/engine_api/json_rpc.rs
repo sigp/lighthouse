@@ -1,11 +1,8 @@
 //! Contains an implementation of `EngineAPI` using the JSON-RPC API via HTTP.
 
 use super::*;
-use crate::auth::Auth;
 use crate::json_structures::*;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
-use reqwest::header::CONTENT_TYPE;
-use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
@@ -14,10 +11,10 @@ use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
 
+use crate::transport::Transport;
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
 
-const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
 
 pub const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
@@ -229,7 +226,7 @@ pub mod deposit_log {
 /// state of the deposit contract.
 pub mod deposit_methods {
     use super::Log;
-    use crate::HttpJsonRpc;
+    use crate::JsonRpc;
     use serde::{Deserialize, Serialize};
     use serde_json::{Value, json};
     use std::fmt;
@@ -356,7 +353,7 @@ pub mod deposit_methods {
         }
     }
 
-    impl HttpJsonRpc {
+    impl JsonRpc {
         /// Get the eth1 chain id of the given endpoint.
         pub async fn get_chain_id(&self, timeout: Duration) -> Result<Eth1Id, String> {
             let chain_id: String = self
@@ -605,42 +602,23 @@ impl<T: Clone> CachedResponse<T> {
     }
 }
 
-pub struct HttpJsonRpc {
-    pub client: Client,
-    pub url: SensitiveUrl,
+pub struct JsonRpc {
+    pub transport: Transport,
     pub execution_timeout_multiplier: u32,
     pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
     pub engine_version_cache: Mutex<Option<CachedResponse<Vec<ClientVersionV1>>>>,
-    auth: Option<Auth>,
 }
 
-impl HttpJsonRpc {
+impl JsonRpc {
     pub fn new(
-        url: SensitiveUrl,
+        transport: Transport,
         execution_timeout_multiplier: Option<u32>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::builder().build()?,
-            url,
+            transport,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
             engine_version_cache: Mutex::new(None),
-            auth: None,
-        })
-    }
-
-    pub fn new_with_auth(
-        url: SensitiveUrl,
-        auth: Auth,
-        execution_timeout_multiplier: Option<u32>,
-    ) -> Result<Self, Error> {
-        Ok(Self {
-            client: Client::builder().build()?,
-            url,
-            execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
-            engine_capabilities_cache: Mutex::new(None),
-            engine_version_cache: Mutex::new(None),
-            auth: Some(auth),
         })
     }
 
@@ -650,50 +628,17 @@ impl HttpJsonRpc {
         params: serde_json::Value,
         timeout: Duration,
     ) -> Result<D, Error> {
-        let body = JsonRequestBody {
-            jsonrpc: JSONRPC_VERSION,
-            method,
-            params,
-            id: json!(STATIC_ID),
-        };
-
-        let mut request = self
-            .client
-            .post(self.url.expose_full().clone())
-            .timeout(timeout)
-            .header(CONTENT_TYPE, "application/json")
-            .json(&body);
-
-        // Generate and add a jwt token to the header if auth is defined.
-        if let Some(auth) = &self.auth {
-            request = request.bearer_auth(auth.generate_token()?);
-        };
-
-        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
-
-        match (body.result, body.error) {
-            (result, None) => serde_json::from_value(result).map_err(Into::into),
-            (_, Some(error)) => {
-                if error.message.contains(EIP155_ERROR_STR) {
-                    Err(Error::Eip155Failure)
-                } else {
-                    Err(Error::ServerMessage {
-                        code: error.code,
-                        message: error.message,
-                    })
-                }
-            }
-        }
+        self.transport.rpc_request(method, params, timeout).await
     }
 }
 
-impl std::fmt::Display for HttpJsonRpc {
+impl std::fmt::Display for JsonRpc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}, auth={}", self.url, self.auth.is_some())
+        write!(f, "{}", self.transport)
     }
 }
 
-impl HttpJsonRpc {
+impl JsonRpc {
     pub async fn upcheck(&self) -> Result<(), Error> {
         let result: serde_json::Value = self
             .rpc_request(
@@ -1516,10 +1461,13 @@ impl HttpJsonRpc {
 
 #[cfg(test)]
 mod test {
-    use super::auth::JwtKey;
+    use super::auth::{Auth, JwtKey};
     use super::*;
     use crate::test_utils::{DEFAULT_JWT_SECRET, MockServer};
+    use crate::transport::HttpClient;
+    use crate::transport::STATIC_ID;
     use fixed_bytes::FixedBytesExtended;
+    use sensitive_url::SensitiveUrl;
     use ssz_types::VariableList;
     use std::future::Future;
     use std::str::FromStr;
@@ -1529,8 +1477,8 @@ mod test {
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
-        rpc_client: Arc<HttpJsonRpc>,
-        echo_client: Arc<HttpJsonRpc>,
+        rpc_client: Arc<JsonRpc>,
+        echo_client: Arc<JsonRpc>,
     }
 
     impl Tester {
@@ -1545,14 +1493,26 @@ mod test {
                     Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
                 let echo_auth =
                     Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
+                let rpc_transport = HttpClient::new(rpc_url, Some(rpc_auth)).unwrap();
+                let echo_transport = HttpClient::new(echo_url, Some(echo_auth)).unwrap();
                 (
-                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None).unwrap()),
-                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None).unwrap()),
+                    Arc::new(JsonRpc::new(Transport::Http(rpc_transport), None).unwrap()),
+                    Arc::new(JsonRpc::new(Transport::Http(echo_transport), None).unwrap()),
                 )
             } else {
+                let rpc_transport = HttpClient {
+                    url: rpc_url,
+                    client: Client::builder().build().unwrap(),
+                    auth: None,
+                };
+                let echo_transport = HttpClient {
+                    url: echo_url,
+                    client: Client::builder().build().unwrap(),
+                    auth: None,
+                };
                 (
-                    Arc::new(HttpJsonRpc::new(rpc_url, None).unwrap()),
-                    Arc::new(HttpJsonRpc::new(echo_url, None).unwrap()),
+                    Arc::new(JsonRpc::new(Transport::Http(rpc_transport), None).unwrap()),
+                    Arc::new(JsonRpc::new(Transport::Http(echo_transport), None).unwrap()),
                 )
             };
 
@@ -1569,7 +1529,7 @@ mod test {
             expected_json: serde_json::Value,
         ) -> Self
         where
-            R: Fn(Arc<HttpJsonRpc>) -> F,
+            R: Fn(Arc<JsonRpc>) -> F,
             F: Future<Output = ()>,
         {
             request_func(self.echo_client.clone()).await;
@@ -1587,7 +1547,7 @@ mod test {
 
         pub async fn assert_auth_failure<R, F, T>(self, request_func: R) -> Self
         where
-            R: Fn(Arc<HttpJsonRpc>) -> F,
+            R: Fn(Arc<JsonRpc>) -> F,
             F: Future<Output = Result<T, Error>>,
             T: std::fmt::Debug,
         {
@@ -1607,7 +1567,7 @@ mod test {
             request_func: R,
         ) -> Self
         where
-            R: Fn(Arc<HttpJsonRpc>) -> F,
+            R: Fn(Arc<JsonRpc>) -> F,
             F: Future<Output = ()>,
         {
             for response in preloaded_responses {
@@ -2098,7 +2058,7 @@ mod test {
                             validation_error: Some(String::new()),
                         },
                         payload_id:
-                            Some(str_to_payload_id("0xa247243752eb10b4")),
+                        Some(str_to_payload_id("0xa247243752eb10b4")),
                     });
                 },
             )
@@ -2232,10 +2192,10 @@ mod test {
 
                     assert_eq!(response,
                                PayloadStatusV1 {
-                            status: PayloadStatusV1Status::Valid,
-                            latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
-                            validation_error: Some(String::new()),
-                        }
+                                   status: PayloadStatusV1Status::Valid,
+                                   latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
+                                   validation_error: Some(String::new()),
+                               }
                     );
                 },
             )

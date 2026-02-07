@@ -1,5 +1,5 @@
 use crate::engines::ForkchoiceState;
-use crate::http::{
+use crate::json_rpc::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
@@ -11,7 +11,7 @@ use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
     SsePayloadAttributesV3,
 };
-use http::deposit_methods::RpcError;
+use json_rpc::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
@@ -31,9 +31,10 @@ use types::{
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
 pub mod auth;
-pub mod http;
+pub mod json_rpc;
 pub mod json_structures;
 mod new_payload_request;
+pub mod transport;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
@@ -71,6 +72,9 @@ pub enum Error {
     UnsupportedForkVariant(String),
     InvalidClientVersion(String),
     TooManyConsolidationRequests(usize),
+    Timeout,
+    Io(std::io::Error),
+    NotConnected,
 }
 
 impl From<reqwest::Error> for Error {
@@ -107,6 +111,18 @@ impl From<builder_client::Error> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
+    }
+}
+
+impl From<tokio::time::error::Elapsed> for Error {
+    fn from(_: tokio::time::error::Elapsed) -> Self {
+        Error::Timeout
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e)
     }
 }
 

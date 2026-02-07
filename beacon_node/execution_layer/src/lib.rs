@@ -6,6 +6,7 @@
 
 use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use crate::payload_cache::PayloadCache;
+use crate::transport::{IpcClient, Transport};
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
 pub use block_hash::calculate_execution_block_hash;
@@ -13,8 +14,9 @@ use bls::{PublicKeyBytes, Signature};
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
+pub use engine_api::transport::HttpClient;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
+pub use engine_api::{json_rpc, json_rpc::JsonRpc, json_rpc::deposit_methods};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -165,6 +167,7 @@ pub enum Error {
     PayloadTypeMismatch,
     VerifyingVersionedHashes(versioned_hashes::Error),
     Unexpected(String),
+    UnsupportedProtocol(String),
 }
 
 impl From<ssz_types::Error> for Error {
@@ -556,8 +559,20 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
-            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
-                .map_err(Error::ApiError)?;
+            let transport = match execution_url.expose_full().scheme() {
+                "http" | "https" => Transport::Http(HttpClient::new(execution_url, Some(auth))?),
+                "ipc" => {
+                    let path = PathBuf::from(execution_url.expose_full().path());
+                    Transport::Ipc(IpcClient::new(path))
+                }
+                _ => {
+                    return Err(Error::UnsupportedProtocol(
+                        execution_url.expose_full().scheme().to_string(),
+                    ));
+                }
+            };
+            let api =
+                JsonRpc::new(transport, execution_timeout_multiplier).map_err(Error::ApiError)?;
             Engine::new(api, executor.clone())
         };
 

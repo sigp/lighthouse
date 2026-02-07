@@ -2,7 +2,7 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
+    ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status, auth::Auth, json_rpc::JSONRPC_VERSION,
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
