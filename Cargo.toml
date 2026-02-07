@@ -224,7 +224,6 @@ reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "stream",
     "rustls-tls",
-    "native-tls-vendored",
 ] }
 ring = "0.17"
 rpds = "0.11"
