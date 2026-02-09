@@ -15,7 +15,7 @@ use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
-use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
+use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
 use std::collections::HashSet;
@@ -28,7 +28,7 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256};
 
@@ -1193,12 +1193,6 @@ pub fn set_network_config(
                     let multi: Multiaddr = addr
                         .parse()
                         .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
-                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
-                        error!(multiaddr = multi.to_string(), "Missing UDP in Multiaddr");
-                    }
-                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
-                        error!(multiaddr = multi.to_string(), "Missing P2P in Multiaddr");
-                    }
                     multiaddrs.push(multi);
                 }
             }
@@ -1207,7 +1201,9 @@ pub fn set_network_config(
         config.boot_nodes_multiaddr = multiaddrs;
     }
 
+    // DEPRECATED: can be removed in v8.2.0./v9.0.0
     if let Some(libp2p_addresses_str) = cli_args.get_one::<String>("libp2p-addresses") {
+        warn!("The --libp2p-addresses flag is deprecated and replaced by --boot-nodes");
         config.libp2p_nodes = libp2p_addresses_str
             .split(',')
             .map(|multiaddr| {
