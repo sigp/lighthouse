@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ChainSpec, ForkName, MinimalEthSpec as E};
+use types::{ForkName, MinimalEthSpec as E};
 
 mod lookups;
 mod range;
@@ -68,7 +68,6 @@ struct TestRig {
     rng_08: rand_chacha_03::ChaCha20Rng,
     rng: ChaCha20Rng,
     fork_name: ForkName,
-    spec: Arc<ChainSpec>,
 }
 
 // Environment variable to read if `fork_from_env` feature is enabled.

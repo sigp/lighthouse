@@ -1,14 +1,15 @@
+use std::hint::black_box;
 use std::sync::Arc;
 
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
 use beacon_chain::test_utils::get_kzg;
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};
 use types::{
     BeaconBlock, BeaconBlockFulu, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
-    MainnetEthSpec, SignedBeaconBlock, beacon_block_body::KzgCommitments,
+    MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
 };
 
 fn create_test_block_and_blobs<E: EthSpec>(
@@ -26,8 +27,11 @@ fn create_test_block_and_blobs<E: EthSpec>(
     let blobs = (0..num_of_blobs)
         .map(|_| Blob::<E>::default())
         .collect::<Vec<_>>()
-        .into();
-    let proofs = vec![KzgProof::empty(); num_of_blobs * E::number_of_columns()].into();
+        .try_into()
+        .unwrap();
+    let proofs = vec![KzgProof::empty(); num_of_blobs * E::number_of_columns()]
+        .try_into()
+        .unwrap();
 
     (signed_block, blobs, proofs)
 }

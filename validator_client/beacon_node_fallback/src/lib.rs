@@ -20,7 +20,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
-use strum::EnumVariantNames;
+use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{debug, error, warn};
@@ -476,9 +476,9 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         }
 
         let timeouts: Timeouts = if new_list.len() == 1 || use_long_timeouts {
-            Timeouts::set_all(Duration::from_secs(self.spec.seconds_per_slot))
+            Timeouts::set_all(self.spec.get_slot_duration())
         } else {
-            Timeouts::use_optimized_timeouts(Duration::from_secs(self.spec.seconds_per_slot))
+            Timeouts::use_optimized_timeouts(self.spec.get_slot_duration())
         };
 
         let new_candidates: Vec<CandidateBeaconNode> = new_list
@@ -656,7 +656,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
-        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.as_ref()]);
+        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.server().redacted()]);
 
         // There exists a race condition where `func` may be called when the candidate is
         // actually not ready. We deem this an acceptable inefficiency.
@@ -668,7 +668,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
                     error = ?e,
                     "Request to beacon node failed"
                 );
-                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.as_ref()]);
+                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.server().redacted()]);
                 Err((candidate.to_string(), Error::RequestFailed(e)))
             }
         }
@@ -752,7 +752,7 @@ async fn sort_nodes_by_health(nodes: &mut Vec<CandidateBeaconNode>) {
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumVariantNames, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, VariantNames, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
     None,
@@ -773,12 +773,13 @@ impl ApiTopic {
 mod tests {
     use super::*;
     use crate::beacon_node_health::BeaconNodeHealthTier;
+    use bls::Signature;
     use eth2::SensitiveUrl;
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
     use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
-    use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
+    use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
     type E = MainnetEthSpec;

@@ -6,6 +6,7 @@ use crate::{
 };
 use safe_arith::SafeArith;
 use std::cmp;
+use typenum::Unsigned;
 use types::{
     consts::altair::{PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     *,
@@ -41,8 +42,7 @@ pub fn slash_validator<E: EthSpec>(
     decrease_balance(
         state,
         slashed_index,
-        validator_effective_balance
-            .safe_div(spec.min_slashing_penalty_quotient_for_state(state))?,
+        validator_effective_balance.safe_div(state.get_min_slashing_penalty_quotient(spec))?,
     )?;
 
     update_progressive_balances_on_slashing(state, slashed_index, validator_effective_balance)?;
@@ -53,8 +53,8 @@ pub fn slash_validator<E: EthSpec>(
     // Apply proposer and whistleblower rewards
     let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;
     let whistleblower_index = opt_whistleblower_index.unwrap_or(proposer_index);
-    let whistleblower_reward = validator_effective_balance
-        .safe_div(spec.whistleblower_reward_quotient_for_state(state))?;
+    let whistleblower_reward =
+        validator_effective_balance.safe_div(state.get_whistleblower_reward_quotient(spec))?;
     let proposer_reward = if state.fork_name_unchecked().altair_enabled() {
         whistleblower_reward
             .safe_mul(PROPOSER_WEIGHT)?

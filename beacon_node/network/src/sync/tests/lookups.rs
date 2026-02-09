@@ -19,6 +19,7 @@ use beacon_chain::{
     PayloadVerificationOutcome, PayloadVerificationStatus,
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
+    custody_context::NodeCustodyType,
     data_availability_checker::Availability,
     test_utils::{
         BeaconChainHarness, EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
@@ -41,9 +42,9 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    data_column_sidecar::ColumnIndex,
+    BeaconState, BeaconStateBase, BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec,
+    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    data::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
@@ -54,6 +55,10 @@ type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
 impl TestRig {
     pub fn test_setup() -> Self {
+        Self::test_setup_with_custody_type(NodeCustodyType::Fullnode)
+    }
+
+    pub fn test_setup_with_custody_type(node_custody_type: NodeCustodyType) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
         let spec = test_spec::<E>();
 
@@ -68,6 +73,7 @@ impl TestRig {
                 Duration::from_secs(0),
                 Duration::from_secs(12),
             ))
+            .node_custody_type(node_custody_type)
             .build();
 
         let chain = harness.chain.clone();
@@ -101,8 +107,6 @@ impl TestRig {
             .network_globals
             .set_sync_state(SyncState::Synced);
 
-        let spec = chain.spec.clone();
-
         // deterministic seed
         let rng_08 = <rand_chacha_03::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
@@ -128,7 +132,6 @@ impl TestRig {
             ),
             harness,
             fork_name,
-            spec,
         }
     }
 
@@ -194,7 +197,7 @@ impl TestRig {
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
         let rng = &mut self.rng;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng, &self.spec)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
     }
 
     fn rand_block_and_data_columns(
@@ -285,21 +288,21 @@ impl TestRig {
         );
     }
 
-    fn insert_failed_chain(&mut self, block_root: Hash256) {
-        self.sync_manager.insert_failed_chain(block_root);
+    fn insert_ignored_chain(&mut self, block_root: Hash256) {
+        self.sync_manager.insert_ignored_chain(block_root);
     }
 
-    fn assert_not_failed_chain(&mut self, chain_hash: Hash256) {
-        let failed_chains = self.sync_manager.get_failed_chains();
-        if failed_chains.contains(&chain_hash) {
-            panic!("failed chains contain {chain_hash:?}: {failed_chains:?}");
+    fn assert_not_ignored_chain(&mut self, chain_hash: Hash256) {
+        let chains = self.sync_manager.get_ignored_chains();
+        if chains.contains(&chain_hash) {
+            panic!("ignored chains contain {chain_hash:?}: {chains:?}");
         }
     }
 
-    fn assert_failed_chain(&mut self, chain_hash: Hash256) {
-        let failed_chains = self.sync_manager.get_failed_chains();
-        if !failed_chains.contains(&chain_hash) {
-            panic!("expected failed chains to contain {chain_hash:?}: {failed_chains:?}");
+    fn assert_ignored_chain(&mut self, chain_hash: Hash256) {
+        let chains = self.sync_manager.get_ignored_chains();
+        if !chains.contains(&chain_hash) {
+            panic!("expected ignored chains to contain {chain_hash:?}: {chains:?}");
         }
     }
 
@@ -1021,11 +1024,6 @@ impl TestRig {
         self.log(&format!("Found expected penalty {penalty_msg}"));
     }
 
-    pub fn expect_single_penalty(&mut self, peer_id: PeerId, expect_penalty_msg: &'static str) {
-        self.expect_penalty(peer_id, expect_penalty_msg);
-        self.expect_no_penalty_for(peer_id);
-    }
-
     pub fn block_with_parent_and_blobs(
         &mut self,
         parent_root: Hash256,
@@ -1084,7 +1082,7 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
-            .put_pending_executed_block(executed_block)
+            .put_executed_block(executed_block)
             .unwrap()
         {
             Availability::Available(_) => panic!("block removed from da_checker, available"),
@@ -1114,20 +1112,19 @@ impl TestRig {
         };
     }
 
-    fn insert_block_to_processing_cache(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+    fn insert_block_to_availability_cache(&mut self, block: Arc<SignedBeaconBlock<E>>) {
         self.harness
             .chain
-            .reqresp_pre_import_cache
-            .write()
-            .insert(block.canonical_root(), block);
+            .data_availability_checker
+            .put_pre_execution_block(block.canonical_root(), block, BlockImportSource::Gossip)
+            .unwrap();
     }
 
     fn simulate_block_gossip_processing_becomes_invalid(&mut self, block_root: Hash256) {
         self.harness
             .chain
-            .reqresp_pre_import_cache
-            .write()
-            .remove(&block_root);
+            .data_availability_checker
+            .remove_block_on_execution_error(&block_root);
 
         self.send_sync_message(SyncMessage::GossipBlockProcessResult {
             block_root,
@@ -1140,11 +1137,6 @@ impl TestRig {
         block: Arc<SignedBeaconBlock<E>>,
     ) {
         let block_root = block.canonical_root();
-        self.harness
-            .chain
-            .reqresp_pre_import_cache
-            .write()
-            .remove(&block_root);
 
         self.insert_block_to_da_checker(block);
 
@@ -1157,10 +1149,8 @@ impl TestRig {
 
 #[test]
 fn stable_rng() {
-    let spec = types::MainnetEthSpec::default_spec();
     let mut rng = XorShiftRng::from_seed([42; 16]);
-    let (block, _) =
-        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng, &spec);
+    let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
@@ -1461,7 +1451,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
     for i in 1..=PARENT_FAIL_TOLERANCE {
-        rig.assert_not_failed_chain(block_root);
+        rig.assert_not_ignored_chain(block_root);
         let id = rig.expect_block_parent_request(parent_root);
         if i % 2 != 0 {
             // The request fails. It should be tried again.
@@ -1474,8 +1464,8 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         }
     }
 
-    rig.assert_not_failed_chain(block_root);
-    rig.assert_not_failed_chain(parent.canonical_root());
+    rig.assert_not_ignored_chain(block_root);
+    rig.assert_not_ignored_chain(parent.canonical_root());
     rig.expect_no_active_lookups_empty_network();
 }
 
@@ -1500,7 +1490,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     for _ in 0..PROCESSING_FAILURES {
         let id = rig.expect_block_parent_request(parent_root);
         // Blobs are only requested in the previous first iteration as this test only retries blocks
-        rig.assert_not_failed_chain(block_root);
+        rig.assert_not_ignored_chain(block_root);
         // send the right parent but fail processing
         rig.parent_lookup_block_response(id, peer_id, Some(parent.clone().into()));
         rig.parent_block_processed(block_root, BlockError::BlockSlotLimitReached.into());
@@ -1508,7 +1498,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.expect_penalty(peer_id, "lookup_block_processing_failure");
     }
 
-    rig.assert_not_failed_chain(block_root);
+    rig.assert_not_ignored_chain(block_root);
     rig.expect_no_active_lookups_empty_network();
 }
 
@@ -1551,12 +1541,14 @@ fn test_parent_lookup_too_deep_grow_ancestor() {
     );
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     rig.expect_no_penalty_for(peer_id);
-    rig.assert_failed_chain(chain_hash);
+    rig.assert_ignored_chain(chain_hash);
 }
 
 // Regression test for https://github.com/sigp/lighthouse/pull/7118
+// 8042 UPDATE: block was previously added to the failed_chains cache, now it's inserted into the
+// ignored chains cache. The regression test still applies as the chaild lookup is not created
 #[test]
-fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
+fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     // GIVEN: A parent chain longer than PARENT_DEPTH_TOLERANCE.
     let mut rig = TestRig::test_setup();
     let mut blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE + 1);
@@ -1586,8 +1578,8 @@ fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
     }
 
     // At this point, the chain should have been deemed too deep and pruned.
-    // The tip root should have been inserted into failed chains.
-    rig.assert_failed_chain(tip_root);
+    // The tip root should have been inserted into ignored chains.
+    rig.assert_ignored_chain(tip_root);
     rig.expect_no_penalty_for(peer_id);
 
     // WHEN: Trigger the extending block that points to the tip.
@@ -1604,10 +1596,10 @@ fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
         }),
     );
 
-    // THEN: The extending block should not create a lookup because the tip was inserted into failed chains.
+    // THEN: The extending block should not create a lookup because the tip was inserted into
+    // ignored chains.
     rig.expect_no_active_lookups();
-    // AND: The peer should be penalized for extending a failed chain.
-    rig.expect_single_penalty(peer_id, "failed_chain");
+    rig.expect_no_penalty_for(peer_id);
     rig.expect_empty_network();
 }
 
@@ -1646,7 +1638,7 @@ fn test_parent_lookup_too_deep_grow_tip() {
     );
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     rig.expect_no_penalty_for(peer_id);
-    rig.assert_failed_chain(tip.canonical_root());
+    rig.assert_ignored_chain(tip.canonical_root());
 }
 
 #[test]
@@ -1699,15 +1691,14 @@ fn test_lookup_add_peers_to_parent() {
 }
 
 #[test]
-fn test_skip_creating_failed_parent_lookup() {
+fn test_skip_creating_ignored_parent_lookup() {
     let mut rig = TestRig::test_setup();
     let (_, block, parent_root, _) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
-    rig.insert_failed_chain(parent_root);
+    rig.insert_ignored_chain(parent_root);
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    // Expect single penalty for peer, despite dropping two lookups
-    rig.expect_single_penalty(peer_id, "failed_chain");
-    // Both current and parent lookup should be rejected
+    rig.expect_no_penalty_for(peer_id);
+    // Both current and parent lookup should not be created
     rig.expect_no_active_lookups();
 }
 
@@ -1845,7 +1836,7 @@ fn block_in_processing_cache_becomes_invalid() {
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
     let block_root = block.canonical_root();
     let peer_id = r.new_connected_peer();
-    r.insert_block_to_processing_cache(block.clone().into());
+    r.insert_block_to_availability_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
     // Should trigger blob request
     let id = r.expect_blob_lookup_request(block_root);
@@ -1871,7 +1862,7 @@ fn block_in_processing_cache_becomes_valid_imported() {
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
     let block_root = block.canonical_root();
     let peer_id = r.new_connected_peer();
-    r.insert_block_to_processing_cache(block.clone().into());
+    r.insert_block_to_availability_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
     // Should trigger blob request
     let id = r.expect_blob_lookup_request(block_root);
@@ -1942,7 +1933,6 @@ mod deneb_only {
         data_availability_checker::AvailabilityCheckError,
     };
     use std::collections::VecDeque;
-    use types::RuntimeVariableList;
 
     struct DenebTester {
         rig: TestRig,
@@ -2295,15 +2285,13 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.rig.log("parent_block_unknown_parent");
             let block = self.unknown_parent_block.take().unwrap();
-            let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
             self.block = block.clone();
             let block = RpcBlock::new(
-                Some(block.canonical_root()),
                 block,
-                self.unknown_parent_blobs
-                    .take()
-                    .map(|vec| RuntimeVariableList::new(vec, max_len).unwrap()),
+                None,
+                &self.rig.harness.chain.data_availability_checker,
+                self.rig.harness.chain.spec.clone(),
             )
             .unwrap();
             self.rig.parent_block_processed(
