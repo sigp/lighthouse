@@ -2,12 +2,12 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::test_utils::{ApiServer, create_api_server};
 use oas3;
+use oas3::spec::ObjectOrReference;
 use sensitive_url::SensitiveUrl;
-use serde_yaml;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::Duration;
-use types::MainnetEthSpec;
+use types::{Epoch, EthSpec, MainnetEthSpec};
 
 type E = MainnetEthSpec;
 
@@ -22,10 +22,21 @@ struct RequiredFields {
 async fn new() -> (
     Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     BeaconNodeHttpClient,
+    u16,
 ) {
+    // Create a spec with Fulu fork starting from epoch 0
+    // because some endpoints like sync committee require Altair fork, so we start with Fulu straight away
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(Epoch::new(0));
+    spec.deneb_fork_epoch = Some(Epoch::new(0));
+    spec.electra_fork_epoch = Some(Epoch::new(0));
+    spec.fulu_fork_epoch = Some(Epoch::new(0));
+
     let harness = Arc::new(
         BeaconChainHarness::builder(MainnetEthSpec)
-            .default_spec()
+            .spec(spec.into())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .build(),
@@ -39,147 +50,189 @@ async fn new() -> (
 
     harness.runtime.task_executor.spawn(server, "api_server");
 
+    let port = listening_socket.port();
+
     let client = BeaconNodeHttpClient::new(
-        SensitiveUrl::parse(&format!("http://127.0.0.1:{}", listening_socket.port())).unwrap(),
+        SensitiveUrl::parse(&format!("http://127.0.0.1:{}", port)).unwrap(),
         Timeouts::set_all(Duration::from_secs(12)),
     );
 
-    (harness, client)
+    (harness, client, port)
 }
 
 // Extracts the expected fields from beacon-APIs repository
 async fn extract_all_endpoints() -> HashMap<String, RequiredFields> {
-    // Obtain the main Beacon APIs yaml file
-    // This will parse the main yaml file as a String
+    // Obtain the whole Beacon APIs yaml file
+    // This will parse the yaml file as a String
     let yaml = reqwest::get(
-        "https://raw.githubusercontent.com/ethereum/beacon-APIs/refs/heads/master/beacon-node-oapi.yaml")
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
+        "https://github.com/ethereum/beacon-APIs/releases/download/v4.0.0/beacon-node-oapi.yaml",
+    )
+    .await
+    .unwrap()
+    .text()
+    .await
+    .unwrap();
     // Use the function from oas3 crate to parse the main yaml file
     let spec = oas3::from_yaml(yaml).unwrap();
 
-    let mut endpoint_fields = HashMap::new();
+    let mut fields_by_endpoint = HashMap::new();
 
     // spec.paths is Option<IndexMap<String, PathItem>>, so we use if let here
     // spec.paths looks like this (for 1 endpoint):
-    /* Some({"/eth/v1/beacon/blinded_blocks/{block_id}": PathItem { reference: Some("./apis/beacon/blocks/blinded_block.yaml"), summary: None, description: None, get: None, put: None,
-    post: None, delete: None, options: None, head: None, patch: None, trace: None, servers: [], parameters: [], extensions: {} } */
-    // so: path is a String, e.g.,: "/eth/v1/beacon/blinded_blocks/{block_id}"
-    // path_item itself is a Struct, and the reference field in PathItem contains the yaml file of the endpoint, which is what we want
+    // "/eth/v1/beacon/states/{state_id}/fork": PathItem { reference: None, summary: None, description: None, get: Some(Operation {...
+    // so: endpoint is a String, e.g.,: "/eth/v1/beacon/states/{state_id}/fork"
+    // path_item itself is a Struct
     if let Some(paths) = &spec.paths {
-        for (path, path_item) in paths {
-            println!("Processing endpoint: {}", path);
-
-            if let Some(reference_path) = &path_item.reference {
-                println!(" Found reference: {}", reference_path);
-
-                // because the path starts with "./", we want to trim this off
-                let trimmed_path: &str = reference_path.trim_start_matches("./");
-                println!("trimmed_path is: {:?}", trimmed_path);
-                let url = format!(
-                    "https://raw.githubusercontent.com/ethereum/beacon-APIs/refs/heads/master/{}",
-                    trimmed_path
-                );
-
-                println!("url is: {:?}", url);
-
-                // Fetch the endpoint-specific YAML
-                let endpoint_yaml = reqwest::get(&url).await.unwrap().text().await.unwrap();
-
-                let yaml_value: serde_yaml::Value = serde_yaml::from_str(&endpoint_yaml).unwrap();
-
-                // Navigate to the "schema" level of the yaml file
-                let schema = yaml_value
-                    .get("get")
-                    .and_then(|v| v.get("responses"))
-                    .and_then(|v| v.get("200"))
-                    .and_then(|v| v.get("content"))
-                    .and_then(|v| v.get("application/json"))
-                    .and_then(|v| v.get("schema"));
-
-                // Extract the generic_required_fields
-                let generic_required_fields = schema
-                    .and_then(|s| s.get("required"))
-                    .and_then(|v| v.as_sequence())
-                    .map(|seq| {
-                        seq.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_else(Vec::new);
-
-                // Extract the specific_required_fields
-                let specific_required_fields = schema
-                    .and_then(|s| s.get("properties"))
-                    .and_then(|v| v.get("data"))
-                    .and_then(|v| v.get("required"))
-                    .and_then(|v| v.as_sequence())
-                    .map(|seq| {
-                        seq.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_else(Vec::new);
-
-                println!("  Generic fields are: {:?}", generic_required_fields);
-                println!("  Specific fields are: {:?}", specific_required_fields);
-
-                endpoint_fields.insert(
-                    path.to_string(),
-                    RequiredFields {
-                        generic_required_fields,
-                        specific_required_fields,
-                    },
-                );
+        for (endpoint, path_item) in paths {
+            println!("Processing endpoint: {}", endpoint);
+            // path_item.get is of type: Option<Operation>
+            // This will process all GET endpoints and ignore others (e.g., POST)
+            let get = match &path_item.get {
+                Some(get) => get.clone(),
+                None => {
+                    println!(
+                        "{} is not a GET endpoint, continue with the next endpoint",
+                        endpoint
+                    );
+                    continue;
+                }
+            };
+            // responses if of type: Option<BTreeMap<String, ObjectOrReference<Response>>>
+            let responses = get.responses.unwrap();
+            // From the responses BTreeMap
+            // where the String is like "200", "400" and the value is the corresponding Object<Response> type
+            // with .get("200"), we get to the ObjectOrReference<Response>
+            // So response is of type Response (a struct)
+            let response = match responses.get("200").unwrap() {
+                ObjectOrReference::Object(object) => object,
+                ObjectOrReference::Ref { .. } => panic!("Should be an Object"),
+            };
+            // response.content is of type: BTreeMap<String, MediaType>
+            // where the key (with type String) is "application/json" (or "application/octet-stream") and the value of type: MediaType
+            /* Mediatype is a Struct:
+            pub struct MediaType {
+                pub schema: Option<ObjectOrReference<ObjectSchema>>,
+                pub examples: Option<MediaTypeExamples>,
+                pub encoding: BTreeMap<String, Encoding>,
+                pub extensions: BTreeMap<String, Value>,
             }
+             */
+            let media_type = match response.content.get("application/json") {
+                Some(media_type) => media_type,
+                None => {
+                    // eth/v1/events does not have application/json, only application/octet-stream
+                    println!(
+                        "No application/json content found for endpoint {}",
+                        endpoint
+                    );
+                    continue;
+                }
+            };
+
+            // Mediatype.scheme accesses the field schema in the struct, and this is type: Option<ObjectOrReference<ObjectSchema>>
+            // After matching with Object enum, schema variable is of type ObjectSchema
+            let schema = match media_type.schema.clone().unwrap() {
+                ObjectOrReference::Object(schema) => schema,
+                ObjectOrReference::Ref { .. } => panic!("Should be an Object"),
+            };
+
+            // required is a field in struct ObjectSchema, with type: Vec<String>
+            let generic_required_fields = schema.required;
+
+            // properties is a field in struct ObjectSchema, with type: BTreeMap<String, ObjectOrReference<ObjectSchema>>
+            // where the String can be: "data", "version", "finalized" etc, i.e., the String in generic_required_fields
+            // and the value is still an ObjectScheme type
+            // we want to extract the string "data" and get to the specific fields defined in the spec
+            let specific_required_fields = match schema.properties.get("data").unwrap() {
+                // schema.required is of type Vec<String>
+                ObjectOrReference::Object(schema) => schema.required.clone(),
+                ObjectOrReference::Ref { .. } => panic!("Should be an Object"),
+            };
+
+            fields_by_endpoint.insert(
+                endpoint.to_string(),
+                RequiredFields {
+                    generic_required_fields,
+                    specific_required_fields,
+                },
+            );
         }
     }
-    endpoint_fields
+
+    fields_by_endpoint
+}
+
+// Used to replace parameters such as {block_id} with actual value so that a valid HTTP request is made
+fn replace_parameter(param: &str, harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> String {
+    // A correct block_root is required to make a valid request for endpoint: /eth/v1/beacon/light_client/bootstrap/{block_root}
+    let block_root = harness.chain.genesis_block_root;
+
+    param
+        .replace("{block_id}", "head")
+        .replace("{state_id}", "head")
+        .replace("{slot}", "0")
+        .replace("{epoch}", "0")
+        .replace("{validator_id}", "0")
+        .replace("{block_root}", &format!("{:?}", block_root))
+        .replace("{peer_id}", "QmYyQSo1c1Ym7orWxLYvCrM2Emx")
 }
 
 #[tokio::test]
 async fn test_genesis_endpoint_conforms_to_spec() {
-    let (_harness, client) = new().await;
+    let (harness, client, port) = new().await;
 
-    let all_endpoints = extract_all_endpoints().await;
+    let fields_by_endpoint = extract_all_endpoints().await;
 
-    // Get the expected fields for the genesis endpoint
-    // TODO: all_endpoints contains all beacon APIs endpoints, so we want to extend this to calling all endpoints (raw HTTP calls)
-    let expected_fields = all_endpoints.get("/eth/v1/beacon/genesis").unwrap();
-
-    // Get the actual response
-    let response = client.get_beacon_genesis().await.unwrap();
-
-    // Convert the entire response to JSON to check response-level fields
-    let response_json = serde_json::to_value(&response)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .clone();
-
-    // Check response-level required fields
-    for field in &expected_fields.generic_required_fields {
-        assert!(
-            response_json.contains_key(field),
-            "Response missing expected field '{}'",
-            field,
+    // Test all endpoints in the spec
+    for (endpoint, fields) in &fields_by_endpoint {
+        // Call the HTTP endpoint using raw HTTP calls
+        // endpoint looks like this: "/eth/v1/beacon/genesis" which is exactly what we want in the url
+        let url = format!(
+            "http://127.0.0.1:{}{}",
+            port,
+            replace_parameter(endpoint, &harness)
         );
-    }
-
-    let data_json = serde_json::to_value(&response.data)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .clone();
-
-    for field in &expected_fields.specific_required_fields {
-        assert!(
-            data_json.contains_key(field),
-            "Response data missing expected field '{}'",
-            field,
+        println!("Testing endpoint: {}", endpoint);
+        println!("URL is: {}", url);
+        println!(
+            "Generic fields are: {}",
+            fields.generic_required_fields.join(", ")
         );
+        println!(
+            "Specific fields are: {}",
+            fields.specific_required_fields.join(", ")
+        );
+
+        let response: serde_json::Value = client.get(url).await.unwrap();
+        // println!("Response is: {:?}", response);
+
+        let response_json = response.as_object().unwrap();
+        // println!("Response JSON is: {:?}", response_json);
+
+        // Check generic required fields
+        for field in &fields.generic_required_fields {
+            assert!(
+                response_json.contains_key(field),
+                "Response missing generic required field '{}'",
+                field,
+            );
+        }
+
+        let data_json = response_json
+            .get("data")
+            .and_then(|v| v.as_object())
+            .unwrap();
+
+        // println!("data_json is: {:?}", data_json);
+
+        for field in &fields.specific_required_fields {
+            assert!(
+                data_json.contains_key(field),
+                "Response missing specific required field '{}'",
+                field,
+            );
+        }
+
+        println!("Test passed for endpoint: {}", endpoint);
     }
 }

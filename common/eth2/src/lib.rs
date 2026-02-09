@@ -200,7 +200,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP GET request.
-    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
+    pub async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.get_response(url, |b| b).await?;
         Ok(response.json().await?)
     }
