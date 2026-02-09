@@ -5,6 +5,7 @@ use crate::common::{
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
+use bls::{PublicKeyBytes, SignatureBytes};
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -38,9 +39,14 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
-    if state.fork_name_unchecked().electra_enabled() {
+    if state.fork_name_unchecked().electra_enabled() && !state.fork_name_unchecked().gloas_enabled()
+    {
         state.update_pubkey_cache()?;
-        process_deposit_requests(state, &block_body.execution_requests()?.deposits, spec)?;
+        process_deposit_requests_pre_gloas(
+            state,
+            &block_body.execution_requests()?.deposits,
+            spec,
+        )?;
         process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;
         process_consolidation_requests(
             state,
@@ -813,48 +819,54 @@ pub fn process_deposit_request_post_gloas<E: EthSpec>(
         .builders()?
         .iter()
         .enumerate()
-        .find(|(i, builder)| builder.pubkey == deposit_request.pubkey);
+        .find(|(_, builder)| builder.pubkey == deposit_request.pubkey)
+        .map(|(i, _)| i as u64);
     let is_builder = builder_index.is_some();
 
     let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
     let is_validator = validator_index.is_some();
 
     let is_builder_prefix =
-        is_builder_withdrawal_credential(&deposit_request.withdrawal_credentials, spec);
+        is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
 
     if is_builder || (is_builder_prefix && !is_validator) {
         // Apply builder deposits immediately
         apply_deposit_for_builder(
             state,
+            builder_index,
             deposit_request.pubkey,
             deposit_request.withdrawal_credentials,
             deposit_request.amount,
-            deposit_request.signature,
+            deposit_request.signature.clone(),
             state.slot(),
+            spec,
         )?;
         return Ok(());
     }
 
     // Add validator deposits to the queue
+    let slot = state.slot();
     state.pending_deposits_mut()?.push(PendingDeposit {
         pubkey: deposit_request.pubkey,
         withdrawal_credentials: deposit_request.withdrawal_credentials,
         amount: deposit_request.amount,
         signature: deposit_request.signature.clone(),
-        slot: state.slot(),
+        slot,
     })?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn apply_deposit_for_builder<E: EthSpec>(
-    state: BeaconState,
+    state: &mut BeaconState<E>,
     builder_index_opt: Option<BuilderIndex>,
-    pubkey: PubkeyBytes,
+    pubkey: PublicKeyBytes,
     withdrawal_credentials: Hash256,
     amount: u64,
     signature: SignatureBytes,
     slot: Slot,
+    spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match builder_index_opt {
         None => {
@@ -865,14 +877,20 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
                 amount,
                 signature,
             };
-            if is_valid_deposit_signature(&deposit_data, spec) {
-                add_builder_to_registry(state, pubkey, withdrawal_credentials, amount, slot, spec)?;
+            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
+                state.add_builder_to_registry(
+                    pubkey,
+                    withdrawal_credentials,
+                    amount,
+                    slot,
+                    spec,
+                )?;
             }
         }
         Some(builder_index) => {
             state
                 .builders_mut()?
-                .get_mut(builder_index)
+                .get_mut(builder_index as usize)
                 .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
                 .balance
                 .safe_add_assign(amount)?;

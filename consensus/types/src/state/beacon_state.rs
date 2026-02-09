@@ -1998,7 +1998,7 @@ impl<E: EthSpec> BeaconState<E> {
 
         let version = *withdrawal_credentials
             .as_slice()
-            .get(0)
+            .first()
             .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
         let execution_address = withdrawal_credentials
             .as_slice()
@@ -2032,7 +2032,7 @@ impl<E: EthSpec> BeaconState<E> {
                 return Ok(index as u64);
             }
         }
-        return Ok(self.builders()?.len() as u64);
+        Ok(self.builders()?.len() as u64)
     }
 
     /// Safe copy-on-write accessor for the `validators` list.

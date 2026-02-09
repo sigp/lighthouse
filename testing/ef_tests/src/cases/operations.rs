@@ -7,7 +7,8 @@ use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::process_operations::{
-    process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
+    process_consolidation_requests, process_deposit_requests_post_gloas,
+    process_deposit_requests_pre_gloas, process_withdrawal_requests,
 };
 use state_processing::{
     ConsensusContext,
@@ -587,7 +588,11 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposit_requests(state, std::slice::from_ref(self), spec)
+        if state.fork_name_unchecked().gloas_enabled() {
+            process_deposit_requests_post_gloas(state, std::slice::from_ref(self), spec)
+        } else {
+            process_deposit_requests_pre_gloas(state, std::slice::from_ref(self), spec)
+        }
     }
 }
 
