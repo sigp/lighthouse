@@ -386,7 +386,6 @@ pub fn process_proposer_slashings<E: EthSpec>(
                 let slot_in_epoch = slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?;
 
                 let payment_index = if proposal_epoch == state.current_epoch() {
-                    // FIXME: why did clippy not catch regular + here?
                     Some(E::SlotsPerEpoch::to_usize().safe_add(slot_in_epoch)?)
                 } else if proposal_epoch == state.previous_epoch() {
                     Some(slot_in_epoch)

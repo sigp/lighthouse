@@ -11,6 +11,7 @@ use state_processing::per_block_processing::process_operations::{
 };
 use state_processing::{
     ConsensusContext,
+    envelope_processing::{EnvelopeProcessingError, process_execution_payload_envelope},
     per_block_processing::{
         VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
@@ -29,7 +30,7 @@ use types::{
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
     BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
     ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
+    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -59,6 +60,8 @@ pub struct Operations<E: EthSpec, O: Operation<E>> {
 }
 
 pub trait Operation<E: EthSpec>: Debug + Sync + Sized {
+    type Error: std::fmt::Debug;
+
     fn handler_name() -> String;
 
     fn filename() -> String {
@@ -76,10 +79,12 @@ pub trait Operation<E: EthSpec>: Debug + Sync + Sized {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
         _: &Operations<E, Self>,
-    ) -> Result<(), BlockProcessingError>;
+    ) -> Result<(), Self::Error>;
 }
 
 impl<E: EthSpec> Operation<E> for Attestation<E> {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "attestation".into()
     }
@@ -132,6 +137,8 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
 }
 
 impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "attester_slashing".into()
     }
@@ -163,6 +170,8 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
 }
 
 impl<E: EthSpec> Operation<E> for Deposit {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "deposit".into()
     }
@@ -187,6 +196,8 @@ impl<E: EthSpec> Operation<E> for Deposit {
 }
 
 impl<E: EthSpec> Operation<E> for ProposerSlashing {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "proposer_slashing".into()
     }
@@ -214,6 +225,8 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
 }
 
 impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "voluntary_exit".into()
     }
@@ -238,6 +251,8 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
 }
 
 impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "block_header".into()
     }
@@ -269,6 +284,8 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
 }
 
 impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "sync_aggregate".into()
     }
@@ -297,6 +314,8 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
 }
 
 impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "execution_payload".into()
     }
@@ -306,7 +325,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name.bellatrix_enabled()
+        fork_name.bellatrix_enabled() && !fork_name.gloas_enabled()
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -317,8 +336,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Fulu => BeaconBlockBody::Fulu(<_>::from_ssz_bytes(bytes)?),
-                // TODO(EIP-7732): See if we need to handle Gloas here
-                _ => panic!(),
+                _ => panic!("Not supported after Gloas"),
             })
         })
     }
@@ -340,7 +358,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
         }
     }
 }
+
 impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "execution_payload".into()
     }
@@ -350,7 +371,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name.bellatrix_enabled()
+        fork_name.bellatrix_enabled() && !fork_name.gloas_enabled()
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -377,8 +398,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Fulu(inner.clone_as_blinded())
                 }
-                // TODO(EIP-7732): See if we need to handle Gloas here
-                _ => panic!(),
+                _ => panic!("Not supported after Gloas"),
             })
         })
     }
@@ -401,7 +421,46 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     }
 }
 
+impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
+    type Error = EnvelopeProcessingError;
+
+    fn handler_name() -> String {
+        "execution_payload".into()
+    }
+
+    fn filename() -> String {
+        "signed_envelope.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.gloas_enabled()
+    }
+
+    fn decode(path: &Path, _: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        extra: &Operations<E, Self>,
+    ) -> Result<(), Self::Error> {
+        let valid = extra
+            .execution_metadata
+            .as_ref()
+            .is_some_and(|e| e.execution_valid);
+        if valid {
+            process_execution_payload_envelope(state, None, self, VerifySignatures::True, spec)
+        } else {
+            Err(EnvelopeProcessingError::ExecutionInvalid)
+        }
+    }
+}
+
 impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "withdrawals".into()
     }
@@ -448,6 +507,8 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
 }
 
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "bls_to_execution_change".into()
     }
@@ -480,6 +541,8 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
 }
 
 impl<E: EthSpec> Operation<E> for WithdrawalRequest {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "withdrawal_request".into()
     }
@@ -504,6 +567,8 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
 }
 
 impl<E: EthSpec> Operation<E> for DepositRequest {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "deposit_request".into()
     }
@@ -527,6 +592,8 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
 }
 
 impl<E: EthSpec> Operation<E> for ConsolidationRequest {
+    type Error = BlockProcessingError;
+
     fn handler_name() -> String {
         "consolidation_request".into()
     }

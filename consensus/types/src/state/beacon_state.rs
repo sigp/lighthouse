@@ -199,6 +199,10 @@ pub enum BeaconStateError {
     ProposerLookaheadOutOfBounds {
         i: usize,
     },
+    SignedEnvelopeIncorrectEpoch {
+        state_epoch: Epoch,
+        envelope_epoch: Epoch,
+    },
     InvalidIndicesCount,
     InvalidExecutionPayloadAvailabilityIndex(usize),
 }
@@ -1918,6 +1922,15 @@ impl<E: EthSpec> BeaconState<E> {
         self.validators_mut()
             .get_mut(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))
+    }
+
+    /// Safe indexer for the `builders` list.
+    ///
+    /// Will return an error pre-Gloas, or for out-of-bounds indices.
+    pub fn get_builder(&self, builder_index: BuilderIndex) -> Result<&Builder, BeaconStateError> {
+        self.builders()?
+            .get(builder_index as usize)
+            .ok_or(BeaconStateError::UnknownBuilder(builder_index))
     }
 
     /// Add a validator to the registry and return the validator index that was allocated for it.
