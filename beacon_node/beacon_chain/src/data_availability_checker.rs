@@ -240,10 +240,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot: Slot,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let seen_timestamp = self
+            .slot_clock
+            .now_duration()
+            .unwrap_or(Duration::from_secs(0));
+
         // Attributes fault to the specific peer that sent an invalid column
-        let kzg_verified_columns =
-            KzgVerifiedDataColumn::from_batch_with_scoring(custody_columns, &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
+        let kzg_verified_columns = KzgVerifiedDataColumn::from_batch_with_scoring(
+            custody_columns,
+            &self.kzg,
+            seen_timestamp,
+        )
+        .map_err(AvailabilityCheckError::InvalidColumn)?;
 
         // Filter out columns that aren't required for custody for this slot
         // This is required because `data_columns_by_root` requests the **latest** CGC that _may_

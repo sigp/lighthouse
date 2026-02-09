@@ -377,6 +377,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 // This filtering ensures we only import and publish the custody columns.
                 // `DataAvailabilityChecker` requires a strict match on custody columns count to
                 // consider a block available.
+                let seen_timestamp = timestamp_now();
                 let mut custody_columns = data_columns_result
                     .map(|data_columns| {
                         data_columns
@@ -384,7 +385,10 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                             .filter(|col| custody_columns_indices.contains(col.index()))
                             .map(|col| {
                                 KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                                    KzgVerifiedDataColumn::from_execution_verified(col),
+                                    KzgVerifiedDataColumn::from_execution_verified(
+                                        col,
+                                        seen_timestamp,
+                                    ),
                                 )
                             })
                             .collect::<Vec<_>>()

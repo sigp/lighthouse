@@ -3777,16 +3777,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             consensus_context,
         } = import_data;
 
-        // Record the time at which this block's blobs became available.
+        // Record the time at which this block's blobs or data columns became available.
         if let Some(blobs_available) = block.blobs_available_timestamp() {
-            self.block_times_cache.write().set_time_blob_observed(
-                block_root,
-                block.slot(),
-                blobs_available,
-            );
+            // Check if we're using data columns (post-Fulu) by looking at the block data
+            match block.data() {
+                AvailableBlockData::DataColumns(_) => {
+                    self.block_times_cache
+                        .write()
+                        .set_time_data_column_observed(block_root, block.slot(), blobs_available);
+                }
+                AvailableBlockData::Blobs(_) => {
+                    self.block_times_cache
+                        .write()
+                        .set_time_blob_observed(block_root, block.slot(), blobs_available);
+                }
+                AvailableBlockData::NoData => {
+                    // No data to record
+                }
+            }
         }
-
-        // TODO(das) record custody column available timestamp
 
         let block_root = {
             // Capture the current span before moving into the blocking task

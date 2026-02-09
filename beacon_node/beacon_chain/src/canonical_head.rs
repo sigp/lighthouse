@@ -1359,12 +1359,12 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .as_millis() as i64,
         );
 
-        // The time from the start of the slot when all blobs have been observed. Technically this
-        // is the time we last saw a blob related to this block/slot.
+        // The time from the start of the slot when all data columns have been observed. Technically
+        // this is the time we last saw a data column related to this block/slot.
         metrics::set_gauge(
             &metrics::BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START,
             block_delays
-                .all_blobs_observed
+                .all_data_columns_observed
                 .unwrap_or_else(|| Duration::from_secs(0))
                 .as_millis() as i64,
         );
@@ -1445,7 +1445,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 slot = %head_block_slot,
                 total_delay_ms = block_delay_total.as_millis(),
                 observed_delay_ms = format_delay(&block_delays.observed),
-                blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
+                data_column_delay_ms = format_delay(&block_delays.all_data_columns_observed),
                 consensus_time_ms = format_delay(&block_delays.consensus_verification_time),
                 execution_time_ms = format_delay(&block_delays.execution_time),
                 available_delay_ms = format_delay(&block_delays.available),
@@ -1479,7 +1479,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 slot = %head_block_slot,
                 total_delay_ms = block_delay_total.as_millis(),
                 observed_delay_ms = format_delay(&block_delays.observed),
-                blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
+                data_column_delay_ms = format_delay(&block_delays.all_data_columns_observed),
                 consensus_time_ms = format_delay(&block_delays.consensus_verification_time),
                 execution_time_ms = format_delay(&block_delays.execution_time),
                 available_delay_ms = format_delay(&block_delays.available),

@@ -19,6 +19,7 @@ type BlockRoot = Hash256;
 pub struct Timestamps {
     pub observed: Option<Duration>,
     pub all_blobs_observed: Option<Duration>,
+    pub all_data_columns_observed: Option<Duration>,
     pub consensus_verified: Option<Duration>,
     pub started_execution: Option<Duration>,
     pub executed: Option<Duration>,
@@ -34,13 +35,15 @@ pub struct BlockDelays {
     pub observed: Option<Duration>,
     /// The time after the start of the slot we saw all blobs.
     pub all_blobs_observed: Option<Duration>,
+    /// The time after the start of the slot we saw all data columns.
+    pub all_data_columns_observed: Option<Duration>,
     /// The time it took to complete consensus verification of the block.
     pub consensus_verification_time: Option<Duration>,
     /// The time it took to complete execution verification of the block.
     pub execution_time: Option<Duration>,
     /// The delay from the start of the slot before the block became available
     ///
-    /// Equal to max(`observed + execution_time`, `all_blobs_observed`).
+    /// Equal to max(`observed + execution_time`, `all_blobs_observed` or `all_data_columns_observed`).
     pub available: Option<Duration>,
     /// Time after `available`.
     pub attestable: Option<Duration>,
@@ -62,6 +65,11 @@ impl BlockDelays {
         let all_blobs_observed = times
             .all_blobs_observed
             .and_then(|all_blobs_observed| all_blobs_observed.checked_sub(slot_start_time));
+        let all_data_columns_observed = times
+            .all_data_columns_observed
+            .and_then(|all_data_columns_observed| {
+                all_data_columns_observed.checked_sub(slot_start_time)
+            });
         let consensus_verification_time = times
             .consensus_verified
             .and_then(|consensus_verified| consensus_verified.checked_sub(times.observed?));
@@ -69,9 +77,14 @@ impl BlockDelays {
             .executed
             .and_then(|executed| executed.checked_sub(times.started_execution?));
         // Duration since UNIX epoch at which block became available.
+        // Use data columns if present, otherwise fall back to blobs
+        let availability_timestamp = times
+            .all_data_columns_observed
+            .or(times.all_blobs_observed)
+            .unwrap_or_default();
         let available_time = times
             .executed
-            .map(|executed| std::cmp::max(executed, times.all_blobs_observed.unwrap_or_default()));
+            .map(|executed| std::cmp::max(executed, availability_timestamp));
         // Duration from the start of the slot until the block became available.
         let available_delay =
             available_time.and_then(|available_time| available_time.checked_sub(slot_start_time));
@@ -87,6 +100,7 @@ impl BlockDelays {
         BlockDelays {
             observed,
             all_blobs_observed,
+            all_data_columns_observed,
             consensus_verification_time,
             execution_time,
             available: available_delay,
@@ -176,6 +190,28 @@ impl BlockTimesCache {
             .is_none_or(|prev| timestamp > prev)
         {
             block_times.timestamps.all_blobs_observed = Some(timestamp);
+        }
+    }
+
+    pub fn set_time_data_column_observed(
+        &mut self,
+        block_root: BlockRoot,
+        slot: Slot,
+        timestamp: Duration,
+    ) {
+        // Unlike other functions in this file, we update the data column observed time only if it
+        // is *greater* than existing data column observation times. This allows us to know the
+        // observation time of the last data column to arrive.
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        if block_times
+            .timestamps
+            .all_data_columns_observed
+            .is_none_or(|prev| timestamp > prev)
+        {
+            block_times.timestamps.all_data_columns_observed = Some(timestamp);
         }
     }
 
