@@ -19,8 +19,9 @@ use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
-use types::slot_data::SlotData;
-use types::{Epoch, EthSpec, Hash256, Slot, Unsigned};
+use typenum::Unsigned;
+use types::SlotData;
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The maximum capacity of the `AutoPruningEpochContainer`.
 ///
@@ -619,7 +620,7 @@ impl SlotSubcommitteeIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::FixedBytesExtended;
+    use fixed_bytes::FixedBytesExtended;
 
     type E = types::MainnetEthSpec;
 
@@ -633,18 +634,24 @@ mod tests {
         let value = Hash256::zero();
 
         // Assert there is no entry.
-        assert!(store
-            .observation_for_validator(key, validator_index)
-            .unwrap()
-            .is_none());
-        assert!(!store
-            .validator_has_been_observed(key, validator_index)
-            .unwrap());
+        assert!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !store
+                .validator_has_been_observed(key, validator_index)
+                .unwrap()
+        );
 
         // Add an entry.
-        assert!(!store
-            .observe_validator(key, validator_index, value)
-            .unwrap());
+        assert!(
+            !store
+                .observe_validator(key, validator_index, value)
+                .unwrap()
+        );
 
         // Assert there is a correct entry.
         assert_eq!(
@@ -653,9 +660,11 @@ mod tests {
                 .unwrap(),
             Some(value)
         );
-        assert!(store
-            .validator_has_been_observed(key, validator_index)
-            .unwrap());
+        assert!(
+            store
+                .validator_has_been_observed(key, validator_index)
+                .unwrap()
+        );
 
         let alternate_value = Hash256::from_low_u64_be(1);
 

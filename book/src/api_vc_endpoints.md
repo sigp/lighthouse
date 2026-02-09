@@ -132,7 +132,7 @@ Returns information regarding the health of the host machine.
 
 | Property          | Specification                              |
 |-------------------|--------------------------------------------|
-| Path              | `/lighthouse/ui/health`                       |
+| Path              | `/lighthouse/ui/health`                    |
 | Method            | GET                                        |
 | Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
@@ -178,7 +178,7 @@ Returns the graffiti that will be used for the next block proposal of each valid
 
 | Property          | Specification                              |
 |-------------------|--------------------------------------------|
-| Path              | `/lighthouse/ui/graffiti`                    |
+| Path              | `/lighthouse/ui/graffiti`                  |
 | Method            | GET                                        |
 | Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
@@ -249,6 +249,7 @@ Example Response Body
     "FULU_FORK_VERSION": "0x70000910",
     "FULU_FORK_EPOCH": "18446744073709551615",
     "SECONDS_PER_SLOT": "12",
+    "SLOT_DURATION_MS": "12000",
     "SECONDS_PER_ETH1_BLOCK": "12",
     "MIN_VALIDATOR_WITHDRAWABILITY_DELAY": "256",
     "SHARD_COMMITTEE_PERIOD": "256",

@@ -1,10 +1,12 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
+use ssz_types::FixedVector;
 use tree_hash::Hash256;
+use typenum::Unsigned;
 use types::{
-    light_client_update, BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb,
-    BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconState, FixedVector, FullPayload, Unsigned,
+    BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra,
+    BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconState, FullPayload, light_client,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -95,16 +97,16 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
         state.update_tree_hash_cache().unwrap();
 
         let proof = match self.merkle_proof.leaf_index {
-            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX => {
+            light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX => {
                 state.compute_current_sync_committee_proof()
             }
-            light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
+            light_client::consts::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client::consts::NEXT_SYNC_COMMITTEE_INDEX => {
                 state.compute_next_sync_committee_proof()
             }
-            light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
-            | light_client_update::FINALIZED_ROOT_INDEX => state.compute_finalized_root_proof(),
+            light_client::consts::FINALIZED_ROOT_INDEX_ELECTRA
+            | light_client::consts::FINALIZED_ROOT_INDEX => state.compute_finalized_root_proof(),
             _ => {
                 return Err(Error::FailedToParseTest(
                     "Could not retrieve merkle proof, invalid index".to_string(),
@@ -160,7 +162,7 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
                 return Err(Error::InternalError(format!(
                     "KZG inclusion merkle proof validity test skipped for {:?}",
                     fork_name
-                )))
+                )));
             }
             ForkName::Deneb => {
                 ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?.into()
@@ -171,6 +173,9 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
             }
             ForkName::Fulu => {
                 ssz_decode_file::<BeaconBlockBodyFulu<E>>(&path.join("object.ssz_snappy"))?.into()
+            }
+            ForkName::Gloas => {
+                ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
@@ -274,7 +279,7 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
                 return Err(Error::InternalError(format!(
                     "Beacon block body merkle proof validity test skipped for {:?}",
                     fork_name
-                )))
+                )));
             }
             ForkName::Capella => {
                 ssz_decode_file::<BeaconBlockBodyCapella<E>>(&path.join("object.ssz_snappy"))?
@@ -289,6 +294,9 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
             }
             ForkName::Fulu => {
                 ssz_decode_file::<BeaconBlockBodyFulu<E>>(&path.join("object.ssz_snappy"))?.into()
+            }
+            ForkName::Gloas => {
+                ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;

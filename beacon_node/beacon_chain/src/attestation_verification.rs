@@ -35,11 +35,10 @@
 mod batch;
 
 use crate::{
-    metrics,
+    BeaconChain, BeaconChainError, BeaconChainTypes, metrics,
     observed_aggregates::{ObserveOutcome, ObservedAttestationKey},
     observed_attesters::Error as ObservedAttestersError,
     single_attestation::single_attestation_to_attestation,
-    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
 use itertools::Itertools;
@@ -58,7 +57,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use strum::AsRefStr;
-use tracing::debug;
+use tracing::{debug, error};
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationRef, BeaconCommittee,
@@ -268,11 +267,25 @@ pub enum Error {
     /// We were unable to process this attestation due to an internal error. It's unclear if the
     /// attestation is valid.
     BeaconChainError(Box<BeaconChainError>),
+    /// A critical error occurred while converting SSZ types.
+    /// This can only occur when a VariableList was not able to be constructed from a single
+    /// attestation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    SszTypesError(ssz_types::Error),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Self::BeaconChainError(Box::new(e))
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Self::SszTypesError(e)
     }
 }
 
@@ -414,11 +427,12 @@ fn process_slash_info<T: BeaconChainTypes>(
     if let Some(slasher) = chain.slasher.as_ref() {
         let (indexed_attestation, check_signature, err) = match slash_info {
             SignatureNotChecked(attestation, err) => {
-                if let Error::UnknownHeadBlock { .. } = err {
-                    if attestation.data().beacon_block_root == attestation.data().target.root {
-                        return err;
-                    }
+                if let Error::UnknownHeadBlock { .. } = err
+                    && attestation.data().beacon_block_root == attestation.data().target.root
+                {
+                    return err;
                 }
+
                 match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
                     Ok((indexed, _)) => (indexed, true, err),
                     Err(e) => {
@@ -432,17 +446,28 @@ fn process_slash_info<T: BeaconChainTypes>(
                 }
             }
             SignatureNotCheckedSingle(attestation, err) => {
-                if let Error::UnknownHeadBlock { .. } = err {
-                    if attestation.data.beacon_block_root == attestation.data.target.root {
-                        return err;
-                    }
+                if let Error::UnknownHeadBlock { .. } = err
+                    && attestation.data.beacon_block_root == attestation.data.target.root
+                {
+                    return err;
                 }
 
                 let fork_name = chain
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-                let indexed_attestation = attestation.to_indexed(fork_name);
+                let indexed_attestation = match attestation.to_indexed(fork_name) {
+                    Ok(indexed) => indexed,
+                    Err(e) => {
+                        error!(
+                            attestation_root = ?attestation.data.tree_hash_root(),
+                            error = ?e,
+                            "Unable to construct VariableList from a single attestation. \
+                             This indicates a serious bug in SSZ handling"
+                        );
+                        return Error::SszTypesError(e);
+                    }
+                };
                 (indexed_attestation, true, err)
             }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
@@ -450,14 +475,13 @@ fn process_slash_info<T: BeaconChainTypes>(
             SignatureValid(indexed, err) => (indexed, false, err),
         };
 
-        if check_signature {
-            if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
-                debug!(
-                    error = ?e,
-                    "Signature verification for slasher failed"
-                );
-                return err;
-            }
+        if check_signature && let Err(e) = verify_attestation_signature(chain, &indexed_attestation)
+        {
+            debug!(
+                error = ?e,
+                "Signature verification for slasher failed"
+            );
+            return err;
         }
 
         // Supply to slasher.
@@ -601,7 +625,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 return Err(SignatureNotChecked(
                     signed_aggregate.message().aggregate(),
                     e,
-                ))
+                ));
             }
         };
 
@@ -677,7 +701,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 return Err(SignatureNotChecked(
                     signed_aggregate.message().aggregate(),
                     e,
-                ))
+                ));
             }
         };
         Ok(IndexedAggregatedAttestation {
@@ -933,7 +957,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-        let indexed_attestation = attestation.to_indexed(fork_name);
+        let indexed_attestation = attestation
+            .to_indexed(fork_name)
+            .map_err(|e| SignatureNotCheckedSingle(attestation, Error::SszTypesError(e)))?;
 
         let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,
@@ -1001,13 +1027,13 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         .map_err(BeaconChainError::from)?;
 
         // If a subnet was specified, ensure that subnet is correct.
-        if let Some(subnet_id) = subnet_id {
-            if subnet_id != expected_subnet_id {
-                return Err(Error::InvalidSubnetId {
-                    received: subnet_id,
-                    expected: expected_subnet_id,
-                });
-            }
+        if let Some(subnet_id) = subnet_id
+            && subnet_id != expected_subnet_id
+        {
+            return Err(Error::InvalidSubnetId {
+                received: subnet_id,
+                expected: expected_subnet_id,
+            });
         };
         // Now that the attestation has been fully verified, store that we have received a valid
         // attestation from this validator.
@@ -1150,13 +1176,13 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 
     if let Some(block) = block_opt {
         // Reject any block that exceeds our limit on skipped slots.
-        if let Some(max_skip_slots) = max_skip_slots {
-            if attestation_data.slot > block.slot + max_skip_slots {
-                return Err(Error::TooManySkippedSlots {
-                    head_block_slot: block.slot,
-                    attestation_slot: attestation_data.slot,
-                });
-            }
+        if let Some(max_skip_slots) = max_skip_slots
+            && attestation_data.slot > block.slot + max_skip_slots
+        {
+            return Err(Error::TooManySkippedSlots {
+                head_block_slot: block.slot,
+                attestation_slot: attestation_data.slot,
+            });
         }
 
         if !verify_attestation_is_finalized_checkpoint_or_descendant(attestation_data, chain) {
@@ -1345,7 +1371,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .spec
         .fork_at_epoch(indexed_attestation.data().target.epoch);
 
-    let signature_sets = vec![
+    let signature_sets = [
         signed_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             signed_aggregate,

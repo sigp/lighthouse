@@ -1,7 +1,7 @@
-use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use super::VerifySignatures;
-use crate::per_block_processing::is_valid_indexed_attestation;
+use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use crate::ConsensusContext;
+use crate::per_block_processing::is_valid_indexed_attestation;
 use safe_arith::SafeArith;
 use types::*;
 
@@ -74,7 +74,12 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
             );
         }
         AttestationRef::Electra(_) => {
-            verify!(data.index == 0, Invalid::BadCommitteeIndex);
+            let fork_at_attestation_slot = spec.fork_name_at_slot::<E>(data.slot);
+            if fork_at_attestation_slot.gloas_enabled() {
+                verify!(data.index < 2, Invalid::BadOverloadedDataIndex);
+            } else {
+                verify!(data.index == 0, Invalid::BadCommitteeIndex);
+            }
         }
     }
 

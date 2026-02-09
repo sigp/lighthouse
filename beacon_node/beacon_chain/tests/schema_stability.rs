@@ -1,22 +1,23 @@
 use beacon_chain::{
+    ChainConfig,
     persisted_beacon_chain::PersistedBeaconChain,
     persisted_custody::PersistedCustody,
-    test_utils::{test_spec, BeaconChainHarness, DiskHarnessType},
-    ChainConfig,
+    test_utils::{BeaconChainHarness, DiskHarnessType, test_spec},
 };
+use bls::Keypair;
 use logging::create_test_tracing_subscriber;
 use operation_pool::PersistedOperationPool;
 use ssz::Encode;
 use std::sync::{Arc, LazyLock};
 use store::{
+    DBColumn, HotColdDB, StoreConfig, StoreItem,
     database::interface::BeaconNodeBackend,
     hot_cold_store::Split,
     metadata::{DataColumnCustodyInfo, DataColumnInfo},
-    DBColumn, HotColdDB, StoreConfig, StoreItem,
 };
 use strum::IntoEnumIterator;
-use tempfile::{tempdir, TempDir};
-use types::{ChainSpec, Hash256, Keypair, MainnetEthSpec, Slot};
+use tempfile::{TempDir, tempdir};
+use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
@@ -105,8 +106,8 @@ fn check_db_columns() {
     let current_columns: Vec<&'static str> = DBColumn::iter().map(|c| c.as_str()).collect();
     let expected_columns = vec![
         "bma", "blk", "blb", "bdc", "bdi", "ste", "hsd", "hsn", "bsn", "bsd", "bss", "bs3", "bcs",
-        "bst", "exp", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx", "bbr", "bhr",
-        "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
+        "bst", "exp", "pay", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx", "bbr",
+        "bhr", "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
     ];
     assert_eq!(expected_columns, current_columns);
 }

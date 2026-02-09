@@ -1,20 +1,21 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use bls::PublicKeyBytes;
 use eth2::types::BlockId;
-use futures::future::join_all;
 use futures::future::FutureExt;
+use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, sleep_until, Duration, Instant};
-use tracing::{debug, error, info, trace, warn};
+use tokio::time::{Duration, Instant, sleep, sleep_until};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{
-    ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
-    SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
+    ChainSpec, EthSpec, Hash256, Slot, SyncCommitteeSubscription, SyncContributionData, SyncDuty,
+    SyncSelectionProof, SyncSubnetId,
 };
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
@@ -92,7 +93,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             return Ok(());
         }
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -105,18 +106,20 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let executor = self.executor.clone();
 
+        let sync_message_slot_component = spec.get_sync_message_due();
+
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     // Wait for contribution broadcast interval 1/3 of the way through the slot.
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    sleep(duration_to_next_slot + sync_message_slot_component).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
+                    if let Err(e) = self.spawn_contribution_tasks().await {
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
@@ -139,7 +142,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    async fn spawn_contribution_tasks(&self) -> Result<(), String> {
+        let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -150,7 +154,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // through the slot. This delay triggers at this time
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_sub(slot_duration / 3)
+                .checked_add(spec.get_contribution_message_due())
+                .and_then(|offset| offset.checked_sub(spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let Some(slot_duties) = self
@@ -208,7 +213,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .publish_sync_committee_signatures(slot, block_root, validator_duties)
                     .map(|_| ())
                     .await
-            },
+            }
+            .instrument(info_span!("sync_committee_signature_publish", %slot)),
             "sync_committee_signature_publish",
         );
 
@@ -225,7 +231,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     )
                     .map(|_| ())
                     .await
-            },
+            }
+            .instrument(info_span!("sync_committee_aggregate_publish", %slot)),
             "sync_committee_aggregate_publish",
         );
 
@@ -233,6 +240,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 
     /// Publish sync committee signatures.
+    #[instrument(skip_all, fields(%slot, ?beacon_block_root))]
     async fn publish_sync_committee_signatures(
         &self,
         slot: Slot,
@@ -277,6 +285,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         // Execute all the futures in parallel, collecting any successful results.
         let committee_signatures = &join_all(signature_futures)
+            .instrument(info_span!(
+                "sign_sync_signatures",
+                count = validator_duties.len()
+            ))
             .await
             .into_iter()
             .flatten()
@@ -288,6 +300,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .post_beacon_pool_sync_committee_signatures(committee_signatures)
                     .await
             })
+            .instrument(info_span!(
+                "publish_sync_signatures",
+                count = committee_signatures.len()
+            ))
             .await
             .map_err(|e| {
                 error!(
@@ -328,7 +344,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                         )
                         .map(|_| ())
                         .await
-                },
+                }
+                .instrument(info_span!("publish_sync_committee_aggregate_for_subnet", %slot, ?beacon_block_root, %subnet_id)),
                 "sync_committee_aggregate_publish_subnet",
             );
         }
@@ -357,6 +374,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .get_validator_sync_committee_contribution(&sync_contribution_data)
                     .await
             })
+            .instrument(info_span!("fetch_sync_contribution"))
             .await
             .map_err(|e| {
                 crit!(
@@ -372,6 +390,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             .data;
 
         // Create futures to produce signed contributions.
+        let aggregator_count = subnet_aggregators.len();
         let signature_futures = subnet_aggregators.into_iter().map(
             |(aggregator_index, aggregator_pk, selection_proof)| async move {
                 match self
@@ -405,6 +424,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         // Execute all the futures in parallel, collecting any successful results.
         let signed_contributions = &join_all(signature_futures)
+            .instrument(info_span!(
+                "sign_sync_contributions",
+                count = aggregator_count
+            ))
             .await
             .into_iter()
             .flatten()
@@ -417,6 +440,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .post_validator_contribution_and_proofs(signed_contributions)
                     .await
             })
+            .instrument(info_span!(
+                "publish_sync_contributions",
+                count = signed_contributions.len()
+            ))
             .await
             .map_err(|e| {
                 error!(

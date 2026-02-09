@@ -6,6 +6,7 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bls = { workspace = true }
 eth2_keystore = { workspace = true }
 eth2_wallet = { workspace = true }
 filesystem = { workspace = true }

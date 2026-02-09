@@ -1,5 +1,6 @@
 use super::methods::*;
 use crate::rpc::codec::SSZSnappyInboundCodec;
+use bls::Signature;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
@@ -11,17 +12,17 @@ use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
-use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecar,
-    EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
-    LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
-    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecarFulu,
+    DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
+    SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -71,13 +72,15 @@ pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
 
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
-    VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
+    VariableList::<u8, MaxErrorLen>::try_from(Vec::<u8>::new())
+        .expect("MaxErrorLen should not exceed MAX_ERROR_LEN")
         .as_ssz_bytes()
         .len()
 });
 
 pub static ERROR_TYPE_MAX: LazyLock<usize> = LazyLock::new(|| {
-    VariableList::<u8, MaxErrorLen>::from(vec![0u8; MAX_ERROR_LEN as usize])
+    VariableList::<u8, MaxErrorLen>::try_from(vec![0u8; MAX_ERROR_LEN as usize])
+        .expect("MaxErrorLen should not exceed MAX_ERROR_LEN")
         .as_ssz_bytes()
         .len()
 });
@@ -158,7 +161,7 @@ fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> R
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
         }
     }
@@ -178,7 +181,7 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
@@ -199,7 +202,7 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu => RpcLimits::new(
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => RpcLimits::new(
             altair_fixed_len,
             *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
         ),
@@ -216,7 +219,7 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         }
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
-        ForkName::Electra | ForkName::Fulu => {
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX)
         }
     }
@@ -425,7 +428,6 @@ pub struct RPCProtocol<E: EthSpec> {
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
     pub phantom: PhantomData<E>,
-    pub ttfb_timeout: Duration,
 }
 
 impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
@@ -493,7 +495,7 @@ impl AsRef<str> for ProtocolId {
 
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self, spec: &ChainSpec) -> RpcLimits {
+    pub fn rpc_request_limits<E: EthSpec>(&self, spec: &ChainSpec) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessageV1 as Encode>::ssz_fixed_len(),
@@ -517,7 +519,7 @@ impl ProtocolId {
             Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
             Protocol::DataColumnsByRange => RpcLimits::new(
                 DataColumnsByRangeRequest::ssz_min_len(),
-                DataColumnsByRangeRequest::ssz_max_len(spec),
+                DataColumnsByRangeRequest::ssz_max_len::<E>(),
             ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -639,10 +641,23 @@ pub fn rpc_data_column_limits<E: EthSpec>(
     current_digest_epoch: Epoch,
     spec: &ChainSpec,
 ) -> RpcLimits {
-    RpcLimits::new(
-        DataColumnSidecar::<E>::min_size(),
-        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block(current_digest_epoch) as usize),
-    )
+    let fork_name = spec.fork_name_at_epoch(current_digest_epoch);
+
+    if fork_name.gloas_enabled() {
+        RpcLimits::new(
+            DataColumnSidecarGloas::<E>::min_size(),
+            DataColumnSidecarGloas::<E>::max_size(
+                spec.max_blobs_per_block(current_digest_epoch) as usize
+            ),
+        )
+    } else {
+        RpcLimits::new(
+            DataColumnSidecarFulu::<E>::min_size(),
+            DataColumnSidecarFulu::<E>::max_size(
+                spec.max_blobs_per_block(current_digest_epoch) as usize
+            ),
+        )
+    }
 }
 
 /* Inbound upgrade */
@@ -652,7 +667,7 @@ pub fn rpc_data_column_limits<E: EthSpec>(
 
 pub type InboundOutput<TSocket, E> = (RequestType<E>, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
-    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
+    Framed<std::pin::Pin<Box<Compat<TSocket>>>, SSZSnappyInboundCodec<E>>;
 
 impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
@@ -676,10 +691,7 @@ where
                 ),
             };
 
-            let mut timed_socket = TimeoutStream::new(socket);
-            timed_socket.set_read_timeout(Some(self.ttfb_timeout));
-
-            let socket = Framed::new(Box::pin(timed_socket), codec);
+            let socket = Framed::new(Box::pin(socket), codec);
 
             // MetaData requests should be empty, return the stream
             match versioned_protocol {
@@ -725,7 +737,7 @@ pub enum RequestType<E: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
-    DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest<E>),
     DataColumnsByRange(DataColumnsByRangeRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
@@ -825,8 +837,8 @@ impl<E: EthSpec> RequestType<E> {
         match self {
             // add more protocols when versions/encodings are supported
             RequestType::Status(_) => vec![
-                ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::StatusV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy),
             ],
             RequestType::Goodbye(_) => vec![ProtocolId::new(
                 SupportedProtocol::GoodbyeV1,
@@ -1030,7 +1042,7 @@ impl RPCError {
     /// Used for metrics.
     pub fn as_static_str(&self) -> &'static str {
         match self {
-            RPCError::ErrorResponse(ref code, ..) => code.into(),
+            RPCError::ErrorResponse(code, ..) => code.into(),
             e => e.into(),
         }
     }

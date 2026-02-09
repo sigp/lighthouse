@@ -1,5 +1,6 @@
-use crate::{common::vc_http_client, DumpConfig};
+use crate::{DumpConfig, common::vc_http_client};
 
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use eth2::types::{ConfigAndPreset, Epoch, StateId, ValidatorId, ValidatorStatus};
@@ -10,7 +11,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::fs::write;
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{ChainSpec, EthSpec, PublicKeyBytes};
+use types::{ChainSpec, EthSpec};
 
 pub const CMD: &str = "exit";
 pub const BEACON_URL_FLAG: &str = "beacon-node";
@@ -191,8 +192,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         // Only publish the voluntary exit if the --beacon-node flag is present
         if let Some(ref beacon_url) = beacon_url {
             let beacon_node = BeaconNodeHttpClient::new(
-                SensitiveUrl::parse(beacon_url.as_ref())
-                    .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+                beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
             );
 
@@ -280,7 +280,7 @@ pub fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Opt
     let slot_clock = SystemTimeSlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
+        spec.get_slot_duration(),
     );
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
@@ -302,7 +302,7 @@ mod test {
         sync::Arc,
     };
     use types::{ChainSpec, MainnetEthSpec};
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
     use zeroize::Zeroizing;
     type E = MainnetEthSpec;
 
@@ -399,7 +399,7 @@ mod test {
                 })
                 .collect();
 
-            let beacon_url = SensitiveUrl::parse(self.beacon_node.client.as_ref()).unwrap();
+            let beacon_url = self.beacon_node.client.server().clone();
 
             let validators_to_exit = index_of_validators_to_exit
                 .iter()
@@ -533,13 +533,17 @@ mod test {
             let beacon_exit_epoch = current_epoch + 1 + max_seed_lookahead;
             let beacon_withdrawable_epoch = beacon_exit_epoch + min_withdrawability_delay;
 
-            assert!(validator_exit_epoch
-                .iter()
-                .all(|&epoch| epoch == beacon_exit_epoch));
+            assert!(
+                validator_exit_epoch
+                    .iter()
+                    .all(|&epoch| epoch == beacon_exit_epoch)
+            );
 
-            assert!(validator_withdrawable_epoch
-                .iter()
-                .all(|&epoch| epoch == beacon_withdrawable_epoch));
+            assert!(
+                validator_withdrawable_epoch
+                    .iter()
+                    .all(|&epoch| epoch == beacon_withdrawable_epoch)
+            );
 
             if result.is_ok() {
                 return TestResult { result: Ok(()) };

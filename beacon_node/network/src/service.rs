@@ -1,31 +1,32 @@
+use crate::NetworkConfig;
 use crate::metrics;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
-use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 
-use lighthouse_network::rpc::methods::RpcResponse;
+use lighthouse_network::Enr;
+use lighthouse_network::identity::Keypair;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
+use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
-use lighthouse_network::Enr;
-use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
-    rpc::{GoodbyeReason, RpcErrorResponse},
     Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
+    rpc::{GoodbyeReason, RpcErrorResponse},
 };
+use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
 use lighthouse_network::{
-    service::api_types::AppRequestId,
-    types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
+    service::api_types::AppRequestId,
+    types::{GossipEncoding, GossipTopic, core_topics_to_subscribe},
 };
 use logging::crit;
 use std::collections::BTreeSet;
@@ -35,9 +36,10 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use tracing::{debug, error, info, info_span, trace, warn, Instrument};
+use tracing::{debug, error, info, trace, warn};
+use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
+    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
 };
 
@@ -212,6 +214,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        local_keypair: Keypair,
     ) -> Result<
         (
             NetworkService<T>,
@@ -284,6 +287,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 .data_availability_checker
                 .custody_context()
                 .custody_group_count_at_head(&beacon_chain.spec),
+            local_keypair,
         )
         .await?;
 
@@ -366,6 +370,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        local_keypair: Keypair,
     ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
@@ -373,6 +378,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             libp2p_registry,
             beacon_processor_send,
+            local_keypair,
         )
         .await?;
 
@@ -393,13 +399,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         let mut result = vec![fork_context.context_bytes(current_epoch)];
 
-        if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch) {
-            if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
+        if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch)
+            && current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
                 >= next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch())
-            {
-                let next_digest = fork_context.context_bytes(next_digest_epoch);
-                result.push(next_digest);
-            }
+        {
+            let next_digest = fork_context.context_bytes(next_digest_epoch);
+            result.push(next_digest);
         }
 
         result
@@ -464,7 +469,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
             }
-        }.instrument(info_span!("", service = "network"));
+        };
         executor.spawn(service_fut, "network");
     }
 
@@ -841,6 +846,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     new_fork = ?new_fork_name,
                     "Transitioned to new fork"
                 );
+                new_fork_name.fork_ascii();
             }
 
             fork_context.update_current_fork(*new_fork_name, new_fork_digest, current_epoch);
@@ -856,9 +862,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             self.next_digest_update = Box::pin(next_digest_delay(&self.beacon_chain).into());
 
             // Set the next_unsubscribe delay.
-            let epoch_duration =
-                self.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
-            let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY_EPOCHS * epoch_duration);
+            let unsubscribe_delay = Duration::from_secs(
+                UNSUBSCRIBE_DELAY_EPOCHS
+                    * self.beacon_chain.spec.get_slot_duration().as_secs()
+                    * T::EthSpec::slots_per_epoch(),
+            );
 
             // Update the `next_topic_subscriptions` timer if the next change in the fork digest is known.
             self.next_topic_subscriptions =
@@ -909,7 +917,7 @@ fn next_topic_subscriptions_delay<T: BeaconChainTypes>(
 ) -> Option<tokio::time::Sleep> {
     if let Some((_, duration_to_epoch)) = beacon_chain.duration_to_next_digest() {
         let duration_to_subscription = duration_to_epoch.saturating_sub(Duration::from_secs(
-            beacon_chain.spec.seconds_per_slot * SUBSCRIBE_DELAY_SLOTS,
+            beacon_chain.spec.get_slot_duration().as_secs() * SUBSCRIBE_DELAY_SLOTS,
         ));
         if !duration_to_subscription.is_zero() {
             return Some(tokio::time::sleep(duration_to_subscription));

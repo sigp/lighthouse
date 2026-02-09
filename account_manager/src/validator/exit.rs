@@ -4,8 +4,8 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use environment::Environment;
 use eth2::{
-    types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
     BeaconNodeHttpClient, Timeouts,
+    types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
 };
 use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
@@ -102,7 +102,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
-        Timeouts::set_all(Duration::from_secs(env.eth2_config.spec.seconds_per_slot)),
+        Timeouts::set_all(env.eth2_config.spec.get_slot_duration()),
     );
 
     let eth2_network_config = env
@@ -230,7 +230,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     loop {
         // Sleep for a slot duration and then check if voluntary exit was processed
         // by checking the validator status.
-        sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+        sleep(spec.get_slot_duration()).await;
 
         let validator_data = get_validator_data(client, &keypair.pk).await?;
         match validator_data.status {
@@ -239,9 +239,11 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
                 let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
                     .ok_or("Failed to get current epoch. Please check your system time")?;
-                eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
+                eprintln!(
+                    "Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
                         Finalization may take several minutes or longer. Before finalization there is a low \
-                        probability that the exit may be reverted.");
+                        probability that the exit may be reverted."
+                );
                 eprintln!(
                     "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
                     current_epoch, exit_epoch, withdrawal_epoch
@@ -249,7 +251,9 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 eprintln!("Please keep your validator running till exit epoch");
                 eprintln!(
                     "Exit epoch in approximately {} secs",
-                    (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
+                    (exit_epoch - current_epoch)
+                        * spec.get_slot_duration().as_secs()
+                        * E::slots_per_epoch()
                 );
                 break;
             }
@@ -348,7 +352,7 @@ fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<
     let slot_clock = SystemTimeSlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
+        spec.get_slot_duration(),
     );
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
@@ -401,7 +405,7 @@ mod tests {
     use eth2_keystore::KeystoreBuilder;
     use std::fs::File;
     use std::io::Write;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     const PASSWORD: &str = "cats";
     const KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0_0-1595406747.json";

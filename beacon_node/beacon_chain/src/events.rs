@@ -1,6 +1,6 @@
 pub use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
 use tokio::sync::broadcast;
-use tokio::sync::broadcast::{error::SendError, Receiver, Sender};
+use tokio::sync::broadcast::{Receiver, Sender, error::SendError};
 use tracing::trace;
 use types::EthSpec;
 

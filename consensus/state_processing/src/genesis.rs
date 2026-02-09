@@ -5,7 +5,9 @@ use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
+    upgrade_to_gloas,
 };
+use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -150,9 +152,24 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         state.fork_mut().previous_version = spec.fulu_fork_version;
 
         // Override latest execution payload header.
-        if let Some(ExecutionPayloadHeader::Fulu(header)) = execution_payload_header {
+        if let Some(ExecutionPayloadHeader::Fulu(ref header)) = execution_payload_header {
             *state.latest_execution_payload_header_fulu_mut()? = header.clone();
         }
+    }
+
+    // Upgrade to gloas if configured from genesis.
+    if spec
+        .gloas_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_gloas(&mut state, spec)?;
+
+        // Remove intermediate Fulu fork from `state.fork`.
+        state.fork_mut().previous_version = spec.gloas_fork_version;
+
+        // Override latest execution payload header.
+        // Here's where we *would* clone the header but there is no header here so..
+        // TODO(EIP7732): check this
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
@@ -178,7 +195,7 @@ pub fn is_valid_genesis_state<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSp
 pub fn process_activations<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BeaconStateError> {
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     let mut validators_iter = validators.iter_cow();
     while let Some((index, validator)) = validators_iter.next_cow() {
@@ -186,7 +203,7 @@ pub fn process_activations<E: EthSpec>(
         let balance = balances
             .get(index)
             .copied()
-            .ok_or(Error::BalancesOutOfBounds(index))?;
+            .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
         validator.effective_balance = std::cmp::min(
             balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
             spec.max_effective_balance,

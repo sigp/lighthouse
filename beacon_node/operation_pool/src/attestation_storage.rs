@@ -1,10 +1,13 @@
 use crate::AttestationStats;
+use bls::AggregateSignature;
 use itertools::Itertools;
+use ssz::{BitList, BitVector};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use superstruct::superstruct;
+use typenum::Unsigned;
 use types::{
+    Attestation, AttestationData, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot,
     attestation::{AttestationBase, AttestationElectra},
-    superstruct, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector,
-    Checkpoint, Epoch, EthSpec, Hash256, Slot, Unsigned,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]

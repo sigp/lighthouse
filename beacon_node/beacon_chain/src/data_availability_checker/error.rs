@@ -4,7 +4,7 @@ use types::{BeaconStateError, ColumnIndex, Hash256};
 #[derive(Debug)]
 pub enum Error {
     InvalidBlobs(KzgError),
-    InvalidColumn(Vec<(ColumnIndex, KzgError)>),
+    InvalidColumn((Option<ColumnIndex>, KzgError)),
     ReconstructColumnsError(KzgError),
     KzgCommitmentMismatch {
         blob_commitment: KzgCommitment,
@@ -22,6 +22,7 @@ pub enum Error {
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
+    InvalidAvailableBlockData,
 }
 
 #[derive(PartialEq, Eq)]
@@ -44,7 +45,8 @@ impl Error {
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
-            | Error::SlotClockError => ErrorCategory::Internal,
+            | Error::SlotClockError
+            | Error::InvalidAvailableBlockData => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
             | Error::ReconstructColumnsError { .. }

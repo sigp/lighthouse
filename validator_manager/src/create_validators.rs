@@ -1,12 +1,13 @@
 use super::common::*;
 use crate::DumpConfig;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use eth2::{
+    BeaconNodeHttpClient, SensitiveUrl, Timeouts,
     lighthouse_vc::std_types::KeystoreJsonStr,
     types::{StateId, ValidatorId},
-    BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_wallet::WalletBuilder;
 use serde::{Deserialize, Serialize};
@@ -439,17 +440,16 @@ impl ValidatorsAndDeposits {
                             different validator clients. If you understand the risks and are certain you \
                             wish to generate this validator again, omit the --{} flag.",
                             voting_public_key, derivation_index, BEACON_NODE_FLAG
-                        ))?
+                        ))?;
                     }
-                    Ok(None) => eprintln!(
-                        "{:?} was not found in the beacon chain",
-                        voting_public_key
-                    ),
+                    Ok(None) => {
+                        eprintln!("{:?} was not found in the beacon chain", voting_public_key)
+                    }
                     Err(e) => {
                         return Err(format!(
                             "Error checking if validator exists in beacon chain: {:?}",
                             e
-                        ))
+                        ));
                     }
                 }
             }
@@ -587,11 +587,12 @@ async fn run<E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), S
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use bls::SignatureBytes;
     use eth2_network_config::Eth2NetworkConfig;
     use regex::Regex;
     use std::path::Path;
     use std::str::FromStr;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tree_hash::TreeHash;
 
     type E = MainnetEthSpec;

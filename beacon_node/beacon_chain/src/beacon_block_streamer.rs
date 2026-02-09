@@ -1,14 +1,14 @@
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus, metrics};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use logging::crit;
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use tokio::sync::{
-    mpsc::{self, UnboundedSender},
     RwLock,
+    mpsc::{self, UnboundedSender},
 };
-use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
+use tokio_stream::{Stream, wrappers::UnboundedReceiverStream};
 use tracing::{debug, error};
 use types::{
     ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, SignedBeaconBlock,
@@ -16,7 +16,7 @@ use types::{
 };
 use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
-    ExecutionPayloadFulu, ExecutionPayloadHeader,
+    ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeader,
 };
 
 #[derive(PartialEq)]
@@ -101,12 +101,13 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Fulu => ExecutionPayloadFulu::default().into(),
+        ForkName::Gloas => ExecutionPayloadGloas::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
                 fork
             ))
-            .into())
+            .into());
         }
     };
 
@@ -403,7 +404,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         if self.check_caches == CheckCaches::Yes {
             match self.beacon_chain.get_block_process_status(&root) {
                 BlockProcessStatus::Unknown => None,
-                BlockProcessStatus::NotValidated(block)
+                BlockProcessStatus::NotValidated(block, _)
                 | BlockProcessStatus::ExecutionValidated(block) => {
                     metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
                     Some(block)
@@ -683,14 +684,14 @@ impl From<Error> for BeaconChainError {
 #[cfg(test)]
 mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-    use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
+    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use bls::Keypair;
     use execution_layer::test_utils::Block;
+    use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{
-        ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
-    };
+    use types::{ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
 
     const VALIDATOR_COUNT: usize = 48;
 
@@ -714,6 +715,7 @@ mod tests {
         harness
     }
 
+    // TODO(EIP-7732) Extend this test for gloas
     #[tokio::test]
     async fn check_all_blocks_from_altair_to_fulu() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
@@ -746,7 +748,8 @@ mod tests {
             .execution_block_generator()
             .move_to_terminal_block()
             .expect("should move to terminal block");
-        let timestamp = harness.get_timestamp_at_slot() + harness.spec.seconds_per_slot;
+        let timestamp =
+            harness.get_timestamp_at_slot() + harness.spec.get_slot_duration().as_secs();
         harness
             .execution_block_generator()
             .modify_last_block(|block| {

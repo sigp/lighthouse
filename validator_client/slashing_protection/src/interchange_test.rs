@@ -1,12 +1,14 @@
 use crate::{
-    interchange::{Interchange, SignedAttestation, SignedBlock},
-    test_utils::{pubkey, DEFAULT_GENESIS_VALIDATORS_ROOT},
     SigningRoot, SlashingDatabase,
+    test_utils::{DEFAULT_GENESIS_VALIDATORS_ROOT, pubkey},
 };
+use bls::PublicKeyBytes;
+use eip_3076::{Interchange, SignedAttestation, SignedBlock};
+use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
-use types::{Epoch, FixedBytesExtended, Hash256, PublicKeyBytes, Slot};
+use types::{Epoch, Hash256, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -133,12 +135,15 @@ impl MultiTestCase {
             }
 
             for (i, att) in test_case.attestations.iter().enumerate() {
-                match slashing_db.check_and_insert_attestation_signing_root(
-                    &att.pubkey,
-                    att.source_epoch,
-                    att.target_epoch,
-                    SigningRoot::from(att.signing_root),
-                ) {
+                match slashing_db.with_transaction(|txn| {
+                    slashing_db.check_and_insert_attestation_signing_root(
+                        &att.pubkey,
+                        att.source_epoch,
+                        att.target_epoch,
+                        SigningRoot::from(att.signing_root),
+                        txn,
+                    )
+                }) {
                     Ok(safe) if !att.should_succeed => {
                         panic!(
                             "attestation {} from `{}` succeeded when it should have failed: {:?}",
@@ -270,9 +275,11 @@ pub fn check_minification_invariants(interchange: &Interchange, minified: &Inter
             assert_eq!(mini_block.signing_root, None);
 
             // All original blocks should have slots <= the mini block.
-            assert!(original_blocks
-                .iter()
-                .all(|block| block.slot <= mini_block.slot));
+            assert!(
+                original_blocks
+                    .iter()
+                    .all(|block| block.slot <= mini_block.slot)
+            );
         }
 
         // Minified data should contain 1 attestation per validator, unless the validator never
@@ -289,10 +296,12 @@ pub fn check_minification_invariants(interchange: &Interchange, minified: &Inter
             let mini_attestation = minified_attestations.first().unwrap();
             assert_eq!(mini_attestation.signing_root, None);
 
-            assert!(original_attestations
-                .iter()
-                .all(|att| att.source_epoch <= mini_attestation.source_epoch
-                    && att.target_epoch <= mini_attestation.target_epoch));
+            assert!(
+                original_attestations
+                    .iter()
+                    .all(|att| att.source_epoch <= mini_attestation.source_epoch
+                        && att.target_epoch <= mini_attestation.target_epoch)
+            );
         }
     }
 }

@@ -1,23 +1,25 @@
 //! Provides a JSON keystore for a BLS keypair, as specified by
 //! [EIP-2335](https://eips.ethereum.org/EIPS/eip-2335).
 
+use crate::Uuid;
 use crate::derived_key::DerivedKey;
 use crate::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonKeystore,
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
-use crate::Uuid;
-use aes::cipher::generic_array::GenericArray;
-use aes::cipher::{NewCipher, StreamCipher};
-use aes::Aes128Ctr as AesCtr;
+use aes::Aes128;
 use bls::{Keypair, PublicKey, SecretKey, ZeroizeHash};
+use cipher::generic_array::GenericArray;
+use cipher::{KeyIvInit, StreamCipher};
+use ctr::Ctr64BE;
 use eth2_key_derivation::PlainText;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::prelude::*;
 use scrypt::{
+    Params as ScryptParams,
     errors::{InvalidOutputLen, InvalidParams},
-    scrypt, Params as ScryptParams,
+    scrypt,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -103,8 +105,8 @@ impl<'a> KeystoreBuilder<'a> {
         if password.is_empty() {
             Err(Error::EmptyPassword)
         } else {
-            let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
-            let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
+            let salt = rand::rng().random::<[u8; SALT_SIZE]>();
+            let iv = rand::rng().random::<[u8; IV_SIZE]>().to_vec().into();
 
             Ok(Self {
                 keypair,
@@ -349,7 +351,7 @@ pub fn encrypt(
             // AES Encrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = AesCtr::new(key, nonce);
+            let mut cipher = Ctr64BE::<Aes128>::new(key, nonce);
             cipher.apply_keystream(&mut cipher_text);
         }
     };
@@ -395,7 +397,7 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
             // AES Decrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = AesCtr::new(key, nonce);
+            let mut cipher = Ctr64BE::<Aes128>::new(key, nonce);
             cipher.apply_keystream(plain_text.as_mut_bytes());
         }
     };
@@ -443,13 +445,15 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 params.salt.as_bytes(),
                 params.c,
                 dk.as_mut_bytes(),
-            );
+            )
+            // `pbkdf2` accepts keys of any size so this error should never occur in practice.
+            .map_err(|_| Error::InvalidPassword)?;
         }
         Kdf::Scrypt(params) => {
             scrypt(
                 password,
                 params.salt.as_bytes(),
-                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p)
+                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p, DKLEN as usize)
                     .map_err(Error::ScryptInvalidParams)?,
                 dk.as_mut_bytes(),
             )
@@ -574,7 +578,10 @@ fn validate_parameters(kdf: &Kdf) -> Result<(), Error> {
             let default_kdf = Scrypt::default_scrypt(vec![0u8; 32]);
             let default_npr = 128 * default_kdf.n * default_kdf.p * default_kdf.r;
             if npr < default_npr {
-                eprintln!("WARN: Scrypt parameters are too weak (n: {}, p: {}, r: {}), we recommend (n: {}, p: {}, r: {})", params.n, params.p, params.r, default_kdf.n, default_kdf.p, default_kdf.r);
+                eprintln!(
+                    "WARN: Scrypt parameters are too weak (n: {}, p: {}, r: {}), we recommend (n: {}, p: {}, r: {})",
+                    params.n, params.p, params.r, default_kdf.n, default_kdf.p, default_kdf.r
+                );
             }
 
             // Validate `salt` length.

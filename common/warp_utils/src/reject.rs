@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
-use warp::{http::StatusCode, reject::Reject, reply::Response, Reply};
+use warp::{Reply, http::StatusCode, reject::Reject, reply::Response};
 
 #[derive(Debug)]
 pub struct ServerSentEventError(pub String);
@@ -237,15 +237,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
 pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
     match res {
         Ok(response) => response.into_response(),
-        Err(e) => match handle_rejection(e).await {
-            Ok(reply) => reply.into_response(),
-            // We can simplify this once Rust 1.82 is MSRV
-            #[allow(unreachable_patterns)]
-            Err(_) => warp::reply::with_status(
-                warp::reply::json(&"unhandled error"),
-                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-            )
-            .into_response(),
-        },
+        Err(e) => {
+            let Ok(reply) = handle_rejection(e).await;
+            reply.into_response()
+        }
     }
 }

@@ -1,3 +1,4 @@
+use bls::PublicKeyBytes;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::lighthouse_vc::types::SingleKeystoreResponse;
 use eth2::types::{ConfigAndPreset, StateId, ValidatorId, ValidatorStatus};
@@ -5,10 +6,10 @@ use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{ChainSpec, EthSpec, PublicKeyBytes};
+use types::{ChainSpec, EthSpec};
 
 use crate::exit_validators::get_current_epoch;
-use crate::{common::vc_http_client, DumpConfig};
+use crate::{DumpConfig, common::vc_http_client};
 
 pub const CMD: &str = "list";
 pub const VC_URL_FLAG: &str = "vc-url";
@@ -134,8 +135,7 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
     if let Some(ref beacon_url) = beacon_url {
         for validator in &validators_to_display {
             let beacon_node = BeaconNodeHttpClient::new(
-                SensitiveUrl::parse(beacon_url.as_ref())
-                    .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+                beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
             );
 
@@ -185,7 +185,9 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
                     eprintln!("Please keep your validator running till exit epoch");
                     eprintln!(
                         "Exit epoch in approximately {} secs",
-                        (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
+                        (exit_epoch - current_epoch)
+                            * spec.get_slot_duration().as_secs()
+                            * E::slots_per_epoch()
                     );
                 }
                 ValidatorStatus::ExitedSlashed | ValidatorStatus::ExitedUnslashed => {
@@ -224,7 +226,7 @@ mod test {
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
     use types::MainnetEthSpec;
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
     type E = MainnetEthSpec;
 
     struct TestBuilder {
@@ -294,9 +296,7 @@ mod test {
 
             let result = run::<E>(self.list_config.clone().unwrap()).await;
 
-            if result.is_ok() {
-                let result_ref = result.as_ref().unwrap();
-
+            if let Ok(result_ref) = &result {
                 for local_validator in &self.validators {
                     let local_keystore = &local_validator.voting_keystore.0;
                     let local_pubkey = local_keystore.public_key().unwrap();

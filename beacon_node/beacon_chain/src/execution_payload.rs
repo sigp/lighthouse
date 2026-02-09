@@ -24,9 +24,9 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::{Instrument, debug, debug_span, warn};
 use tree_hash::TreeHash;
-use types::payload::BlockProductionVersion;
+use types::execution::BlockProductionVersion;
 use types::*;
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
@@ -310,7 +310,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             ExecutionStatus::Invalid(_) => {
                 return Err(BlockError::ParentExecutionPayloadInvalid {
                     parent_root: parent_block.root,
-                })
+                });
             }
         };
 
@@ -371,7 +371,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
     let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
     let withdrawals = if state.fork_name_unchecked().capella_enabled() {
-        Some(get_expected_withdrawals(state, spec)?.0.into())
+        Some(Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into())
     } else {
         None
     };
@@ -403,8 +403,9 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
                     block_production_version,
                 )
                 .await
-            },
-            "get_execution_payload",
+            }
+            .instrument(debug_span!("prepare_execution_payload")),
+            "prepare_execution_payload",
         )
         .ok_or(BlockProductionError::ShuttingDown)?;
 
@@ -503,6 +504,7 @@ where
             },
             "prepare_execution_payload_forkchoice_update_params",
         )
+        .instrument(debug_span!("forkchoice_update_params"))
         .await
         .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
 

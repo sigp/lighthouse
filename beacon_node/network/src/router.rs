@@ -14,16 +14,16 @@ use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
-    service::api_types::{AppRequestId, SyncRequestId},
     MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
+    service::api_types::{AppRequestId, SyncRequestId},
 };
-use logging::crit;
 use logging::TimeLatch;
+use logging::crit;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
+use tracing::{debug, error, trace, warn};
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
@@ -132,7 +132,6 @@ impl<T: BeaconChainTypes> Router<T> {
                 debug!("Network message router started");
                 UnboundedReceiverStream::new(handler_recv)
                     .for_each(move |msg| future::ready(handler.handle_message(msg)))
-                    .instrument(info_span!("", service = "router"))
                     .await;
             },
             "router",
@@ -187,11 +186,11 @@ impl<T: BeaconChainTypes> Router<T> {
     /* RPC - Related functionality */
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request<E: EthSpec>(
+    fn handle_rpc_request(
         &mut self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId, // Use ResponseId here
-        request_type: RequestType<E>,
+        request_type: RequestType<T::EthSpec>,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
             debug!(%peer_id, request = ?request_type, "Dropping request of disconnected peer");
@@ -379,7 +378,6 @@ impl<T: BeaconChainTypes> Router<T> {
                         .send_gossip_data_column_sidecar(
                             message_id,
                             peer_id,
-                            self.network_globals.client(&peer_id),
                             subnet_id,
                             column_sidecar,
                             timestamp_now(),
@@ -488,6 +486,49 @@ impl<T: BeaconChainTypes> Router<T> {
                             bls_to_execution_change,
                         ),
                 ),
+            PubsubMessage::ExecutionPayload(signed_execution_payload_envelope) => {
+                trace!(%peer_id, "Received a signed execution payload envelope");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_payload(
+                        message_id,
+                        peer_id,
+                        signed_execution_payload_envelope,
+                    ),
+                )
+            }
+            PubsubMessage::PayloadAttestation(payload_attestation_message) => {
+                trace!(%peer_id, "Received a payload attestation message");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_payload_attestation(
+                            message_id,
+                            peer_id,
+                            payload_attestation_message,
+                        ),
+                )
+            }
+            PubsubMessage::ExecutionPayloadBid(execution_payload_bid) => {
+                trace!(%peer_id, "Received a signed execution payload bid");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_execution_payload_bid(
+                            message_id,
+                            peer_id,
+                            execution_payload_bid,
+                        ),
+                )
+            }
+            PubsubMessage::ProposerPreferences(proposer_preferences) => {
+                trace!(%peer_id, "Received signed proposer preferences");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_proposer_preferences(
+                            message_id,
+                            peer_id,
+                            proposer_preferences,
+                        ),
+                )
+            }
         }
     }
 

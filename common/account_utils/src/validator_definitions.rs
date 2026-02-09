@@ -4,15 +4,16 @@
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
 use crate::{default_keystore_password_path, read_password_string, write_file_via_temporary};
+use bls::PublicKey;
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{self, create_dir_all, File};
+use std::fs::{self, File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
 use tracing::error;
-use types::{graffiti::GraffitiString, Address, PublicKey};
+use types::{Address, graffiti::GraffitiString};
 use validator_dir::VOTING_KEYSTORE_FILE;
 use zeroize::Zeroizing;
 

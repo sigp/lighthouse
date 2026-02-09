@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use std::{
     cmp::Ordering,
-    collections::{btree_map::Entry, BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, btree_map::Entry},
 };
 use store::HotStateSummary;
 use types::{Hash256, Slot};
@@ -88,7 +88,7 @@ impl StateSummariesDAG {
                         block_root: summary.latest_block_root,
                         existing_state_summary: (summary.slot, state_root).into(),
                         new_state_summary: (*existing.key(), existing.get().0),
-                    })
+                    });
                 }
             }
 
@@ -136,7 +136,7 @@ impl StateSummariesDAG {
                         block_root: summary.latest_block_root,
                         existing_state_summary: (summary.slot, *state_root).into(),
                         new_state_summary: (*existing.key(), *existing.get().0),
-                    })
+                    });
                 }
             }
         }
@@ -288,7 +288,7 @@ impl StateSummariesDAG {
                         ancestor_slot,
                         state_root,
                         state_slot: summary.slot,
-                    })
+                    });
                 }
                 Ordering::Equal => {
                     return Ok(state_root);
@@ -322,15 +322,15 @@ impl StateSummariesDAG {
         loop {
             if let Some(summary) = self.state_summaries_by_state_root.get(&state_root) {
                 // Detect cycles, including the case where `previous_state_root == state_root`.
-                if let Some(last_slot) = last_slot {
-                    if summary.slot >= last_slot {
-                        return Err(Error::CircularAncestorChain {
-                            state_root,
-                            previous_state_root: summary.previous_state_root,
-                            slot: summary.slot,
-                            last_slot,
-                        });
-                    }
+                if let Some(last_slot) = last_slot
+                    && summary.slot >= last_slot
+                {
+                    return Err(Error::CircularAncestorChain {
+                        state_root,
+                        previous_state_root: summary.previous_state_root,
+                        slot: summary.slot,
+                        last_slot,
+                    });
                 }
 
                 ancestors.push((state_root, summary.slot));
@@ -354,6 +354,18 @@ impl StateSummariesDAG {
             descendants.extend(self.descendants_of(child_root)?);
         }
         Ok(descendants)
+    }
+
+    /// Returns the root of the state at `slot` with `latest_block_root`, if it exists.
+    ///
+    /// The `slot` must be the slot of the `latest_block_root` or a skipped slot following it. This
+    /// function will not return the `state_root` of a state with a different `latest_block_root`
+    /// even if it lies on the same chain.
+    pub fn state_root_at_slot(&self, latest_block_root: Hash256, slot: Slot) -> Option<Hash256> {
+        self.state_summaries_by_block_root
+            .get(&latest_block_root)?
+            .get(&slot)
+            .map(|(state_root, _)| *state_root)
     }
 }
 

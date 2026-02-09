@@ -5,7 +5,7 @@ use crate::sync::network_context::{
     SyncNetworkContext,
 };
 use beacon_chain::{BeaconChainTypes, BlockProcessStatus};
-use derivative::Derivative;
+use educe::Educe;
 use lighthouse_network::service::api_types::Id;
 use parking_lot::RwLock;
 use std::collections::HashSet;
@@ -14,7 +14,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::FixedBlobSidecarList;
+use tracing::{Span, debug_span};
+use types::data::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
 // Dedicated enum for LookupResult to force its usage
@@ -55,8 +56,8 @@ pub enum LookupRequestError {
     },
 }
 
-#[derive(Derivative)]
-#[derivative(Debug(bound = "T: BeaconChainTypes"))]
+#[derive(Educe)]
+#[educe(Debug(bound(T: BeaconChainTypes)))]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,
@@ -65,11 +66,12 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     /// the custody request to have an updated view of the peers that claim to have imported the
     /// block associated with this lookup. The peer set of a lookup can change rapidly, and faster
     /// than the lifetime of a custody request.
-    #[derivative(Debug(format_with = "fmt_peer_set_as_len"))]
+    #[educe(Debug(method(fmt_peer_set_as_len)))]
     peers: Arc<RwLock<HashSet<PeerId>>>,
     block_root: Hash256,
     awaiting_parent: Option<Hash256>,
     created: Instant,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug)]
@@ -89,6 +91,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         id: Id,
         awaiting_parent: Option<Hash256>,
     ) -> Self {
+        let lookup_span = debug_span!(
+            "lh_single_block_lookup",
+            block_root = %requested_block_root,
+            id = id,
+        );
+
         Self {
             id,
             block_request_state: BlockRequestState::new(requested_block_root),
@@ -97,6 +105,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             block_root: requested_block_root,
             awaiting_parent,
             created: Instant::now(),
+            span: lookup_span,
         }
     }
 
@@ -192,6 +201,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
+        let _guard = self.span.clone().entered();
         // TODO: Check what's necessary to download, specially for blobs
         self.continue_request::<BlockRequestState<T::EthSpec>>(cx, 0)?;
 
@@ -208,7 +218,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // can assert that this is the correct value of `blob_kzg_commitments_count`.
                 match cx.chain.get_block_process_status(&self.block_root) {
                     BlockProcessStatus::Unknown => None,
-                    BlockProcessStatus::NotValidated(block)
+                    BlockProcessStatus::NotValidated(block, _)
                     | BlockProcessStatus::ExecutionValidated(block) => Some(block.clone()),
                 }
             }) {
@@ -257,6 +267,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // that can make progress so it must be dropped. Consider the lookup completed.
         // This case can happen if we receive the components from gossip during a retry.
         if self.all_components_processed() {
+            self.span = Span::none();
             Ok(LookupResult::Completed)
         } else {
             Ok(LookupResult::Pending)
@@ -357,10 +368,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct BlobRequestState<E: EthSpec> {
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
 }
@@ -375,10 +386,10 @@ impl<E: EthSpec> BlobRequestState<E> {
 }
 
 /// The state of the custody request component of a `SingleBlockLookup`.
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct CustodyRequestState<E: EthSpec> {
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<DataColumnSidecarList<E>>,
 }
@@ -393,10 +404,10 @@ impl<E: EthSpec> CustodyRequestState<E> {
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct BlockRequestState<E: EthSpec> {
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub requested_block_root: Hash256,
     pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
 }

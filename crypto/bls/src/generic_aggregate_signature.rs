@@ -1,8 +1,8 @@
 use crate::{
+    Error, Hash256, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_public_key::{GenericPublicKey, TPublicKey},
     generic_signature::{GenericSignature, TSignature},
-    Error, Hash256, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -124,13 +124,15 @@ where
     /// Aggregates a signature onto `self`.
     pub fn add_assign(&mut self, other: &GenericSignature<Pub, Sig>) {
         if let Some(other_point) = other.point() {
-            self.is_infinity = self.is_infinity && other.is_infinity;
             if let Some(self_point) = &mut self.point {
-                self_point.add_assign(other_point)
+                self_point.add_assign(other_point);
+                self.is_infinity = self.is_infinity && other.is_infinity;
             } else {
                 let mut self_point = AggSig::infinity();
                 self_point.add_assign(other_point);
-                self.point = Some(self_point)
+                self.point = Some(self_point);
+                // the result is infinity, if `other` is
+                self.is_infinity = other.is_infinity;
             }
         }
     }
@@ -138,13 +140,15 @@ where
     /// Aggregates an aggregate signature onto `self`.
     pub fn add_assign_aggregate(&mut self, other: &Self) {
         if let Some(other_point) = other.point() {
-            self.is_infinity = self.is_infinity && other.is_infinity;
             if let Some(self_point) = &mut self.point {
-                self_point.add_assign_aggregate(other_point)
+                self_point.add_assign_aggregate(other_point);
+                self.is_infinity = self.is_infinity && other.is_infinity;
             } else {
                 let mut self_point = AggSig::infinity();
                 self_point.add_assign_aggregate(other_point);
-                self.point = Some(self_point)
+                self.point = Some(self_point);
+                // the result is infinity, if `other` is
+                self.is_infinity = other.is_infinity;
             }
         }
     }

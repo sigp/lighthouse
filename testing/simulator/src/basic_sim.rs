@@ -1,23 +1,23 @@
 use crate::local_network::LocalNetworkParams;
 use crate::local_network::TERMINAL_BLOCK;
-use crate::{checks, LocalNetwork};
+use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
 use futures::prelude::*;
 use node_test_rig::{
+    ApiTopic, ValidatorFiles,
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ApiTopic, ValidatorFiles,
+    testing_validator_config,
 };
 use rayon::prelude::*;
 use std::cmp::max;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use environment::tracing_common;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use logging::build_workspace_filter;
 use tokio::time::sleep;
@@ -31,6 +31,8 @@ const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
 const DENEB_FORK_EPOCH: u64 = 0;
 const ELECTRA_FORK_EPOCH: u64 = 2;
+// const FULU_FORK_EPOCH: u64 = 3;
+// const GLOAS_FORK_EPOCH: u64 = 4;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -172,8 +174,11 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let latest_fork_version = spec.electra_fork_version;
     let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
 
-    spec.seconds_per_slot /= speed_up_factor;
-    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
+    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
+    slot_duration_ms /= speed_up_factor;
+    slot_duration_ms = max(1_000, slot_duration_ms);
+    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
@@ -185,7 +190,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 
@@ -250,7 +255,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                         network_1
                             .add_validator_client_with_fallbacks(
                                 validator_config,
-                                i,
                                 beacon_nodes,
                                 files,
                             )

@@ -1,7 +1,7 @@
+use crate::EpochCacheError;
 use crate::common::{attesting_indices_base, attesting_indices_electra};
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
-use crate::EpochCacheError;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, AttestationRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,

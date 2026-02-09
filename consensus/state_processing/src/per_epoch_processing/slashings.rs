@@ -1,10 +1,11 @@
 use crate::common::decrease_balance;
 use crate::per_epoch_processing::{
-    single_pass::{process_epoch_single_pass, SinglePassConfig},
     Error,
+    single_pass::{SinglePassConfig, process_epoch_single_pass},
 };
 use safe_arith::{SafeArith, SafeArithIter};
-use types::{BeaconState, ChainSpec, EthSpec, Unsigned};
+use typenum::Unsigned;
+use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Process slashings.
 pub fn process_slashings<E: EthSpec>(
@@ -16,7 +17,7 @@ pub fn process_slashings<E: EthSpec>(
     let sum_slashings = state.get_all_slashings().iter().copied().safe_sum()?;
 
     let adjusted_total_slashing_balance = std::cmp::min(
-        sum_slashings.safe_mul(spec.proportional_slashing_multiplier_for_state(state))?,
+        sum_slashings.safe_mul(state.get_proportional_slashing_multiplier(spec))?,
         total_balance,
     );
 

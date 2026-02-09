@@ -12,7 +12,7 @@ pub use api_secret::PK_FILENAME;
 use graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
 use create_signed_voluntary_exit::create_signed_voluntary_exit;
-use graffiti_file::{determine_graffiti, GraffitiFile};
+use graffiti_file::{GraffitiFile, determine_graffiti};
 use lighthouse_validator_store::LighthouseValidatorStore;
 use validator_store::ValidatorStore;
 
@@ -22,6 +22,7 @@ use account_utils::{
 };
 pub use api_secret::ApiSecret;
 use beacon_node_fallback::CandidateInfo;
+use bls::{PublicKey, PublicKeyBytes};
 use core::convert::Infallible;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
@@ -30,14 +31,14 @@ use directory::{DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_VALIDATOR_D
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
-        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
-        PublicKeyBytes, SetGraffitiRequest, UpdateCandidatesRequest, UpdateCandidatesResponse,
+        self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, SetGraffitiRequest,
+        UpdateCandidatesRequest, UpdateCandidatesResponse,
     },
 };
 use health_metrics::observe::Observe;
 use lighthouse_version::version_with_platform;
-use logging::crit;
 use logging::SSELoggingComponents;
+use logging::crit;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
@@ -50,12 +51,12 @@ use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 use tracing::{info, warn};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use validator_services::block_service::BlockService;
-use warp::{reply::Response, sse::Event, Filter};
+use warp::{Filter, reply::Response, sse::Event};
 use warp_utils::reject::convert_rejection;
 use warp_utils::task::blocking_json_task;
 
@@ -315,7 +316,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(spec_filter.clone())
         .then(|spec: Arc<_>| {
             blocking_json_task(move || {
-                let config = ConfigAndPreset::from_chain_spec::<E>(&spec, None);
+                let config = ConfigAndPreset::from_chain_spec::<E>(&spec);
                 Ok(api_types::GenericResponse::from(config))
             })
         });
@@ -883,7 +884,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 return convert_rejection::<Infallible>(Err(
                                     warp_utils::reject::custom_bad_request(e.to_string()),
                                 ))
-                                .await
+                                .await;
                             }
                         }
                     }

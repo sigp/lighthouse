@@ -10,16 +10,18 @@ use state_processing::per_block_processing::process_operations::{
     process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
+    ConsensusContext,
     per_block_processing::{
+        VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
-            altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
-            process_deposits, process_exits, process_proposer_slashings,
+            altair_deneb, base, gloas, process_attester_slashings,
+            process_bls_to_execution_changes, process_deposits, process_exits,
+            process_proposer_slashings,
         },
-        process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
+        process_sync_aggregate, withdrawals,
     },
-    ConsensusContext,
 };
 use std::fmt::Debug;
 use types::{
@@ -44,7 +46,7 @@ struct ExecutionMetadata {
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<E: EthSpec> {
-    payload: FullPayload<E>,
+    payload: Option<ExecutionPayload<E>>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,9 +99,18 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         initialize_epoch_cache(state, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
-        if state.fork_name_unchecked().altair_enabled() {
-            initialize_progressive_balances_cache(state, spec)?;
+        if state.fork_name_unchecked().gloas_enabled() {
+            gloas::process_attestation(
+                state,
+                self.to_ref(),
+                0,
+                &mut ctxt,
+                VerifySignatures::True,
+                spec,
+            )
+        } else if state.fork_name_unchecked().altair_enabled() {
             altair_deneb::process_attestation(
                 state,
                 self.to_ref(),
@@ -171,7 +182,7 @@ impl<E: EthSpec> Operation<E> for Deposit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposits(state, &[self.clone()], spec)
+        process_deposits(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -194,7 +205,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
-            &[self.clone()],
+            std::slice::from_ref(self),
             VerifySignatures::True,
             &mut ctxt,
             spec,
@@ -217,7 +228,12 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_exits(state, &[self.clone()], VerifySignatures::True, spec)
+        process_exits(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -301,6 +317,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Fulu => BeaconBlockBody::Fulu(<_>::from_ssz_bytes(bytes)?),
+                // TODO(EIP-7732): See if we need to handle Gloas here
                 _ => panic!(),
             })
         })
@@ -360,6 +377,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Fulu(inner.clone_as_blinded())
                 }
+                // TODO(EIP-7732): See if we need to handle Gloas here
                 _ => panic!(),
             })
         })
@@ -397,12 +415,17 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
-        })
-        .map(|payload| WithdrawalsPayload {
-            payload: payload.into(),
-        })
+        if fork_name.gloas_enabled() {
+            // No payload present or required for Gloas tests.
+            Ok(WithdrawalsPayload { payload: None })
+        } else {
+            ssz_decode_file_with(path, |bytes| {
+                ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
+            })
+            .map(|payload| WithdrawalsPayload {
+                payload: Some(payload),
+            })
+        }
     }
 
     fn apply_to(
@@ -411,7 +434,16 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
+        if state.fork_name_unchecked().gloas_enabled() {
+            withdrawals::gloas::process_withdrawals(state, spec)
+        } else {
+            let full_payload = FullPayload::from(self.payload.clone().unwrap());
+            withdrawals::capella_electra::process_withdrawals::<_, FullPayload<_>>(
+                state,
+                full_payload.to_ref(),
+                spec,
+            )
+        }
     }
 }
 
@@ -438,7 +470,12 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+        process_bls_to_execution_changes(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -462,7 +499,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_withdrawal_requests(state, &[self.clone()], spec)
+        process_withdrawal_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -485,7 +522,7 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposit_requests(state, &[self.clone()], spec)
+        process_deposit_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -509,7 +546,7 @@ impl<E: EthSpec> Operation<E> for ConsolidationRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_consolidation_requests(state, &[self.clone()], spec)
+        process_consolidation_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -587,10 +624,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        if O::handler_name() != "withdrawals" {
-            if let Some(post_state) = expected.as_mut() {
-                post_state.build_all_committee_caches(spec).unwrap();
-            }
+        if O::handler_name() != "withdrawals"
+            && let Some(post_state) = expected.as_mut()
+        {
+            post_state.build_all_committee_caches(spec).unwrap();
         }
 
         let mut result = self

@@ -11,11 +11,11 @@ use lighthouse_network::service::api_types::Id;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, SignedBeaconBlock};
 
-use super::single_block_lookup::{ComponentRequests, DownloadResult};
 use super::SingleLookupId;
+use super::single_block_lookup::{ComponentRequests, DownloadResult};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {

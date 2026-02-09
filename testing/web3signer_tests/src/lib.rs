@@ -20,18 +20,21 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
+    use bls::{AggregateSignature, Keypair, PublicKeyBytes, SecretKey, Signature};
     use eth2::types::FullBlockContents;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use fixed_bytes::FixedBytesExtended;
     use initialized_validators::{
-        load_pem_certificate, load_pkcs12_identity, InitializedValidators,
+        InitializedValidators, load_pem_certificate, load_pkcs12_identity,
     };
     use lighthouse_validator_store::LighthouseValidatorStore;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
-    use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+    use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
     use slot_clock::{SlotClock, TestingSlotClock};
+    use ssz_types::BitList;
     use std::env;
     use std::fmt::Debug;
     use std::fs::{self, File};
@@ -41,7 +44,7 @@ mod tests {
     use std::sync::{Arc, LazyLock};
     use std::time::{Duration, Instant};
     use task_executor::TaskExecutor;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
@@ -342,12 +345,7 @@ mod tests {
             );
             let (runtime_shutdown, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-            let executor = TaskExecutor::new(
-                Arc::downgrade(&runtime),
-                exit,
-                shutdown_tx,
-                "test".to_string(),
-            );
+            let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
 
             let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
             let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
@@ -541,6 +539,58 @@ mod tests {
             }
             self
         }
+
+        /// Assert that a slashable attestation fails to be signed locally (empty result) and is
+        /// either signed or not by the web3signer rig depending on the value of
+        /// `web3signer_should_sign`.
+        ///
+        /// The batch attestation signing API returns an empty result instead of an error for
+        /// slashable attestations.
+        pub async fn assert_slashable_attestation_should_sign<F, R>(
+            self,
+            case_name: &str,
+            generate_sig: F,
+            web3signer_should_sign: bool,
+        ) -> Self
+        where
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
+            R: Future<
+                Output = Result<Vec<(u64, Attestation<E>)>, lighthouse_validator_store::Error>,
+            >,
+        {
+            for validator_rig in &self.validator_rigs {
+                let result =
+                    generate_sig(self.validator_pubkey, validator_rig.validator_store.clone())
+                        .await;
+
+                if !validator_rig.using_web3signer || !web3signer_should_sign {
+                    // For local validators, slashable attestations should return an empty result
+                    // or an error.
+                    match result {
+                        Ok(attestations) => {
+                            assert!(
+                                attestations.is_empty(),
+                                "should not sign slashable {case_name}: expected empty result"
+                            );
+                        }
+                        Err(ValidatorStoreError::Slashable(_)) => {
+                            // Also acceptable - error indicates slashable
+                        }
+                        Err(e) => {
+                            panic!("unexpected error for slashable {case_name}: {e:?}");
+                        }
+                    }
+                } else {
+                    // Web3signer should sign (has its own slashing protection)
+                    let attestations = result.expect("should sign slashable {case_name}");
+                    assert!(
+                        !attestations.is_empty(),
+                        "web3signer should sign slashable {case_name}"
+                    );
+                }
+            }
+            self
+        }
     }
 
     /// Get a generic, arbitrary attestation for signing.
@@ -607,12 +657,14 @@ mod tests {
         })
         .await
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
-            let mut attestation = get_attestation();
+            let attestation = get_attestation();
             validator_store
-                .sign_attestation(pubkey, 0, &mut attestation, Epoch::new(0))
+                .sign_attestations(vec![(0, pubkey, 0, attestation)])
                 .await
-                .unwrap();
-            attestation
+                .unwrap()
+                .pop()
+                .unwrap()
+                .1
         })
         .await
         .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
@@ -822,8 +874,6 @@ mod tests {
             block
         };
 
-        let current_epoch = Epoch::new(5);
-
         TestingRig::new(
             network,
             slashing_protection_config,
@@ -832,42 +882,44 @@ mod tests {
         )
         .await
         .assert_signatures_match("first_attestation", |pubkey, validator_store| async move {
-            let mut attestation = first_attestation();
+            let attestation = first_attestation();
             validator_store
-                .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                .sign_attestations(vec![(0, pubkey, 0, attestation)])
                 .await
-                .unwrap();
-            attestation
+                .unwrap()
+                .pop()
+                .unwrap()
+                .1
         })
         .await
-        .assert_slashable_message_should_sign(
+        .assert_slashable_attestation_should_sign(
             "double_vote_attestation",
             move |pubkey, validator_store| async move {
-                let mut attestation = double_vote_attestation();
+                let attestation = double_vote_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestations(vec![(0, pubkey, 0, attestation)])
                     .await
             },
             slashable_message_should_sign,
         )
         .await
-        .assert_slashable_message_should_sign(
+        .assert_slashable_attestation_should_sign(
             "surrounding_attestation",
             move |pubkey, validator_store| async move {
-                let mut attestation = surrounding_attestation();
+                let attestation = surrounding_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestations(vec![(0, pubkey, 0, attestation)])
                     .await
             },
             slashable_message_should_sign,
         )
         .await
-        .assert_slashable_message_should_sign(
+        .assert_slashable_attestation_should_sign(
             "surrounded_attestation",
             move |pubkey, validator_store| async move {
-                let mut attestation = surrounded_attestation();
+                let attestation = surrounded_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestations(vec![(0, pubkey, 0, attestation)])
                     .await
             },
             slashable_message_should_sign,

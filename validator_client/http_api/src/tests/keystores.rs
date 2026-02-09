@@ -1,19 +1,24 @@
 use super::*;
 use account_utils::random_password_string;
 use bls::PublicKeyBytes;
+use bls::{AggregateSignature, PublicKey};
 use eth2::lighthouse_vc::types::UpdateFeeRecipientRequest;
 use eth2::lighthouse_vc::{
     http_client::ValidatorClientHttpClient as HttpClient,
     std_types::{KeystoreJsonStr as Keystore, *},
     types::Web3SignerValidatorRequest,
 };
+use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use lighthouse_validator_store::DEFAULT_GAS_LIMIT;
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
+use ssz_types::BitList;
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
-use types::{attestation::AttestationBase, Address};
+use typenum::Unsigned;
+use types::{Address, attestation::AttestationBase};
 use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
 
@@ -1094,14 +1099,18 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(keystores.len()));
 
         // Sign attestations on VC1.
-        for (validator_index, mut attestation) in first_vc_attestations {
+        for (validator_index, attestation) in first_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data().target.epoch;
-            tester1
+            let safe_attestations = tester1
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .sign_attestations(vec![(0, public_key, 0, attestation.clone())])
                 .await
                 .unwrap();
+            assert_eq!(safe_attestations.len(), 1);
+            // Compare data only, ignoring signatures which are added during signing.
+            assert_eq!(safe_attestations[0].1.data(), attestation.data());
+            // Check that the signature is non-zero.
+            assert!(!safe_attestations[0].1.signature().is_infinity());
         }
 
         // Delete the selected keys from VC1.
@@ -1124,11 +1133,14 @@ async fn generic_migration_test(
             delete_indices.len()
         );
         for &i in &delete_indices {
-            assert!(delete_res
-                .slashing_protection
-                .data
-                .iter()
-                .any(|interchange_data| interchange_data.pubkey == keystore_pubkey(&keystores[i])));
+            assert!(
+                delete_res
+                    .slashing_protection
+                    .data
+                    .iter()
+                    .any(|interchange_data| interchange_data.pubkey
+                        == keystore_pubkey(&keystores[i]))
+            );
         }
 
         // Filter slashing protection according to `slashing_protection_indices`.
@@ -1170,16 +1182,28 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(import_indices.len()));
 
         // Sign attestations on the second VC.
-        for (validator_index, mut attestation, should_succeed) in second_vc_attestations {
+        for (validator_index, attestation, should_succeed) in second_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data().target.epoch;
-            match tester2
+            let result = tester2
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
-                .await
-            {
-                Ok(()) => assert!(should_succeed),
-                Err(e) => assert!(!should_succeed, "{:?}", e),
+                .sign_attestations(vec![(0, public_key, 0, attestation.clone())])
+                .await;
+            match result {
+                Ok(safe_attestations) => {
+                    if should_succeed {
+                        // Compare data only, ignoring signatures which are added during signing.
+                        assert_eq!(safe_attestations.len(), 1);
+                        assert_eq!(safe_attestations[0].1.data(), attestation.data());
+                        // Check that the signature is non-zero.
+                        assert!(!safe_attestations[0].1.signature().is_infinity());
+                    } else {
+                        assert!(safe_attestations.is_empty());
+                    }
+                }
+                Err(_) => {
+                    // Doppelganger protected or other error.
+                    assert!(!should_succeed);
+                }
             }
         }
     })
@@ -1305,10 +1329,15 @@ async fn delete_concurrent_with_signing() {
 
         let handle = handle.spawn(async move {
             for j in 0..num_attestations {
-                let mut att = make_attestation(j, j + 1);
-                for public_key in thread_pubkeys.iter() {
+                let att = make_attestation(j, j + 1);
+                for (validator_index, public_key) in thread_pubkeys.iter().enumerate() {
                     let _ = validator_store
-                        .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
+                        .sign_attestations(vec![(
+                            validator_index as u64,
+                            *public_key,
+                            0,
+                            att.clone(),
+                        )])
                         .await;
                 }
             }
@@ -1324,13 +1353,13 @@ async fn delete_concurrent_with_signing() {
         let all_pubkeys = all_pubkeys.clone();
 
         let handle = handle.spawn(async move {
-            let mut rng = SmallRng::from_entropy();
+            let mut rng: StdRng = SeedableRng::from_os_rng();
 
             let mut slashing_protection = vec![];
             for _ in 0..num_delete_attempts {
                 let to_delete = all_pubkeys
                     .iter()
-                    .filter(|_| rng.gen_bool(delete_prob))
+                    .filter(|_| rng.random_bool(delete_prob))
                     .copied()
                     .collect::<Vec<_>>();
 
@@ -2087,7 +2116,7 @@ async fn import_remotekey_web3signer_disabled() {
         // Import web3signers.
         tester
             .client
-            .post_lighthouse_validators_web3signer(&vec![web3signer_req])
+            .post_lighthouse_validators_web3signer(&[web3signer_req])
             .await
             .unwrap();
 
@@ -2142,7 +2171,7 @@ async fn import_remotekey_web3signer_enabled() {
         // Import web3signers.
         tester
             .client
-            .post_lighthouse_validators_web3signer(&vec![web3signer_req.clone()])
+            .post_lighthouse_validators_web3signer(&[web3signer_req.clone()])
             .await
             .unwrap();
 

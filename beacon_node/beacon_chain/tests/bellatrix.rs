@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))] // Tests run too slow in debug.
 
 use beacon_chain::test_utils::BeaconChainHarness;
-use execution_layer::test_utils::{generate_pow_block, Block, DEFAULT_TERMINAL_BLOCK};
+use execution_layer::test_utils::{Block, DEFAULT_TERMINAL_BLOCK, generate_pow_block};
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -174,7 +174,7 @@ async fn base_altair_bellatrix_with_terminal_block_after_fork() {
         .unwrap();
 
     // Add a slot duration to get to the next slot
-    let timestamp = harness.get_timestamp_at_slot() + harness.spec.seconds_per_slot;
+    let timestamp = harness.get_timestamp_at_slot() + harness.spec.get_slot_duration().as_secs();
 
     harness
         .execution_block_generator()

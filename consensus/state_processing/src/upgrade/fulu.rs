@@ -1,8 +1,7 @@
+use milhouse::Vector;
 use safe_arith::SafeArith;
 use std::mem;
-use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateFulu, ChainSpec, EthSpec, Fork, Vector,
-};
+use types::{BeaconState, BeaconStateError as Error, BeaconStateFulu, ChainSpec, EthSpec, Fork};
 
 /// Transform a `Electra` state into an `Fulu` state.
 pub fn upgrade_to_fulu<E: EthSpec>(
@@ -33,9 +32,7 @@ fn initialize_proposer_lookahead<E: EthSpec>(
         );
     }
 
-    Vector::new(lookahead).map_err(|e| {
-        Error::PleaseNotifyTheDevs(format!("Failed to initialize proposer lookahead: {:?}", e))
-    })
+    Vector::new(lookahead).map_err(|e| e.into())
 }
 
 pub fn upgrade_state_to_fulu<E: EthSpec>(
