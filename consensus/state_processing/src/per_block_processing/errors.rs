@@ -99,6 +99,8 @@ pub enum BlockProcessingError {
     IncorrectExpectedWithdrawalsVariant,
     MissingLastWithdrawal,
     PendingAttestationInElectra,
+    /// Builder payment index out of bounds (Gloas)
+    BuilderPaymentIndexOutOfBounds(usize),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -372,6 +374,8 @@ pub enum AttestationInvalid {
     BadSignature,
     /// The indexed attestation created from this attestation was found to be invalid.
     BadIndexedAttestation(IndexedAttestationInvalid),
+    /// The overloaded "data.index" field is invalid (post-Gloas).
+    BadOverloadedDataIndex,
 }
 
 impl From<BlockOperationError<IndexedAttestationInvalid>>
