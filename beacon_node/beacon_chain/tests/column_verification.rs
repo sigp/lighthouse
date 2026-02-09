@@ -170,7 +170,7 @@ async fn verify_header_signature_fork_block_bug() {
     // This keeps the head at the pre-fork state (Electra).
     harness.advance_slot();
     let rpc_block = harness
-        .build_rpc_block_from_blobs(block_root, signed_block.clone(), None)
+        .build_rpc_block_from_blobs(signed_block.clone(), None, false)
         .expect("Should build RPC block");
     let availability = harness
         .chain
