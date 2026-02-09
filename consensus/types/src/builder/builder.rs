@@ -1,6 +1,7 @@
 use crate::test_utils::TestRandom;
-use crate::{Address, Epoch};
+use crate::{Address, Epoch, ForkName};
 use bls::PublicKeyBytes;
+use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -12,6 +13,7 @@ pub type BuilderIndex = u64;
 #[derive(
     Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash,
 )]
+#[context_deserialize(ForkName)]
 pub struct Builder {
     pub pubkey: PublicKeyBytes,
     #[serde(with = "serde_utils::quoted_u8")]

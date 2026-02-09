@@ -126,7 +126,7 @@ clap_utils = { path = "common/clap_utils" }
 compare_fields = "0.1"
 console-subscriber = "0.4"
 context_deserialize = "0.2"
-criterion = "0.5"
+criterion = "0.8"
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
@@ -164,7 +164,7 @@ http_api = { path = "beacon_node/http_api" }
 hyper = "1"
 initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
-itertools = "0.10"
+itertools = "0.14"
 kzg = { path = "crypto/kzg" }
 libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features = false, features = [
     "identify",
@@ -286,7 +286,7 @@ validator_test_rig = { path = "testing/validator_test_rig" }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }
 warp_utils = { path = "common/warp_utils" }
 workspace_members = { path = "common/workspace_members" }
-xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb584ba93b9d16bb2ae3825a" }
+xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "fe3906605c87b6c0515bd7c8fc671f47875e3ccc" }
 zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
 zip = { version = "6.0", default-features = false, features = ["deflate"] }
 zstd = "0.13"

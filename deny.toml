@@ -16,6 +16,7 @@ deny = [
     { crate = "sha2", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "pbkdf2", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "scrypt", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "syn", deny-multiple-versions = true, reason = "takes a long time to compile" },
 ]
 
 [sources]

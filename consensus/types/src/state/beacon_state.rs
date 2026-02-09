@@ -23,13 +23,13 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal, ExecutionBlockHash,
-    ExecutionPayloadBid, Withdrawal,
+    ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
     },
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
+    builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
     deposit::PendingDeposit,
@@ -68,6 +68,7 @@ pub enum BeaconStateError {
     EpochOutOfBounds,
     SlotOutOfBounds,
     UnknownValidator(usize),
+    UnknownBuilder(BuilderIndex),
     UnableToDetermineProducer,
     InvalidBitfield,
     EmptyCommittee,
@@ -175,6 +176,8 @@ pub enum BeaconStateError {
     NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
+    /// `Attestation.data.index` field is invalid in overloaded data index scenario.
+    BadOverloadedDataIndex(u64),
     InvalidSelectionProof {
         aggregator_index: u64,
     },
@@ -197,6 +200,7 @@ pub enum BeaconStateError {
         i: usize,
     },
     InvalidIndicesCount,
+    InvalidExecutionPayloadAvailabilityIndex(usize),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -547,7 +551,7 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid,
+    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]

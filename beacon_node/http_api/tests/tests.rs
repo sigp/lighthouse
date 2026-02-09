@@ -6660,7 +6660,8 @@ impl ApiTester {
         }
         let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec)
             .unwrap()
-            .0;
+            .withdrawals()
+            .to_vec();
 
         // fetch expected withdrawals from the client
         let result = self.client.get_expected_withdrawals(&state_id).await;
@@ -6668,7 +6669,7 @@ impl ApiTester {
             Ok(withdrawal_response) => {
                 assert_eq!(withdrawal_response.execution_optimistic, Some(false));
                 assert_eq!(withdrawal_response.finalized, Some(false));
-                assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
+                assert_eq!(withdrawal_response.data, expected_withdrawals);
             }
             Err(_) => {
                 panic!("query failed incorrectly");
