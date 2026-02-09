@@ -35,9 +35,11 @@ use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
     DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
+    LightClientOptimisticUpdate, PayloadAttestationMessage, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -538,6 +540,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         aggregate,
                         indexed_attestation,
                         &self.chain.slot_clock,
+                        &self.chain.spec,
                     );
 
                 metrics::inc_counter(
@@ -606,7 +609,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index()),
     )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
@@ -618,7 +621,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let slot = column_sidecar.slot();
         let block_root = column_sidecar.block_root();
-        let index = column_sidecar.index;
+        let index = *column_sidecar.index();
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
@@ -664,6 +667,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
+                    GossipDataColumnError::InvalidVariant => {
+                        // TODO(gloas) we should probably penalize the peer here
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Invalid gossip data column variant."
+                        )
+                    }
                     GossipDataColumnError::PriorKnownUnpublished => {
                         debug!(
                             %slot,
@@ -798,7 +810,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(gossip_verified_blob) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
 
-                if delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                if delay >= self.chain.spec.get_unaggregated_attestation_due() {
                     metrics::inc_counter(&metrics::BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?gossip_verified_blob.block_root(),
@@ -1226,7 +1238,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let verified_block = match verification_result {
             Ok(verified_block) => {
-                if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                if block_delay >= self.chain.spec.get_unaggregated_attestation_due() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?verified_block.block_root,
@@ -1903,6 +1915,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 seen_timestamp,
                 sync_signature.sync_message(),
                 &self.chain.slot_clock,
+                &self.chain.spec,
             );
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL);
@@ -1965,6 +1978,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 sync_contribution.aggregate(),
                 sync_contribution.participant_pubkeys(),
                 &self.chain.slot_clock,
+                &self.chain.spec,
             );
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_VERIFIED_TOTAL);
 
@@ -3211,5 +3225,86 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             write_file(block_path, &block.as_ssz_bytes());
             write_file(error_path, error.to_string().as_bytes());
         }
+    }
+
+    pub async fn process_gossip_execution_payload(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload: SignedExecutionPayloadEnvelope<T::EthSpec>,
+    ) {
+        // TODO(EIP-7732): Implement proper execution payload envelope gossip processing.
+        // This should integrate with the envelope_verification.rs module once it's implemented.
+
+        trace!(
+            %peer_id,
+            builder_index = execution_payload.message.builder_index,
+            slot = %execution_payload.message.slot,
+            beacon_block_root = %execution_payload.message.beacon_block_root,
+            "Processing execution payload envelope"
+        );
+
+        // For now, ignore all envelopes since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    }
+
+    pub fn process_gossip_execution_payload_bid(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        payload_bid: SignedExecutionPayloadBid,
+    ) {
+        // TODO(EIP-7732): Implement proper payload bid gossip processing.
+        // This should integrate with a payload execution bid verification module once it's implemented.
+
+        trace!(
+            %peer_id,
+            slot = %payload_bid.message.slot,
+            value = %payload_bid.message.value,
+            "Processing execution payload bid"
+        );
+
+        // For now, ignore all payload bids since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    }
+
+    pub fn process_gossip_payload_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        payload_attestation_message: PayloadAttestationMessage,
+    ) {
+        // TODO(EIP-7732): Implement proper payload attestation message gossip processing.
+        // This should integrate with a payload_attestation_verification.rs module once it's implemented.
+
+        trace!(
+            %peer_id,
+            validator_index = payload_attestation_message.validator_index,
+            slot = %payload_attestation_message.data.slot,
+            beacon_block_root = %payload_attestation_message.data.beacon_block_root,
+            "Processing payload attestation message"
+        );
+
+        // For now, ignore all payload attestation messages since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    }
+
+    pub fn process_gossip_proposer_preferences(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_preferences: SignedProposerPreferences,
+    ) {
+        // TODO(EIP-7732): Implement proper proposer preferences gossip processing.
+
+        trace!(
+            %peer_id,
+            validator_index = proposer_preferences.message.validator_index,
+            slot = %proposer_preferences.message.proposal_slot,
+            "Processing proposer preferences"
+        );
+
+        // For now, ignore all proposer preferences since verification is not implemented
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
     }
 }

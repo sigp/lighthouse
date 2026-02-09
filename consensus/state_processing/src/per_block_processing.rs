@@ -510,7 +510,7 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 ) -> Result<u64, ArithError> {
     let slots_since_genesis = block_slot.as_u64().safe_sub(spec.genesis_slot.as_u64())?;
     slots_since_genesis
-        .safe_mul(spec.seconds_per_slot)
+        .safe_mul(spec.get_slot_duration().as_secs())
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }
 

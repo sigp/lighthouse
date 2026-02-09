@@ -8,7 +8,7 @@ authors = [
 edition = { workspace = true }
 
 [features]
-default = ["sqlite", "legacy-arith"]
+default = ["legacy-arith"]
 # Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
 legacy-arith = []
 sqlite = ["dep:rusqlite"]

@@ -8,7 +8,6 @@ use crate::sync::{
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
-use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
@@ -298,7 +297,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             && current_slot == slot
         {
             // Note: this metric is useful to gauge how long it takes to receive blobs requested
-            // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
+            // over rpc. Since we always send the request for block components at `get_unaggregated_attestation_due() / 2`
             // we can use that as a baseline to measure against.
             let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
 
@@ -369,7 +368,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
         }
 
-        let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();
+        let mut indices = custody_columns
+            .iter()
+            .map(|d| *d.index())
+            .collect::<Vec<_>>();
         indices.sort_unstable();
         debug!(
             ?indices,
@@ -717,18 +719,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = match self
+        let mut available_blocks = vec![];
+
+        for downloaded_block in downloaded_blocks {
+            match downloaded_block {
+                RpcBlock::FullyAvailable(available_block) => available_blocks.push(available_block),
+                RpcBlock::BlockOnly { .. } => return (
+                    0,
+                    Err(ChainSegmentFailed {
+                        peer_action: None,
+                        message: "Invalid downloaded_blocks segment. All downloaded blocks must be fully available".to_string()
+                    })
+                ),
+            }
+        }
+
+        match self
             .chain
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(downloaded_blocks)
+            .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
-            Ok(blocks) => blocks
-                .into_iter()
-                .filter_map(|maybe_available| match maybe_available {
-                    MaybeAvailableBlock::Available(block) => Some(block),
-                    MaybeAvailableBlock::AvailabilityPending { .. } => None,
-                })
-                .collect::<Vec<_>>(),
+            Ok(()) => {}
             Err(e) => match e {
                 AvailabilityCheckError::StoreError(_) => {
                     return (

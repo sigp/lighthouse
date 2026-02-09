@@ -8,15 +8,15 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
-use ssz_types::{RuntimeVariableList, VariableList};
+use ssz_types::RuntimeVariableList;
 use tree_hash::TreeHash;
 
 use crate::{
+    consts::bellatrix::BASIS_POINTS,
     core::{
         APPLICATION_DOMAIN_BUILDER, Address, ApplicationDomain, EnrForkId, Epoch, EthSpec,
         EthSpecId, ExecutionBlockHash, Hash256, MainnetEthSpec, Slot, Uint256,
     },
-    data::{BlobIdentifier, DataColumnSubnetId, DataColumnsByRootIdentifier},
     fork::{Fork, ForkData, ForkName},
 };
 
@@ -96,8 +96,10 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub genesis_delay: u64,
+    // TODO deprecate seconds_per_slot
     pub seconds_per_slot: u64,
-    pub slot_duration_ms: u64,
+    // Private so that this value can't get changed except via the `set_slot_duration_ms` function.
+    slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
@@ -109,6 +111,14 @@ pub struct ChainSpec {
     pub aggregate_due_bps: u64,
     pub sync_message_due_bps: u64,
     pub contribution_due_bps: u64,
+
+    /*
+     * Derived time values (computed at startup via `compute_derived_values()`)
+     */
+    pub unaggregated_attestation_due: Duration,
+    pub aggregate_attestation_due: Duration,
+    pub sync_message_due: Duration,
+    pub contribution_and_proof_due: Duration,
 
     /*
      * Reward and penalty quotients
@@ -823,10 +833,6 @@ impl ChainSpec {
         }
     }
 
-    pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
-        (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
-    }
-
     /// Worst-case compressed length for a given payload of size n when using snappy.
     ///
     /// https://github.com/google/snappy/blob/32ded457c0b1fe78ceb8397632c416568d6714a0/snappy.cc#L218C1-L218C47
@@ -854,6 +860,110 @@ impl ChainSpec {
             //1MB
             1024 * 1024,
         )
+    }
+
+    /// Get the duration into a slot in which an unaggregated attestation is due.
+    /// Returns the pre-computed value from `compute_derived_values()`.
+    pub fn get_unaggregated_attestation_due(&self) -> Duration {
+        self.unaggregated_attestation_due
+    }
+
+    /// Get the duration into a slot in which an aggregated attestation is due.
+    /// Returns the pre-computed value from `compute_derived_values()`.
+    pub fn get_aggregate_attestation_due(&self) -> Duration {
+        self.aggregate_attestation_due
+    }
+
+    /// Get the duration into a slot in which a `SignedContributionAndProof` is due.
+    /// Returns the pre-computed value from `compute_derived_values()`.
+    pub fn get_contribution_message_due(&self) -> Duration {
+        self.contribution_and_proof_due
+    }
+
+    /// Get the duration into a slot in which a sync committee message is due.
+    /// Returns the pre-computed value from `compute_derived_values()`.
+    pub fn get_sync_message_due(&self) -> Duration {
+        self.sync_message_due
+    }
+
+    /// Calculate the duration into a slot for a given slot component
+    fn compute_slot_component_duration(
+        &self,
+        component_basis_points: u64,
+    ) -> Result<Duration, ArithError> {
+        Ok(Duration::from_millis(
+            component_basis_points
+                .safe_mul(self.slot_duration_ms)?
+                .safe_div(BASIS_POINTS)?,
+        ))
+    }
+
+    /// Get the duration of a slot
+    pub fn get_slot_duration(&self) -> Duration {
+        Duration::from_millis(self.slot_duration_ms)
+    }
+
+    /// Set the duration of a slot (in ms).
+    pub fn set_slot_duration_ms<E: EthSpec>(mut self, slot_duration_ms: u64) -> Self {
+        self.slot_duration_ms = slot_duration_ms;
+        self.compute_derived_values::<E>()
+    }
+
+    /// Compute values that are derived from other config values.
+    ///
+    /// Must be called after loading or modifying a ChainSpec's fields.
+    ///
+    /// Panics if any computation fails (indicates invalid config).
+    pub fn compute_derived_values<E: EthSpec>(mut self) -> Self {
+        assert!(
+            self.attestation_due_bps <= BASIS_POINTS,
+            "invalid chain spec: attestation_due_bps ({}) exceeds slot duration",
+            self.attestation_due_bps
+        );
+        assert!(
+            self.aggregate_due_bps <= BASIS_POINTS,
+            "invalid chain spec: aggregate_due_bps ({}) exceeds slot duration",
+            self.aggregate_due_bps
+        );
+        assert!(
+            self.sync_message_due_bps <= BASIS_POINTS,
+            "invalid chain spec: sync_message_due_bps ({}) exceeds slot duration",
+            self.sync_message_due_bps
+        );
+        assert!(
+            self.contribution_due_bps <= BASIS_POINTS,
+            "invalid chain spec: contribution_due_bps ({}) exceeds slot duration",
+            self.contribution_due_bps
+        );
+
+        self.unaggregated_attestation_due = self
+            .compute_slot_component_duration(self.attestation_due_bps)
+            .expect("invalid chain spec: cannot compute unaggregated_attestation_due");
+        self.aggregate_attestation_due = self
+            .compute_slot_component_duration(self.aggregate_due_bps)
+            .expect("invalid chain spec: cannot compute aggregate_attestation_due");
+        self.sync_message_due = self
+            .compute_slot_component_duration(self.sync_message_due_bps)
+            .expect("invalid chain spec: cannot compute sync_message_due");
+        self.contribution_and_proof_due = self
+            .compute_slot_component_duration(self.contribution_due_bps)
+            .expect("invalid chain spec: cannot compute contribution_and_proof_due");
+
+        self.attestation_subnet_prefix_bits = compute_attestation_subnet_prefix_bits(
+            self.attestation_subnet_count,
+            self.attestation_subnet_extra_bits,
+        );
+
+        self.max_blocks_by_root_request =
+            max_blocks_by_root_request_common(self.max_request_blocks);
+        self.max_blocks_by_root_request_deneb =
+            max_blocks_by_root_request_common(self.max_request_blocks_deneb);
+        self.max_blobs_by_root_request =
+            max_blobs_by_root_request_common(self.max_request_blob_sidecars);
+        self.max_data_columns_by_root_request =
+            max_data_columns_by_root_request_common::<E>(self.max_request_blocks_deneb);
+
+        self
     }
 
     /// Returns the slot at which the proposer shuffling was decided.
@@ -960,6 +1070,14 @@ impl ChainSpec {
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
+
+            /*
+             * Derived time values (set by `compute_derived_values()`)
+             */
+            unaggregated_attestation_due: Duration::from_millis(3999),
+            aggregate_attestation_due: Duration::from_millis(8000),
+            sync_message_due: Duration::from_millis(3999),
+            contribution_and_proof_due: Duration::from_millis(8000),
 
             /*
              * Reward and penalty quotients
@@ -1206,6 +1324,7 @@ impl ChainSpec {
             shard_committee_period: 64,
             genesis_delay: 300,
             seconds_per_slot: 6,
+            slot_duration_ms: 6000,
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
@@ -1250,6 +1369,16 @@ impl ChainSpec {
             // Gloas
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
+
+            /*
+             * Derived time values (set by `compute_derived_values()`)
+             * Precomputed for 6000ms slot: 3333 bps = 1999ms, 6667 bps = 4000ms
+             */
+            unaggregated_attestation_due: Duration::from_millis(1999),
+            aggregate_attestation_due: Duration::from_millis(4000),
+            sync_message_due: Duration::from_millis(1999),
+            contribution_and_proof_due: Duration::from_millis(4000),
+
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1333,8 +1462,15 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             aggregate_due_bps: 6667,
-            sync_message_due_bps: 3333,
-            contribution_due_bps: 6667,
+
+            /*
+             * Derived time values (set by `compute_derived_values()`)
+             * Precomputed for 5000ms slot: 3333 bps = 1666ms, 6667 bps = 3333ms
+             */
+            unaggregated_attestation_due: Duration::from_millis(1666),
+            aggregate_attestation_due: Duration::from_millis(3333),
+            sync_message_due: Duration::from_millis(1666),
+            contribution_and_proof_due: Duration::from_millis(3333),
 
             /*
              * Reward and penalty quotients
@@ -1403,6 +1539,8 @@ impl ChainSpec {
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
             altair_fork_epoch: Some(Epoch::new(512)),
+            sync_message_due_bps: 3333,
+            contribution_due_bps: 6667,
 
             /*
              * Bellatrix hard fork params
@@ -1759,6 +1897,9 @@ pub struct Config {
 
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slot_duration_ms: Option<MaybeQuoted<u64>>,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1894,6 +2035,22 @@ pub struct Config {
     #[serde(default = "default_min_epochs_for_data_column_sidecars_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_data_column_sidecars_requests: u64,
+
+    #[serde(default = "default_proposer_reorg_cutoff_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    proposer_reorg_cutoff_bps: u64,
+    #[serde(default = "default_attestation_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_due_bps: u64,
+    #[serde(default = "default_aggregate_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    aggregate_due_bps: u64,
+    #[serde(default = "default_sync_message_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    sync_message_due_bps: u64,
+    #[serde(default = "default_contribution_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    contribution_due_bps: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2099,6 +2256,26 @@ const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
     4096
 }
 
+const fn default_proposer_reorg_cutoff_bps() -> u64 {
+    1667
+}
+
+const fn default_attestation_due_bps() -> u64 {
+    3333
+}
+
+const fn default_aggregate_due_bps() -> u64 {
+    6667
+}
+
+const fn default_sync_message_due_bps() -> u64 {
+    3333
+}
+
+const fn default_contribution_due_bps() -> u64 {
+    6667
+}
+
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::new(
@@ -2110,37 +2287,41 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     .len()
 }
 
-fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
-    let max_request_blob_sidecars = max_request_blob_sidecars as usize;
-    let empty_blob_identifier = BlobIdentifier {
-        block_root: Hash256::zero(),
-        index: 0,
-    };
+// Simplified function which precomputes the size of a `List` of `BlobIdentifiers`.
+pub(crate) fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
+    // BlobIdentifier is a fixed-size struct with two fields:
+    // - block_root: Hash256 (32 bytes)
+    // - index: u64 (8 bytes)
+    // Total per element: 32 + 8 = 40 bytes
+    // Since BlobIdentifier is fixed-size, the outer List does not add any byte overhead.
+    let blob_identifier_ssz_size = 40_usize;
 
-    RuntimeVariableList::<BlobIdentifier>::new(
-        vec![empty_blob_identifier; max_request_blob_sidecars],
-        max_request_blob_sidecars,
-    )
-    .expect("creating a RuntimeVariableList of size `max_request_blob_sidecars` should succeed")
-    .as_ssz_bytes()
-    .len()
+    (max_request_blob_sidecars as usize)
+        .safe_mul(blob_identifier_ssz_size)
+        .expect("should not overflow")
 }
 
-fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) -> usize {
-    let max_request_blocks = max_request_blocks as usize;
+// Simplified function which precomputes the size of a `List` of `DataColumnIdentifiers`.
+pub(crate) fn max_data_columns_by_root_request_common<E: EthSpec>(
+    max_request_blocks: u64,
+) -> usize {
+    // DataColumnsByRootIdentifier is a variable-size struct with two fields:
+    // - block_root: Hash256 (32 bytes)
+    // - columns: List<ColumnIndex, NumberOfColumns> (4 byte offset + n × 8 bytes)
+    // Since DataColumnsByRootIdentifier is variable-size, the outer List adds a
+    // 4-byte offset per element.
+    // Total per element: 4 (outer offset) + 32 (block_root) + 4 (columns offset) + n × 8
+    let column_index_ssz_size = 8_usize;
+    let ssz_fixed_size = 40_usize;
 
-    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
-        block_root: Hash256::zero(),
-        columns: VariableList::repeat_full(0),
-    };
+    let data_columns_by_root_identifier_ssz_size = column_index_ssz_size
+        .safe_mul(E::number_of_columns())
+        .and_then(|b| b.safe_add(ssz_fixed_size))
+        .expect("should not overflow");
 
-    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
-        vec![empty_data_columns_by_root_id; max_request_blocks],
-        max_request_blocks,
-    )
-    .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
-    .as_ssz_bytes()
-    .len()
+    (max_request_blocks as usize)
+        .safe_mul(data_columns_by_root_identifier_ssz_size)
+        .expect("should not overflow")
 }
 
 fn default_max_blocks_by_root_request() -> usize {
@@ -2258,6 +2439,9 @@ impl Config {
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
+            slot_duration_ms: Some(MaybeQuoted {
+                value: spec.slot_duration_ms,
+            }),
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
@@ -2314,6 +2498,12 @@ impl Config {
             balance_per_additional_custody_group: spec.balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests: spec
                 .min_epochs_for_data_column_sidecars_requests,
+
+            proposer_reorg_cutoff_bps: spec.proposer_reorg_cutoff_bps,
+            attestation_due_bps: spec.attestation_due_bps,
+            aggregate_due_bps: spec.aggregate_due_bps,
+            sync_message_due_bps: spec.sync_message_due_bps,
+            contribution_due_bps: spec.contribution_due_bps,
         }
     }
 
@@ -2351,6 +2541,7 @@ impl Config {
             gloas_fork_version,
             gloas_fork_epoch,
             seconds_per_slot,
+            slot_duration_ms,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -2399,13 +2590,18 @@ impl Config {
             validator_custody_requirement,
             balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests,
+            proposer_reorg_cutoff_bps,
+            attestation_due_bps,
+            aggregate_due_bps,
+            sync_message_due_bps,
+            contribution_due_bps,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
             return None;
         }
 
-        Some(ChainSpec {
+        let spec = ChainSpec {
             config_name: config_name.clone(),
             min_genesis_active_validator_count,
             min_genesis_time,
@@ -2426,6 +2622,9 @@ impl Config {
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             seconds_per_slot,
+            slot_duration_ms: slot_duration_ms
+                .map(|q| q.value)
+                .unwrap_or_else(|| seconds_per_slot.saturating_mul(1000)),
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -2454,11 +2653,6 @@ impl Config {
             resp_timeout,
             message_domain_invalid_snappy,
             message_domain_valid_snappy,
-            // Compute attestation_subnet_prefix_bits dynamically
-            attestation_subnet_prefix_bits: compute_attestation_subnet_prefix_bits(
-                attestation_subnet_count,
-                attestation_subnet_extra_bits,
-            ),
             max_request_blocks,
             attestation_propagation_slot_range,
             maximum_gossip_clock_disparity,
@@ -2475,16 +2669,6 @@ impl Config {
             max_request_blob_sidecars_electra,
             blob_sidecar_subnet_count_electra,
 
-            // We need to re-derive any values that might have changed in the config.
-            max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
-            max_blocks_by_root_request_deneb: max_blocks_by_root_request_common(
-                max_request_blocks_deneb,
-            ),
-            max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
-            max_data_columns_by_root_request: max_data_columns_by_root_request_common::<E>(
-                max_request_blocks_deneb,
-            ),
-
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
             samples_per_slot,
@@ -2494,8 +2678,15 @@ impl Config {
             balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests,
 
+            proposer_reorg_cutoff_bps,
+            attestation_due_bps,
+            aggregate_due_bps,
+            sync_message_due_bps,
+            contribution_due_bps,
+
             ..chain_spec.clone()
-        })
+        };
+        Some(spec.compute_derived_values::<E>())
     }
 }
 
@@ -2699,6 +2890,7 @@ mod yaml_tests {
         GENESIS_FORK_VERSION: 0x10355025
         GENESIS_DELAY: 60
         SECONDS_PER_SLOT: 12
+        SLOT_DURATION_MS: 12000
         SECONDS_PER_ETH1_BLOCK: 12
         MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
         SHARD_COMMITTEE_PERIOD: 256
@@ -2851,6 +3043,7 @@ mod yaml_tests {
         GENESIS_FORK_VERSION: 0x10355025
         GENESIS_DELAY: 60
         SECONDS_PER_SLOT: 12
+        SLOT_DURATION_MS: 12000
         SECONDS_PER_ETH1_BLOCK: 12
         MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
         SHARD_COMMITTEE_PERIOD: 256
@@ -2966,6 +3159,7 @@ mod yaml_tests {
         SHARDING_FORK_VERSION: 0x03000000
         SHARDING_FORK_EPOCH: 18446744073709551615
         SECONDS_PER_SLOT: 12
+        SLOT_DURATION_MS: 12000
         SECONDS_PER_ETH1_BLOCK: 14
         MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
         SHARD_COMMITTEE_PERIOD: 256
@@ -3135,5 +3329,139 @@ mod yaml_tests {
                 (epoch - 1).start_slot(E::slots_per_epoch()) - 1
             );
         }
+    }
+
+    #[test]
+    fn test_slot_component_duration_calculations() {
+        let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
+
+        // Test unaggregated attestation (3333 bps = 33.33% of 12s = 4s)
+        let unagg_due = spec.get_unaggregated_attestation_due();
+        assert_eq!(unagg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
+
+        // Test aggregate attestation (6667 bps = 66.67% of 12s = 8s)
+        let agg_due = spec.get_aggregate_attestation_due();
+        assert_eq!(agg_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
+
+        // Test sync message (3333 bps = 33.33% of 12s = 4s)
+        let sync_msg_due = spec.get_sync_message_due();
+        assert_eq!(sync_msg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
+
+        // Test contribution message (6667 bps = 66.67% of 12s = 8s)
+        let contribution_due = spec.get_contribution_message_due();
+        assert_eq!(contribution_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
+
+        // Test slot duration
+        let slot_duration = spec.get_slot_duration();
+        assert_eq!(slot_duration, Duration::from_millis(12000));
+        assert_eq!(slot_duration, Duration::from_secs(spec.seconds_per_slot));
+
+        // Test edge cases with custom spec
+        let mut custom_spec = spec.clone();
+
+        // Edge case: 0 bps should give 0 duration
+        custom_spec.attestation_due_bps = 0;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        let zero_due = custom_spec.get_unaggregated_attestation_due();
+        assert_eq!(zero_due, Duration::from_millis(0));
+
+        // Edge case: 10000 bps (100%) should give full slot duration
+        let mut custom_spec = custom_spec;
+        custom_spec.attestation_due_bps = 10_000;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        let full_due = custom_spec.get_unaggregated_attestation_due();
+        assert_eq!(full_due, Duration::from_millis(12000));
+
+        // Edge case: 5000 bps (50%) should give half slot duration
+        let mut custom_spec = custom_spec;
+        custom_spec.attestation_due_bps = 5_000;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        let half_due = custom_spec.get_unaggregated_attestation_due();
+        assert_eq!(half_due, Duration::from_millis(6000));
+
+        // Test with different slot duration (Gnosis: 5s slots)
+        let mut custom_spec = custom_spec;
+        custom_spec.slot_duration_ms = 5000;
+        custom_spec.attestation_due_bps = 3333;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        let gnosis_due = custom_spec.get_unaggregated_attestation_due();
+        assert_eq!(gnosis_due, Duration::from_millis(1666)); // 5000 * 3333 / 10000
+
+        // Test with very small slot duration
+        let mut custom_spec = custom_spec;
+        custom_spec.slot_duration_ms = 1000; // 1 second
+        custom_spec.attestation_due_bps = 3333;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        let small_due = custom_spec.get_unaggregated_attestation_due();
+        assert_eq!(small_due, Duration::from_millis(333)); // 1000 * 3333 / 10000
+
+        // Test rounding behavior with non-divisible values
+        let mut custom_spec = custom_spec;
+        custom_spec.slot_duration_ms = 12000;
+        custom_spec.attestation_due_bps = 1; // 0.01%
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        let tiny_due = custom_spec.get_unaggregated_attestation_due();
+        assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
+    }
+
+    #[test]
+    fn test_default_duration_values_without_compute_derived_values() {
+        // Verify that mainnet, minimal, and gnosis have correct pre-computed defaults
+        // without needing to call compute_derived_values()
+        let mainnet = ChainSpec::mainnet();
+        assert_eq!(
+            mainnet.get_unaggregated_attestation_due(),
+            Duration::from_millis(3999)
+        );
+        assert_eq!(
+            mainnet.get_aggregate_attestation_due(),
+            Duration::from_millis(8000)
+        );
+        assert_eq!(mainnet.get_sync_message_due(), Duration::from_millis(3999));
+        assert_eq!(
+            mainnet.get_contribution_message_due(),
+            Duration::from_millis(8000)
+        );
+
+        // Minimal spec: 6000ms slots, 3333 bps = 1999ms, 6667 bps = 4000ms
+        let minimal = ChainSpec::minimal();
+        assert_eq!(
+            minimal.get_unaggregated_attestation_due(),
+            Duration::from_millis(1999)
+        );
+        assert_eq!(
+            minimal.get_aggregate_attestation_due(),
+            Duration::from_millis(4000)
+        );
+        assert_eq!(minimal.get_sync_message_due(), Duration::from_millis(1999));
+        assert_eq!(
+            minimal.get_contribution_message_due(),
+            Duration::from_millis(4000)
+        );
+
+        // Gnosis spec: 5000ms slots, 3333 bps = 1666ms, 6667 bps = 3333ms
+        let gnosis = ChainSpec::gnosis();
+        assert_eq!(
+            gnosis.get_unaggregated_attestation_due(),
+            Duration::from_millis(1666)
+        );
+        assert_eq!(
+            gnosis.get_aggregate_attestation_due(),
+            Duration::from_millis(3333)
+        );
+        assert_eq!(gnosis.get_sync_message_due(), Duration::from_millis(1666));
+        assert_eq!(
+            gnosis.get_contribution_message_due(),
+            Duration::from_millis(3333)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds slot duration")]
+    fn test_compute_derived_values_panics_on_invalid_bps_values() {
+        let mut spec = ChainSpec::mainnet();
+        // 15000 bps = 150% of slot duration, which is invalid
+        spec.attestation_due_bps = 15000;
+        spec.compute_derived_values::<MainnetEthSpec>();
     }
 }

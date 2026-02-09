@@ -21,7 +21,6 @@ use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
-use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -314,9 +313,19 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 slot = %block.slot(),
                 "Block previously seen"
             );
+            let Ok(rpc_block) = RpcBlock::new(
+                block.clone(),
+                None,
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            ) else {
+                return Err(warp_utils::reject::custom_bad_request(
+                    "Unable to construct rpc block".to_string(),
+                ));
+            };
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
@@ -514,14 +523,14 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         data_column_sidecars.shuffle(&mut **chain.rng.lock());
         let dropped_indices = data_column_sidecars
             .drain(columns_to_keep..)
-            .map(|d| d.index)
+            .map(|d| *d.index())
             .collect::<Vec<_>>();
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
     let pubsub_messages = data_column_sidecars
         .into_iter()
         .map(|data_col| {
-            let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
+            let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
             PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col)))
         })
         .collect::<Vec<_>>();
@@ -761,7 +770,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     //
     // Check to see the thresholds are non-zero to avoid logging errors with small
     // slot times (e.g., during testing)
-    let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
+    let too_late_threshold = chain.spec.get_unaggregated_attestation_due();
     let delayed_threshold = too_late_threshold / 2;
     if delay >= too_late_threshold {
         error!(
