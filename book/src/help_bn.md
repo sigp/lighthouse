@@ -225,7 +225,7 @@ Options:
           be careful to avoid filling up their disks.
       --libp2p-addresses <MULTIADDR>
           One or more comma-delimited multiaddrs to manually connect to a libp2p
-          peer without an ENR. DEPRECATED. The --libp2p-nodes flag is deprecated
+          peer without an ENR. DEPRECATED. The --libp2p-addresses flag is deprecated
           and replaced by --boot-nodes
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
