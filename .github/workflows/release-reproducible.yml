@@ -101,7 +101,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           export GPG_TTY=$(tty)
-          echo -n "$GPG_SIGNING_KEY" | base64 --decode | gpg --batch --import
+          echo -n "$GPG_SIGNING_KEY" | gpg --batch --import
           
           VERSION=${{ needs.check-both-workflows.outputs.version }}
           ARCH_SHORT=$(echo "${{ matrix.rust_target }}" | cut -d'-' -f1)

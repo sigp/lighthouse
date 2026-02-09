@@ -105,7 +105,7 @@ LOCALE_VAL = C
 TZ_VAL = UTC
 
 # Features for reproducible builds
-FEATURES_REPRODUCIBLE = $(CROSS_FEATURES),jemalloc-unprefixed
+FEATURES_REPRODUCIBLE = $(CROSS_FEATURES),jemalloc-unprefixed,portable
 
 # Derive the architecture-specific library path from RUST_TARGET
 JEMALLOC_LIB_ARCH = $(word 1,$(subst -, ,$(RUST_TARGET)))
@@ -392,7 +392,7 @@ help-deb: ## Show help for debian packaging
 	@echo "  clean-deb              - Clean up packaging artifacts"
 	@echo ""
 	@echo "Prerequisites:"
-	@echo "  - lighthouse/lighthouse.service file"  
+	@echo "  - lighthouse/debian/lighthouse.service file"
 	@echo "  - README.md file in current directory"
 	@echo ""
 	@echo "Quick start:"

@@ -9,8 +9,8 @@ DynamicUser=yes
 StateDirectory=lighthouse
 ExecStart=/usr/bin/lighthouse bn \
           --execution-endpoint http://localhost:8551 \
-          --execution-jwt-secret-key 0000000000000000000000000000000000000000000000000000000000000000
+          --execution-jwt /var/lib/lighthouse/jwt.hex \
           --datadir %S/lighthouse
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

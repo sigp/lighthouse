@@ -19,13 +19,9 @@ RUN make build-reproducible RUST_TARGET=${RUST_TARGET} && \
 RUN mv /app/target/${RUST_TARGET}/release/lighthouse /lighthouse && \
     mv /app/target/${RUST_TARGET}/debian/*.deb /lighthouse.deb
 
-# Artifacts stage for extracting files in CI/CD workflows
-FROM scratch AS artifacts
-COPY --from=builder /lighthouse /lighthouse
-COPY --from=builder /lighthouse.deb /lighthouse.deb
-
-# Create a minimal final image with just the binary
+# Create a minimal final image with just the binary and debian package
 FROM gcr.io/distroless/cc-debian12:nonroot-6755e21ccd99ddead6edc8106ba03888cbeed41a
 COPY --from=builder /lighthouse /lighthouse
+COPY --from=builder /lighthouse.deb /lighthouse.deb
 
 ENTRYPOINT [ "/lighthouse" ]
