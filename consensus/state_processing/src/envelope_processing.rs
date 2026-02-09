@@ -2,7 +2,8 @@ use crate::BlockProcessingError;
 use crate::VerifySignatures;
 use crate::per_block_processing::compute_timestamp_at_slot;
 use crate::per_block_processing::process_operations::{
-    process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
+    process_consolidation_requests, process_deposit_requests_post_gloas,
+    process_withdrawal_requests,
 };
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
@@ -221,7 +222,9 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
 
     // TODO(gloas): newPayload happens here in the spec, ensure we wire that up correctly
 
-    process_deposit_requests(state, &execution_requests.deposits, spec)?;
+    process_deposit_requests_post_gloas(state, &execution_requests.deposits, spec)?;
+
+    // TODO(gloas): gotta update these
     process_withdrawal_requests(state, &execution_requests.withdrawals, spec)?;
     process_consolidation_requests(state, &execution_requests.consolidations, spec)?;
 

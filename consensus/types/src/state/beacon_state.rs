@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -174,6 +174,8 @@ pub enum BeaconStateError {
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
     NonExecutionAddressWithdrawalCredential,
+    WithdrawalCredentialMissingVersion,
+    WithdrawalCredentialMissingAddress,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
     /// `Attestation.data.index` field is invalid in overloaded data index scenario.
@@ -1977,6 +1979,60 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         Ok(index)
+    }
+
+    /// Add a builder to the registry and return the builder index that was allocated for it.
+    pub fn add_builder_to_registry(
+        &mut self,
+        pubkey: PublicKeyBytes,
+        withdrawal_credentials: Hash256,
+        amount: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<BuilderIndex, BeaconStateError> {
+        // We are not yet using the spec's `set_or_append_list`, but could consider it if it crops
+        // up elsewhere. It has been retconned into the spec to support index reuse but so far
+        // index reuse is only relevant for builders.
+        let builder_index = self.get_index_for_new_builder()?;
+        let builders = self.builders_mut()?;
+
+        let version = *withdrawal_credentials
+            .as_slice()
+            .get(0)
+            .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
+        let execution_address = withdrawal_credentials
+            .as_slice()
+            .get(12..)
+            .and_then(|bytes| Address::try_from(bytes).ok())
+            .ok_or(BeaconStateError::WithdrawalCredentialMissingAddress)?;
+
+        let builder = Builder {
+            pubkey,
+            version,
+            execution_address,
+            balance: amount,
+            deposit_epoch: slot.epoch(E::slots_per_epoch()),
+            withdrawable_epoch: spec.far_future_epoch,
+        };
+
+        if builder_index == builders.len() as u64 {
+            builders.push(builder)?;
+        } else {
+            *builders
+                .get_mut(builder_index as usize)
+                .ok_or(BeaconStateError::UnknownBuilder(builder_index))? = builder;
+        }
+        Ok(builder_index)
+    }
+
+    pub fn get_index_for_new_builder(&self) -> Result<BuilderIndex, BeaconStateError> {
+        let current_epoch = self.current_epoch();
+        for (index, builder) in self.builders()?.iter().enumerate() {
+            if builder.withdrawable_epoch <= current_epoch && builder.balance == 0 {
+                return Ok(index as u64);
+            }
+        }
+        return Ok(self.builders()?.len() as u64);
     }
 
     /// Safe copy-on-write accessor for the `validators` list.

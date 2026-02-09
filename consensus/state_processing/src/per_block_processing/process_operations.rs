@@ -761,7 +761,7 @@ pub fn process_withdrawal_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests<E: EthSpec>(
+pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_requests: &[DepositRequest],
     spec: &ChainSpec,
@@ -785,6 +785,99 @@ pub fn process_deposit_requests<E: EthSpec>(
         }
     }
 
+    Ok(())
+}
+
+pub fn process_deposit_requests_post_gloas<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    deposit_requests: &[DepositRequest],
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    for request in deposit_requests {
+        process_deposit_request_post_gloas(state, request, spec)?;
+    }
+
+    Ok(())
+}
+
+pub fn process_deposit_request_post_gloas<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    deposit_request: &DepositRequest,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    // [New in Gloas:EIP7732]
+    // Regardless of the withdrawal credentials prefix, if a builder/validator
+    // already exists with this pubkey, apply the deposit to their balance
+    // TODO(gloas): this could be more efficient in the builder case
+    let builder_index = state
+        .builders()?
+        .iter()
+        .enumerate()
+        .find(|(i, builder)| builder.pubkey == deposit_request.pubkey);
+    let is_builder = builder_index.is_some();
+
+    let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
+    let is_validator = validator_index.is_some();
+
+    let is_builder_prefix =
+        is_builder_withdrawal_credential(&deposit_request.withdrawal_credentials, spec);
+
+    if is_builder || (is_builder_prefix && !is_validator) {
+        // Apply builder deposits immediately
+        apply_deposit_for_builder(
+            state,
+            deposit_request.pubkey,
+            deposit_request.withdrawal_credentials,
+            deposit_request.amount,
+            deposit_request.signature,
+            state.slot(),
+        )?;
+        return Ok(());
+    }
+
+    // Add validator deposits to the queue
+    state.pending_deposits_mut()?.push(PendingDeposit {
+        pubkey: deposit_request.pubkey,
+        withdrawal_credentials: deposit_request.withdrawal_credentials,
+        amount: deposit_request.amount,
+        signature: deposit_request.signature.clone(),
+        slot: state.slot(),
+    })?;
+
+    Ok(())
+}
+
+pub fn apply_deposit_for_builder<E: EthSpec>(
+    state: BeaconState,
+    builder_index_opt: Option<BuilderIndex>,
+    pubkey: PubkeyBytes,
+    withdrawal_credentials: Hash256,
+    amount: u64,
+    signature: SignatureBytes,
+    slot: Slot,
+) -> Result<(), BlockProcessingError> {
+    match builder_index_opt {
+        None => {
+            // Verify the deposit signature (proof of possession) which is not checked by the deposit contract
+            let deposit_data = DepositData {
+                pubkey,
+                withdrawal_credentials,
+                amount,
+                signature,
+            };
+            if is_valid_deposit_signature(&deposit_data, spec) {
+                add_builder_to_registry(state, pubkey, withdrawal_credentials, amount, slot, spec)?;
+            }
+        }
+        Some(builder_index) => {
+            state
+                .builders_mut()?
+                .get_mut(builder_index)
+                .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
+                .balance
+                .safe_add_assign(amount)?;
+        }
+    }
     Ok(())
 }
 
