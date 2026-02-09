@@ -1206,7 +1206,7 @@ pub fn set_network_config(
 
     // DEPRECATED: can be removed in v8.2.0./v9.0.0
     if let Some(libp2p_addresses_str) = cli_args.get_one::<String>("libp2p-addresses") {
-        warn!("The --libp2p-nodes flag is deprecated and replaced by --boot-nodes");
+        warn!("The --libp2p-addresses flag is deprecated and replaced by --boot-nodes");
         config.libp2p_nodes = libp2p_addresses_str
             .split(',')
             .map(|multiaddr| {
