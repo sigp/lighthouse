@@ -44,10 +44,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
-    seconds_per_slot: u64,
+    slot_duration: Duration,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_secs(seconds_per_slot);
-
     let speedo = Mutex::new(Speedo::default());
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
@@ -369,8 +367,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
                     Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
+                    Ok(ExecutionStatus::Valid(hash)) => {
+                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
+                        format!("{} (verified)", hash)
+                    }
                     Ok(ExecutionStatus::Optimistic(hash)) => {
+                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
@@ -564,8 +566,8 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
         // Find the first fork that is scheduled and close to happen
         if let Some(fork_epoch) = fork_epoch {
             let fork_slot = fork_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            let preparation_slots =
-                FORK_READINESS_PREPARATION_SECONDS / beacon_chain.spec.seconds_per_slot;
+            let preparation_slots = FORK_READINESS_PREPARATION_SECONDS
+                / beacon_chain.spec.get_slot_duration().as_secs();
             let in_fork_preparation_period = current_slot + preparation_slots > fork_slot;
             if in_fork_preparation_period {
                 return Some(*fork);

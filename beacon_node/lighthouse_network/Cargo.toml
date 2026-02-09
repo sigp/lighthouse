@@ -3,37 +3,37 @@ name = "lighthouse_network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
-
-[features]
-libp2p-websocket = []
+autotests = false
 
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
+bls = { workspace = true }
 bytes = { workspace = true }
 delay_map = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }
 discv5 = { workspace = true }
 either = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-gossipsub = { workspace = true }
 hex = { workspace = true }
+if-addrs = "0.14"
 itertools = { workspace = true }
-libp2p-mplex = "0.43"
+libp2p = { workspace = true }
+libp2p-mplex = { git = "https://github.com/libp2p/rust-libp2p.git" }
 lighthouse_version = { workspace = true }
-local-ip-address = "0.6"
 logging = { workspace = true }
 lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }
 parking_lot = { workspace = true }
-prometheus-client = "0.23.0"
+prometheus-client = "0.24.0"
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
@@ -48,30 +48,16 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
-
-[dependencies.libp2p]
-version = "0.56"
-default-features = false
-features = [
-    "identify",
-    "yamux",
-    "noise",
-    "dns",
-    "tcp",
-    "tokio",
-    "plaintext",
-    "secp256k1",
-    "macros",
-    "metrics",
-    "quic",
-    "upnp",
-]
 
 [dev-dependencies]
 async-channel = { workspace = true }
 logging = { workspace = true }
-quickcheck = { workspace = true }
-quickcheck_macros = { workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "lighthouse_network_tests"
+path = "tests/main.rs"

@@ -26,6 +26,7 @@ eth2_wallet = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
+fixed_bytes = { workspace = true }
 hex = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }

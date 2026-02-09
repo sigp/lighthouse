@@ -54,8 +54,6 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
-const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
-
 /// Compute attestation selection proofs this many slots before they are required.
 ///
 /// At start-up selection proofs will be computed with less lookahead out of necessity.
@@ -270,7 +268,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
             let i = x.0;
             let url = x.1;
-            let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+            let slot_duration = context.eth2_config.spec.get_slot_duration();
 
             let mut beacon_node_http_client_builder = ClientBuilder::new();
 
@@ -366,11 +364,22 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
         );
 
-        // Perform some potentially long-running initialization tasks.
-        let (genesis_time, genesis_validators_root) = tokio::select! {
-            tuple = init_from_beacon_node::<E>(&beacon_nodes, &proposer_nodes) => tuple?,
-            () = context.executor.exit() => return Err("Shutting down".to_string())
-        };
+        let (genesis_time, genesis_validators_root) =
+            if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {
+                let time = eth2_network_config
+                    .genesis_time::<E>()?
+                    .ok_or("no genesis time")?;
+                let root = eth2_network_config
+                    .genesis_validators_root::<E>()?
+                    .ok_or("no genesis validators root")?;
+                (time, root)
+            } else {
+                // Perform some potentially long-running initialization tasks.
+                tokio::select! {
+                    tuple = init_from_beacon_node::<E>(&beacon_nodes, &proposer_nodes) => tuple?,
+                    () = context.executor.exit() => return Err("Shutting down".to_string()),
+                }
+            };
 
         // Update the metrics server.
         if let Some(ctx) = &validator_metrics_ctx {
@@ -380,7 +389,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
+            context.eth2_config.spec.get_slot_duration(),
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
@@ -486,7 +495,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
             .graffiti(config.graffiti)
-            .graffiti_file(config.graffiti_file.clone());
+            .graffiti_file(config.graffiti_file.clone())
+            .graffiti_policy(config.graffiti_policy);
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
@@ -607,8 +617,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
                 doppelganger_service,
-                self.context
-                    .service_context(DOPPELGANGER_SERVICE_NAME.into()),
+                self.context.clone(),
                 self.validator_store.clone(),
                 self.duties_service.beacon_nodes.clone(),
                 self.duties_service.slot_clock.clone(),
@@ -618,7 +627,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             info!("Doppelganger protection disabled.")
         }
 
-        let context = self.context.service_context("notifier".into());
+        let context = self.context.clone();
         spawn_notifier(
             self.duties_service.clone(),
             context.executor,

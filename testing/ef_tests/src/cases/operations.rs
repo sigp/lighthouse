@@ -19,7 +19,7 @@ use state_processing::{
             altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
         },
-        process_sync_aggregate, process_withdrawals,
+        process_sync_aggregate, withdrawals,
     },
 };
 use std::fmt::Debug;
@@ -45,7 +45,7 @@ struct ExecutionMetadata {
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<E: EthSpec> {
-    payload: FullPayload<E>,
+    payload: Option<ExecutionPayload<E>>,
 }
 
 #[derive(Debug, Clone)]
@@ -307,6 +307,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Fulu => BeaconBlockBody::Fulu(<_>::from_ssz_bytes(bytes)?),
+                // TODO(EIP-7732): See if we need to handle Gloas here
                 _ => panic!(),
             })
         })
@@ -366,6 +367,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Fulu(inner.clone_as_blinded())
                 }
+                // TODO(EIP-7732): See if we need to handle Gloas here
                 _ => panic!(),
             })
         })
@@ -403,12 +405,17 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
-        })
-        .map(|payload| WithdrawalsPayload {
-            payload: payload.into(),
-        })
+        if fork_name.gloas_enabled() {
+            // No payload present or required for Gloas tests.
+            Ok(WithdrawalsPayload { payload: None })
+        } else {
+            ssz_decode_file_with(path, |bytes| {
+                ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
+            })
+            .map(|payload| WithdrawalsPayload {
+                payload: Some(payload),
+            })
+        }
     }
 
     fn apply_to(
@@ -417,7 +424,16 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
+        if state.fork_name_unchecked().gloas_enabled() {
+            withdrawals::gloas::process_withdrawals(state, spec)
+        } else {
+            let full_payload = FullPayload::from(self.payload.clone().unwrap());
+            withdrawals::capella_electra::process_withdrawals::<_, FullPayload<_>>(
+                state,
+                full_payload.to_ref(),
+                spec,
+            )
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use super::types::*;
 use crate::{Error, success_or_error};
+use bls::PublicKeyBytes;
 use reqwest::{
     IntoUrl,
     header::{HeaderMap, HeaderValue},

@@ -1,4 +1,5 @@
 use super::*;
+use beacon_chain::test_utils::generate_data_column_indices_rand_order;
 use beacon_chain::{
     BeaconChain,
     builder::{BeaconChainBuilder, Witness},
@@ -73,6 +74,9 @@ impl TestBeaconChain {
                     Duration::from_secs(recent_genesis_time()),
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
+                .ordered_custody_column_indices(generate_data_column_indices_rand_order::<
+                    MainnetEthSpec,
+                >())
                 .shutdown_sender(shutdown_tx)
                 .rng(Box::new(StdRng::seed_from_u64(42)))
                 .build()
