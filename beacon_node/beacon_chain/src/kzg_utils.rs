@@ -75,7 +75,21 @@ where
             proofs.push(Bytes48::from(proof));
         }
 
-        for &commitment in data_column.kzg_commitments() {
+        // In Gloas, commitments come from the block's ExecutionPayloadBid, not the sidecar.
+        // This function requires Fulu sidecars with embedded commitments.
+        let kzg_commitments = match data_column.as_ref() {
+            DataColumnSidecar::Fulu(dc) => &dc.kzg_commitments,
+            DataColumnSidecar::Gloas(_) => {
+                return Err((
+                    Some(col_index),
+                    KzgError::InconsistentArrayLength(
+                        "Gloas data columns require commitments from block".to_string(),
+                    ),
+                ));
+            }
+        };
+
+        for &commitment in kzg_commitments.iter() {
             commitments.push(Bytes48::from(commitment));
         }
 
@@ -209,7 +223,6 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
 
     if block.fork_name_unchecked().gloas_enabled() {
         build_data_column_sidecars_gloas(
-            kzg_commitments.clone(),
             signed_block_header.message.tree_hash_root(),
             block.slot(),
             blob_cells_and_proofs_vec,
@@ -321,7 +334,6 @@ pub(crate) fn build_data_column_sidecars_fulu<E: EthSpec>(
 }
 
 pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
-    kzg_commitments: KzgCommitments<E>,
     beacon_block_root: Hash256,
     slot: Slot,
     blob_cells_and_proofs_vec: Vec<CellsAndKzgProofs>,
@@ -374,7 +386,6 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
                     index: index as u64,
                     column: DataColumn::<E>::try_from(col)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    kzg_commitments: kzg_commitments.clone(),
                     kzg_proofs: VariableList::try_from(proofs)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                     beacon_block_root,
@@ -412,7 +423,12 @@ pub fn reconstruct_blobs<E: EthSpec>(
     let blob_indices: Vec<usize> = match blob_indices_opt {
         Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
         None => {
-            let num_of_blobs = first_data_column.kzg_commitments().len();
+            // TODO(gloas): support blob reconstruction for Gloas
+            // https://github.com/sigp/lighthouse/issues/7413
+            let num_of_blobs = first_data_column
+                .kzg_commitments()
+                .map_err(|_| "Gloas blob reconstruction not yet supported".to_string())?
+                .len();
             (0..num_of_blobs).collect()
         }
     };
@@ -497,7 +513,16 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             "data_columns should have at least one element".to_string(),
         ))?;
 
-    let num_of_blobs = first_data_column.kzg_commitments().len();
+    // TODO(gloas): support data column reconstruction for Gloas
+    // https://github.com/sigp/lighthouse/issues/7413
+    let num_of_blobs = first_data_column
+        .kzg_commitments()
+        .map_err(|_| {
+            KzgError::InconsistentArrayLength(
+                "Gloas data column reconstruction not yet supported".to_string(),
+            )
+        })?
+        .len();
 
     let blob_cells_and_proofs_vec = (0..num_of_blobs)
         .into_par_iter()
@@ -530,7 +555,6 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             .map_err(KzgError::ReconstructFailed)
         }
         DataColumnSidecar::Gloas(first_column) => build_data_column_sidecars_gloas(
-            first_column.kzg_commitments.clone(),
             first_column.beacon_block_root,
             first_column.slot,
             blob_cells_and_proofs_vec,
@@ -629,11 +653,14 @@ mod test {
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(*col_sidecar.index(), idx as u64);
 
-            assert_eq!(col_sidecar.kzg_commitments().len(), num_of_blobs);
+            assert_eq!(col_sidecar.kzg_commitments().unwrap().len(), num_of_blobs);
             assert_eq!(col_sidecar.column().len(), num_of_blobs);
             assert_eq!(col_sidecar.kzg_proofs().len(), num_of_blobs);
 
-            assert_eq!(col_sidecar.kzg_commitments().clone(), block_kzg_commitments);
+            assert_eq!(
+                col_sidecar.kzg_commitments().unwrap().clone(),
+                block_kzg_commitments
+            );
             assert_eq!(
                 col_sidecar
                     .kzg_commitments_inclusion_proof()

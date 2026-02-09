@@ -371,7 +371,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
     let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
     let withdrawals = if state.fork_name_unchecked().capella_enabled() {
-        Some(get_expected_withdrawals(state, spec)?.0.into())
+        Some(Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into())
     } else {
         None
     };
