@@ -16,7 +16,7 @@ use ssz_types::VariableList;
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, instrument};
 use types::data::ColumnIndex;
 use types::{
@@ -475,12 +475,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
             spec,
         )?;
 
-        // Use the maximum timestamp from the partial set for reconstructed columns
-        let seen_timestamp = partial_set_of_columns
-            .iter()
-            .map(|col| col.seen_timestamp)
-            .max()
-            .unwrap_or_default();
+        // Use the current time as the seen_timestamp for reconstructed columns
+        let seen_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0));
 
         Ok(all_data_columns
             .into_iter()
