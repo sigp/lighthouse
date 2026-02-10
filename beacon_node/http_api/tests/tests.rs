@@ -5989,26 +5989,26 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_global_validator_supply(self) -> Self {
+    pub async fn test_get_lighthouse_total_supply(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let state_opt = state_id
                 .state(&self.chain)
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let global_validator_supply = state_opt
+            let total_supply = state_opt
                 .as_ref()
                 .map(|state| state.balances().iter().sum::<u64>());
 
-            let api_global_validator_supply = self
+            let api_total_supply = self
                 .client
-                .get_global_validator_supply(state_id.0)
+                .get_total_supply(state_id.0)
                 .await
                 .unwrap()
                 .map(|res| res.data);
 
             assert_eq!(
-                global_validator_supply, api_global_validator_supply,
+                total_supply, api_total_supply,
                 "{:?}",
                 state_id
             );
@@ -7736,7 +7736,7 @@ async fn lighthouse_get_endpoints() {
         .await
         .test_get_lighthouse_staking()
         .await
-        .test_get_lighthouse_global_validator_supply()
+        .test_get_lighthouse_total_supply()
         .await;
 }
 

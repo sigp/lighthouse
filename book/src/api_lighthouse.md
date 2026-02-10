@@ -775,12 +775,12 @@ Caveats:
   This is because the state *prior* to the `start_epoch` needs to be loaded from the database, and
   loading a state on a boundary is most efficient.
 
-## `lighthouse/analysis/global_validator_supply/{state_root}`
+## `lighthouse/analysis/total_supply/{state_root}`
 
 Returns the sum of all validator balances for a given state root.
 
 ```bash
-curl -X GET "http://localhost:5052/lighthouse/analysis/global_validator_supply/0x7e76880eb67bbdc86250aa578958e9d0675e64e714337855204fb5abaaf82c2b" -H "accept: application/json" | jq
+curl -X GET "http://localhost:5052/lighthouse/analysis/total_supply/0x7e76880eb67bbdc86250aa578958e9d0675e64e714337855204fb5abaaf82c2b" -H "accept: application/json" | jq
 ```
 
 ```json

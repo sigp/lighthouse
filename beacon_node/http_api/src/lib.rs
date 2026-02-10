@@ -4697,10 +4697,10 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // GET lighthouse/analysis/global_validator_supply/{state_root}
-    let get_lighthouse_global_validator_supply = warp::path("lighthouse")
+    // GET lighthouse/analysis/total_supply/{state_root}
+    let get_lighthouse_total_supply = warp::path("lighthouse")
         .and(warp::path("analysis"))
-        .and(warp::path("global_validator_supply"))
+        .and(warp::path("total_supply"))
         .and(warp::path::param::<StateId>())
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
@@ -5002,7 +5002,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)
-                .uor(get_lighthouse_global_validator_supply)
+                .uor(get_lighthouse_total_supply)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
                 .uor(get_beacon_light_client_finality_update)
