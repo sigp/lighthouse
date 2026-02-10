@@ -892,14 +892,20 @@ where
             ConnectionEvent::ListenUpgradeError(ListenUpgradeError {
                 error: (proto, error),
                 ..
-            }) if matches!(error, RPCError::InvalidData(_)) => {
-                // Peer is not complying with the protocol. Notify the application and disconnect.
+            }) => {
+                if matches!(
+                    error,
+                    RPCError::InvalidData(_) | RPCError::SSZDecodeError(_)
+                ) {
+                    // Peer is not complying with the protocol.
+                    self.shutdown(None);
+                }
+
                 self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
                     id: self.current_inbound_substream_id,
                     proto,
                     error,
                 }));
-                self.shutdown(None);
             }
             _ => {
                 // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
