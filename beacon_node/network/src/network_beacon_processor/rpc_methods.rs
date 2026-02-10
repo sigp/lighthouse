@@ -506,7 +506,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             {
                 Ok(data_columns) => {
                     for index in requested_columns_we_custody {
-                        if let Some(data_column) = data_columns.iter().find(|c| *c.index() == index) {
+                        if let Some(data_column) = data_columns.iter().find(|c| *c.index() == index)
+                        {
                             self.send_response(
                                 peer_id,
                                 inbound_request_id,
