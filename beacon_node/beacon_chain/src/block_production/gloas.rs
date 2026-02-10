@@ -7,6 +7,7 @@ use execution_layer::{BlockProposalContentsType, BuilderParams};
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::get_attesting_indices_from_state;
+use state_processing::envelope_processing::{VerifyStateRoot, process_execution_payload_envelope};
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::verify_attestation_for_block_inclusion;
 use state_processing::{
@@ -24,7 +25,8 @@ use types::{
     BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope,
     ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti, Hash256, PayloadAttestation,
     ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedExecutionPayloadBid, SignedVoluntaryExit, Slot, SyncAggregate,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
+    SyncAggregate,
 };
 
 use crate::execution_payload::get_execution_payload;
@@ -60,7 +62,6 @@ pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub execution_requests: ExecutionRequests<E>,
     pub builder_index: BuilderIndex,
     pub slot: Slot,
-    pub state_root: Hash256,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -580,14 +581,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 builder_index: payload_data.builder_index,
                 beacon_block_root,
                 slot: payload_data.slot,
-                state_root: payload_data.state_root,
+                state_root: Hash256::ZERO,
             };
+
+            let mut signed_envelope = SignedExecutionPayloadEnvelope {
+                message: execution_payload_envelope,
+                signature: Signature::empty(),
+            };
+
+            // TODO(gloas) add better error variant
+            process_execution_payload_envelope(
+                &mut state,
+                None,
+                &signed_envelope,
+                VerifySignatures::False,
+                VerifyStateRoot::False,
+                &self.spec,
+            )
+            .map_err(|_| BlockProductionError::GloasNotImplemented)?;
+
+            signed_envelope.message.state_root = state.update_tree_hash_cache()?;
 
             // Cache the envelope for later retrieval by the validator for signing and publishing.
             let envelope_slot = payload_data.slot;
             self.pending_payload_envelopes
                 .write()
-                .insert(envelope_slot, execution_payload_envelope);
+                .insert(envelope_slot, signed_envelope.message);
 
             debug!(
                 %beacon_block_root,
@@ -710,7 +729,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
-
         // TODO(gloas) this is just a dummy error variant for now
         let execution_payload_gloas = execution_payload
             .as_gloas()
@@ -741,7 +759,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             execution_requests,
             builder_index,
             slot: produce_at_slot,
-            state_root,
         };
 
         // TODO(gloas) this is only local building
