@@ -92,10 +92,6 @@ jobs:
           bins: cargo-nextest
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
       run: make test-release
     - name: Show cache stats
@@ -213,10 +209,6 @@ jobs:
       with:
           channel: stable
           bins: cargo-nextest
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
@@ -324,9 +316,11 @@ jobs:
           channel: stable
           cache-target: release
           components: rustfmt,clippy
-          bins: cargo-audit
+          bins: cargo-audit,cargo-deny
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
+    - name: Check dependencies for unencrypted HTTP links
+      run: make insecure-deps
     - name: Lint code for quality and style with Clippy
       run: make lint-full
     - name: Certify Cargo.lock freshness
@@ -337,6 +331,8 @@ jobs:
       run:  make arbitrary-fuzz
     - name: Run cargo audit
       run: make audit-CI
+    - name: Run cargo deny
+      run: make deny-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
     - name: Markdown-linter

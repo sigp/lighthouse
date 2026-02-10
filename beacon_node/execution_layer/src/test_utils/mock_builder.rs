@@ -1,6 +1,8 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
+use bls::{PublicKeyBytes, SecretKey, Signature};
 use bytes::Bytes;
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::PublishBlockRequest;
 use eth2::types::{
     BlobsBundle, BlockId, BroadcastValidation, EndpointVersion, EventKind, EventTopic,
@@ -14,6 +16,7 @@ use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
+use ssz_types::VariableList;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -25,17 +28,16 @@ use tempfile::NamedTempFile;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
-use types::builder_bid::{
+use types::ExecutionBlockHash;
+use types::builder::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
-    BuilderBidFulu, BuilderBidGloas, SignedBuilderBid,
+    BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode,
-    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
-    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
+    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
-use types::{ExecutionBlockHash, SecretKey};
 use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
 
@@ -71,7 +73,7 @@ impl Operation {
     }
 }
 
-pub fn mock_builder_extra_data<E: EthSpec>() -> types::VariableList<u8, E::MaxExtraDataBytes> {
+pub fn mock_builder_extra_data<E: EthSpec>() -> VariableList<u8, E::MaxExtraDataBytes> {
     "mock_builder".as_bytes().to_vec().try_into().unwrap()
 }
 
@@ -115,9 +117,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.fee_recipient = fee_recipient;
             }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
-                header.fee_recipient = fee_recipient;
-            }
         }
     }
 
@@ -136,9 +135,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
-                header.gas_limit = gas_limit;
-            }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.gas_limit = gas_limit;
             }
         }
@@ -165,9 +161,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
-                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
-            }
         }
     }
 
@@ -186,9 +179,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
-                header.prev_randao = prev_randao;
-            }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.prev_randao = prev_randao;
             }
         }
@@ -211,9 +201,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.block_number = block_number;
             }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
-                header.block_number = block_number;
-            }
         }
     }
 
@@ -234,9 +221,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.timestamp = timestamp;
             }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
-                header.timestamp = timestamp;
-            }
         }
     }
 
@@ -255,9 +239,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.withdrawals_root = withdrawals_root;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
-                header.withdrawals_root = withdrawals_root;
-            }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
         }
@@ -290,10 +271,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
-                header.extra_data = extra_data;
-                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
-            }
-            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.extra_data = extra_data;
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }
@@ -494,8 +471,9 @@ impl<E: EthSpec> MockBuilder<E> {
             SignedBlindedBeaconBlock::Fulu(block) => {
                 block.message.body.execution_payload.tree_hash_root()
             }
-            SignedBlindedBeaconBlock::Gloas(block) => {
-                block.message.body.execution_payload.tree_hash_root()
+            SignedBlindedBeaconBlock::Gloas(_) => {
+                // TODO(EIP7732) Check if this is how we want to do error handling for gloas
+                return Err("invalid fork".to_string());
             }
         };
         let block_hash = block
@@ -611,18 +589,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 ) = payload_response.into();
 
                 match fork {
-                    ForkName::Gloas => BuilderBid::Gloas(BuilderBidGloas {
-                        header: payload
-                            .as_gloas()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments.clone())
-                            .unwrap_or_default(),
-                        value: self.get_bid_value(value),
-                        pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
-                    }),
+                    ForkName::Gloas => {
+                        // TODO(EIP7732) Check if this is how we want to do error handling for gloas
+                        return Err("invalid fork".to_string());
+                    }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
                         header: payload
                             .as_fulu()
@@ -890,7 +860,8 @@ impl<E: EthSpec> MockBuilder<E> {
                 .data
                 .genesis_time
         };
-        let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
+        let timestamp =
+            (slots_since_genesis * self.spec.get_slot_duration().as_secs()) + genesis_time;
 
         let head_state: BeaconState<E> = self
             .beacon_client

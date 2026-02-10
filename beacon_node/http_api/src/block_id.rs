@@ -2,16 +2,17 @@ use crate::version::inconsistent_fork_rejection;
 use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
 use eth2::types::{BlobIndicesQuery, BlobWrapper, BlobsVersionedHashesQuery};
+use fixed_bytes::FixedBytesExtended;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, UnversionedResponse,
-    beacon_response::ExecutionOptimisticFinalizedMetadata,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -280,7 +281,9 @@ impl BlockId {
             warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
         })?;
 
-        if !chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+        let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
+
+        if !fork_name.fulu_enabled() {
             return Err(warp_utils::reject::custom_bad_request(
                 "block is pre-Fulu and has no data columns".to_string(),
             ));
@@ -289,12 +292,12 @@ impl BlockId {
         let data_column_sidecars = if let Some(indices) = query.indices {
             indices
                 .iter()
-                .filter_map(|index| chain.get_data_column(&root, index).transpose())
+                .filter_map(|index| chain.get_data_column(&root, index, fork_name).transpose())
                 .collect::<Result<DataColumnSidecarList<T::EthSpec>, _>>()
                 .map_err(warp_utils::reject::unhandled_error)?
         } else {
             chain
-                .get_data_columns(&root)
+                .get_data_columns(&root, fork_name)
                 .map_err(warp_utils::reject::unhandled_error)?
                 .unwrap_or_default()
         };
@@ -461,17 +464,18 @@ impl BlockId {
         let num_found_column_keys = column_indices.len();
         let num_required_columns = T::EthSpec::number_of_columns() / 2;
         let is_blob_available = num_found_column_keys >= num_required_columns;
+        let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
 
         if is_blob_available {
             let data_columns = column_indices
                 .into_iter()
-                .filter_map(
-                    |column_index| match chain.get_data_column(&root, &column_index) {
+                .filter_map(|column_index| {
+                    match chain.get_data_column(&root, &column_index, fork_name) {
                         Ok(Some(data_column)) => Some(Ok(data_column)),
                         Ok(None) => None,
                         Err(e) => Some(Err(warp_utils::reject::unhandled_error(e))),
-                    },
-                )
+                    }
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
             reconstruct_blobs(&chain.kzg, data_columns, blob_indices, block, &chain.spec).map_err(
@@ -482,8 +486,9 @@ impl BlockId {
                 },
             )
         } else {
-            Err(warp_utils::reject::custom_server_error(format!(
-                "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found."
+            Err(warp_utils::reject::custom_bad_request(format!(
+                "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found. \
+                You may need to run the beacon node with --supernode or --semi-supernode."
             )))
         }
     }

@@ -11,6 +11,7 @@ use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueM
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
+use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
@@ -21,8 +22,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, ForkName,
-    Hash256, MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
 };
 
 type E = MainnetEthSpec;
@@ -60,7 +61,10 @@ async fn state_by_root_pruned_from_fork_choice() {
     type E = MinimalEthSpec;
 
     let validator_count = 24;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
+    // Issue is that this test does block production via `extend_chain_with_sync` which expects to be able to use `state.latest_execution_payload_header` during block production, but Gloas uses `latest_execution_bid` instead
+    // This will be resolved in a subsequent block processing PR
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
@@ -400,7 +404,10 @@ pub async fn proposer_boost_re_org_test(
     assert!(head_slot > 0);
 
     // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
+    // Issue is that `get_validator_blocks_v3` below expects to be able to use `state.latest_execution_payload_header` during `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload`, but gloas will no longer support this state field
+    // This will be resolved in a subsequent block processing PR
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = Uint256::from(1);
 
     // Ensure there are enough validators to have `attesters_per_slot`.
@@ -627,7 +634,7 @@ pub async fn proposer_boost_re_org_test(
     assert_eq!(state_b.slot(), slot_b);
     let pre_advance_withdrawals = get_expected_withdrawals(&state_b, &harness.chain.spec)
         .unwrap()
-        .0
+        .withdrawals()
         .to_vec();
     complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
 
@@ -639,7 +646,7 @@ pub async fn proposer_boost_re_org_test(
         .into();
     let (unsigned_block_type, _) = tester
         .client
-        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None)
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None, None)
         .await
         .unwrap();
 
@@ -717,7 +724,7 @@ pub async fn proposer_boost_re_org_test(
         get_expected_withdrawals(&state_b, &harness.chain.spec)
     }
     .unwrap()
-    .0
+    .withdrawals()
     .to_vec();
     let payload_attribs_withdrawals = payload_attribs.withdrawals().unwrap();
     assert_eq!(expected_withdrawals, *payload_attribs_withdrawals);

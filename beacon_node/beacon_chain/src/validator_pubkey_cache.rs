@@ -1,6 +1,8 @@
 use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
+use bls::{PublicKey, PublicKeyBytes};
+use fixed_bytes::FixedBytesExtended;
 use rayon::prelude::*;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
@@ -9,7 +11,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
 use tracing::instrument;
-use types::{BeaconState, FixedBytesExtended, Hash256, PublicKey, PublicKeyBytes};
+use types::{BeaconState, Hash256};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///
@@ -244,10 +246,11 @@ impl DatabasePubkey {
 mod test {
     use super::*;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use bls::Keypair;
     use logging::create_test_tracing_subscriber;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{EthSpec, Keypair, MainnetEthSpec};
+    use types::{EthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;

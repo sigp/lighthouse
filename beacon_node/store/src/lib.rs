@@ -8,8 +8,6 @@
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
 pub mod blob_sidecar_list_from_root;
-pub mod chunked_iter;
-pub mod chunked_vector;
 pub mod config;
 pub mod consensus_context;
 pub mod errors;
@@ -21,7 +19,6 @@ mod impls;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
@@ -241,12 +238,14 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
+    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope<E>>),
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
-    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>, ForkName),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeletePayloadEnvelope(Hash256),
     DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
@@ -317,6 +316,9 @@ pub enum DBColumn {
     /// Execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
+    /// Post-gloas execution payload envelopes.
+    #[strum(serialize = "pay")]
+    PayloadEnvelope,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -428,7 +430,8 @@ impl DBColumn {
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
             | Self::CustodyContext
-            | Self::OptimisticTransitionBlock => 32,
+            | Self::OptimisticTransitionBlock
+            | Self::PayloadEnvelope => 32,
             Self::BeaconBlockRoots
             | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked

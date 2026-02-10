@@ -2,6 +2,7 @@ use types::*;
 
 pub mod attesting_indices_base {
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
+    use ssz_types::{BitList, VariableList};
     use types::*;
 
     /// Convert `attestation` to (almost) indexed-verifiable form.
@@ -44,10 +45,10 @@ pub mod attesting_indices_base {
 }
 
 pub mod attesting_indices_electra {
-    use std::collections::HashSet;
-
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
     use safe_arith::SafeArith;
+    use ssz_types::{BitList, BitVector, VariableList};
+    use std::collections::HashSet;
     use types::*;
 
     /// Compute an Electra IndexedAttestation given a list of committees.
@@ -106,7 +107,7 @@ pub mod attesting_indices_electra {
         for committee_index in committee_indices {
             let beacon_committee = committees
                 .get(committee_index as usize)
-                .ok_or(Error::NoCommitteeFound(committee_index))?;
+                .ok_or(BeaconStateError::NoCommitteeFound(committee_index))?;
 
             // This check is new to the spec's `process_attestation` in Electra.
             if committee_index >= committee_count_per_slot {

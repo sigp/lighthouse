@@ -1,5 +1,6 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use bls::PublicKeyBytes;
 use eth2::types::BlockId;
 use futures::future::FutureExt;
 use futures::future::join_all;
@@ -13,8 +14,8 @@ use task_executor::TaskExecutor;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{
-    ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
-    SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
+    ChainSpec, EthSpec, Hash256, Slot, SyncCommitteeSubscription, SyncContributionData, SyncDuty,
+    SyncSelectionProof, SyncSubnetId,
 };
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
@@ -92,7 +93,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             return Ok(());
         }
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -105,18 +106,20 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let executor = self.executor.clone();
 
+        let sync_message_slot_component = spec.get_sync_message_due();
+
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     // Wait for contribution broadcast interval 1/3 of the way through the slot.
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    sleep(duration_to_next_slot + sync_message_slot_component).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
+                    if let Err(e) = self.spawn_contribution_tasks().await {
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
@@ -139,7 +142,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    async fn spawn_contribution_tasks(&self) -> Result<(), String> {
+        let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -150,7 +154,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // through the slot. This delay triggers at this time
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_sub(slot_duration / 3)
+                .checked_add(spec.get_contribution_message_due())
+                .and_then(|offset| offset.checked_sub(spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let Some(slot_duties) = self

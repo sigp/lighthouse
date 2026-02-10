@@ -2,7 +2,10 @@
 //! "fallback" behaviour; it will try a request on all of the nodes until one or none of them
 //! succeed.
 
+pub mod beacon_head_monitor;
 pub mod beacon_node_health;
+
+use beacon_head_monitor::{BeaconHeadCache, HeadEvent, poll_head_event_from_beacon_nodes};
 use beacon_node_health::{
     BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
     SyncDistanceTier, check_node_health,
@@ -20,9 +23,12 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
-use strum::EnumVariantNames;
+use strum::VariantNames;
 use task_executor::TaskExecutor;
-use tokio::{sync::RwLock, time::sleep};
+use tokio::{
+    sync::{RwLock, mpsc},
+    time::sleep,
+};
 use tracing::{debug, error, warn};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
 use validator_metrics::{ENDPOINT_ERRORS, ENDPOINT_REQUESTS, inc_counter_vec};
@@ -68,6 +74,31 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
         return Err("Cannot start fallback updater without slot clock");
     }
 
+    let beacon_nodes_ref = beacon_nodes.clone();
+
+    // the existence of head_monitor_send is overloaded with the predicate of
+    // requirement of starting the head monitoring service or not.
+    if beacon_nodes_ref.head_monitor_send.is_some() {
+        let head_monitor_future = async move {
+            loop {
+                if let Err(error) =
+                    poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await
+                {
+                    warn!(error, "Head service failed retrying starting next slot");
+
+                    let sleep_time = beacon_nodes_ref
+                        .slot_clock
+                        .as_ref()
+                        .and_then(|slot_clock| slot_clock.duration_to_next_slot())
+                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                    sleep(sleep_time).await
+                }
+            }
+        };
+
+        executor.spawn(head_monitor_future, "head_monitoring");
+    }
+
     let future = async move {
         loop {
             beacon_nodes.update_all_candidates::<E>().await;
@@ -96,12 +127,15 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 pub enum Error<T> {
     /// We attempted to contact the node but it failed.
     RequestFailed(T),
+    /// The beacon node with the requested index was not available.
+    CandidateIndexUnknown(usize),
 }
 
 impl<T> Error<T> {
     pub fn request_failure(&self) -> Option<&T> {
         match self {
             Error::RequestFailed(e) => Some(e),
+            Error::CandidateIndexUnknown(_) => None,
         }
     }
 }
@@ -380,6 +414,8 @@ pub struct BeaconNodeFallback<T> {
     pub candidates: Arc<RwLock<Vec<CandidateBeaconNode>>>,
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
+    beacon_head_cache: Option<Arc<BeaconHeadCache>>,
+    head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
 }
@@ -396,6 +432,8 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             candidates: Arc::new(RwLock::new(candidates)),
             distance_tiers,
             slot_clock: None,
+            beacon_head_cache: None,
+            head_monitor_send: None,
             broadcast_topics,
             spec,
         }
@@ -408,6 +446,15 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     /// from a beacon node.
     pub fn set_slot_clock(&mut self, slot_clock: T) {
         self.slot_clock = Some(slot_clock);
+    }
+
+    /// This the head monitor channel that streams events from all the beacon nodes that the
+    /// validator client is connected in the `BeaconNodeFallback`. This also initializes the
+    /// beacon_head_cache under the assumption the beacon_head_cache will always be needed when
+    /// head_monitor_send is set.
+    pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
+        self.head_monitor_send = Some(head_monitor_send);
+        self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
     }
 
     /// The count of candidates, regardless of their state.
@@ -476,9 +523,9 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         }
 
         let timeouts: Timeouts = if new_list.len() == 1 || use_long_timeouts {
-            Timeouts::set_all(Duration::from_secs(self.spec.seconds_per_slot))
+            Timeouts::set_all(self.spec.get_slot_duration())
         } else {
-            Timeouts::use_optimized_timeouts(Duration::from_secs(self.spec.seconds_per_slot))
+            Timeouts::use_optimized_timeouts(self.spec.get_slot_duration())
         };
 
         let new_candidates: Vec<CandidateBeaconNode> = new_list
@@ -492,6 +539,10 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
 
         let mut candidates = self.candidates.write().await;
         *candidates = new_candidates;
+
+        if let Some(cache) = &self.beacon_head_cache {
+            cache.purge_cache().await;
+        }
 
         Ok(new_list)
     }
@@ -646,6 +697,32 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         Err(Errors(errors))
     }
 
+    /// Try `func` on a specific beacon node by index.
+    ///
+    /// Returns immediately if the preferred node succeeds, otherwise return an error.
+    pub async fn run_on_candidate_index<F, O, Err, R>(
+        &self,
+        candidate_index: usize,
+        func: F,
+    ) -> Result<O, Error<Err>>
+    where
+        F: Fn(BeaconNodeHttpClient) -> R + Clone,
+        R: Future<Output = Result<O, Err>>,
+        Err: Debug,
+    {
+        // Find the requested beacon node or return an error.
+        let candidates = self.candidates.read().await;
+        let Some(candidate) = candidates.iter().find(|c| c.index == candidate_index) else {
+            return Err(Error::CandidateIndexUnknown(candidate_index));
+        };
+        let candidate_node = candidate.beacon_node.clone();
+        drop(candidates);
+
+        Self::run_on_candidate(candidate_node, &func)
+            .await
+            .map_err(|(_, err)| err)
+    }
+
     /// Run the future `func` on `candidate` while reporting metrics.
     async fn run_on_candidate<F, R, Err, O>(
         candidate: BeaconNodeHttpClient,
@@ -752,7 +829,7 @@ async fn sort_nodes_by_health(nodes: &mut Vec<CandidateBeaconNode>) {
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumVariantNames, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, VariantNames, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
     None,
@@ -773,12 +850,13 @@ impl ApiTopic {
 mod tests {
     use super::*;
     use crate::beacon_node_health::BeaconNodeHealthTier;
+    use bls::Signature;
     use eth2::SensitiveUrl;
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
     use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
-    use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
+    use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
     type E = MainnetEthSpec;
@@ -1071,5 +1149,61 @@ mod tests {
         // - which gives the third call because the function gives a second pass if no candidates succeeded in the first pass
         mock1.expect(3).assert();
         mock2.expect(3).assert();
+    }
+
+    #[tokio::test]
+    async fn run_on_candidate_index_success() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
+        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
+
+        let beacon_node_fallback = create_beacon_node_fallback(
+            vec![beacon_node_1, beacon_node_2, beacon_node_3],
+            vec![],
+            spec.clone(),
+        );
+
+        let mock1 = mock_beacon_node_1.mock_offline_node();
+        let _mock2 = mock_beacon_node_2.mock_online_node();
+        let mock3 = mock_beacon_node_3.mock_online_node();
+
+        // Request with preferred_index=1 (beacon_node_2)
+        let result = beacon_node_fallback
+            .run_on_candidate_index(1, |client| async move { client.get_node_version().await })
+            .await;
+
+        // Should succeed since beacon_node_2 is online
+        assert!(result.is_ok());
+
+        // mock1 should not be called since preferred node succeeds
+        mock1.expect(0).assert();
+        mock3.expect(0).assert();
+    }
+
+    #[tokio::test]
+    async fn run_on_candidate_index_error() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
+        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
+
+        let beacon_node_fallback = create_beacon_node_fallback(
+            vec![beacon_node_1, beacon_node_2, beacon_node_3],
+            vec![],
+            spec.clone(),
+        );
+
+        let _mock1 = mock_beacon_node_1.mock_online_node();
+        let _mock2 = mock_beacon_node_2.mock_offline_node();
+        let _mock3 = mock_beacon_node_3.mock_offline_node();
+
+        // Request with preferred_index=1 (beacon_node_2), but it's offline
+        let result = beacon_node_fallback
+            .run_on_candidate_index(1, |client| async move { client.get_node_version().await })
+            .await;
+
+        // Should fail.
+        assert!(result.is_err());
     }
 }
