@@ -636,7 +636,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     /// and fetch/publish the envelope from that same node. The envelope is cached per-BN,
     /// so fetching from a different BN than the one that built the block will fail.
     /// See: https://github.com/sigp/lighthouse/pull/8313
-    #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
+    #[instrument(skip_all)]
     async fn fetch_sign_and_publish_payload_envelope(
         &self,
         proposer_fallback: ProposerFallback<T>,
