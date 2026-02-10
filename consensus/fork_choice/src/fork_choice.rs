@@ -3,7 +3,7 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, Block, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
     LocalCheckpoint, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz::{Decode, Encode};
@@ -394,12 +394,42 @@ where
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
+        let anchor_block_root = anchor_block.canonical_root();
+        let anchor_block_slot = anchor_block.slot();
+        let anchor_block_state_root = anchor_block.state_root();
+        let current_epoch_shuffling_id =
+            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
+                .map_err(Error::BeaconStateError)?;
+        let next_epoch_shuffling_id =
+            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
+                .map_err(Error::BeaconStateError)?;
+        let execution_status = anchor_block.message().execution_payload().map_or_else(
+            // If the block doesn't have an execution payload then it can't have
+            // execution enabled.
+            |_| ExecutionStatus::irrelevant(),
+            |execution_payload| {
+                if execution_payload.is_default_with_empty_roots() {
+                    // A default payload does not have execution enabled.
+                    ExecutionStatus::irrelevant()
+                } else {
+                    // Assume that this payload is valid, since the anchor should be a trusted block
+                    // and state.
+                    ExecutionStatus::Valid(execution_payload.block_hash())
+                }
+            },
+        );
+
         let proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
+            anchor_block_slot,
+            anchor_block_root,
+            anchor_block_state_root,
             fc_store.justified_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().local(),
-            Block::from_block_and_state(anchor_block, anchor_state)?,
+            current_epoch_shuffling_id,
+            next_epoch_shuffling_id,
+            execution_status,
         )?;
 
         let mut fork_choice = Self {
@@ -876,7 +906,16 @@ where
         Ok(())
     }
 
-    /// Update checkpoints in store if necessary
+    /// Update checkpoints in store if necessary.
+    ///
+    /// Compares against `.local()` (= max of on_chain and local_irreversible) rather than
+    /// `.on_chain()`. During non-finalized checkpoint sync the local_irreversible epoch may be
+    /// ahead of the network's justified/finalized epochs. We must not advance the store's
+    /// on-chain checkpoints past the local irreversible because `set_justified_checkpoint` loads
+    /// the justified state from the store to recompute balances, and states prior to the anchor
+    /// are unavailable. The on-chain values are allowed to remain stale because `find_head`
+    /// uses `local` checkpoints for tree traversal, and `node_is_viable_for_head` has a leniency
+    /// rule for justified matching (`voting_source.epoch + 2 >= current_epoch`).
     fn update_checkpoints(
         &mut self,
         justified_checkpoint: Checkpoint,
@@ -1312,10 +1351,13 @@ where
     ///
     /// The checkpoint root must be known in fork choice and must be a descendant of the current
     /// finalized checkpoint. The checkpoint epoch must not be less than the block's slot epoch.
+    /// It must also not move the local irreversible checkpoint backwards.
     pub fn set_local_irreversible_checkpoint(
         &mut self,
         checkpoint: Checkpoint,
     ) -> Result<(), Error<T::Error>> {
+        let current_local_irreversible = self.finalized_checkpoint().local();
+
         // Irreversible checkpoint is potentially user input, sanity check it
         if let Some(block) = self.proto_array.get_block(&checkpoint.root) {
             if checkpoint.epoch < block.slot.epoch(E::slots_per_epoch()) {
@@ -1328,6 +1370,12 @@ where
                 return Err(Error::BadIrreversibleCheckpoint(format!(
                     "Block {:?} is not descendant of finalized checkpoint",
                     checkpoint.root
+                )));
+            }
+            if !self.is_descendant(current_local_irreversible.root, checkpoint.root) {
+                return Err(Error::BadIrreversibleCheckpoint(format!(
+                    "Block {:?} is not descendant of current local irreversible checkpoint {:?}",
+                    checkpoint.root, current_local_irreversible.root,
                 )));
             }
         } else {
