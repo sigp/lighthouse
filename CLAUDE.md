@@ -29,7 +29,7 @@ Read the relevant guide for your task:
 | **Creating issues/PRs** | `.ai/ISSUES.md` |
 | **Development patterns** | `.ai/DEVELOPMENT.md` |
 
-## Critical Rules
+## Critical Rules (consensus failures or crashes)
 
 ### 1. No Panics at Runtime
 
@@ -57,6 +57,8 @@ let result = a + b;
 let result = a.saturating_add(b);
 ```
 
+## Important Rules (bugs or performance issues)
+
 ### 3. Never Block Async
 
 ```rust
@@ -69,9 +71,23 @@ async fn handler() {
 }
 ```
 
-### 4. TODOs Need Issues
+### 4. Lock Ordering
+
+Document lock ordering to avoid deadlocks. See [`canonical_head.rs:9-32`](beacon_node/beacon_chain/src/canonical_head.rs) for the pattern.
+
+### 5. Rayon Thread Pools
+
+Use scoped rayon pools from beacon processor, not global pool. Global pool causes CPU oversubscription when beacon processor has allocated all CPUs.
+
+## Good Practices
+
+### 6. TODOs Need Issues
 
 All `TODO` comments must link to a GitHub issue.
+
+### 7. Clear Variable Names
+
+Avoid ambiguous abbreviations (`bb`, `bl`). Use `beacon_block`, `blob`.
 
 ## Branch & PR Guidelines
 

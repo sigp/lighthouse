@@ -131,9 +131,20 @@ async fn handler() {
 
 ### Concurrency
 
-- Avoid deadlocks - document lock ordering, seek detailed review
+- **Lock ordering**: Document lock ordering to avoid deadlocks. See [`canonical_head.rs:9-32`](beacon_node/beacon_chain/src/canonical_head.rs) for excellent example documenting three locks and safe acquisition order.
 - Keep lock scopes narrow
-- Use scoped rayon pools from beacon processor, not global pool
+- Seek detailed review for lock-related changes
+
+### Rayon Thread Pools
+
+Avoid using the rayon global thread pool - it causes CPU oversubscription when beacon processor has fully allocated all CPUs to workers. Use scoped rayon pools started by beacon processor for computationally intensive tasks.
+
+### Tracing Spans
+
+- Avoid spans on simple getter methods (performance overhead)
+- Be cautious of span explosion with recursive functions
+- Use spans per meaningful computation step, not every function
+- **Never** use `span.enter()` or `span.entered()` in async tasks
 
 ### Documentation
 
@@ -154,9 +165,10 @@ async fn handler() {
 ## Testing Patterns
 
 - **Unit tests**: Single component edge cases
-- **Integration tests**: Use `BeaconChainHarness` for end-to-end workflows
-- **Sync components**: Use `TestRig` pattern with event-based testing
+- **Integration tests**: Use [`BeaconChainHarness`](beacon_node/beacon_chain/src/test_utils.rs) for end-to-end workflows
+- **Sync components**: Use [`TestRig`](beacon_node/network/src/sync/tests/mod.rs) pattern with event-based testing
 - **Mocking**: `mockall` for unit tests, `mockito` for HTTP APIs
+- **Adapter pattern**: For testing `BeaconChain` dependent components, create adapter structs. See [`fetch_blobs/tests.rs`](beacon_node/beacon_chain/src/fetch_blobs/tests.rs)
 - **Local testnet**: See `scripts/local_testnet/README.md`
 
 ## Build Notes
