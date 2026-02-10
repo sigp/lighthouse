@@ -16,10 +16,13 @@ Development patterns, commands, and architecture for AI assistants and contribut
 ### Testing
 
 - `make test` - Full test suite in release mode
+- `make test-release` - Run tests using nextest (faster parallel runner)
 - `cargo nextest run -p <package>` - Run tests for specific package (preferred for iteration)
 - `cargo nextest run -p <package> <test_name>` - Run individual test
 - `FORK_NAME=electra cargo nextest run -p beacon_chain` - Run tests for specific fork
 - `make test-ef` - Ethereum Foundation test vectors
+
+**Fork-specific testing**: `beacon_chain` and `http_api` tests support fork-specific testing via `FORK_NAME` env var when `beacon_chain/fork_from_env` feature is enabled.
 
 **Note**: Full test suite takes ~20 minutes. Prefer targeted tests when iterating.
 
@@ -54,7 +57,7 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 | Subsystem | Location | Purpose |
 |-----------|----------|---------|
 | Consensus Types | `consensus/types/` | Core data structures, SSZ encoding |
-| Storage | `beacon_node/store/` | Hot/cold database, state pruning |
+| Storage | `beacon_node/store/` | Hot/cold database (LevelDB, RocksDB, REDB backends) |
 | Networking | `beacon_node/lighthouse_network/` | Libp2p, gossipsub, discovery |
 | Fork Choice | `consensus/fork_choice/` | Proto-array fork choice |
 | Execution Layer | `beacon_node/execution_layer/` | EL client integration |
@@ -161,6 +164,12 @@ async fn handler() {
 - Full builds take 5+ minutes - use large timeouts (300s+)
 - Use `cargo check` for faster iteration
 - MSRV documented in `Cargo.toml`
+
+### Cross-compilation
+
+- `make build-x86_64` - Cross-compile for x86_64 Linux
+- `make build-aarch64` - Cross-compile for ARM64 Linux
+- `make build-riscv64` - Cross-compile for RISC-V 64-bit Linux
 
 ## Parallel Development
 
