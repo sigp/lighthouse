@@ -32,7 +32,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     get_harness_with_config(
         validator_count,
         ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..Default::default()
         },
     )
@@ -63,7 +63,7 @@ fn get_harness_semi_supernode(
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..Default::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -928,7 +928,7 @@ async fn pseudo_finalize_test_generic(
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         epochs_per_migration,
         ..Default::default()
     };
