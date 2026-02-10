@@ -2,8 +2,7 @@
 
 use crate::per_block_processing::errors::{
     AttestationInvalid, AttesterSlashingInvalid, BlockOperationError, BlockProcessingError,
-    DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
-    ProposerSlashingInvalid,
+    DepositInvalid, IndexedAttestationInvalid, IntoWithIndex, ProposerSlashingInvalid,
 };
 use crate::{BlockReplayError, BlockReplayer, per_block_processing};
 use crate::{
