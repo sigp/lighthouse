@@ -1,0 +1,163 @@
+# Lighthouse Development Guide
+
+Development patterns, commands, and architecture for AI assistants and contributors.
+
+## Development Commands
+
+**Important**: Always branch from `unstable` and target `unstable` when creating pull requests.
+
+### Building
+
+- `make install` - Build and install Lighthouse in release mode
+- `make install-lcli` - Build and install `lcli` utility
+- `cargo build --release` - Standard release build
+- `cargo build --bin lighthouse --features "gnosis,slasher-lmdb"` - Build with specific features
+
+### Testing
+
+- `make test` - Full test suite in release mode
+- `cargo nextest run -p <package>` - Run tests for specific package (preferred for iteration)
+- `cargo nextest run -p <package> <test_name>` - Run individual test
+- `FORK_NAME=electra cargo nextest run -p beacon_chain` - Run tests for specific fork
+- `make test-ef` - Ethereum Foundation test vectors
+
+**Note**: Full test suite takes ~20 minutes. Prefer targeted tests when iterating.
+
+### Linting
+
+- `make lint` - Run Clippy with project rules
+- `make lint-full` - Comprehensive linting including tests
+- `cargo fmt --all && make lint-fix` - Format and fix linting issues
+- `cargo sort` - Sort dependencies (enforced on CI)
+
+## Architecture Overview
+
+Lighthouse is a modular Ethereum consensus client with two main components:
+
+### Beacon Node (`beacon_node/`)
+
+- Main consensus client syncing with Ethereum network
+- Beacon chain state transition logic (`beacon_node/beacon_chain/`)
+- Networking, storage, P2P communication
+- HTTP API for validator clients
+- Entry point: `beacon_node/src/lib.rs`
+
+### Validator Client (`validator_client/`)
+
+- Manages validator keystores and duties
+- Block proposals, attestations, sync committee duties
+- Slashing protection and doppelganger detection
+- Entry point: `validator_client/src/lib.rs`
+
+### Key Subsystems
+
+| Subsystem | Location | Purpose |
+|-----------|----------|---------|
+| Consensus Types | `consensus/types/` | Core data structures, SSZ encoding |
+| Storage | `beacon_node/store/` | Hot/cold database, state pruning |
+| Networking | `beacon_node/lighthouse_network/` | Libp2p, gossipsub, discovery |
+| Fork Choice | `consensus/fork_choice/` | Proto-array fork choice |
+| Execution Layer | `beacon_node/execution_layer/` | EL client integration |
+| Slasher | `slasher/` | Optional slashing detection |
+
+### Utilities
+
+- `account_manager/` - Validator account management
+- `lcli/` - Command-line debugging utilities
+- `database_manager/` - Database maintenance tools
+
+## Code Quality Standards
+
+### Panic Avoidance (Critical)
+
+**Panics should be avoided at all costs.**
+
+```rust
+// NEVER at runtime
+let value = some_result.unwrap();
+let item = array[1];
+
+// ALWAYS prefer
+let value = some_result?;
+let item = array.get(1)?;
+
+// Only acceptable during startup
+let config = matches.get_one::<String>("flag")
+    .expect("Required due to clap validation");
+```
+
+### Consensus Crate Safety (`consensus/` excluding `types/`)
+
+Extra scrutiny required - bugs here cause consensus failures.
+
+```rust
+// NEVER standard arithmetic
+let result = a + b;
+
+// ALWAYS safe math
+let result = a.saturating_add(b);
+// or
+use safe_arith::SafeArith;
+let result = a.safe_add(b)?;
+```
+
+Requirements:
+- Use `saturating_*` or `checked_*` operations
+- Zero panics - no `.unwrap()`, `.expect()`, or `array[i]`
+- Deterministic behavior across all platforms
+
+### Error Handling
+
+- Return `Result` or `Option` instead of panicking
+- Log errors, don't silently swallow them
+- Provide context with errors
+
+### Async Patterns
+
+```rust
+// NEVER block in async context
+async fn handler() {
+    expensive_computation(); // blocks runtime
+}
+
+// ALWAYS spawn blocking
+async fn handler() {
+    tokio::task::spawn_blocking(|| expensive_computation()).await?;
+}
+```
+
+### Concurrency
+
+- Avoid deadlocks - document lock ordering, seek detailed review
+- Keep lock scopes narrow
+- Use scoped rayon pools from beacon processor, not global pool
+
+### Documentation
+
+- All `TODO` comments must link to a GitHub issue
+- Prefer line comments (`//`) over block comments
+- Keep comments concise, explain "why" not "what"
+
+## Logging Levels
+
+| Level | Use Case |
+|-------|----------|
+| `crit` | Lighthouse may not function - needs immediate attention |
+| `error` | Moderate impact - expect user reports |
+| `warn` | Unexpected but recoverable |
+| `info` | High-level status - not excessive |
+| `debug` | Developer events, expected errors |
+
+## Testing Patterns
+
+- **Unit tests**: Single component edge cases
+- **Integration tests**: Use `BeaconChainHarness` for end-to-end workflows
+- **Sync components**: Use `TestRig` pattern with event-based testing
+- **Mocking**: `mockall` for unit tests, `mockito` for HTTP APIs
+- **Local testnet**: See `scripts/local_testnet/README.md`
+
+## Build Notes
+
+- Full builds take 5+ minutes - use large timeouts (300s+)
+- Use `cargo check` for faster iteration
+- MSRV documented in `Cargo.toml`
