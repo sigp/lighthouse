@@ -1250,7 +1250,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         validator_pubkey: PublicKeyBytes,
         envelope: ExecutionPayloadEnvelope<E>,
     ) -> Result<SignedExecutionPayloadEnvelope<E>, Error> {
-        let domain_hash = self.spec.get_builder_domain();
+        let signing_context = self.signing_context(
+            Domain::BeaconBuilder,
+            envelope.slot.epoch(E::slots_per_epoch()),
+        );
+        let domain_hash = signing_context.domain_hash(&self.spec);
         let signing_root = envelope.signing_root(domain_hash);
 
         // Execution payload envelope signing is not slashable, bypass doppelganger protection.

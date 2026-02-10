@@ -5,7 +5,6 @@ use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
 use slot_clock::SlotClock;
-use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Deref;
@@ -14,6 +13,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{BlockType, ChainSpec, EthSpec, Graffiti, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
@@ -650,7 +650,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         let envelope = proposer_fallback
             .request_proposers_last(|beacon_node| async move {
                 beacon_node
-                    .get_validator_execution_payload_envelope::<S::E>(slot, BUILDER_INDEX_SELF_BUILD)
+                    .get_validator_execution_payload_envelope::<S::E>(
+                        slot,
+                        BUILDER_INDEX_SELF_BUILD,
+                    )
                     .await
                     .map(|response| response.data)
                     .map_err(|e| {

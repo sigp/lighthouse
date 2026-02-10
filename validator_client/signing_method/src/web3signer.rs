@@ -19,6 +19,7 @@ pub enum MessageType {
     SyncCommitteeSelectionProof,
     SyncCommitteeContributionAndProof,
     ValidatorRegistration,
+    // TODO(gloas) verify w/ web3signer specs
     ExecutionPayloadEnvelope,
 }
 
