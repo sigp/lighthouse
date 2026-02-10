@@ -113,7 +113,7 @@ async fn invalid_block_header_state_slot() {
     assert!(matches!(
         result,
         Err(BlockProcessingError::HeaderInvalid {
-            reason: HeaderInvalid::StateSlotMismatch { .. },
+            reason: HeaderInvalid::StateSlotMismatch,
         })
     ));
 }
