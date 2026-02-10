@@ -780,6 +780,8 @@ pub fn get_config<E: EthSpec>(
 
     client_config.chain.paranoid_block_proposal = cli_args.get_flag("paranoid-block-proposal");
 
+    client_config.chain.ignore_ws_check = cli_args.get_flag("ignore-ws-check");
+
     /*
      * Builder fallback configs.
      */

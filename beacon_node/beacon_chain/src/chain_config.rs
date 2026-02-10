@@ -117,6 +117,8 @@ pub struct ChainConfig {
     /// On Holesky there is a block which is added to this set by default but which can be removed
     /// by using `--invalid-block-roots ""`.
     pub invalid_block_roots: HashSet<Hash256>,
+    /// When set to true, the beacon node can be started even if the head state is outside the weak subjectivity period.
+    pub ignore_ws_check: bool,
     /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
     pub disable_get_blobs: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
@@ -160,6 +162,7 @@ impl Default for ChainConfig {
             block_publishing_delay: None,
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
+            ignore_ws_check: false,
             disable_get_blobs: false,
             node_custody_type: NodeCustodyType::Fullnode,
         }
