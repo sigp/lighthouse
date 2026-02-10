@@ -1,9 +1,14 @@
 {
   "hooks": {
-    "post-tool-use": [
+    "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "echo '\n[Reminder] Run: cargo fmt --all && make lint-fix && cargo check'"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '\n[Reminder] Run: cargo fmt --all && make lint-fix && cargo check'"
+          }
+        ]
       }
     ]
   }
