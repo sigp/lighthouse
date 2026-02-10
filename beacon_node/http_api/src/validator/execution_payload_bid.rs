@@ -39,7 +39,7 @@ pub fn get_validator_execution_payload_bid<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     debug!(
                         ?slot,
-                        "Execution paylaod bid production request from HTTP API"
+                        "Execution payload bid production request from HTTP API"
                     );
 
                     not_synced_filter?;
