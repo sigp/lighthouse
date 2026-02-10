@@ -6251,11 +6251,7 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            assert_eq!(
-                total_supply, api_total_supply,
-                "{:?}",
-                state_id
-            );
+            assert_eq!(total_supply, api_total_supply, "{:?}", state_id);
         }
 
         self
