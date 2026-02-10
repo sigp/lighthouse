@@ -1146,7 +1146,9 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
                 || self.handler_name() == "execution_payload"
                 || self.handler_name() == "proposer_slashing"
                 || self.handler_name() == "sync_aggregate"
-                || self.handler_name() == "withdrawals")
+                || self.handler_name() == "withdrawal_request"
+                || self.handler_name() == "withdrawals"
+                || self.handler_name() == "voluntary_exit")
     }
 }
 
