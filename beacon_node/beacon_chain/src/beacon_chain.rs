@@ -4889,7 +4889,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Check if the block with `block_root` was observed after the attestation deadline of `slot`.
-    pub fn block_observed_after_attestation_deadline(
+    pub(crate) fn block_observed_after_attestation_deadline(
         &self,
         block_root: Hash256,
         slot: Slot,
