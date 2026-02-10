@@ -38,8 +38,10 @@ async fn get_harness<E: EthSpec>(
     // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
     let last_slot_of_epoch =
         (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
+    // Use Electra spec to ensure blocks are created at the same fork as the state
+    let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
     let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-        .default_spec()
+        .spec(spec)
         .keypairs(KEYPAIRS[0..num_validators].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -107,10 +109,12 @@ async fn invalid_block_header_state_slot() {
         &spec,
     );
 
-    assert!(matches!(
+    assert_eq!(
         result,
-        Err(BlockProcessingError::InconsistentBlockFork(_))
-    ));
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::StateSlotMismatch,
+        })
+    );
 }
 
 #[tokio::test]
@@ -137,10 +141,15 @@ async fn invalid_parent_block_root() {
         &spec,
     );
 
-    assert!(matches!(
+    assert_eq!(
         result,
-        Err(BlockProcessingError::InconsistentBlockFork(_))
-    ));
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::ParentBlockRootMismatch {
+                state: state.latest_block_header().canonical_root(),
+                block: Hash256::from([0xAA; 32]),
+            },
+        })
+    );
 }
 
 #[tokio::test]
@@ -165,11 +174,7 @@ async fn invalid_block_signature() {
         &spec,
     );
 
-    // Expecting InconsistentBlockFork because of fork mismatch
-    assert!(matches!(
-        result,
-        Err(BlockProcessingError::InconsistentBlockFork(_))
-    ));
+    assert_eq!(result, Err(BlockProcessingError::BlockSignatureInvalid));
 }
 
 #[tokio::test]
