@@ -61,7 +61,7 @@ pub struct Operations<E: EthSpec, O: Operation<E>> {
 }
 
 pub trait Operation<E: EthSpec>: Debug + Sync + Sized {
-    type Error: std::fmt::Debug;
+    type Error: Debug;
 
     fn handler_name() -> String;
 
