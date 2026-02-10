@@ -88,13 +88,19 @@ fn operations_execution_payload_blinded() {
 }
 
 #[test]
+fn operations_execution_payload_envelope() {
+    OperationsHandler::<MinimalEthSpec, SignedExecutionPayloadEnvelope<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, SignedExecutionPayloadEnvelope<_>>::default().run();
+}
+
+#[test]
 fn operations_withdrawals() {
     OperationsHandler::<MinimalEthSpec, WithdrawalsPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalsPayload<_>>::default().run();
 }
 
 #[test]
-fn operations_withdrawal_reqeusts() {
+fn operations_withdrawal_requests() {
     OperationsHandler::<MinimalEthSpec, WithdrawalRequest>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalRequest>::default().run();
 }
