@@ -16,10 +16,11 @@ use state_processing::{
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
-            altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
-            process_deposits, process_exits, process_proposer_slashings,
+            altair_deneb, base, gloas, process_attester_slashings,
+            process_bls_to_execution_changes, process_deposits, process_exits,
+            process_proposer_slashings,
         },
-        process_sync_aggregate, process_withdrawals,
+        process_sync_aggregate, withdrawals,
     },
 };
 use std::fmt::Debug;
@@ -45,7 +46,7 @@ struct ExecutionMetadata {
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<E: EthSpec> {
-    payload: FullPayload<E>,
+    payload: Option<ExecutionPayload<E>>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,9 +99,18 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         initialize_epoch_cache(state, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
-        if state.fork_name_unchecked().altair_enabled() {
-            initialize_progressive_balances_cache(state, spec)?;
+        if state.fork_name_unchecked().gloas_enabled() {
+            gloas::process_attestation(
+                state,
+                self.to_ref(),
+                0,
+                &mut ctxt,
+                VerifySignatures::True,
+                spec,
+            )
+        } else if state.fork_name_unchecked().altair_enabled() {
             altair_deneb::process_attestation(
                 state,
                 self.to_ref(),
@@ -405,12 +415,17 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
-        })
-        .map(|payload| WithdrawalsPayload {
-            payload: payload.into(),
-        })
+        if fork_name.gloas_enabled() {
+            // No payload present or required for Gloas tests.
+            Ok(WithdrawalsPayload { payload: None })
+        } else {
+            ssz_decode_file_with(path, |bytes| {
+                ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
+            })
+            .map(|payload| WithdrawalsPayload {
+                payload: Some(payload),
+            })
+        }
     }
 
     fn apply_to(
@@ -419,8 +434,16 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        // TODO(EIP-7732): implement separate gloas and non-gloas variants of process_withdrawals
-        process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
+        if state.fork_name_unchecked().gloas_enabled() {
+            withdrawals::gloas::process_withdrawals(state, spec)
+        } else {
+            let full_payload = FullPayload::from(self.payload.clone().unwrap());
+            withdrawals::capella_electra::process_withdrawals::<_, FullPayload<_>>(
+                state,
+                full_payload.to_ref(),
+                spec,
+            )
+        }
     }
 }
 
