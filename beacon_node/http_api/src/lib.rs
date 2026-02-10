@@ -3226,7 +3226,19 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let s = futures::stream::select_all(receivers);
 
-                    Ok(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                    let response = warp::sse::reply(warp::sse::keep_alive().stream(s));
+
+                    // Set headers to bypass nginx caching and buffering, which breaks realtime
+                    // delivery.
+                    let response = warp::reply::with_header(response, "X-Accel-Buffering", "no");
+                    let response = warp::reply::with_header(response, "X-Accel-Expires", "0");
+                    let response = warp::reply::with_header(
+                        response,
+                        "Cache-Control",
+                        "no-cache, no-store, must-revalidate",
+                    );
+
+                    Ok(response)
                 })
             },
         );

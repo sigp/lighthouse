@@ -16,8 +16,9 @@ use state_processing::{
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
-            altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
-            process_deposits, process_exits, process_proposer_slashings,
+            altair_deneb, base, gloas, process_attester_slashings,
+            process_bls_to_execution_changes, process_deposits, process_exits,
+            process_proposer_slashings,
         },
         process_sync_aggregate, withdrawals,
     },
@@ -98,9 +99,18 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         initialize_epoch_cache(state, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
-        if state.fork_name_unchecked().altair_enabled() {
-            initialize_progressive_balances_cache(state, spec)?;
+        if state.fork_name_unchecked().gloas_enabled() {
+            gloas::process_attestation(
+                state,
+                self.to_ref(),
+                0,
+                &mut ctxt,
+                VerifySignatures::True,
+                spec,
+            )
+        } else if state.fork_name_unchecked().altair_enabled() {
             altair_deneb::process_attestation(
                 state,
                 self.to_ref(),

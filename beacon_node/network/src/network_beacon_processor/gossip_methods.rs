@@ -1214,27 +1214,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .verify_block_for_gossip(block.clone())
             .await;
 
-        if verification_result.is_ok() {
+        let block_root = if let Ok(verified_block) = &verification_result {
             metrics::set_gauge(
                 &metrics::BEACON_BLOCK_DELAY_GOSSIP,
                 block_delay.as_millis() as i64,
             );
-        }
-
-        let block_root = if let Ok(verified_block) = &verification_result {
+            // Write the time the block was observed into delay cache only for gossip
+            // valid blocks.
+            self.chain.block_times_cache.write().set_time_observed(
+                verified_block.block_root,
+                block.slot(),
+                seen_duration,
+                Some(peer_id.to_string()),
+                Some(peer_client.to_string()),
+            );
             verified_block.block_root
         } else {
             block.canonical_root()
         };
-
-        // Write the time the block was observed into delay cache.
-        self.chain.block_times_cache.write().set_time_observed(
-            block_root,
-            block.slot(),
-            seen_duration,
-            Some(peer_id.to_string()),
-            Some(peer_client.to_string()),
-        );
 
         let verified_block = match verification_result {
             Ok(verified_block) => {

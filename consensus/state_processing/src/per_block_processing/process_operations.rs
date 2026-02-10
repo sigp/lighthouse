@@ -212,6 +212,148 @@ pub mod altair_deneb {
     }
 }
 
+pub mod gloas {
+    use super::*;
+    use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
+
+    pub fn process_attestations<'a, E: EthSpec, I>(
+        state: &mut BeaconState<E>,
+        attestations: I,
+        verify_signatures: VerifySignatures,
+        ctxt: &mut ConsensusContext<E>,
+        spec: &ChainSpec,
+    ) -> Result<(), BlockProcessingError>
+    where
+        I: Iterator<Item = AttestationRef<'a, E>>,
+    {
+        attestations.enumerate().try_for_each(|(i, attestation)| {
+            process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+        })
+    }
+
+    pub fn process_attestation<E: EthSpec>(
+        state: &mut BeaconState<E>,
+        attestation: AttestationRef<E>,
+        att_index: usize,
+        ctxt: &mut ConsensusContext<E>,
+        verify_signatures: VerifySignatures,
+        spec: &ChainSpec,
+    ) -> Result<(), BlockProcessingError> {
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
+        let previous_epoch = ctxt.previous_epoch;
+        let current_epoch = ctxt.current_epoch;
+
+        let indexed_att = verify_attestation_for_block_inclusion(
+            state,
+            attestation,
+            ctxt,
+            verify_signatures,
+            spec,
+        )
+        .map_err(|e| e.into_with_index(att_index))?;
+
+        // Matching roots, participation flag indices
+        let data = attestation.data();
+        let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+        let participation_flag_indices =
+            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+
+        // [New in EIP-7732]
+        let current_epoch_target = data.target.epoch == state.current_epoch();
+        let slot_mod = data
+            .slot
+            .as_usize()
+            .safe_rem(E::slots_per_epoch() as usize)?;
+        let payment_index = if current_epoch_target {
+            (E::slots_per_epoch() as usize).safe_add(slot_mod)?
+        } else {
+            slot_mod
+        };
+        // Cached here to avoid repeat lookups. The withdrawal amount is immutable throughout
+        // this whole function.
+        let payment_withdrawal_amount = state
+            .builder_pending_payments()?
+            .get(payment_index)
+            .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(
+                payment_index,
+            ))?
+            .withdrawal
+            .amount;
+
+        // Update epoch participation flags.
+        let mut proposer_reward_numerator = 0;
+        for index in indexed_att.attesting_indices_iter() {
+            let index = *index as usize;
+
+            let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
+            let validator_slashed = state.slashings_cache().is_slashed(index);
+
+            // [New in Gloas:EIP7732]
+            // For same-slot attestations, check if we're setting any new flags
+            // If we are, this validator hasn't contributed to this slot's quorum yet
+            let mut will_set_new_flag = false;
+
+            for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+                let epoch_participation = state.get_epoch_participation_mut(
+                    data.target.epoch,
+                    previous_epoch,
+                    current_epoch,
+                )?;
+
+                if participation_flag_indices.contains(&flag_index) {
+                    let validator_participation = epoch_participation
+                        .get_mut(index)
+                        .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+
+                    if !validator_participation.has_flag(flag_index)? {
+                        validator_participation.add_flag(flag_index)?;
+                        proposer_reward_numerator
+                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+                        will_set_new_flag = true;
+
+                        update_progressive_balances_on_attestation(
+                            state,
+                            data.target.epoch,
+                            flag_index,
+                            validator_effective_balance,
+                            validator_slashed,
+                        )?;
+                    }
+                }
+            }
+
+            // [New in Gloas:EIP7732]
+            // Add weight for same-slot attestations when any new flag is set.
+            // This ensures each validator contributes exactly once per slot.
+            if will_set_new_flag
+                && state.is_attestation_same_slot(data)?
+                && payment_withdrawal_amount > 0
+            {
+                let builder_payments = state.builder_pending_payments_mut()?;
+                let payment = builder_payments.get_mut(payment_index).ok_or(
+                    BlockProcessingError::BuilderPaymentIndexOutOfBounds(payment_index),
+                )?;
+                payment
+                    .weight
+                    .safe_add_assign(validator_effective_balance)?;
+            }
+        }
+
+        let proposer_reward_denominator = WEIGHT_DENOMINATOR
+            .safe_sub(PROPOSER_WEIGHT)?
+            .safe_mul(WEIGHT_DENOMINATOR)?
+            .safe_div(PROPOSER_WEIGHT)?;
+        let proposer_reward = proposer_reward_numerator.safe_div(proposer_reward_denominator)?;
+        increase_balance(state, proposer_index as usize, proposer_reward)?;
+
+        // [New in Gloas:EIP7732]
+        // Update builder payment weight
+        // No-op, this is done inline above.
+
+        Ok(())
+    }
+}
+
 /// Validates each `ProposerSlashing` and updates the state, short-circuiting on an invalid object.
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
@@ -285,7 +427,15 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    if state.fork_name_unchecked().altair_enabled() {
+    if state.fork_name_unchecked().gloas_enabled() {
+        gloas::process_attestations(
+            state,
+            block_body.attestations(),
+            verify_signatures,
+            ctxt,
+            spec,
+        )?;
+    } else if state.fork_name_unchecked().altair_enabled() {
         altair_deneb::process_attestations(
             state,
             block_body.attestations(),
