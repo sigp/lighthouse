@@ -52,8 +52,6 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
 ///
 /// Returns a descriptive `Err` if the attestation is malformed or does not accurately reflect the
 /// prior blocks in `state`.
-///
-/// Spec v0.12.1
 pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     state: &BeaconState<E>,
     attestation: AttestationRef<'ctxt, E>,
@@ -94,8 +92,6 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 }
 
 /// Check target epoch and source checkpoint.
-///
-/// Spec v0.12.1
 fn verify_casper_ffg_vote<E: EthSpec>(
     attestation: AttestationRef<E>,
     state: &BeaconState<E>,
