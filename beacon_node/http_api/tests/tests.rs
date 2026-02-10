@@ -48,7 +48,7 @@ use types::ApplicationDomain;
 use types::{
     Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
     SignedExecutionPayloadEnvelope, SignedRoot, SingleAttestation, Slot,
-    attestation::AttestationBase,
+    attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 type E = MainnetEthSpec;
@@ -3818,7 +3818,7 @@ impl ApiTester {
             // Fetch the envelope via the HTTP API
             let envelope_response = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot, 0)
+                .get_validator_execution_payload_envelope::<E>(slot, BUILDER_INDEX_SELF_BUILD)
                 .await
                 .unwrap();
             let envelope = envelope_response.data;
@@ -3826,7 +3826,7 @@ impl ApiTester {
             // Verify envelope fields
             assert_eq!(envelope.beacon_block_root, block_root);
             assert_eq!(envelope.slot, slot);
-            assert_eq!(envelope.builder_index, u64::MAX);
+            assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
             assert_ne!(envelope.state_root, Hash256::ZERO);
 
             // Sign and publish the block
@@ -3929,14 +3929,14 @@ impl ApiTester {
             // Fetch the envelope via the HTTP API (SSZ)
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope_ssz::<E>(slot, 0)
+                .get_validator_execution_payload_envelope_ssz::<E>(slot, BUILDER_INDEX_SELF_BUILD)
                 .await
                 .unwrap();
 
             // Verify envelope fields
             assert_eq!(envelope.beacon_block_root, block_root);
             assert_eq!(envelope.slot, slot);
-            assert_eq!(envelope.builder_index, u64::MAX);
+            assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
             assert_ne!(envelope.state_root, Hash256::ZERO);
 
             // Sign and publish the block
