@@ -4169,7 +4169,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_head_finalized_checkpoint = self
             .canonical_head
             .cached_head()
-            .finalied_checkpoint_from_head_state();
+            .finalized_checkpoint_from_head_state();
         // Compare the existing finalized checkpoint with the incoming block's finalized checkpoint.
         let new_finalized_checkpoint = state.finalized_checkpoint();
 

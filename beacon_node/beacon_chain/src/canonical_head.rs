@@ -218,7 +218,7 @@ impl<E: EthSpec> CachedHead<E> {
         self.justified_checkpoint
     }
 
-    pub fn finalied_checkpoint_from_head_state(&self) -> Checkpoint {
+    pub fn finalized_checkpoint_from_head_state(&self) -> Checkpoint {
         self.snapshot.beacon_state.finalized_checkpoint()
     }
 

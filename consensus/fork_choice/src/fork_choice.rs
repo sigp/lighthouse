@@ -3,7 +3,7 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
+    Block as ProtoBlock, Block, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
     LocalCheckpoint, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz::{Decode, Encode};
@@ -391,46 +391,15 @@ where
             });
         }
 
-        let anchor_block_root = anchor_block.canonical_root();
-        let anchor_block_slot = anchor_block.slot();
-        let anchor_block_state_root = anchor_block.state_root();
-        let current_epoch_shuffling_id =
-            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
-                .map_err(Error::BeaconStateError)?;
-        let next_epoch_shuffling_id =
-            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
-                .map_err(Error::BeaconStateError)?;
-
-        let execution_status = anchor_block.message().execution_payload().map_or_else(
-            // If the block doesn't have an execution payload then it can't have
-            // execution enabled.
-            |_| ExecutionStatus::irrelevant(),
-            |execution_payload| {
-                if execution_payload.is_default_with_empty_roots() {
-                    // A default payload does not have execution enabled.
-                    ExecutionStatus::irrelevant()
-                } else {
-                    // Assume that this payload is valid, since the anchor should be a trusted block and
-                    // state.
-                    ExecutionStatus::Valid(execution_payload.block_hash())
-                }
-            },
-        );
-
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
         let proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
-            anchor_block_slot,
-            anchor_block_root,
-            anchor_block_state_root,
             fc_store.justified_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().local(),
-            current_epoch_shuffling_id,
-            next_epoch_shuffling_id,
-            execution_status,
+            Block::from_block_and_state(anchor_block, anchor_state)?,
         )?;
 
         let mut fork_choice = Self {
@@ -1333,7 +1302,16 @@ where
         *self.fc_store.unrealized_finalized_checkpoint()
     }
 
-    /// TODO: Document
+    /// Set the local irreversible checkpoint, which may be ahead of the network's finalized
+    /// checkpoint. Only blocks that descend from this checkpoint will be considered viable heads.
+    ///
+    /// This is used during non-finalized checkpoint sync, where the anchor state may be ahead of
+    /// the network's finalized checkpoint, and for manual finalization via the HTTP API.
+    ///
+    /// ## Validation
+    ///
+    /// The checkpoint root must be known in fork choice and must be a descendant of the current
+    /// finalized checkpoint. The checkpoint epoch must not be less than the block's slot epoch.
     pub fn set_local_irreversible_checkpoint(
         &mut self,
         checkpoint: Checkpoint,
