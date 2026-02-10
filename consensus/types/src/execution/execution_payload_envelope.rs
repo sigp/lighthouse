@@ -28,9 +28,6 @@ impl<E: EthSpec> SignedRoot for ExecutionPayloadEnvelope<E> {}
 mod tests {
     use super::*;
     use crate::MainnetEthSpec;
-    use crate::test_utils::TestRandom;
-    use rand::SeedableRng;
-    use rand_xorshift::XorShiftRng;
 
     ssz_and_tree_hash_tests!(ExecutionPayloadEnvelope<MainnetEthSpec>);
 }

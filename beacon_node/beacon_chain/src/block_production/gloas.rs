@@ -59,6 +59,8 @@ pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub slot: Slot,
     pub state_root: Hash256,
 }
+type ConsensusBlockValue = u64;
+type BlockProductionResult<E> = (BeaconBlock<E, FullPayload<E>>, ConsensusBlockValue);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_block_with_verification_gloas(
@@ -68,7 +70,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
         _builder_boost_factor: Option<u64>,
-    ) -> Result<(BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, u64), BlockProductionError> {
+    ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
         // Part 1/2 (blocking)
@@ -114,7 +116,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
-    ) -> Result<(BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, u64), BlockProductionError> {
+    ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
