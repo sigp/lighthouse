@@ -33,6 +33,9 @@ use crate::{
     ProduceBlockVerification, graffiti_calculator::GraffitiSettings, metrics,
 };
 
+type ConsensusBlockValue = u64;
+type BlockProductionResult<E> = (BeaconBlock<E, FullPayload<E>>, ConsensusBlockValue);
+
 pub struct PartialBeaconBlock<E: EthSpec> {
     slot: Slot,
     proposer_index: u64,
@@ -59,8 +62,6 @@ pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub slot: Slot,
     pub state_root: Hash256,
 }
-type ConsensusBlockValue = u64;
-type BlockProductionResult<E> = (BeaconBlock<E, FullPayload<E>>, ConsensusBlockValue);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_block_with_verification_gloas(
