@@ -33,7 +33,6 @@ use types::{
 use warp::{Filter, Rejection, Reply};
 use warp_utils::reject::convert_rejection;
 
-pub mod execution_payload_bid;
 pub mod execution_payload_envelope;
 
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
