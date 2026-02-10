@@ -2,17 +2,18 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::SignatureSet;
+use bls::{AggregateSignature, PublicKey, PublicKeyBytes, Signature, SignatureSet};
 use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
+use typenum::Unsigned;
 use types::{
-    AbstractExecPayload, AggregateSignature, AttesterSlashingRef, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
-    InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
-    PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
-    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    AbstractExecPayload, AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError,
+    ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
+    IndexedAttestation, IndexedAttestationRef, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
+    SyncAggregatorSelectionData,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

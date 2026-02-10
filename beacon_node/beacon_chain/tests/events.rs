@@ -1,20 +1,29 @@
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::test_utils::{BeaconChainHarness, generate_data_column_sidecars_from_block};
+use beacon_chain::test_utils::{
+    BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
+};
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::sync::Arc;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkName, MinimalEthSpec, Slot};
+use types::{
+    BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, EthSpec,
+    MinimalEthSpec, Slot,
+};
 
 type E = MinimalEthSpec;
 
 /// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_gossip_blob() {
-    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -48,7 +57,11 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
 async fn data_column_sidecar_event_on_process_gossip_data_column() {
-    let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -63,13 +76,22 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
     // build and process a gossip verified data column
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
     let sidecar = {
-        // DA checker only accepts sampling columns, so we need to create one with a sampling index.
-        let mut random_sidecar = DataColumnSidecar::random_for_test(&mut rng);
         let slot = Slot::new(10);
-        let epoch = slot.epoch(E::slots_per_epoch());
-        random_sidecar.signed_block_header.message.slot = slot;
-        random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
-        random_sidecar
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        // DA checker only accepts sampling columns, so we need to create one with a sampling index.
+        if fork_name.gloas_enabled() {
+            let mut random_sidecar = DataColumnSidecarGloas::random_for_test(&mut rng);
+            let epoch = slot.epoch(E::slots_per_epoch());
+            random_sidecar.slot = slot;
+            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            DataColumnSidecar::Gloas(random_sidecar)
+        } else {
+            let mut random_sidecar = DataColumnSidecarFulu::random_for_test(&mut rng);
+            let epoch = slot.epoch(E::slots_per_epoch());
+            random_sidecar.signed_block_header.message.slot = slot;
+            random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+            DataColumnSidecar::Fulu(random_sidecar)
+        }
     };
     let gossip_verified_data_column =
         GossipVerifiedDataColumn::__new_for_testing(Arc::new(sidecar));
@@ -93,7 +115,11 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
 /// Verifies that a blob event is emitted when blobs are received via RPC.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_rpc_blobs() {
-    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -112,7 +138,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     let slot = head_state.slot() + 1;
     let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
     let (kzg_proofs, blobs) = opt_blobs.unwrap();
-    assert!(blobs.len() > 2);
+    assert_eq!(blobs.len(), 2);
 
     let blob_1 =
         Arc::new(BlobSidecar::new(0, blobs[0].clone(), &signed_block, kzg_proofs[0]).unwrap());
@@ -144,7 +170,11 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
 
 #[tokio::test]
 async fn data_column_sidecar_event_on_process_rpc_columns() {
-    let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = Arc::new(test_spec::<E>());
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.clone())
         .deterministic_keypairs(8)
@@ -182,4 +212,46 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
         sidecar_event,
         EventKind::DataColumnSidecar(expected_sse_data_column)
     );
+}
+
+/// Verifies that a head event is emitted when a block is imported and becomes the head.
+#[tokio::test]
+async fn head_event_on_block_import() {
+    let spec = Arc::new(test_spec::<E>());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(8)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    // Subscribe to head events before importing the block
+    let event_handler = harness.chain.event_handler.as_ref().unwrap();
+    let mut head_event_receiver = event_handler.subscribe_head();
+
+    // Build and process a block that will become the new head
+    let head_state = harness.get_current_state();
+    let target_slot = head_state.slot() + 1;
+    harness.advance_slot();
+    let ((signed_block, blobs), _) = harness.make_block(head_state, target_slot).await;
+
+    let block_root = signed_block.canonical_root();
+    let state_root = signed_block.message().state_root();
+
+    harness
+        .process_block(target_slot, block_root, (signed_block, blobs))
+        .await
+        .unwrap();
+
+    // Verify the head event was emitted with correct data
+    let head_event = head_event_receiver.try_recv().unwrap();
+    if let EventKind::Head(sse_head) = head_event {
+        assert_eq!(sse_head.slot, target_slot);
+        assert_eq!(sse_head.block, block_root);
+        assert_eq!(sse_head.state, state_root);
+        // execution_optimistic should be false since we're using mock execution layer
+        assert!(!sse_head.execution_optimistic);
+    } else {
+        panic!("Expected Head event, got {:?}", head_event);
+    }
 }

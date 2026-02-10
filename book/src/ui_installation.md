@@ -138,13 +138,13 @@ Navigate to the backend directory `cd backend`. Install all required Node packag
 
 After initializing the backend, return to the root directory. Install all frontend dependencies by executing `yarn`. Build the frontend using `yarn build`. Start the frontend production server with `yarn start`.
 
-This will allow you to access siren at `http://localhost:3000` by default.
+This will allow you to access siren at `http://localhost:3300` by default.
 
 ## Advanced configuration
 
 ### About self-signed SSL certificates
 
-By default, internally, Siren is running on port 80 (plain, behind nginx), port 3000 (plain, direct) and port 443 (with SSL, behind nginx)). Siren will generate and use a self-signed certificate on startup. This will generate a security warning when you try to access the interface. We recommend to only disable SSL if you would access Siren over a local LAN or otherwise highly trusted or encrypted network (i.e. VPN).
+By default, internally, Siren is running on port 80 (plain, behind nginx), port 3300 (plain, direct) and port 443 (with SSL, behind nginx)). Siren will generate and use a self-signed certificate on startup. This will generate a security warning when you try to access the interface. We recommend to only disable SSL if you would access Siren over a local LAN or otherwise highly trusted or encrypted network (i.e. VPN).
 
 #### Generating persistent SSL certificates and installing them to your system
 

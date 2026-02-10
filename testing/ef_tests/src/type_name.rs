@@ -1,5 +1,5 @@
 //! Mapping from types to canonical string identifiers used in testing.
-use types::historical_summary::HistoricalSummary;
+use types::state::HistoricalSummary;
 use types::*;
 
 pub trait TypeName {
@@ -61,6 +61,8 @@ type_name!(BlobIdentifier);
 type_name_generic!(DataColumnsByRootIdentifier, "DataColumnsByRootIdentifier");
 type_name_generic!(BlobSidecar);
 type_name_generic!(DataColumnSidecar);
+type_name_generic!(DataColumnSidecarFulu, "DataColumnSidecar");
+type_name_generic!(DataColumnSidecarGloas, "DataColumnSidecar");
 type_name!(Checkpoint);
 type_name!(ConsolidationRequest);
 type_name_generic!(ContributionAndProof);

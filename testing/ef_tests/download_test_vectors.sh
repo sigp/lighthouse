@@ -57,7 +57,7 @@ else
 		if [[ ! -e "${test}.tar.gz" ]]; then
 			echo "Downloading: ${version}/${test}.tar.gz"
 			curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
-				"https://github.com/ethereum/consensus-spec-tests/releases/download/${version}/${test}.tar.gz" \
+				"https://github.com/ethereum/consensus-specs/releases/download/${version}/${test}.tar.gz" \
 				|| {
 					echo "Curl failed. Aborting"
 					rm -f "${test}.tar.gz"

@@ -1,15 +1,14 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
+use ssz::{Decode, TryFromIter};
+use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::BlobsList;
-use types::execution_requests::{
-    ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests,
-};
-use types::{Blob, FixedVector, KzgProof, Unsigned};
+use types::data::BlobsList;
+use types::execution::{ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests};
+use types::kzg_ext::KzgCommitments;
+use types::{Blob, KzgProof};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,9 +129,11 @@ impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadBell
         }
     }
 }
-impl<E: EthSpec> From<ExecutionPayloadCapella<E>> for JsonExecutionPayloadCapella<E> {
-    fn from(payload: ExecutionPayloadCapella<E>) -> Self {
-        JsonExecutionPayloadCapella {
+impl<E: EthSpec> TryFrom<ExecutionPayloadCapella<E>> for JsonExecutionPayloadCapella<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadCapella<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadCapella {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -147,18 +148,15 @@ impl<E: EthSpec> From<ExecutionPayloadCapella<E>> for JsonExecutionPayloadCapell
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
-        }
+            withdrawals: withdrawals_to_json(payload.withdrawals)?,
+        })
     }
 }
-impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadDeneb<E> {
-    fn from(payload: ExecutionPayloadDeneb<E>) -> Self {
-        JsonExecutionPayloadDeneb {
+impl<E: EthSpec> TryFrom<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadDeneb<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadDeneb<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -173,21 +171,18 @@ impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadDeneb<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadElectra<E> {
-    fn from(payload: ExecutionPayloadElectra<E>) -> Self {
-        JsonExecutionPayloadElectra {
+impl<E: EthSpec> TryFrom<ExecutionPayloadElectra<E>> for JsonExecutionPayloadElectra<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadElectra<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -202,21 +197,18 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadElectr
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E> {
-    fn from(payload: ExecutionPayloadFulu<E>) -> Self {
-        JsonExecutionPayloadFulu {
+impl<E: EthSpec> TryFrom<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadFulu<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadFulu {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -231,21 +223,18 @@ impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E> {
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas<E> {
-    fn from(payload: ExecutionPayloadGloas<E>) -> Self {
-        JsonExecutionPayloadGloas {
+impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: ExecutionPayloadGloas<E>) -> Result<Self, Self::Error> {
+        Ok(JsonExecutionPayloadGloas {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -260,27 +249,34 @@ impl<E: EthSpec> From<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
-    fn from(execution_payload: ExecutionPayload<E>) -> Self {
+impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(execution_payload: ExecutionPayload<E>) -> Result<Self, Self::Error> {
         match execution_payload {
-            ExecutionPayload::Bellatrix(payload) => JsonExecutionPayload::Bellatrix(payload.into()),
-            ExecutionPayload::Capella(payload) => JsonExecutionPayload::Capella(payload.into()),
-            ExecutionPayload::Deneb(payload) => JsonExecutionPayload::Deneb(payload.into()),
-            ExecutionPayload::Electra(payload) => JsonExecutionPayload::Electra(payload.into()),
-            ExecutionPayload::Fulu(payload) => JsonExecutionPayload::Fulu(payload.into()),
-            ExecutionPayload::Gloas(payload) => JsonExecutionPayload::Gloas(payload.into()),
+            ExecutionPayload::Bellatrix(payload) => {
+                Ok(JsonExecutionPayload::Bellatrix(payload.into()))
+            }
+            ExecutionPayload::Capella(payload) => {
+                Ok(JsonExecutionPayload::Capella(payload.try_into()?))
+            }
+            ExecutionPayload::Deneb(payload) => {
+                Ok(JsonExecutionPayload::Deneb(payload.try_into()?))
+            }
+            ExecutionPayload::Electra(payload) => {
+                Ok(JsonExecutionPayload::Electra(payload.try_into()?))
+            }
+            ExecutionPayload::Fulu(payload) => Ok(JsonExecutionPayload::Fulu(payload.try_into()?)),
+            ExecutionPayload::Gloas(payload) => {
+                Ok(JsonExecutionPayload::Gloas(payload.try_into()?))
+            }
         }
     }
 }
@@ -305,9 +301,11 @@ impl<E: EthSpec> From<JsonExecutionPayloadBellatrix<E>> for ExecutionPayloadBell
         }
     }
 }
-impl<E: EthSpec> From<JsonExecutionPayloadCapella<E>> for ExecutionPayloadCapella<E> {
-    fn from(payload: JsonExecutionPayloadCapella<E>) -> Self {
-        ExecutionPayloadCapella {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadCapella<E>> for ExecutionPayloadCapella<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadCapella<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadCapella {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -322,19 +320,16 @@ impl<E: EthSpec> From<JsonExecutionPayloadCapella<E>> for ExecutionPayloadCapell
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
-        }
+            withdrawals: withdrawals_from_json(payload.withdrawals)?,
+        })
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadDeneb<E>> for ExecutionPayloadDeneb<E> {
-    fn from(payload: JsonExecutionPayloadDeneb<E>) -> Self {
-        ExecutionPayloadDeneb {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadDeneb<E>> for ExecutionPayloadDeneb<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadDeneb<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -349,21 +344,18 @@ impl<E: EthSpec> From<JsonExecutionPayloadDeneb<E>> for ExecutionPayloadDeneb<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadElectra<E>> for ExecutionPayloadElectra<E> {
-    fn from(payload: JsonExecutionPayloadElectra<E>) -> Self {
-        ExecutionPayloadElectra {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadElectra<E>> for ExecutionPayloadElectra<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadElectra<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -378,21 +370,18 @@ impl<E: EthSpec> From<JsonExecutionPayloadElectra<E>> for ExecutionPayloadElectr
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E> {
-    fn from(payload: JsonExecutionPayloadFulu<E>) -> Self {
-        ExecutionPayloadFulu {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadFulu<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadFulu {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -407,21 +396,18 @@ impl<E: EthSpec> From<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E> {
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas<E> {
-    fn from(payload: JsonExecutionPayloadGloas<E>) -> Self {
-        ExecutionPayloadGloas {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(payload: JsonExecutionPayloadGloas<E>) -> Result<Self, Self::Error> {
+        Ok(ExecutionPayloadGloas {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -436,27 +422,34 @@ impl<E: EthSpec> From<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals)?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
-    fn from(json_execution_payload: JsonExecutionPayload<E>) -> Self {
+impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(json_execution_payload: JsonExecutionPayload<E>) -> Result<Self, Self::Error> {
         match json_execution_payload {
-            JsonExecutionPayload::Bellatrix(payload) => ExecutionPayload::Bellatrix(payload.into()),
-            JsonExecutionPayload::Capella(payload) => ExecutionPayload::Capella(payload.into()),
-            JsonExecutionPayload::Deneb(payload) => ExecutionPayload::Deneb(payload.into()),
-            JsonExecutionPayload::Electra(payload) => ExecutionPayload::Electra(payload.into()),
-            JsonExecutionPayload::Fulu(payload) => ExecutionPayload::Fulu(payload.into()),
-            JsonExecutionPayload::Gloas(payload) => ExecutionPayload::Gloas(payload.into()),
+            JsonExecutionPayload::Bellatrix(payload) => {
+                Ok(ExecutionPayload::Bellatrix(payload.into()))
+            }
+            JsonExecutionPayload::Capella(payload) => {
+                Ok(ExecutionPayload::Capella(payload.try_into()?))
+            }
+            JsonExecutionPayload::Deneb(payload) => {
+                Ok(ExecutionPayload::Deneb(payload.try_into()?))
+            }
+            JsonExecutionPayload::Electra(payload) => {
+                Ok(ExecutionPayload::Electra(payload.try_into()?))
+            }
+            JsonExecutionPayload::Fulu(payload) => Ok(ExecutionPayload::Fulu(payload.try_into()?)),
+            JsonExecutionPayload::Gloas(payload) => {
+                Ok(ExecutionPayload::Gloas(payload.try_into()?))
+            }
         }
     }
 }
@@ -590,13 +583,17 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             JsonGetPayloadResponse::Capella(response) => {
                 Ok(GetPayloadResponse::Capella(GetPayloadResponseCapella {
-                    execution_payload: response.execution_payload.into(),
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
                     block_value: response.block_value,
                 }))
             }
             JsonGetPayloadResponse::Deneb(response) => {
                 Ok(GetPayloadResponse::Deneb(GetPayloadResponseDeneb {
-                    execution_payload: response.execution_payload.into(),
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
@@ -604,34 +601,40 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             JsonGetPayloadResponse::Electra(response) => {
                 Ok(GetPayloadResponse::Electra(GetPayloadResponseElectra {
-                    execution_payload: response.execution_payload.into(),
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
                     requests: response.execution_requests.try_into().map_err(|e| {
-                        format!("Failed to convert json to execution requests : {:?}", e)
+                        format!("Failed to convert json to execution requests: {:?}", e)
                     })?,
                 }))
             }
             JsonGetPayloadResponse::Fulu(response) => {
                 Ok(GetPayloadResponse::Fulu(GetPayloadResponseFulu {
-                    execution_payload: response.execution_payload.into(),
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
                     requests: response.execution_requests.try_into().map_err(|e| {
-                        format!("Failed to convert json to execution requests  {:?}", e)
+                        format!("Failed to convert json to execution requests: {:?}", e)
                     })?,
                 }))
             }
             JsonGetPayloadResponse::Gloas(response) => {
                 Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
-                    execution_payload: response.execution_payload.into(),
+                    execution_payload: response.execution_payload.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution payload: {:?}", e)
+                    })?,
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
                     requests: response.execution_requests.try_into().map_err(|e| {
-                        format!("Failed to convert json to execution requests  {:?}", e)
+                        format!("Failed to convert json to execution requests: {:?}", e)
                     })?,
                 }))
             }
@@ -673,6 +676,26 @@ impl From<JsonWithdrawal> for Withdrawal {
         }
     }
 }
+
+// Helper functions to convert between `VariableList<Withdrawal>` and `VariableList<JsonWithdrawal>`.
+fn withdrawals_to_json<N>(
+    list: VariableList<Withdrawal, N>,
+) -> Result<VariableList<JsonWithdrawal, N>, ssz_types::Error>
+where
+    N: Unsigned,
+{
+    VariableList::try_from_iter(list.into_iter().map(Into::into))
+}
+
+fn withdrawals_from_json<N>(
+    list: VariableList<JsonWithdrawal, N>,
+) -> Result<VariableList<Withdrawal, N>, ssz_types::Error>
+where
+    N: Unsigned,
+{
+    VariableList::try_from_iter(list.into_iter().map(Into::into))
+}
+
 #[derive(Debug, PartialEq, Clone, RlpEncodable)]
 pub struct EncodableJsonWithdrawal<'a> {
     pub index: u64,
@@ -976,30 +999,25 @@ pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
-    fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: JsonExecutionPayloadBodyV1<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|json_withdrawals| {
-                Withdrawals::<E>::from(
-                    json_withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-            }),
-        }
+            withdrawals: value.withdrawals.map(withdrawals_from_json).transpose()?,
+        })
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<E> {
-    fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: ExecutionPayloadBodyV1<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|withdrawals| {
-                VariableList::from(withdrawals.into_iter().map(Into::into).collect::<Vec<_>>())
-            }),
-        }
+            withdrawals: value.withdrawals.map(withdrawals_to_json).transpose()?,
+        })
     }
 }
 
@@ -1081,10 +1099,10 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
 
 #[cfg(test)]
 mod tests {
+    use bls::{PublicKeyBytes, SignatureBytes};
     use ssz::Encode;
     use types::{
-        ConsolidationRequest, DepositRequest, MainnetEthSpec, PublicKeyBytes, RequestType,
-        SignatureBytes, WithdrawalRequest,
+        ConsolidationRequest, DepositRequest, MainnetEthSpec, RequestType, WithdrawalRequest,
     };
 
     use super::*;

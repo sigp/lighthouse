@@ -10,7 +10,9 @@ portable = ["beacon_chain/portable"]
 
 [dependencies]
 beacon_chain = { workspace = true }
+bls = { workspace = true }
 ethereum_ssz = { workspace = true }
+fixed_bytes = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }

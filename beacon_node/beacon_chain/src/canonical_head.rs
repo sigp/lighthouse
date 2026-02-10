@@ -41,13 +41,13 @@ use crate::{
     metrics,
     validator_monitor::get_slot_delay_ms,
 };
-use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
+use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseLateHead};
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
     ResetPayloadStatuses,
 };
 use itertools::process_results;
-use lighthouse_tracing::SPAN_RECOMPUTE_HEAD;
+
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
@@ -514,7 +514,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// can't abort block import because an error is returned here.
     pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) {
         let span = info_span!(
-            SPAN_RECOMPUTE_HEAD,
+            "lh_recompute_head_at_slot",
             slot = %current_slot
         );
 
@@ -824,15 +824,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .slot()
                 .epoch(T::EthSpec::slots_per_epoch());
 
-        // These fields are used for server-sent events.
-        let state_root = new_snapshot.beacon_state_root();
+        // This field is used for server-sent events.
         let head_slot = new_snapshot.beacon_state.slot();
-        let dependent_root = new_snapshot
-            .beacon_state
-            .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Next);
-        let prev_dependent_root = new_snapshot
-            .beacon_state
-            .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
         match BlockShufflingIds::try_from_head(
             new_snapshot.beacon_block_root,
@@ -863,38 +856,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_utf8_lossy(),
             &self.slot_clock,
             self.event_handler.as_ref(),
+            &self.spec,
         );
 
         if is_epoch_transition || reorg_distance.is_some() {
             self.persist_fork_choice()?;
             self.op_pool.prune_attestations(self.epoch()?);
-        }
-
-        // Register server-sent-events for a new head.
-        if let Some(event_handler) = self
-            .event_handler
-            .as_ref()
-            .filter(|handler| handler.has_head_subscribers())
-        {
-            match (dependent_root, prev_dependent_root) {
-                (Ok(current_duty_dependent_root), Ok(previous_duty_dependent_root)) => {
-                    event_handler.register(EventKind::Head(SseHead {
-                        slot: head_slot,
-                        block: new_snapshot.beacon_block_root,
-                        state: state_root,
-                        current_duty_dependent_root,
-                        previous_duty_dependent_root,
-                        epoch_transition: is_epoch_transition,
-                        execution_optimistic: new_head_is_optimistic,
-                    }));
-                }
-                (Err(e), _) | (_, Err(e)) => {
-                    warn!(
-                        error = ?e,
-                        "Unable to find dependent roots, cannot register head event"
-                    );
-                }
-            }
         }
 
         // Register a server-sent-event for a reorg (if necessary).
@@ -957,9 +924,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
-
-        self.attester_cache
-            .prune_below(new_view.finalized_checkpoint.epoch);
 
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_finalized_subscribers()
@@ -1329,6 +1293,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     head_block_graffiti: String,
     slot_clock: &S,
     event_handler: Option<&ServerSentEventHandler<E>>,
+    spec: &ChainSpec,
 ) {
     let Some(block_time_set_as_head) = slot_clock.now_duration() else {
         // Practically unreachable: the slot clock's time should not be before the UNIX epoch.
@@ -1458,7 +1423,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
         // Determine whether the block has been set as head too late for proper attestation
         // production.
-        let late_head = attestable_delay >= slot_clock.unagg_attestation_production_delay();
+        let late_head = attestable_delay >= spec.get_unaggregated_attestation_due();
 
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.

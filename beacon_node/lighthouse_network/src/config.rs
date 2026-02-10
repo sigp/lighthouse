@@ -5,7 +5,7 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use libp2p::Multiaddr;
+use libp2p::{Multiaddr, gossipsub};
 use local_ip_address::local_ipv6;
 use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
@@ -93,9 +93,6 @@ pub struct Config {
 
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
-
-    /// Subscribe to all data column subnets for the duration of the runtime.
-    pub subscribe_all_data_column_subnets: bool,
 
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
@@ -355,7 +352,6 @@ impl Default for Config {
             upnp_enabled: true,
             network_load: 3,
             private: false,
-            subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             shutdown_after_sync: false,
@@ -447,7 +443,7 @@ pub fn gossipsub_config(
     network_load: u8,
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
-    seconds_per_slot: u64,
+    slot_duration: Duration,
     slots_per_epoch: u64,
     idontwant_message_size_threshold: usize,
 ) -> gossipsub::Config {
@@ -491,7 +487,7 @@ pub fn gossipsub_config(
     // To accommodate the increase, we should increase the duplicate cache time to filter older seen messages.
     // 2 epochs is quite sane for pre-deneb network parameters as well.
     // Hence we keep the same parameters for pre-deneb networks as well to avoid switching at the fork.
-    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * seconds_per_slot * 2);
+    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * slot_duration.as_secs() * 2);
 
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossipsub_config_params.gossipsub_max_transmit_size)

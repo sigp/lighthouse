@@ -12,13 +12,12 @@ use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
-use lighthouse_tracing::SPAN_SYNCING_CHAIN;
 use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use strum::IntoStaticStr;
-use tracing::{Span, debug, instrument, warn};
+use tracing::{Span, debug, error, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -161,7 +160,7 @@ pub enum ChainSyncingState {
 impl<T: BeaconChainTypes> SyncingChain<T> {
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_SYNCING_CHAIN,
+        name = "lh_syncing_chain",
         parent = None,
         level="debug",
         skip_all,
@@ -942,10 +941,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         }
                     }
                     CouplingError::BlobPeerFailure(msg) => {
-                        tracing::debug!(?batch_id, msg, "Blob peer failure");
+                        debug!(?batch_id, msg, "Blob peer failure");
                     }
                     CouplingError::InternalError(msg) => {
-                        tracing::error!(?batch_id, msg, "Block components coupling internal error");
+                        error!(?batch_id, msg, "Block components coupling internal error");
                     }
                 }
             }
@@ -1331,7 +1330,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .get(&(self.processing_target + batch_index as u64 * EPOCHS_PER_BATCH))
             {
                 visualization_string.push(batch.visualize());
-                if batch_index != BATCH_BUFFER_SIZE {
+                if batch_index < BATCH_BUFFER_SIZE - 1 {
                     // Add a comma in between elements
                     visualization_string.push(',');
                 }

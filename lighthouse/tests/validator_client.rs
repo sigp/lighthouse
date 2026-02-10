@@ -109,12 +109,12 @@ fn beacon_nodes_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(
-                config.beacon_nodes[0].full.to_string(),
+                config.beacon_nodes[0].expose_full().to_string(),
                 "http://localhost:1001/"
             );
             assert_eq!(config.beacon_nodes[0].to_string(), "http://localhost:1001/");
             assert_eq!(
-                config.beacon_nodes[1].full.to_string(),
+                config.beacon_nodes[1].expose_full().to_string(),
                 "https://project:secret@infura.io/"
             );
             assert_eq!(config.beacon_nodes[1].to_string(), "https://infura.io/");
@@ -756,5 +756,23 @@ fn validator_proposer_nodes() {
                     SensitiveUrl::parse("http://bn-2:5052").unwrap()
                 ]
             );
+        });
+}
+
+// Head monitor is enabled by default.
+#[test]
+fn head_monitor_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_beacon_head_monitor);
+    });
+}
+
+#[test]
+fn head_monitor_disabled() {
+    CommandLineTest::new()
+        .flag("disable-beacon-head-monitor", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_beacon_head_monitor);
         });
 }

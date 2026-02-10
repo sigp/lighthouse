@@ -2,8 +2,9 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitorConfig};
+use bls::{Keypair, PublicKeyBytes};
 use std::sync::LazyLock;
-use types::{Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;

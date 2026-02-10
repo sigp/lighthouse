@@ -57,7 +57,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use strum::AsRefStr;
-use tracing::debug;
+use tracing::{debug, error};
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationRef, BeaconCommittee,
@@ -267,11 +267,25 @@ pub enum Error {
     /// We were unable to process this attestation due to an internal error. It's unclear if the
     /// attestation is valid.
     BeaconChainError(Box<BeaconChainError>),
+    /// A critical error occurred while converting SSZ types.
+    /// This can only occur when a VariableList was not able to be constructed from a single
+    /// attestation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    SszTypesError(ssz_types::Error),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Self::BeaconChainError(Box::new(e))
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Self::SszTypesError(e)
     }
 }
 
@@ -442,7 +456,18 @@ fn process_slash_info<T: BeaconChainTypes>(
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-                let indexed_attestation = attestation.to_indexed(fork_name);
+                let indexed_attestation = match attestation.to_indexed(fork_name) {
+                    Ok(indexed) => indexed,
+                    Err(e) => {
+                        error!(
+                            attestation_root = ?attestation.data.tree_hash_root(),
+                            error = ?e,
+                            "Unable to construct VariableList from a single attestation. \
+                             This indicates a serious bug in SSZ handling"
+                        );
+                        return Error::SszTypesError(e);
+                    }
+                };
                 (indexed_attestation, true, err)
             }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
@@ -932,7 +957,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-        let indexed_attestation = attestation.to_indexed(fork_name);
+        let indexed_attestation = attestation
+            .to_indexed(fork_name)
+            .map_err(|e| SignatureNotCheckedSingle(attestation, Error::SszTypesError(e)))?;
 
         let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,

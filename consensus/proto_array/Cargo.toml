@@ -11,6 +11,7 @@ path = "src/bin.rs"
 [dependencies]
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+fixed_bytes = { workspace = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
