@@ -364,7 +364,7 @@ pub fn cli_app() -> Command {
                 .long("libp2p-addresses")
                 .value_name("MULTIADDR")
                 .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
-                       without an ENR.")
+                       without an ENR. DEPRECATED. The --libp2p-addresses flag is deprecated and replaced by --boot-nodes")
                 .action(ArgAction::Set)
                 .display_order(0)
         )

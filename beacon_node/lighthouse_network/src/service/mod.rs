@@ -573,6 +573,7 @@ impl<E: EthSpec> Network<E> {
         };
 
         // attempt to connect to user-input libp2p nodes
+        // DEPRECATED: can be removed in v8.2.0./v9.0.0
         for multiaddr in &config.libp2p_nodes {
             dial(multiaddr.clone());
         }
