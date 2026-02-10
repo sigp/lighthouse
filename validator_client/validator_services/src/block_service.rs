@@ -620,7 +620,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             )
             .await?;
 
-        // For Gloas, fetch the execution payload envelope, sign it, and publish it
+        // TODO(gloas) we only need to fetch, sign and publish the envelope in the local building case.
+        // Right now we always default to local building. Once we implement trustless/trusted builder logic
+        // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
         if fork_name.gloas_enabled() {
             self_ref
                 .fetch_sign_and_publish_payload_envelope(proposer_fallback, slot, &validator_pubkey)
@@ -634,7 +636,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     /// This should be called after the block has been published.
     ///
     /// TODO(gloas): For multi-BN setups, we need to track which beacon node produced the block
-    /// and fetch/publish the envelope from that same node. The envelope is cached per-BN,
+    /// and fetch the envelope from that same node. The envelope is cached per-BN,
     /// so fetching from a different BN than the one that built the block will fail.
     /// See: https://github.com/sigp/lighthouse/pull/8313
     #[instrument(skip_all)]

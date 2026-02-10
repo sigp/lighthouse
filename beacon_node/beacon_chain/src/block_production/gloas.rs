@@ -15,6 +15,7 @@ use state_processing::{
 use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use tracing::{Span, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
+use types::consts::gloas::{BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD};
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BlockProductionVersion,
@@ -147,7 +148,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We'll need to build out trustless/trusted bid paths.
         let (execution_payload_bid, state, payload_data) = self
             .clone()
-            .produce_execution_payload_bid(state, state_root_opt, produce_at_slot, 0, u64::MAX)
+            .produce_execution_payload_bid(state, state_root_opt, produce_at_slot, BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD)
             .await?;
 
         // Part 3/3 (blocking)
