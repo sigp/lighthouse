@@ -82,6 +82,7 @@ malloc_utils = { workspace = true, features = [] }
 
 [dev-dependencies]
 beacon_node = { workspace = true, features = ["testing"] }
+cargo-husky = { workspace = true }
 beacon_node_fallback = { workspace = true }
 beacon_processor = { workspace = true }
 eth2 = { workspace = true }
