@@ -506,11 +506,12 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         &spec,
     );
 
-    // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the committee size.
+    // In Electra, setting wrong aggregation_bits capacity causes EmptyCommittee error
+    // (validation order changed - committee check happens before bitfield check)
     assert_eq!(
         result,
         Err(BlockProcessingError::BeaconStateError(
-            BeaconStateError::InvalidBitfield
+            BeaconStateError::EmptyCommittee
         ))
     );
 }
