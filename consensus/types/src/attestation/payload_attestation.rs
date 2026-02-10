@@ -5,7 +5,7 @@ use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
-use ssz::BitList;
+use ssz::BitVector;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 #[educe(PartialEq, Hash)]
 #[context_deserialize(ForkName)]
 pub struct PayloadAttestation<E: EthSpec> {
-    pub aggregation_bits: BitList<E::PTCSize>,
+    pub aggregation_bits: BitVector<E::PTCSize>,
     pub data: PayloadAttestationData,
     pub signature: AggregateSignature,
 }

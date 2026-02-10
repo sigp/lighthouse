@@ -134,6 +134,9 @@ pub struct AltairPreset {
     pub epochs_per_sync_committee_period: Epoch,
     #[serde(with = "serde_utils::quoted_u64")]
     pub min_sync_committee_participants: u64,
+    #[serde(default = "default_update_timeout")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub update_timeout: u64,
 }
 
 impl AltairPreset {
@@ -145,8 +148,13 @@ impl AltairPreset {
             sync_committee_size: E::SyncCommitteeSize::to_u64(),
             epochs_per_sync_committee_period: spec.epochs_per_sync_committee_period,
             min_sync_committee_participants: spec.min_sync_committee_participants,
+            update_timeout: spec.update_timeout,
         }
     }
+}
+
+const fn default_update_timeout() -> u64 {
+    8192
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

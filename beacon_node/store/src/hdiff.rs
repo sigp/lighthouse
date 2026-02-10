@@ -11,7 +11,7 @@ use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use superstruct::superstruct;
-use types::historical_summary::HistoricalSummary;
+use types::state::HistoricalSummary;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, Validator};
 
 static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);

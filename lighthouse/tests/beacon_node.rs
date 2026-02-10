@@ -26,7 +26,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -2370,7 +2370,7 @@ fn enable_proposer_re_orgs_default() {
                 DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             );
             assert_eq!(
-                config.chain.re_org_cutoff(12),
+                config.chain.re_org_cutoff(Duration::from_secs(12)),
                 Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
             );
         });
@@ -2422,7 +2422,10 @@ fn proposer_re_org_cutoff() {
         .flag("proposer-reorg-cutoff", Some("500"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.chain.re_org_cutoff(12), Duration::from_millis(500))
+            assert_eq!(
+                config.chain.re_org_cutoff(Duration::from_secs(12)),
+                Duration::from_millis(500)
+            )
         });
 }
 

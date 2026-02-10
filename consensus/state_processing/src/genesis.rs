@@ -195,7 +195,7 @@ pub fn is_valid_genesis_state<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSp
 pub fn process_activations<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BeaconStateError> {
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     let mut validators_iter = validators.iter_cow();
     while let Some((index, validator)) = validators_iter.next_cow() {
@@ -203,7 +203,7 @@ pub fn process_activations<E: EthSpec>(
         let balance = balances
             .get(index)
             .copied()
-            .ok_or(Error::BalancesOutOfBounds(index))?;
+            .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
         validator.effective_balance = std::cmp::min(
             balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
             spec.max_effective_balance,

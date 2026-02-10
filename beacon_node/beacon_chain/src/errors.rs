@@ -219,7 +219,7 @@ pub enum BeaconChainError {
     UnableToPublish,
     UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientUpdateError(LightClientUpdateError),
+    LightClientError(LightClientError),
     LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
@@ -274,7 +274,7 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientUpdateError, BeaconChainError);
+easy_from_to!(LightClientError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
 easy_from_to!(AttestationError, BeaconChainError);
 

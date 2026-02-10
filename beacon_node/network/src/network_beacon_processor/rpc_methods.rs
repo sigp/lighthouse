@@ -10,20 +10,13 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
-use lighthouse_tracing::{
-    SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST, SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP, SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
-    SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE, SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
-};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tracing::{Span, debug, error, field, instrument, warn};
-use types::blob_sidecar::BlobIdentifier;
+use types::data::BlobIdentifier;
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -159,7 +152,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
+        name = "lh_handle_blocks_by_root_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -259,7 +252,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlobsByRoot` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
+        name = "lh_handle_blobs_by_root_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -388,7 +381,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `DataColumnsByRoot` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
+        name = "lh_handle_data_columns_by_root_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -481,7 +474,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
+        name = "lh_handle_light_client_updates_by_range",
         parent = None,
         level = "debug",
         skip_all,
@@ -582,7 +575,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `LightClientBootstrap` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP,
+        name = "lh_handle_light_client_bootstrap",
         parent = None,
         level = "debug",
         skip_all,
@@ -622,7 +615,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `LightClientOptimisticUpdate` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
+        name = "lh_handle_light_client_optimistic_update",
         parent = None,
         level = "debug",
         skip_all,
@@ -656,7 +649,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `LightClientFinalityUpdate` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
+        name = "lh_handle_light_client_finality_update",
         parent = None,
         level = "debug",
         skip_all,
@@ -690,7 +683,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlocksByRange` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST,
+        name = "lh_handle_blocks_by_range_request",
         parent = None,
         level = "debug",
         skip_all,
@@ -749,7 +742,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             )
             .ok_or((RpcErrorResponse::ServerError, "shutting down"))?
             .await
-            .map_err(|_| (RpcErrorResponse::ServerError, "tokio join"))??;
+            .map_err(|_| (RpcErrorResponse::ServerError, "tokio join"))??
+            .iter()
+            .map(|(root, _)| *root)
+            .collect::<Vec<_>>();
 
         let current_slot = self
             .chain
@@ -862,7 +858,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         req_start_slot: u64,
         req_count: u64,
         req_type: &str,
-    ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
+    ) -> Result<Vec<(Hash256, Slot)>, (RpcErrorResponse, &'static str)> {
         let start_time = std::time::Instant::now();
         // We care about blocks being in fork-choice, use its view of finality
         let finalized_slot = self
@@ -874,7 +870,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        let (block_roots, source) = if req_start_slot >= finalized_slot.as_u64() {
+        let (block_roots_and_slots, source) = if req_start_slot >= finalized_slot.as_u64() {
             // If the entire requested range is after finalization, use fork_choice
             (
                 self.chain
@@ -918,14 +914,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             req_type,
             start_slot = %req_start_slot,
             req_count,
-            roots_count = block_roots.len(),
+            roots_count = block_roots_and_slots.len(),
             source,
             elapsed = ?elapsed,
             %finalized_slot,
             "Range request block roots retrieved"
         );
 
-        Ok(block_roots)
+        Ok(block_roots_and_slots)
     }
 
     /// Get block roots for a `BlocksByRangeRequest` from the store using roots iterator.
@@ -933,7 +929,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         start_slot: u64,
         count: u64,
-    ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
+    ) -> Result<Vec<(Hash256, Slot)>, (RpcErrorResponse, &'static str)> {
         let forwards_block_root_iter =
             match self.chain.forwards_iter_block_roots(Slot::from(start_slot)) {
                 Ok(iter) => iter,
@@ -979,16 +975,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // remove all skip slots i.e. duplicated roots
-        Ok(block_roots
-            .into_iter()
-            .map(|(root, _)| root)
-            .unique()
-            .collect::<Vec<_>>())
+        Ok(block_roots.into_iter().unique().collect::<Vec<_>>())
     }
 
     /// Handle a `BlobsByRange` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST,
+        name = "lh_handle_blobs_by_range_request",
         parent = None,
         skip_all,
         level = "debug",
@@ -1090,7 +1082,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
         }
 
-        let block_roots =
+        let block_roots_and_slots =
             self.get_block_roots_for_slot_range(req.start_slot, effective_count, "BlobsByRange")?;
 
         let current_slot = self
@@ -1111,7 +1103,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let mut blobs_sent = 0;
 
-        for root in block_roots {
+        for (root, _) in block_roots_and_slots {
             match self.chain.get_blobs(&root) {
                 Ok(blob_sidecar_list) => {
                     for blob_sidecar in blob_sidecar_list.iter() {
@@ -1153,7 +1145,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `DataColumnsByRange` request from the peer.
     #[instrument(
-        name = SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST,
+        name = "lh_handle_data_columns_by_range_request",
         parent = None,
         skip_all,
         level = "debug",
@@ -1250,7 +1242,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
         }
 
-        let block_roots =
+        let block_roots_and_slots =
             self.get_block_roots_for_slot_range(req.start_slot, req.count, "DataColumnsByRange")?;
         let mut data_columns_sent = 0;
 
@@ -1267,9 +1259,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .filter(|c| available_columns.contains(c))
             .collect::<Vec<_>>();
 
-        for root in block_roots {
+        for (root, slot) in block_roots_and_slots {
+            let fork_name = self.chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
             for index in &indices_to_retrieve {
-                match self.chain.get_data_column(&root, index) {
+                match self.chain.get_data_column(&root, index, fork_name) {
                     Ok(Some(data_column_sidecar)) => {
                         // Due to skip slots, data columns could be out of the range, we ensure they
                         // are in the range before sending
