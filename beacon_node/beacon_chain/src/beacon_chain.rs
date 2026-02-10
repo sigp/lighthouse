@@ -1147,6 +1147,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+
+    /// Returns the full block at the given root, if it's available in the database.
+    ///
+    /// Should always return a full block for pre-merge and post-gloas blocks.
+    pub fn get_full_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+        match self.store.try_get_full_block(block_root)? {
+            Some(DatabaseBlock::Full(block)) => Ok(Some(block)),
+            Some(DatabaseBlock::Blinded(_)) => {
+                // TODO(gloas) this should error out
+                todo!()
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Returns the block at the given root, if any.
     ///
     /// ## Errors
