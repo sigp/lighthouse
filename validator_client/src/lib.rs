@@ -9,12 +9,10 @@ use metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
-use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    BeaconNodeFallback, CandidateBeaconNode, beacon_head_monitor::HeadEvent,
-    start_fallback_updater_service,
+    BeaconNodeFallback, CandidateBeaconNode, start_fallback_updater_service,
 };
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
@@ -71,8 +69,6 @@ const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
 pub const AGGREGATION_PRE_COMPUTE_EPOCHS: u64 = 2;
 /// Number of slots in advance to compute sync selection proofs when in `distributed` mode.
 pub const AGGREGATION_PRE_COMPUTE_SLOTS_DISTRIBUTED: u64 = 1;
-
-const MAX_HEAD_EVENT_QUEUE_LEN: usize = 1_024;
 
 type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
 
@@ -272,7 +268,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
             let i = x.0;
             let url = x.1;
-            let slot_duration = context.eth2_config.spec.get_slot_duration();
+            let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
 
             let mut beacon_node_http_client_builder = ClientBuilder::new();
 
@@ -393,22 +389,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            context.eth2_config.spec.get_slot_duration(),
+            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());
-
-        // Only the beacon_nodes are used for attestation duties and thus biconditionally
-        // proposer_nodes do not need head_send ref.
-        let head_monitor_rx = if config.enable_beacon_head_monitor {
-            let (head_monitor_tx, head_receiver) =
-                mpsc::channel::<HeadEvent>(MAX_HEAD_EVENT_QUEUE_LEN);
-            beacon_nodes.set_head_send(Arc::new(head_monitor_tx));
-            Some(Mutex::new(head_receiver))
-        } else {
-            None
-        };
 
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
@@ -520,17 +505,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let block_service = block_service_builder.build()?;
 
-        let attestation_builder = AttestationServiceBuilder::new()
+        let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
-            .head_monitor_rx(head_monitor_rx)
             .chain_spec(context.eth2_config.spec.clone())
-            .disable(config.disable_attesting);
-
-        let attestation_service = attestation_builder.build()?;
+            .disable(config.disable_attesting)
+            .build()?;
 
         let preparation_service = PreparationServiceBuilder::new()
             .slot_clock(slot_clock.clone())
