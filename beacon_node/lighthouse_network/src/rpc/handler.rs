@@ -893,14 +893,6 @@ where
                 error: (proto, error),
                 ..
             }) => {
-                if matches!(
-                    error,
-                    RPCError::InvalidData(_) | RPCError::SSZDecodeError(_)
-                ) {
-                    // Peer is not complying with the protocol.
-                    self.shutdown(None);
-                }
-
                 self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
                     id: self.current_inbound_substream_id,
                     proto,
@@ -943,7 +935,7 @@ where
                             request.count()
                         )),
                     }));
-                    return self.shutdown(None);
+                    return;
                 }
             }
             RequestType::BlobsByRange(request) => {
@@ -959,7 +951,7 @@ where
                             max_allowed, max_requested_blobs
                         )),
                     }));
-                    return self.shutdown(None);
+                    return;
                 }
             }
             _ => {}
