@@ -613,7 +613,7 @@ impl HttpJsonRpc {
         execution_timeout_multiplier: Option<u32>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Client::builder().user_agent(VERSION).build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -628,7 +628,7 @@ impl HttpJsonRpc {
         execution_timeout_multiplier: Option<u32>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Client::builder().user_agent(VERSION).build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),

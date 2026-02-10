@@ -10,6 +10,7 @@ bincode = { workspace = true }
 bls = { workspace = true }
 eth2_keystore = { workspace = true }
 filesystem = { workspace = true }
+lighthouse_version = { workspace = true }
 lockfile = { workspace = true }
 metrics = { workspace = true }
 parking_lot = { workspace = true }

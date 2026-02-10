@@ -1,5 +1,6 @@
 use super::types::*;
 use crate::{Error, success_or_error};
+use lighthouse_version::VERSION;
 use reqwest::{
     IntoUrl,
     header::{HeaderMap, HeaderValue},
@@ -45,8 +46,13 @@ impl Display for AuthorizationHeader {
 impl ValidatorClientHttpClient {
     /// Create a new client pre-initialised with an API token.
     pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
+        let client = reqwest::Client::builder()
+            .user_agent(VERSION)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             api_token: Some(secret.into()),
             authorization_header: AuthorizationHeader::Bearer,
@@ -57,8 +63,13 @@ impl ValidatorClientHttpClient {
     ///
     /// A token can be fetched by using `self.get_auth`, and then reading the token from disk.
     pub fn new_unauthenticated(server: SensitiveUrl) -> Result<Self, Error> {
+        let client = reqwest::Client::builder()
+            .user_agent(VERSION)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             api_token: None,
             authorization_header: AuthorizationHeader::Omit,

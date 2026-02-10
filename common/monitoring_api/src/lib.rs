@@ -73,8 +73,13 @@ pub struct MonitoringHttpClient {
 
 impl MonitoringHttpClient {
     pub fn new(config: &Config) -> Result<Self, String> {
+        let client = reqwest::Client::builder()
+            .user_agent(lighthouse_version::VERSION)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
             update_period: Duration::from_secs(

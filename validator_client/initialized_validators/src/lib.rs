@@ -422,6 +422,7 @@ fn build_web3_signer_client(
     max_idle_connections: Option<usize>,
 ) -> Result<Client, Error> {
     let builder = Client::builder()
+        .user_agent(lighthouse_version::VERSION)
         .timeout(request_timeout)
         .pool_idle_timeout(keep_alive_timeout)
         .pool_max_idle_per_host(max_idle_connections.unwrap_or(usize::MAX));

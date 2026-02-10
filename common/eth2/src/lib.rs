@@ -155,15 +155,8 @@ impl fmt::Display for BeaconNodeHttpClient {
 
 impl BeaconNodeHttpClient {
     pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
-        let mut headers = HeaderMap::new();
-
-        // Add User-Agent header to identify the client
-        if let Ok(user_agent) = HeaderValue::from_str(VERSION) {
-            headers.insert(reqwest::header::USER_AGENT, user_agent);
-        }
-
         let client = reqwest::Client::builder()
-            .default_headers(headers)
+            .user_agent(VERSION)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
