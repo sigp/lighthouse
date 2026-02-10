@@ -91,6 +91,8 @@ Ask: "What happens if this returns `Ok(Failed)`?" Don't ignore results that migh
 - Document lock ordering requirements
 - Keep lock scopes narrow
 - Seek detailed review for lock-related changes
+- Use `try_read` when falling back to an alternative is acceptable
+- Use blocking `read` when alternative is more expensive (e.g., state reconstruction)
 
 ### Async Patterns
 ```rust
@@ -124,20 +126,31 @@ async fn handler() {
 - Things caught by CI (formatting, linting)
 - Nice-to-haves that aren't important
 
-### Keep Comments Concise
+### Keep Comments Natural and Minimal
 
+**Tone**: Natural and conversational, not robotic.
+
+**Good review comment:**
 ```
-BAD (verbose):
-## Code Review Summary
-### Key Issues Found
-#### 1. Critical Problem
-...detailed explanation...
-
-GOOD (concise):
 Missing test coverage for the None blobs path. The existing test at
 `store_tests.rs:2874` still provides blobs. Should add a test passing
 None to verify backfill handles this correctly.
 ```
+
+**Good follow-up after author addresses comments:**
+```
+LGTM, thanks!
+```
+or
+```
+Thanks for the updates, looks good!
+```
+
+**Avoid:**
+- Checklists or structured formatting (✅ Item 1 fixed...)
+- Repeating what was fixed (makes it obvious it's AI-generated)
+- Headers, subsections, "Summary" sections
+- Verbose multi-paragraph explanations
 
 ### Use Natural Language
 
@@ -200,6 +213,57 @@ Examine every `.unwrap_or()`, `.unwrap_or_else()`:
 When a PR changes a pattern across the codebase:
 - Search for old pattern - all occurrences updated?
 - Check test files - often lag behind implementation
+
+## Architecture & Design
+
+### Avoid Dependency Bloat
+- Question whether imports add unnecessary dependencies
+- Consider feature flags for optional functionality
+- Large imports when only primitives are needed may warrant a `core` or `primitives` feature
+
+### Schema Migrations
+- Database schema changes require migrations
+- Don't forget to add migration code when changing stored types
+- Review pattern: "Needs a schema migration"
+
+### Backwards Compatibility
+- Consider existing users when changing behavior
+- Document breaking changes clearly
+- Prefer additive changes when possible
+
+## Anti-Patterns to Avoid
+
+### Over-Engineering
+- Don't add abstractions until needed
+- Keep solutions simple and focused
+- "Three similar lines of code is better than a premature abstraction"
+
+### Unnecessary Complexity
+- Avoid feature flags for simple changes
+- Don't add fallbacks for scenarios that can't happen
+- Trust internal code and framework guarantees
+
+### Premature Optimization
+- Optimize hot paths based on profiling, not assumptions
+- Document performance considerations but don't over-optimize
+
+### Hiding Important Information
+- Don't use generic variable names when specific ones are clearer
+- Don't skip logging just to keep code shorter
+- Don't omit error context
+
+## Design Principles
+
+### Simplicity First
+Question every layer of abstraction:
+- Is this `Arc` needed, or is the inner type already `Clone`?
+- Is this `Mutex` needed, or can ownership be restructured?
+- Is this wrapper type adding value or just indirection?
+
+If you can't articulate why a layer of abstraction exists, it probably shouldn't.
+
+### High Cohesion
+Group related state and behavior together. If two fields are always set together, used together, and invalid without each other, they belong in a struct.
 
 ## Before Approval Checklist
 
