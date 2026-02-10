@@ -10,6 +10,7 @@ rust-version = "1.88.0"
 # to assert properties of the compilation target.
 [package.metadata.cargo-udeps.ignore]
 normal = ["target_check"]
+development = ["cargo-husky"]
 
 [features]
 default = ["slasher-lmdb", "beacon-node-leveldb"]
