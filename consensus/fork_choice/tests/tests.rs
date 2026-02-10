@@ -1277,3 +1277,35 @@ async fn progressive_balances_cache_proposer_slashing() {
         .apply_blocks(E::slots_per_epoch() as usize)
         .await;
 }
+
+#[tokio::test]
+async fn local_irreversible_checkpoint_cannot_move_backwards() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .apply_blocks(2)
+        .await;
+
+    let chain = &test.harness.chain;
+    let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
+    let previous_local_irreversible = fork_choice.finalized_checkpoint().local();
+    let head_root = chain.head_beacon_block_root();
+    let head_slot = fork_choice
+        .get_block(&head_root)
+        .expect("head block exists in fork choice")
+        .slot;
+    let advanced_checkpoint = Checkpoint {
+        epoch: head_slot.epoch(E::slots_per_epoch()),
+        root: head_root,
+    };
+
+    fork_choice
+        .set_local_irreversible_checkpoint(advanced_checkpoint)
+        .expect("advancing local irreversible checkpoint should succeed");
+
+    let err = fork_choice
+        .set_local_irreversible_checkpoint(previous_local_irreversible)
+        .expect_err("moving local irreversible checkpoint backwards should fail");
+    assert!(matches!(err, ForkChoiceError::BadIrreversibleCheckpoint(_)));
+}

@@ -1,4 +1,4 @@
-//! This module prvides all functionality for finding the canonical head, updating all necessary
+//! This module provides all functionality for finding the canonical head, updating all necessary
 //! components (e.g. caches) and maintaining a cached head block and state.
 //!
 //! For practically all applications, the "canonical head" can be read using
