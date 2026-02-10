@@ -1155,11 +1155,11 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b098575ebe77cb6d14fc7f32749631a6e44edbef6b796f89b020e99ba20d425"
+checksum = "8b52af3cb4058c895d37317bb27508dccc8e5f2d39454016b297bf4a400597b8"
 dependencies = [
- "axum-core 0.5.5",
+ "axum-core 0.5.6",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -1208,9 +1208,9 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.5.5"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59446ce19cd142f8833f856eb31f3eb097812d1479ab224f54d72428ca21ea22"
+checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
 dependencies = [
  "bytes",
  "futures-core",
@@ -1251,7 +1251,7 @@ dependencies = [
 name = "axum_utils"
 version = "0.1.0"
 dependencies = [
- "axum 0.8.7",
+ "axum 0.8.8",
  "axum-server",
  "http 1.4.0",
  "rustls 0.23.35",
@@ -3701,9 +3701,9 @@ checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
 
 [[package]]
 name = "fs-err"
-version = "3.2.0"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62d91fd049c123429b018c47887d3f75a265540dd3c30ba9cb7bae9197edb03a"
+checksum = "73fde052dbfc920003cfd2c8e2c6e6d4cc7c1091538c3a24226cec0665ab08c0"
 dependencies = [
  "autocfg",
  "tokio",
@@ -4338,7 +4338,7 @@ dependencies = [
 name = "http_metrics"
 version = "0.1.0"
 dependencies = [
- "axum 0.8.7",
+ "axum 0.8.8",
  "axum_utils",
  "beacon_chain",
  "health_metrics",
@@ -9742,7 +9742,7 @@ name = "validator_http_api"
 version = "0.1.0"
 dependencies = [
  "account_utils",
- "axum 0.8.7",
+ "axum 0.8.8",
  "axum_utils",
  "beacon_node_fallback",
  "bls",
@@ -9796,7 +9796,7 @@ dependencies = [
 name = "validator_http_metrics"
 version = "0.1.0"
 dependencies = [
- "axum 0.8.7",
+ "axum 0.8.8",
  "axum_utils",
  "health_metrics",
  "lighthouse_validator_store",
@@ -10001,7 +10001,7 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "342119e1ac0e7f3888ca3f9a5602ace6f7b458d63c724ebb660d29240751b322"
 dependencies = [
- "axum 0.8.7",
+ "axum 0.8.8",
  "futures",
  "tower 0.5.2",
  "warp",
