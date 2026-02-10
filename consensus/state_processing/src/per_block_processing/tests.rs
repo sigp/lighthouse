@@ -487,13 +487,14 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .clone()
         .deconstruct()
         .0;
+    // Use Electra method since harness runs at Electra fork
     *head_block
         .to_mut()
         .body_mut()
         .attestations_mut()
         .next()
         .unwrap()
-        .aggregation_bits_base_mut()
+        .aggregation_bits_electra_mut()
         .unwrap() = Bitfield::with_capacity(spec.target_committee_size).unwrap();
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -602,50 +603,9 @@ async fn invalid_attestation_included_too_early() {
     );
 }
 
-#[tokio::test]
-async fn invalid_attestation_included_too_late() {
-    // note to maintainer: might need to increase validator count if we get NoCommittee
-    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
-    let spec = harness.spec.clone();
-
-    let mut state = harness.get_current_state();
-    let mut head_block = harness
-        .chain
-        .head_beacon_block()
-        .as_ref()
-        .clone()
-        .deconstruct()
-        .0;
-    let new_attesation_slot = head_block.body().attestations().next().unwrap().data().slot
-        - Slot::new(MainnetEthSpec::slots_per_epoch());
-    head_block
-        .to_mut()
-        .body_mut()
-        .attestations_mut()
-        .next()
-        .unwrap()
-        .data_mut()
-        .slot = new_attesation_slot;
-
-    let mut ctxt = ConsensusContext::new(state.slot());
-    let result = process_operations::process_attestations(
-        &mut state,
-        head_block.body(),
-        VerifySignatures::True,
-        &mut ctxt,
-        &spec,
-    );
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::AttestationInvalid {
-            index: 0,
-            reason: AttestationInvalid::IncludedTooLate {
-                state: state.slot(),
-                attestation: new_attesation_slot,
-            }
-        })
-    );
-}
+// Note: `invalid_attestation_included_too_late` test removed.
+// The `IncludedTooLate` check was removed in Deneb (EIP7045), so this test is no longer
+// applicable when running with Electra spec (which the harness uses by default).
 
 #[tokio::test]
 async fn invalid_attestation_target_epoch_slot_mismatch() {
