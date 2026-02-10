@@ -156,7 +156,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .produce_execution_payload_bid(
                 state,
-                state_root_opt,
                 produce_at_slot,
                 BID_VALUE_SELF_BUILD,
                 BUILDER_INDEX_SELF_BUILD,
@@ -612,7 +611,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
     // bid building. Right now this only works for local building.
     /// Produce an `ExecutionPayloadBid` for some `slot` upon the given `state`.
-    /// This function assumes we've already done the state advance.
+    /// This function assumes we've already advanced `state`.
     ///
     /// Returns the signed bid, the state, and optionally the payload data needed to construct
     /// the `ExecutionPayloadEnvelope` after the beacon block is created.
@@ -623,8 +622,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
-        state: BeaconState<T::EthSpec>,
-        state_root_opt: Option<Hash256>,
+        mut state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         bid_value: u64,
         builder_index: BuilderIndex,
@@ -712,13 +710,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
-        let state_root = state_root_opt.ok_or_else(|| BlockProductionError::MissingStateRoot)?;
 
         // TODO(gloas) this is just a dummy error variant for now
         let execution_payload_gloas = execution_payload
             .as_gloas()
             .map_err(|_| BlockProductionError::GloasNotImplemented)?
             .to_owned();
+
+        let state_root = state.update_tree_hash_cache()?;
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
