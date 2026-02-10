@@ -5,7 +5,7 @@ use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use strum::IntoStaticStr;
-use tracing::{debug, Span};
+use tracing::{Span, debug};
 use types::{Hash256, Slot};
 
 pub use blobs_by_range::BlobsByRangeRequestItems;
