@@ -18,7 +18,6 @@ dependencies = [
  "eth2_wallet",
  "eth2_wallet_manager",
  "filesystem",
- "lighthouse_version",
  "safe_arith",
  "sensitive_url",
  "serde_json",
