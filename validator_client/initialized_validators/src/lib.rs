@@ -54,6 +54,7 @@ pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_
 pub struct Config {
     pub web3_signer_keep_alive_timeout: Option<Duration>,
     pub web3_signer_max_idle_connections: Option<usize>,
+    pub user_agent: String,
 }
 
 impl Default for Config {
@@ -61,6 +62,7 @@ impl Default for Config {
         Config {
             web3_signer_keep_alive_timeout: DEFAULT_WEB3SIGNER_KEEP_ALIVE,
             web3_signer_max_idle_connections: None,
+            user_agent: String::new(),
         }
     }
 }
@@ -335,6 +337,7 @@ impl InitializedValidator {
                                 request_timeout,
                                 config.web3_signer_keep_alive_timeout,
                                 config.web3_signer_max_idle_connections,
+                                &config.user_agent,
                             )?;
                             client_map.insert(web3_signer, client.clone());
                             client
@@ -351,6 +354,7 @@ impl InitializedValidator {
                         request_timeout,
                         config.web3_signer_keep_alive_timeout,
                         config.web3_signer_max_idle_connections,
+                        &config.user_agent,
                     )?;
                     new_web3_signer_client_map.insert(web3_signer, client.clone());
                     *web3_signer_client_map = Some(new_web3_signer_client_map);
@@ -421,8 +425,10 @@ fn build_web3_signer_client(
     request_timeout: Duration,
     keep_alive_timeout: Option<Duration>,
     max_idle_connections: Option<usize>,
+    user_agent: &str,
 ) -> Result<Client, Error> {
     let builder = Client::builder()
+        .user_agent(user_agent)
         .timeout(request_timeout)
         .pool_idle_timeout(keep_alive_timeout)
         .pool_max_idle_per_host(max_idle_connections.unwrap_or(usize::MAX));

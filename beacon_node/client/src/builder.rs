@@ -389,6 +389,7 @@ where
                     Timeouts::set_all(Duration::from_secs(
                         config.chain.checkpoint_sync_url_timeout,
                     )),
+                    lighthouse_version::VERSION,
                 );
 
                 debug!("Downloading finalized state");

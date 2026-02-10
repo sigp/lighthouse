@@ -194,6 +194,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
             let beacon_node = BeaconNodeHttpClient::new(
                 beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
+                lighthouse_version::VERSION,
             );
 
             if beacon_node

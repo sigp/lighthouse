@@ -137,6 +137,7 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
             let beacon_node = BeaconNodeHttpClient::new(
                 beacon_url.clone(),
                 Timeouts::set_all(Duration::from_secs(12)),
+                lighthouse_version::VERSION,
             );
 
             let validator_data = beacon_node

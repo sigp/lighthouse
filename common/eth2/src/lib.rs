@@ -163,9 +163,14 @@ impl fmt::Display for BeaconNodeHttpClient {
 }
 
 impl BeaconNodeHttpClient {
-    pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
+    pub fn new(server: SensitiveUrl, timeouts: Timeouts, user_agent: &str) -> Self {
+        let client = reqwest::Client::builder()
+            .user_agent(user_agent)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             timeouts,
         }

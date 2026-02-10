@@ -281,6 +281,8 @@ impl Config {
                 .web3_signer_max_idle_connections = Some(n);
         }
 
+        config.initialized_validators.user_agent = lighthouse_version::VERSION.to_string();
+
         /*
          * Http API server
          */

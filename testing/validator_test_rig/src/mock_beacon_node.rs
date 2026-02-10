@@ -24,6 +24,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let beacon_api_client = BeaconNodeHttpClient::new(
             SensitiveUrl::from_str(&server.url()).unwrap(),
             Timeouts::set_all(Duration::from_secs(1)),
+            "test",
         );
         Self {
             server,

@@ -160,7 +160,12 @@ impl ApiTester {
         ))
         .unwrap();
 
-        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey.clone()).unwrap();
+        let client = ValidatorClientHttpClient::new(
+            url.clone(),
+            api_pubkey.clone(),
+            lighthouse_version::VERSION,
+        )
+        .unwrap();
 
         Self {
             client,
@@ -211,7 +216,12 @@ impl ApiTester {
         let tmp = tempdir().unwrap().path().join("invalid-token.txt");
         let api_secret = ApiSecret::create_or_open(tmp).unwrap();
         let invalid_pubkey = api_secret.api_token();
-        ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap()
+        ValidatorClientHttpClient::new(
+            self.url.clone(),
+            invalid_pubkey,
+            lighthouse_version::VERSION,
+        )
+        .unwrap()
     }
 
     pub async fn test_with_invalid_auth<F, A, T>(self, func: F) -> Self
