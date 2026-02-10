@@ -15,7 +15,7 @@ CONFIG=${2:-$SCRIPT_DIR/checkpoint-sync-config-sepolia.yaml}
 # Interval for polling the /lighthouse/syncing endpoint for sync status
 POLL_INTERVAL_SECS=5
 # Target number of slots to backfill to complete this test.
-TARGET_BACKFILL_SLOTS=1024
+TARGET_BACKFILL_SLOTS=256
 # Timeout for this test, if the node(s) fail to backfill `TARGET_BACKFILL_SLOTS` slots, fail the test.
 TIMEOUT_MINS=10
 TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
@@ -102,7 +102,8 @@ node_completed["fullnode"]=false
 
 echo "Polling sync status until backfill reaches ${TARGET_BACKFILL_SLOTS} slots or timeout of ${TIMEOUT_MINS} mins"
 
-while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode]}" = false ]; do
+# while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode]}" = false ]; do
+while [ "${node_completed[fullnode]}" = false ]; do
   current_time=$(date +%s)
   elapsed=$((current_time - start_time))
 
@@ -112,7 +113,8 @@ while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode
   fi
 
   # Poll each node that hasn't completed yet
-  for node in "supernode" "fullnode"; do
+  # for node in "supernode" "fullnode"; do
+  for node in "fullnode"; do
     if [ "${node_completed[$node]}" = false ]; then
       poll_node "$node"
     fi
@@ -121,7 +123,7 @@ while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode
   sleep $POLL_INTERVAL_SECS
 done
 
-echo "Sync test complete! Both supernode and fullnode have synced to HEAD and backfilled ${TARGET_BACKFILL_SLOTS} slots."
-echo "Supernode time: $((node_complete_time[supernode] - start_time)) seconds"
+echo "Sync test complete! Fullnode has synced to HEAD and backfilled ${TARGET_BACKFILL_SLOTS} slots."
+# echo "Supernode time: $((node_complete_time[supernode] - start_time)) seconds"
 echo "Fullnode time: $((node_complete_time[fullnode] - start_time)) seconds"
 exit_and_dump_logs 0

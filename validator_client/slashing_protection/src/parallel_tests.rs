@@ -44,11 +44,14 @@ fn attestation_same_target() {
     let results = (0..num_attestations)
         .into_par_iter()
         .map(|i| {
-            slashing_db.check_and_insert_attestation(
-                &pk,
-                &attestation_data_builder(i, num_attestations),
-                DEFAULT_DOMAIN,
-            )
+            slashing_db.with_transaction(|txn| {
+                slashing_db.check_and_insert_attestation(
+                    &pk,
+                    &attestation_data_builder(i, num_attestations),
+                    DEFAULT_DOMAIN,
+                    txn,
+                )
+            })
         })
         .collect::<Vec<_>>();
 
@@ -73,7 +76,9 @@ fn attestation_surround_fest() {
         .into_par_iter()
         .map(|i| {
             let att = attestation_data_builder(i, 2 * num_attestations - i);
-            slashing_db.check_and_insert_attestation(&pk, &att, DEFAULT_DOMAIN)
+            slashing_db.with_transaction(|txn| {
+                slashing_db.check_and_insert_attestation(&pk, &att, DEFAULT_DOMAIN, txn)
+            })
         })
         .collect::<Vec<_>>();
 

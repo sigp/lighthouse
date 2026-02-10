@@ -1,7 +1,6 @@
 mod attestation_tests;
 mod block_tests;
 mod extra_interchange_tests;
-pub mod interchange;
 pub mod interchange_test;
 mod parallel_tests;
 mod registration_tests;
@@ -10,16 +9,21 @@ mod signed_block;
 mod slashing_database;
 pub mod test_utils;
 
+pub mod interchange {
+    pub use eip_3076::{Interchange, InterchangeMetadata};
+}
+
 pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
 pub use crate::signed_block::{InvalidBlock, SignedBlock};
 pub use crate::slashing_database::{
-    InterchangeError, InterchangeImportOutcome, SUPPORTED_INTERCHANGE_FORMAT_VERSION,
-    SlashingDatabase,
+    CheckSlashability, InterchangeError, InterchangeImportOutcome,
+    SUPPORTED_INTERCHANGE_FORMAT_VERSION, SlashingDatabase,
 };
+use bls::PublicKeyBytes;
 use rusqlite::Error as SQLError;
 use std::fmt::Display;
 use std::io::{Error as IOError, ErrorKind};
-use types::{Hash256, PublicKeyBytes};
+use types::Hash256;
 
 /// The filename within the `validators` directory that contains the slashing protection DB.
 pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
@@ -130,7 +134,7 @@ impl Display for NotSafe {
 
 #[cfg(test)]
 mod test {
-    use types::FixedBytesExtended;
+    use fixed_bytes::FixedBytesExtended;
 
     use super::*;
 

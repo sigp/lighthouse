@@ -14,6 +14,7 @@ use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
+use tracing::{info, warn};
 use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
@@ -117,7 +118,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                     let genesis_state_root = genesis_state
                         .canonical_root()
                         .map_err(|e| format!("Error hashing genesis state: {e:?}"))?;
-                    tracing::info!(root = ?genesis_state_root, "Genesis state found");
+                    info!(root = ?genesis_state_root, "Genesis state found");
                     let enr_fork = spec.enr_fork_id::<E>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
@@ -125,7 +126,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                     Some(enr_fork.as_ssz_bytes())
                 } else {
-                    tracing::warn!("No genesis state provided. No Eth2 field added to the ENR");
+                    warn!("No genesis state provided. No Eth2 field added to the ENR");
                     None
                 }
             };

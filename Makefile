@@ -3,7 +3,7 @@
 EF_TESTS = "testing/ef_tests"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 EXECUTION_ENGINE_INTEGRATION = "testing/execution_engine_integration"
-GIT_TAG := $(shell git describe --tags --candidates 1)
+GIT_TAG = $(shell git describe --tags --candidates 1)
 BIN_DIR = "bin"
 
 X86_64_TAG = "x86_64-unknown-linux-gnu"
@@ -30,12 +30,13 @@ TEST_FEATURES ?=
 # Cargo profile for regular builds.
 PROFILE ?= release
 
-# List of all hard forks. This list is used to set env variables for several tests so that
+# List of all hard forks up to gloas. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair bellatrix capella deneb electra fulu gloas
+# TODO(EIP-7732) Remove this once we extend network tests to support gloas and use RECENT_FORKS instead
+RECENT_FORKS_BEFORE_GLOAS=electra fulu
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
-RECENT_FORKS=electra fulu
+RECENT_FORKS=electra fulu gloas
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -85,36 +86,67 @@ build-lcli-aarch64:
 build-lcli-riscv64:
 	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
-# extracts the current source date for reproducible builds
-SOURCE_DATE := $(shell git log -1 --pretty=%ct)
+# Environment variables for reproducible builds
+# Initialize RUSTFLAGS
+RUST_BUILD_FLAGS =
+# Remove build ID from the binary to ensure reproducibility across builds
+RUST_BUILD_FLAGS += -C link-arg=-Wl,--build-id=none
+# Remove metadata hash from symbol names to ensure reproducible builds
+RUST_BUILD_FLAGS += -C metadata=''
 
-# Default image for x86_64
+# Set timestamp from last git commit for reproducible builds
+SOURCE_DATE ?= $(shell git log -1 --pretty=%ct)
+
+# Disable incremental compilation to avoid non-deterministic artifacts
+CARGO_INCREMENTAL_VAL = 0
+# Set C locale for consistent string handling and sorting
+LOCALE_VAL = C
+# Set UTC timezone for consistent time handling across builds
+TZ_VAL = UTC
+
+# Features for reproducible builds
+FEATURES_REPRODUCIBLE = $(CROSS_FEATURES),jemalloc-unprefixed
+
+# Derive the architecture-specific library path from RUST_TARGET
+JEMALLOC_LIB_ARCH = $(word 1,$(subst -, ,$(RUST_TARGET)))
+JEMALLOC_OVERRIDE = /usr/lib/$(JEMALLOC_LIB_ARCH)-linux-gnu/libjemalloc.a
+
+# Default target architecture
+RUST_TARGET ?= x86_64-unknown-linux-gnu
+
+# Default images for different architectures
 RUST_IMAGE_AMD64 ?= rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816
+RUST_IMAGE_ARM64 ?= rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
 
-# Reproducible build for x86_64
-build-reproducible-x86_64:
+.PHONY: build-reproducible
+build-reproducible: ## Build the lighthouse binary into `target` directory with reproducible builds
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
+	RUSTFLAGS="${RUST_BUILD_FLAGS} --remap-path-prefix $$(pwd)=." \
+	CARGO_INCREMENTAL=${CARGO_INCREMENTAL_VAL} \
+	LC_ALL=${LOCALE_VAL} \
+	TZ=${TZ_VAL} \
+	JEMALLOC_OVERRIDE=${JEMALLOC_OVERRIDE} \
+	cargo build --bin lighthouse --features "$(FEATURES_REPRODUCIBLE)" --profile "$(PROFILE)" --locked --target $(RUST_TARGET)
+
+.PHONY: build-reproducible-x86_64
+build-reproducible-x86_64: ## Build reproducible x86_64 Docker image
 	DOCKER_BUILDKIT=1 docker build \
 		--build-arg RUST_TARGET="x86_64-unknown-linux-gnu" \
 		--build-arg RUST_IMAGE=$(RUST_IMAGE_AMD64) \
-		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
 		-f Dockerfile.reproducible \
 		-t lighthouse:reproducible-amd64 .
 
-# Default image for arm64
-RUST_IMAGE_ARM64 ?= rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
-
-# Reproducible build for aarch64
-build-reproducible-aarch64:
+.PHONY: build-reproducible-aarch64
+build-reproducible-aarch64: ## Build reproducible aarch64 Docker image
 	DOCKER_BUILDKIT=1 docker build \
 		--platform linux/arm64 \
 		--build-arg RUST_TARGET="aarch64-unknown-linux-gnu" \
 		--build-arg RUST_IMAGE=$(RUST_IMAGE_ARM64) \
-		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
 		-f Dockerfile.reproducible \
 		-t lighthouse:reproducible-arm64 .
 
-# Build both architectures
-build-reproducible-all: build-reproducible-x86_64 build-reproducible-aarch64
+.PHONY: build-reproducible-all
+build-reproducible-all: build-reproducible-x86_64 build-reproducible-aarch64 ## Build both x86_64 and aarch64 reproducible Docker images
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -171,20 +203,21 @@ run-ef-tests:
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
-test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
+# TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
+test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS_BEFORE_GLOAS))
 
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
 
 # Run the tests in the `http_api` crate for recent forks.
-test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
+test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS_BEFORE_GLOAS))
 
 test-http-api-%:
 	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
-test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
+test-op-pool: $(patsubst %,test-op-pool-%,$(RECENT_FORKS_BEFORE_GLOAS))
 
 test-op-pool-%:
 	env FORK_NAME=$* cargo nextest run --release \
@@ -192,7 +225,8 @@ test-op-pool-%:
 		-p operation_pool
 
 # Run the tests in the `network` crate for all known forks.
-test-network: $(patsubst %,test-network-%,$(FORKS))
+# TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
+test-network: $(patsubst %,test-network-%,$(RECENT_FORKS_BEFORE_GLOAS))
 
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --release \
@@ -292,6 +326,15 @@ install-audit:
 audit-CI:
 	cargo audit
 
+# Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
+deny: install-deny deny-CI
+
+install-deny:
+	cargo install --force cargo-deny --version 0.18.2
+
+deny-CI:
+	cargo deny check bans sources
+
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:
 	cargo vendor
@@ -299,6 +342,12 @@ vendor:
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
 	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release --features "$(TEST_FEATURES)"
+
+# Checks Cargo.toml files for unencrypted HTTP links
+insecure-deps:
+	@ BAD_LINKS=$$(find . -name Cargo.toml | xargs grep -n "http://" || true); \
+	if [ -z "$$BAD_LINKS" ]; then echo "No insecure HTTP links found"; \
+	else echo "$$BAD_LINKS"; echo "Using plain HTTP in Cargo.toml files is forbidden"; exit 1; fi
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:

@@ -6,9 +6,7 @@ use beacon_chain::data_column_verification::{GossipDataColumnError, observe_goss
 use beacon_chain::fetch_blobs::{
     EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
 };
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
-};
+use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
@@ -18,6 +16,7 @@ use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
     LightClientUpdatesByRangeRequest,
 };
+use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
@@ -28,11 +27,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -424,6 +423,92 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some execution payload envelope.
+    pub fn send_gossip_execution_payload(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload: Box<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_execution_payload(message_id, peer_id, *execution_payload)
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipExecutionPayload(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some execution payload bid
+    pub fn send_gossip_execution_payload_bid(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload_bid: Box<SignedExecutionPayloadBid<T::EthSpec>>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_execution_payload_bid(
+                message_id,
+                peer_id,
+                *execution_payload_bid,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipExecutionPayloadBid(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some payload attestation
+    pub fn send_gossip_payload_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_payload_attestation(
+                message_id,
+                peer_id,
+                *payload_attestation_message,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipPayloadAttestation(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some proposer preferences
+    pub fn send_gossip_proposer_preferences(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_preferences: Box<SignedProposerPreferences>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_proposer_preferences(
+                message_id,
+                peer_id,
+                *proposer_preferences,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipProposerPreferences(Box::new(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
     pub fn send_rpc_beacon_block(
@@ -494,39 +579,47 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    pub fn send_historic_data_columns(
+        self: &Arc<Self>,
+        batch_id: CustodyBackfillBatchId,
+        data_columns: DataColumnSidecarList<T::EthSpec>,
+        expected_cgc: u64,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.process_historic_data_columns(batch_id, data_columns, expected_cgc);
+
+        let work = Work::ChainSegmentBackfill(Box::new(process_fn));
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work,
+        })
+    }
+
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
-        let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
-
         let processor = self.clone();
-        let process_fn = async move {
-            let notify_execution_layer = if processor
-                .network_globals
-                .sync_state
-                .read()
-                .is_syncing_finalized()
-            {
-                NotifyExecutionLayer::No
-            } else {
-                NotifyExecutionLayer::Yes
-            };
-            processor
-                .process_chain_segment(process_id, blocks, notify_execution_layer)
-                .await;
-        };
-        let process_fn = Box::pin(process_fn);
 
         // Back-sync batches are dispatched with a different `Work` variant so
         // they can be rate-limited.
-        let work = if is_backfill {
-            Work::ChainSegmentBackfill(process_fn)
-        } else {
-            Work::ChainSegment(process_fn)
+        let work = match process_id {
+            ChainSegmentProcessId::RangeBatchId(_, _) => {
+                let process_fn = async move {
+                    processor.process_chain_segment(process_id, blocks).await;
+                };
+                Work::ChainSegment(Box::pin(process_fn))
+            }
+            ChainSegmentProcessId::BackSyncBatchId(_) => {
+                let process_fn =
+                    move || processor.process_chain_segment_backfill(process_id, blocks);
+                Work::ChainSegmentBackfill(Box::new(process_fn))
+            }
         };
 
         self.try_send(BeaconWorkEvent {
@@ -825,36 +918,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    /// Attempt to reconstruct all data columns if the following conditions satisfies:
-    /// - Our custody requirement is all columns
-    /// - We have >= 50% of columns, but not all columns
-    ///
-    /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
-    /// otherwise returns `None`.
-    ///
-    /// The `publish_columns` parameter controls whether reconstructed columns should be published
-    /// to the gossip network.
-    async fn attempt_data_column_reconstruction(
-        self: &Arc<Self>,
-        block_root: Hash256,
-        publish_columns: bool,
-    ) -> Option<AvailabilityProcessingStatus> {
-        // Only supernodes attempt reconstruction
-        if !self
-            .chain
-            .data_availability_checker
-            .custody_context()
-            .current_is_supernode
-        {
-            return None;
-        }
-
+    /// Attempts to reconstruct all data columns if the conditions checked in
+    /// [`DataAvailabilityCheckerInner::check_and_set_reconstruction_started`] are satisfied.
+    #[instrument(level = "debug", skip_all, fields(?block_root))]
+    async fn attempt_data_column_reconstruction(self: &Arc<Self>, block_root: Hash256) {
         let result = self.chain.reconstruct_data_columns(block_root).await;
+
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
-                if publish_columns {
-                    self.publish_data_columns_gradually(data_columns_to_publish, block_root);
-                }
+                self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
@@ -867,21 +939,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
                             result = "imported all custody columns",
-                            block_hash = %block_root,
+                            %block_root,
                             "Block components still missing block after reconstruction"
                         );
                     }
                 }
-
-                Some(availability_processing_status)
             }
             Ok(None) => {
                 // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
                 trace!(
-                    block_hash = %block_root,
+                    %block_root,
                     "Reconstruction not required for block"
                 );
-                None
+            }
+            Err(BlockError::DuplicateFullyImported(_)) => {
+                debug!("Block already imported in parallel with reconstruction");
             }
             Err(e) => {
                 error!(
@@ -889,7 +961,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = ?e,
                     "Error during data column reconstruction"
                 );
-                None
             }
         }
     }
@@ -978,6 +1049,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// by some nodes on the network as soon as possible. Our hope is that some columns arrive from
     /// other nodes in the meantime, obviating the need for us to publish them. If no other
     /// publisher exists for a column, it will eventually get published here.
+    #[instrument(level="debug", skip_all, fields(?block_root, data_column_count=data_columns_to_publish.len()))]
     fn publish_data_columns_gradually(
         self: &Arc<Self>,
         mut data_columns_to_publish: DataColumnSidecarList<T::EthSpec>,
@@ -994,7 +1066,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             .into_iter()
                             .map(|d| {
                                 let subnet =
-                                    DataColumnSubnetId::from_column_index(d.index, &chain.spec);
+                                    DataColumnSubnetId::from_column_index(*d.index(), &chain.spec);
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
                             .collect(),

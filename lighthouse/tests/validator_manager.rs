@@ -1,3 +1,4 @@
+use bls::PublicKeyBytes;
 use eth2::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use std::fs;

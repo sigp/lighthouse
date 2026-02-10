@@ -16,6 +16,7 @@ use beacon_chain::{
         VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
     },
     blob_verification::GossipVerifiedBlob,
+    custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
 use execution_layer::{PayloadStatusV1, json_structures::JsonPayloadStatusV1Status};
@@ -27,9 +28,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
-    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecarList,
-    DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
-    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
+    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
+    KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -251,7 +252,15 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                             columns_vec
                                 .into_iter()
                                 .map(|column| {
-                                    ssz_decode_file(&path.join(format!("{column}.ssz_snappy")))
+                                    ssz_decode_file_with(
+                                        &path.join(format!("{column}.ssz_snappy")),
+                                        |bytes| {
+                                            DataColumnSidecar::from_ssz_bytes_for_fork(
+                                                bytes, fork_name,
+                                            )
+                                            .map(Arc::new)
+                                        },
+                                    )
                                 })
                                 .collect::<Result<Vec<_>, _>>()
                         })
@@ -296,6 +305,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // TODO(gloas): We have not implemented this change to fork choice/proposer boost yet.
+        // https://github.com/sigp/lighthouse/issues/8689
+        if self.description == "voting_source_beyond_two_epoch"
+            || self.description == "justified_update_not_realized_finality"
+            || self.description == "justified_update_always_if_better"
+        {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
@@ -436,7 +454,7 @@ impl<E: EthSpec> Tester<E> {
             .genesis_state_ephemeral_store(case.anchor_state.clone())
             .mock_execution_layer()
             .recalculate_fork_times_with_genesis(0)
-            .import_all_data_columns(true)
+            .node_custody_type(NodeCustodyType::Supernode)
             .mock_execution_layer_all_payloads_valid()
             .build();
 
@@ -470,7 +488,7 @@ impl<E: EthSpec> Tester<E> {
         let since_genesis = tick
             .checked_sub(genesis_time)
             .ok_or_else(|| Error::FailedToParseTest("tick is prior to genesis".into()))?;
-        let slots_since_genesis = since_genesis / self.spec.seconds_per_slot;
+        let slots_since_genesis = since_genesis / self.spec.get_slot_duration().as_secs();
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 
@@ -514,13 +532,15 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
         let mut data_column_success = true;
 
         if let Some(columns) = columns.clone() {
             let gossip_verified_data_columns = columns
                 .into_iter()
                 .map(|column| {
-                    let subnet_id = DataColumnSubnetId::from_column_index(column.index, &self.spec);
+                    let subnet_id =
+                        DataColumnSubnetId::from_column_index(*column.index(), &self.spec);
                     GossipVerifiedDataColumn::new(column.clone(), subnet_id, &self.harness.chain)
                         .unwrap_or_else(|_| {
                             data_column_success = false;
@@ -541,13 +561,21 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(self.harness.chain.process_block(
-                block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            ))?
+            .block_on_dangerous(
+                self.harness.chain.process_block(
+                    block_root,
+                    RpcBlock::new(
+                        block.clone(),
+                        None,
+                        &self.harness.chain.data_availability_checker,
+                        self.harness.chain.spec.clone(),
+                    )
+                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                ),
+            )?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
@@ -631,13 +659,21 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(self.harness.chain.process_block(
-                block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            ))?
+            .block_on_dangerous(
+                self.harness.chain.process_block(
+                    block_root,
+                    RpcBlock::new(
+                        block.clone(),
+                        None,
+                        &self.harness.chain.data_availability_checker,
+                        self.harness.chain.spec.clone(),
+                    )
+                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                ),
+            )?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
@@ -919,7 +955,7 @@ impl<E: EthSpec> Tester<E> {
         let cached_head = self.harness.chain.canonical_head.cached_head();
         let next_slot = cached_head.snapshot.beacon_block.slot() + 1;
         let next_slot_epoch = next_slot.epoch(E::slots_per_epoch());
-        let (proposer_indices, decision_root, _, fork) =
+        let (proposer_indices, decision_root, _, _, fork) =
             compute_proposer_duties_from_head(next_slot_epoch, &self.harness.chain).unwrap();
         let proposer_index = proposer_indices[next_slot.as_usize() % E::slots_per_epoch() as usize];
 

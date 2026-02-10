@@ -7,8 +7,12 @@ edition = { workspace = true }
 build = "build.rs"
 
 [dependencies]
-ethabi = "16.0.0"
+alloy-dyn-abi = { workspace = true }
+alloy-json-abi = { workspace = true }
+alloy-primitives = { workspace = true }
+bls = { workspace = true }
 ethereum_ssz = { workspace = true }
+serde_json = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 

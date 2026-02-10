@@ -7,7 +7,7 @@ use crate::{
         *,
     },
 };
-use derivative::Derivative;
+use educe::Educe;
 use redb::{ReadableTable, TableDefinition};
 use std::{borrow::Cow, path::PathBuf};
 
@@ -23,18 +23,18 @@ pub struct Database<'env> {
     _phantom: PhantomData<&'env ()>,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct RwTransaction<'env> {
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     txn: redb::WriteTransaction,
     _phantom: PhantomData<&'env ()>,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub struct Cursor<'env> {
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     txn: &'env redb::WriteTransaction,
     db: &'env Database<'env>,
     current_key: Option<Cow<'env, [u8]>>,
