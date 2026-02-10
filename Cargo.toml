@@ -92,6 +92,8 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 version = "8.1.0"
+license = "Apache-2.0"
+readme = "README.md"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
