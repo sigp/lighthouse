@@ -319,6 +319,8 @@ jobs:
           bins: cargo-audit,cargo-deny
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
+    - name: Check dependencies for unencrypted HTTP links
+      run: make insecure-deps
     - name: Lint code for quality and style with Clippy
       run: make lint-full
     - name: Certify Cargo.lock freshness
