@@ -15,7 +15,7 @@ use state_processing::{
 use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use tracing::{Span, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
-use types::consts::gloas::{BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD};
+use types::consts::gloas::{BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD, EXECUTION_PAYMENT_TRUSTLESS_BUILD};
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BlockProductionVersion,
@@ -148,7 +148,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We'll need to build out trustless/trusted bid paths.
         let (execution_payload_bid, state, payload_data) = self
             .clone()
-            .produce_execution_payload_bid(state, state_root_opt, produce_at_slot, BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD)
+            .produce_execution_payload_bid(
+                state,
+                state_root_opt,
+                produce_at_slot,
+                BID_VALUE_SELF_BUILD,
+                BUILDER_INDEX_SELF_BUILD,
+            )
             .await?;
 
         // Part 3/3 (blocking)
@@ -694,7 +700,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 }
                 BlockProposalContentsType::Blinded(_) => {
-                    return Err(BlockProductionError::Unexpected("Should never produce a blinded block post-Gloas".to_owned()));
+                    return Err(BlockProductionError::Unexpected(
+                        "Should never produce a blinded block post-Gloas".to_owned(),
+                    ));
                 }
             };
 
@@ -706,6 +714,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(|_| BlockProductionError::GloasNotImplemented)?
             .to_owned();
 
+        // TODO(gloas) since we are defaulting to local building, execution payment is 0
+        // execution payment should only be set to > 0 for trusted building.
         let bid = ExecutionPayloadBid::<T::EthSpec> {
             parent_block_hash: state.latest_block_hash()?.to_owned(),
             parent_block_root: state.get_latest_block_root(state_root),
@@ -716,7 +726,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             builder_index,
             slot: produce_at_slot,
             value: bid_value,
-            execution_payment: 0,
+            execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
             blob_kzg_commitments,
         };
 

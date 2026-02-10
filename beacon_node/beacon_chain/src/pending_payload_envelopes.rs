@@ -61,6 +61,7 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     /// Prune envelopes older than `current_slot - max_slot_age`.
     ///
     /// This removes stale envelopes from blocks that were never published.
+    // TODO(gloas) implement pruning
     pub fn prune(&mut self, current_slot: Slot) {
         let min_slot = current_slot.saturating_sub(self.max_slot_age);
         self.envelopes.retain(|slot, _| *slot >= min_slot);
