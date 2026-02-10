@@ -9,7 +9,7 @@ use libp2p::PeerId;
 use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-    DataColumnsByRangeRequestId, RangeRequestId, SyncRequestId,
+    DataColumnsByRangeRequestId, DataColumnsByRangeRequester, RangeRequestId, SyncRequestId,
 };
 use lighthouse_network::{NetworkEvent, ReportSource, Response};
 use ssz::Encode;
@@ -1847,13 +1847,15 @@ fn test_request_too_large_data_columns_by_range() {
         AppRequestId::Sync(SyncRequestId::DataColumnsByRange(
             DataColumnsByRangeRequestId {
                 id: 1,
-                parent_request_id: ComponentsByRangeRequestId {
-                    id: 1,
-                    requester: RangeRequestId::RangeSync {
-                        chain_id: 1,
-                        batch_id: Epoch::new(1),
+                parent_request_id: DataColumnsByRangeRequester::ComponentsByRange(
+                    ComponentsByRangeRequestId {
+                        id: 1,
+                        requester: RangeRequestId::RangeSync {
+                            chain_id: 1,
+                            batch_id: Epoch::new(1),
+                        },
                     },
-                },
+                ),
                 peer: PeerId::random(),
             },
         )),
