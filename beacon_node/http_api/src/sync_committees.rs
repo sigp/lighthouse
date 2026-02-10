@@ -1,6 +1,6 @@
 //! Handlers for sync committee endpoints.
 
-use crate::publish_pubsub_message;
+use crate::utils::publish_pubsub_message;
 use beacon_chain::sync_committee_verification::{
     Error as SyncVerificationError, VerifiedSyncCommitteeMessage,
 };
@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
 use types::{
-    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeMessage, SyncDuty,
-    SyncSubnetId, slot_data::SlotData,
+    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SlotData, SyncCommitteeMessage,
+    SyncDuty, SyncSubnetId,
 };
 
 /// The struct that is returned to the requesting HTTP client.
@@ -235,6 +235,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                             seen_timestamp,
                             verified.sync_message(),
                             &chain.slot_clock,
+                            &chain.spec,
                         );
 
                     verified_for_pool = Some(verified);
@@ -376,6 +377,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
                         verified_contribution.aggregate(),
                         verified_contribution.participant_pubkeys(),
                         &chain.slot_clock,
+                        &chain.spec,
                     );
 
                 verified_contributions.push((index, verified_contribution));

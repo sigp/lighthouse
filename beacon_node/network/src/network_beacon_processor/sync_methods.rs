@@ -1,13 +1,14 @@
 use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
+use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::{
     ChainId,
     manager::{BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
-use beacon_chain::data_availability_checker::MaybeAvailableBlock;
+use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
@@ -18,16 +19,14 @@ use beacon_processor::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
-use lighthouse_tracing::{
-    SPAN_PROCESS_CHAIN_SEGMENT, SPAN_PROCESS_RPC_BLOBS, SPAN_PROCESS_RPC_BLOCK,
-    SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
-};
+use lighthouse_network::service::api_types::CustodyBackfillBatchId;
+use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tracing::{debug, error, info, instrument, warn};
-use types::beacon_block_body::format_kzg_commitments;
-use types::blob_sidecar::FixedBlobSidecarList;
+use tracing::{debug, debug_span, error, info, instrument, warn};
+use types::data::FixedBlobSidecarList;
+use types::kzg_ext::format_kzg_commitments;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -102,7 +101,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_PROCESS_RPC_BLOCK,
+        name = "lh_process_rpc_block",
         parent = None,
         level = "debug",
         skip_all,
@@ -167,11 +166,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let signed_beacon_block = block.block_cloned();
         let result = self
             .chain
-            .process_block_with_early_caching(
+            .process_block(
                 block_root,
                 block,
-                BlockImportSource::Lookup,
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
             )
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Rpc, "block");
@@ -255,7 +255,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to process a list of blobs received from a direct RPC request.
     #[instrument(
-        name = SPAN_PROCESS_RPC_BLOBS,
+        name = "lh_process_rpc_blobs",
         parent = None,
         level = "debug",
         skip_all,
@@ -297,7 +297,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             && current_slot == slot
         {
             // Note: this metric is useful to gauge how long it takes to receive blobs requested
-            // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
+            // over rpc. Since we always send the request for block components at `get_unaggregated_attestation_due() / 2`
             // we can use that as a baseline to measure against.
             let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
 
@@ -331,14 +331,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Blobs have already been imported"
                 );
             }
-            Err(e) => {
-                warn!(
-                    error = ?e,
-                    block_hash = %block_root,
-                    %slot,
-                    "Error when importing rpc blobs"
-                );
-            }
+            // Errors are handled and logged in `block_lookups`
+            Err(_) => {}
         }
 
         // Sync handles these results
@@ -349,7 +343,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[instrument(
-        name = SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
+        name = "lh_process_rpc_custody_columns",
         parent = None,
         level = "debug",
         skip_all,
@@ -374,7 +368,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
         }
 
-        let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();
+        let mut indices = custody_columns
+            .iter()
+            .map(|d| *d.index())
+            .collect::<Vec<_>>();
         indices.sort_unstable();
         debug!(
             ?indices,
@@ -412,13 +409,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Custody columns have already been imported"
                 );
             }
-            Err(e) => {
-                warn!(
-                    error = ?e,
-                    block_hash = %block_root,
-                    "Error when importing rpc custody columns"
-                );
-            }
+            // Errors are handled and logged in `block_lookups`
+            Err(_) => {}
         }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
@@ -427,34 +419,148 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    pub fn process_historic_data_columns(
+        &self,
+        batch_id: CustodyBackfillBatchId,
+        downloaded_columns: DataColumnSidecarList<T::EthSpec>,
+        expected_cgc: u64,
+    ) {
+        let _guard = debug_span!(
+            "lh_custody_backfill_sync_import_columns",
+            epoch = %batch_id.epoch,
+            columns_received_count = downloaded_columns.len()
+        )
+        .entered();
+
+        let sent_columns = downloaded_columns.len();
+        let result = match self.chain.import_historical_data_column_batch(
+            batch_id.epoch,
+            downloaded_columns,
+            expected_cgc,
+        ) {
+            Ok(imported_columns) => {
+                metrics::inc_counter_by(
+                    &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL,
+                    imported_columns as u64,
+                );
+                CustodyBatchProcessResult::Success {
+                    sent_columns,
+                    imported_columns,
+                }
+            }
+            Err(e) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_BATCH_FAILED_TOTAL,
+                );
+                let peer_action: Option<PeerAction> = match &e {
+                    HistoricalDataColumnError::NoBlockFound {
+                        data_column_block_root,
+                        expected_block_root,
+                    } => {
+                        debug!(
+                            error = "no_block_found",
+                            ?data_column_block_root,
+                            ?expected_block_root,
+                            "Custody backfill batch processing error"
+                        );
+                        // The peer is faulty if they send blocks with bad roots.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::MissingDataColumns { .. } => {
+                        warn!(
+                            error = ?e,
+                            "Custody backfill batch processing error",
+                        );
+                        // The peer is faulty if they don't return data columns
+                        // that they advertised as available.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::InvalidKzg => {
+                        warn!(
+                            error = ?e,
+                            "Custody backfill batch processing error",
+                        );
+                        // The peer is faulty if they don't return data columns
+                        // with valid kzg commitments.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::BeaconChainError(e) => {
+                        match &**e {
+                            beacon_chain::BeaconChainError::FailedColumnCustodyInfoUpdate => {}
+                            _ => {
+                                warn!(
+                                    error = ?e,
+                                    "Custody backfill batch processing error",
+                                );
+                            }
+                        }
+
+                        // This is an interal error, don't penalize the peer
+                        None
+                    }
+                    HistoricalDataColumnError::IndexOutOfBounds => {
+                        error!(
+                            error = ?e,
+                            "Custody backfill batch out of bounds error"
+                        );
+                        // This should never occur, don't penalize the peer.
+                        None
+                    }
+                    HistoricalDataColumnError::StoreError(e) => {
+                        warn!(error = ?e, "Custody backfill batch processing error");
+                        // This is an internal error, don't penalize the peer.
+                        None
+                    }
+                };
+                CustodyBatchProcessResult::Error { peer_action }
+            }
+        };
+        self.send_sync_message(SyncMessage::CustodyBatchProcessed { result, batch_id });
+    }
+
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     #[instrument(
-        name = SPAN_PROCESS_CHAIN_SEGMENT,
+        name = "lh_process_chain_segment",
         parent = None,
         level = "debug",
         skip_all,
-        fields(sync_type = ?sync_type, downloaded_blocks = downloaded_blocks.len())
+        fields(process_id = ?process_id, downloaded_blocks = downloaded_blocks.len())
     )]
     pub async fn process_chain_segment(
         &self,
-        sync_type: ChainSegmentProcessId,
+        process_id: ChainSegmentProcessId,
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
-        notify_execution_layer: NotifyExecutionLayer,
     ) {
-        let result = match sync_type {
-            // this a request from the range sync
-            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
-                let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
-                let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
-                let sent_blocks = downloaded_blocks.len();
+        let ChainSegmentProcessId::RangeBatchId(chain_id, epoch) = process_id else {
+            // This is a request from range sync, this should _never_ happen
+            crit!(
+                error = "process_chain_segment called on a variant other than RangeBatchId",
+                "Please notify the devs"
+            );
+            return;
+        };
 
-                match self
-                    .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
-                    .await
-                {
-                    (imported_blocks, Ok(_)) => {
-                        debug!(
+        let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
+        let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
+        let sent_blocks = downloaded_blocks.len();
+        let notify_execution_layer = if self
+            .network_globals
+            .sync_state
+            .read()
+            .is_syncing_finalized()
+        {
+            NotifyExecutionLayer::No
+        } else {
+            NotifyExecutionLayer::Yes
+        };
+
+        let result = match self
+            .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
+            .await
+        {
+            (imported_blocks, Ok(_)) => {
+                debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
                             chain = chain_id,
@@ -462,13 +568,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             processed_blocks = sent_blocks,
                             service= "sync",
                             "Batch processed");
-                        BatchProcessResult::Success {
-                            sent_blocks,
-                            imported_blocks,
-                        }
-                    }
-                    (imported_blocks, Err(e)) => {
-                        debug!(
+                BatchProcessResult::Success {
+                    sent_blocks,
+                    imported_blocks,
+                }
+            }
+            (imported_blocks, Err(e)) => {
+                debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
                             chain = chain_id,
@@ -477,33 +583,61 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             error = %e.message,
                             service = "sync",
                             "Batch processing failed");
-                        match e.peer_action {
-                            Some(penalty) => BatchProcessResult::FaultyFailure {
-                                imported_blocks,
-                                penalty,
-                            },
-                            None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
+                match e.peer_action {
+                    Some(penalty) => BatchProcessResult::FaultyFailure {
+                        imported_blocks,
+                        penalty,
+                    },
+                    None => BatchProcessResult::NonFaultyFailure,
                 }
             }
-            // this a request from the Backfill sync
-            ChainSegmentProcessId::BackSyncBatchId(epoch) => {
-                let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
-                let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
-                let sent_blocks = downloaded_blocks.len();
-                let n_blobs = downloaded_blocks
-                    .iter()
-                    .map(|wrapped| wrapped.n_blobs())
-                    .sum::<usize>();
-                let n_data_columns = downloaded_blocks
-                    .iter()
-                    .map(|wrapped| wrapped.n_data_columns())
-                    .sum::<usize>();
+        };
 
-                match self.process_backfill_blocks(downloaded_blocks) {
-                    (imported_blocks, Ok(_)) => {
-                        debug!(
+        self.send_sync_message(SyncMessage::BatchProcessed {
+            sync_type: process_id,
+            result,
+        });
+    }
+
+    /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
+    /// thread if more blocks are needed to process it.
+    #[instrument(
+        name = "lh_process_chain_segment_backfill",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(downloaded_blocks = downloaded_blocks.len())
+    )]
+    pub fn process_chain_segment_backfill(
+        &self,
+        process_id: ChainSegmentProcessId,
+        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+    ) {
+        let ChainSegmentProcessId::BackSyncBatchId(epoch) = process_id else {
+            // this a request from RangeSync, this should _never_ happen
+            crit!(
+                error =
+                    "process_chain_segment_backfill called on a variant other than BackSyncBatchId",
+                "Please notify the devs"
+            );
+            return;
+        };
+
+        let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
+        let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
+        let sent_blocks = downloaded_blocks.len();
+        let n_blobs = downloaded_blocks
+            .iter()
+            .map(|wrapped| wrapped.n_blobs())
+            .sum::<usize>();
+        let n_data_columns = downloaded_blocks
+            .iter()
+            .map(|wrapped| wrapped.n_data_columns())
+            .sum::<usize>();
+
+        let result = match self.process_backfill_blocks(downloaded_blocks) {
+            (imported_blocks, Ok(_)) => {
+                debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
                             keep_execution_payload = !self.chain.store.get_config().prune_payloads,
@@ -513,34 +647,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             processed_data_columns = n_data_columns,
                             service= "sync",
                             "Backfill batch processed");
-                        BatchProcessResult::Success {
-                            sent_blocks,
-                            imported_blocks,
-                        }
-                    }
-                    (_, Err(e)) => {
-                        debug!(
-                            batch_epoch = %epoch,
-                            first_block_slot = start_slot,
-                            last_block_slot = end_slot,
-                            processed_blobs = n_blobs,
-                            error = %e.message,
-                            service = "sync",
-                            "Backfill batch processing failed"
-                        );
-                        match e.peer_action {
-                            Some(penalty) => BatchProcessResult::FaultyFailure {
-                                imported_blocks: 0,
-                                penalty,
-                            },
-                            None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
+                BatchProcessResult::Success {
+                    sent_blocks,
+                    imported_blocks,
+                }
+            }
+            (_, Err(e)) => {
+                debug!(
+                    batch_epoch = %epoch,
+                    first_block_slot = start_slot,
+                    last_block_slot = end_slot,
+                    processed_blobs = n_blobs,
+                    error = %e.message,
+                    service = "sync",
+                    "Backfill batch processing failed"
+                );
+                match e.peer_action {
+                    Some(penalty) => BatchProcessResult::FaultyFailure {
+                        imported_blocks: 0,
+                        penalty,
+                    },
+                    None => BatchProcessResult::NonFaultyFailure,
                 }
             }
         };
 
-        self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+        self.send_sync_message(SyncMessage::BatchProcessed {
+            sync_type: process_id,
+            result,
+        });
     }
 
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
@@ -584,18 +719,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = match self
+        let mut available_blocks = vec![];
+
+        for downloaded_block in downloaded_blocks {
+            match downloaded_block {
+                RpcBlock::FullyAvailable(available_block) => available_blocks.push(available_block),
+                RpcBlock::BlockOnly { .. } => return (
+                    0,
+                    Err(ChainSegmentFailed {
+                        peer_action: None,
+                        message: "Invalid downloaded_blocks segment. All downloaded blocks must be fully available".to_string()
+                    })
+                ),
+            }
+        }
+
+        match self
             .chain
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(downloaded_blocks)
+            .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
-            Ok(blocks) => blocks
-                .into_iter()
-                .filter_map(|maybe_available| match maybe_available {
-                    MaybeAvailableBlock::Available(block) => Some(block),
-                    MaybeAvailableBlock::AvailabilityPending { .. } => None,
-                })
-                .collect::<Vec<_>>(),
+            Ok(()) => {}
             Err(e) => match e {
                 AvailabilityCheckError::StoreError(_) => {
                     return (
@@ -666,6 +810,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
+                    HistoricalBlockError::MissingOldestBlockRoot { slot } => {
+                        warn!(
+                            %slot,
+                            error = "missing_oldest_block_root",
+                            "Backfill batch processing error"
+                        );
+                        // This is an internal error, do not penalize the peer.
+                        None
+                    }
+
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
                             error = "pubkey_cache_timeout",

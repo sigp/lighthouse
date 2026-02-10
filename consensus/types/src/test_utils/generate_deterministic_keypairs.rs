@@ -1,7 +1,8 @@
-use crate::*;
+use std::path::PathBuf;
+
+use bls::Keypair;
 use eth2_interop_keypairs::{keypair, keypairs_from_yaml_file};
 use rayon::prelude::*;
-use std::path::PathBuf;
 use tracing::debug;
 
 /// Generates `validator_count` keypairs where the secret key is derived solely from the index of

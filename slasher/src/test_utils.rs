@@ -1,11 +1,12 @@
+use bls::{AggregateSignature, Signature};
+use fixed_bytes::FixedBytesExtended;
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
-    AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
-    AttesterSlashingElectra, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, IndexedAttestation, MainnetEthSpec, Signature,
-    SignedBeaconBlockHeader, Slot,
-    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
+    AttestationData, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra,
+    BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
+    MainnetEthSpec, SignedBeaconBlockHeader, Slot,
+    attestation::{IndexedAttestationBase, IndexedAttestationElectra},
 };
 
 pub type E = MainnetEthSpec;
@@ -17,7 +18,7 @@ pub fn indexed_att_electra(
     target_root: u64,
 ) -> IndexedAttestation<E> {
     IndexedAttestation::Electra(IndexedAttestationElectra {
-        attesting_indices: attesting_indices.as_ref().to_vec().into(),
+        attesting_indices: attesting_indices.as_ref().to_vec().try_into().unwrap(),
         data: AttestationData {
             slot: Slot::new(0),
             index: 0,
@@ -42,7 +43,7 @@ pub fn indexed_att(
     target_root: u64,
 ) -> IndexedAttestation<E> {
     IndexedAttestation::Base(IndexedAttestationBase {
-        attesting_indices: attesting_indices.as_ref().to_vec().into(),
+        attesting_indices: attesting_indices.as_ref().to_vec().try_into().unwrap(),
         data: AttestationData {
             slot: Slot::new(0),
             index: 0,

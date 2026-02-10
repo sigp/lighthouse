@@ -1,9 +1,9 @@
-use bls::SIGNATURE_BYTES_LEN;
+use bls::{SIGNATURE_BYTES_LEN, Signature, SignatureBytes};
 
-use super::*;
+use crate::test_utils::TestRandom;
 
 impl TestRandom for SignatureBytes {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
+    fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
         //50-50 chance for signature to be "valid" or invalid
         if bool::random_for_test(rng) {
             //valid signature
