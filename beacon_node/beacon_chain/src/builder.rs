@@ -9,7 +9,7 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::build_data_column_sidecars;
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -42,7 +42,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info, warn};
-use types::data_column_custody_group::CustodyIndex;
+use tree_hash::TreeHash;
+use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
     Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
@@ -1075,7 +1076,6 @@ where
                     complete_blob_backfill,
                     slot_clock,
                     self.kzg.clone(),
-                    store,
                     Arc::new(custody_context),
                     self.spec,
                 )
@@ -1240,17 +1240,29 @@ fn build_data_columns_from_blobs<E: EthSpec>(
             .blob_kzg_commitments()
             .cloned()
             .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
-        let kzg_commitments_inclusion_proof = beacon_block_body
-            .kzg_commitments_merkle_proof()
-            .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
-        build_data_column_sidecars(
-            kzg_commitments,
-            kzg_commitments_inclusion_proof,
-            block.signed_block_header(),
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+
+        if block.fork_name_unchecked().gloas_enabled() {
+            build_data_column_sidecars_gloas(
+                block.message().tree_hash_root(),
+                block.slot(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        } else {
+            let kzg_commitments_inclusion_proof = beacon_block_body
+                .kzg_commitments_merkle_proof()
+                .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
+
+            build_data_column_sidecars_fulu(
+                kzg_commitments,
+                kzg_commitments_inclusion_proof,
+                block.signed_block_header(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        }
     };
     Ok(data_columns)
 }

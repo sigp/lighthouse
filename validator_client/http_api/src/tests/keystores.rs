@@ -1099,14 +1099,18 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(keystores.len()));
 
         // Sign attestations on VC1.
-        for (validator_index, mut attestation) in first_vc_attestations {
+        for (validator_index, attestation) in first_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data().target.epoch;
-            tester1
+            let safe_attestations = tester1
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .sign_attestations(vec![(0, public_key, 0, attestation.clone())])
                 .await
                 .unwrap();
+            assert_eq!(safe_attestations.len(), 1);
+            // Compare data only, ignoring signatures which are added during signing.
+            assert_eq!(safe_attestations[0].1.data(), attestation.data());
+            // Check that the signature is non-zero.
+            assert!(!safe_attestations[0].1.signature().is_infinity());
         }
 
         // Delete the selected keys from VC1.
@@ -1178,16 +1182,28 @@ async fn generic_migration_test(
         check_keystore_import_response(&import_res, all_imported(import_indices.len()));
 
         // Sign attestations on the second VC.
-        for (validator_index, mut attestation, should_succeed) in second_vc_attestations {
+        for (validator_index, attestation, should_succeed) in second_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data().target.epoch;
-            match tester2
+            let result = tester2
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
-                .await
-            {
-                Ok(()) => assert!(should_succeed),
-                Err(e) => assert!(!should_succeed, "{:?}", e),
+                .sign_attestations(vec![(0, public_key, 0, attestation.clone())])
+                .await;
+            match result {
+                Ok(safe_attestations) => {
+                    if should_succeed {
+                        // Compare data only, ignoring signatures which are added during signing.
+                        assert_eq!(safe_attestations.len(), 1);
+                        assert_eq!(safe_attestations[0].1.data(), attestation.data());
+                        // Check that the signature is non-zero.
+                        assert!(!safe_attestations[0].1.signature().is_infinity());
+                    } else {
+                        assert!(safe_attestations.is_empty());
+                    }
+                }
+                Err(_) => {
+                    // Doppelganger protected or other error.
+                    assert!(!should_succeed);
+                }
             }
         }
     })
@@ -1313,10 +1329,15 @@ async fn delete_concurrent_with_signing() {
 
         let handle = handle.spawn(async move {
             for j in 0..num_attestations {
-                let mut att = make_attestation(j, j + 1);
-                for public_key in thread_pubkeys.iter() {
+                let att = make_attestation(j, j + 1);
+                for (validator_index, public_key) in thread_pubkeys.iter().enumerate() {
                     let _ = validator_store
-                        .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
+                        .sign_attestations(vec![(
+                            validator_index as u64,
+                            *public_key,
+                            0,
+                            att.clone(),
+                        )])
                         .await;
                 }
             }

@@ -23,12 +23,13 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    BuilderPendingPayment, BuilderPendingWithdrawal, ExecutionBlockHash, ExecutionPayloadBid,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
-        AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, ParticipationFlags,
-        PendingAttestation,
+        AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
+        ParticipationFlags, PendingAttestation,
     },
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
+    builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
     deposit::PendingDeposit,
@@ -79,6 +80,7 @@ pub enum BeaconStateError {
     EpochOutOfBounds,
     SlotOutOfBounds,
     UnknownValidator(usize),
+    UnknownBuilder(BuilderIndex),
     UnableToDetermineProducer,
     InvalidBitfield,
     EmptyCommittee,
@@ -184,8 +186,12 @@ pub enum BeaconStateError {
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
     NonExecutionAddressWithdrawalCredential,
+    WithdrawalCredentialMissingVersion,
+    WithdrawalCredentialMissingAddress,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
+    /// `Attestation.data.index` field is invalid in overloaded data index scenario.
+    BadOverloadedDataIndex(u64),
     InvalidSelectionProof {
         aggregator_index: u64,
     },
@@ -207,6 +213,12 @@ pub enum BeaconStateError {
     ProposerLookaheadOutOfBounds {
         i: usize,
     },
+    SignedEnvelopeIncorrectEpoch {
+        state_epoch: Epoch,
+        envelope_epoch: Epoch,
+    },
+    InvalidIndicesCount,
+    InvalidExecutionPayloadAvailabilityIndex(usize),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -557,7 +569,7 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid,
+    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
@@ -614,8 +626,17 @@ where
     #[superstruct(only(Fulu, Gloas))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
-
     // Gloas
+    #[compare_fields(as_iter)]
+    #[test_random(default)]
+    #[superstruct(only(Gloas))]
+    pub builders: List<Builder, E::BuilderRegistryLimit>,
+
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(only(Gloas), partial_getter(copy))]
+    pub next_withdrawal_builder_index: BuilderIndex,
+
     #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
@@ -637,10 +658,10 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_hash: ExecutionBlockHash,
 
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Gloas))]
-    #[metastruct(exclude_from(tree_lists))]
-    pub latest_withdrawals_root: Hash256,
+    pub payload_expected_withdrawals: List<Withdrawal, E::MaxWithdrawalsPerPayload>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -1127,13 +1148,22 @@ impl<E: EthSpec> BeaconState<E> {
             }
         }
 
+        let gloas_enabled = self.fork_name_unchecked().gloas_enabled();
         epoch
             .slot_iter(E::slots_per_epoch())
             .map(|slot| {
                 let mut preimage = seed.to_vec();
                 preimage.append(&mut int_to_bytes8(slot.as_u64()));
                 let seed = hash(&preimage);
-                self.compute_proposer_index(indices, &seed, spec)
+
+                if gloas_enabled {
+                    self.compute_balance_weighted_selection(indices, &seed, 1, true, spec)?
+                        .first()
+                        .copied()
+                        .ok_or(BeaconStateError::InsufficientValidators)
+                } else {
+                    self.compute_proposer_index(indices, &seed, spec)
+                }
             })
             .collect()
     }
@@ -1390,39 +1420,50 @@ impl<E: EthSpec> BeaconState<E> {
         let epoch = self.current_epoch().safe_add(1)?;
 
         let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-        let active_validator_count = active_validator_indices.len();
-
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
-        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
-        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
-            MAX_RANDOM_VALUE
-        } else {
-            MAX_RANDOM_BYTE
-        };
 
-        let mut i = 0;
-        let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
-        while sync_committee_indices.len() < E::SyncCommitteeSize::to_usize() {
-            let shuffled_index = compute_shuffled_index(
-                i.safe_rem(active_validator_count)?,
-                active_validator_count,
+        if self.fork_name_unchecked().gloas_enabled() {
+            self.compute_balance_weighted_selection(
+                &active_validator_indices,
                 seed.as_slice(),
-                spec.shuffle_round_count,
+                E::SyncCommitteeSize::to_usize(),
+                true,
+                spec,
             )
-            .ok_or(BeaconStateError::UnableToShuffle)?;
-            let candidate_index = *active_validator_indices
-                .get(shuffled_index)
-                .ok_or(BeaconStateError::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_value = self.shuffling_random_value(i, seed.as_slice())?;
-            let effective_balance = self.get_validator(candidate_index)?.effective_balance;
-            if effective_balance.safe_mul(max_random_value)?
-                >= max_effective_balance.safe_mul(random_value)?
-            {
-                sync_committee_indices.push(candidate_index);
+        } else {
+            let active_validator_count = active_validator_indices.len();
+            let max_effective_balance =
+                spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+            let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+                MAX_RANDOM_VALUE
+            } else {
+                MAX_RANDOM_BYTE
+            };
+
+            let mut i = 0;
+            let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
+            while sync_committee_indices.len() < E::SyncCommitteeSize::to_usize() {
+                let shuffled_index = compute_shuffled_index(
+                    i.safe_rem(active_validator_count)?,
+                    active_validator_count,
+                    seed.as_slice(),
+                    spec.shuffle_round_count,
+                )
+                .ok_or(BeaconStateError::UnableToShuffle)?;
+                let candidate_index = *active_validator_indices
+                    .get(shuffled_index)
+                    .ok_or(BeaconStateError::ShuffleIndexOutOfBounds(shuffled_index))?;
+                let random_value = self.shuffling_random_value(i, seed.as_slice())?;
+                let effective_balance = self.get_validator(candidate_index)?.effective_balance;
+                if effective_balance.safe_mul(max_random_value)?
+                    >= max_effective_balance.safe_mul(random_value)?
+                {
+                    sync_committee_indices.push(candidate_index);
+                }
+                i.safe_add_assign(1)?;
             }
-            i.safe_add_assign(1)?;
+            Ok(sync_committee_indices)
         }
-        Ok(sync_committee_indices)
     }
 
     /// Compute the next sync committee.
@@ -1897,6 +1938,15 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(BeaconStateError::UnknownValidator(validator_index))
     }
 
+    /// Safe indexer for the `builders` list.
+    ///
+    /// Will return an error pre-Gloas, or for out-of-bounds indices.
+    pub fn get_builder(&self, builder_index: BuilderIndex) -> Result<&Builder, BeaconStateError> {
+        self.builders()?
+            .get(builder_index as usize)
+            .ok_or(BeaconStateError::UnknownBuilder(builder_index))
+    }
+
     /// Add a validator to the registry and return the validator index that was allocated for it.
     pub fn add_validator_to_registry(
         &mut self,
@@ -1941,6 +1991,64 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         Ok(index)
+    }
+
+    /// Add a builder to the registry and return the builder index that was allocated for it.
+    pub fn add_builder_to_registry(
+        &mut self,
+        pubkey: PublicKeyBytes,
+        withdrawal_credentials: Hash256,
+        amount: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<BuilderIndex, BeaconStateError> {
+        // We are not yet using the spec's `set_or_append_list`, but could consider it if it crops
+        // up elsewhere. It has been retconned into the spec to support index reuse but so far
+        // index reuse is only relevant for builders.
+        let builder_index = self.get_index_for_new_builder()?;
+        let builders = self.builders_mut()?;
+
+        let version = *withdrawal_credentials
+            .as_slice()
+            .first()
+            .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
+        let execution_address = withdrawal_credentials
+            .as_slice()
+            .get(12..)
+            .and_then(|bytes| Address::try_from(bytes).ok())
+            .ok_or(BeaconStateError::WithdrawalCredentialMissingAddress)?;
+
+        let builder = Builder {
+            pubkey,
+            version,
+            execution_address,
+            balance: amount,
+            deposit_epoch: slot.epoch(E::slots_per_epoch()),
+            withdrawable_epoch: spec.far_future_epoch,
+        };
+
+        if builder_index == builders.len() as u64 {
+            builders.push(builder)?;
+        } else {
+            *builders
+                .get_mut(builder_index as usize)
+                .ok_or(BeaconStateError::UnknownBuilder(builder_index))? = builder;
+        }
+        Ok(builder_index)
+    }
+
+    // TODO(gloas): Optimize this function if we see a lot of registered builders on-chain.
+    // A cache here could be quite fiddly because this calculation depends on withdrawable epoch
+    // and balance - a cache for this would need to be updated whenever either of those fields
+    // changes.
+    pub fn get_index_for_new_builder(&self) -> Result<BuilderIndex, BeaconStateError> {
+        let current_epoch = self.current_epoch();
+        for (index, builder) in self.builders()?.iter().enumerate() {
+            if builder.withdrawable_epoch <= current_epoch && builder.balance == 0 {
+                return Ok(index as u64);
+            }
+        }
+        Ok(self.builders()?.len() as u64)
     }
 
     /// Safe copy-on-write accessor for the `validators` list.
@@ -2042,6 +2150,25 @@ impl<E: EthSpec> BeaconState<E> {
         let cache = self.committee_cache(relative_epoch)?;
 
         Ok(cache.get_attestation_duties(validator_index))
+    }
+
+    /// Check if the attestation is for the block proposed at the attestation slot.
+    ///
+    /// Returns `true` if the attestation's block root matches the block root at the
+    /// attestation's slot, and the block root differs from the previous slot's root.
+    pub fn is_attestation_same_slot(
+        &self,
+        data: &AttestationData,
+    ) -> Result<bool, BeaconStateError> {
+        if data.slot == 0 {
+            return Ok(true);
+        }
+
+        let block_root = data.beacon_block_root;
+        let slot_block_root = *self.get_block_root(data.slot)?;
+        let prev_block_root = *self.get_block_root(data.slot.safe_sub(1)?)?;
+
+        Ok(block_root == slot_block_root && block_root != prev_block_root)
     }
 
     /// Compute the total active balance cache from scratch.
@@ -2304,6 +2431,7 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
+    /// Return true if the parent block was full (both beacon block and execution payload were present).
     pub fn is_parent_block_full(&self) -> bool {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => false,
@@ -2538,6 +2666,42 @@ impl<E: EthSpec> BeaconState<E> {
     /// This function will error if the epoch cache is not initialized.
     pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
         self.epoch_cache().get_base_reward(validator_index)
+    }
+
+    /// Get the proportional slashing multiplier for the current fork.
+    pub fn get_proportional_slashing_multiplier(&self, spec: &ChainSpec) -> u64 {
+        let fork_name = self.fork_name_unchecked();
+        if fork_name >= ForkName::Bellatrix {
+            spec.proportional_slashing_multiplier_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            spec.proportional_slashing_multiplier_altair
+        } else {
+            spec.proportional_slashing_multiplier
+        }
+    }
+
+    /// Get the minimum slashing penalty quotient for the current fork.
+    pub fn get_min_slashing_penalty_quotient(&self, spec: &ChainSpec) -> u64 {
+        let fork_name = self.fork_name_unchecked();
+        if fork_name.electra_enabled() {
+            spec.min_slashing_penalty_quotient_electra
+        } else if fork_name >= ForkName::Bellatrix {
+            spec.min_slashing_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            spec.min_slashing_penalty_quotient_altair
+        } else {
+            spec.min_slashing_penalty_quotient
+        }
+    }
+
+    /// Get the whistleblower reward quotient for the current fork.
+    pub fn get_whistleblower_reward_quotient(&self, spec: &ChainSpec) -> u64 {
+        let fork_name = self.fork_name_unchecked();
+        if fork_name.electra_enabled() {
+            spec.whistleblower_reward_quotient_electra
+        } else {
+            spec.whistleblower_reward_quotient
+        }
     }
 
     // ******* Electra accessors *******
@@ -2873,6 +3037,111 @@ impl<E: EthSpec> BeaconState<E> {
         } else {
             Ok(Epoch::new(DEFAULT_PRE_ELECTRA_WS_PERIOD))
         }
+    }
+
+    /// Get the payload timeliness committee for the given `slot`.
+    ///
+    /// Requires the committee cache to be initialized.
+    /// TODO(EIP-7732): definitely gonna have to cache this..
+    pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
+        let committee_cache = self.committee_cache_at_slot(slot)?;
+        let committees = committee_cache.get_beacon_committees_at_slot(slot)?;
+
+        let seed = self.get_ptc_attester_seed(slot, spec)?;
+
+        let committee_indices: Vec<usize> = committees
+            .iter()
+            .flat_map(|committee| committee.committee.iter().copied())
+            .collect();
+        let selected_indices = self.compute_balance_weighted_selection(
+            &committee_indices,
+            &seed,
+            E::ptc_size(),
+            false,
+            spec,
+        )?;
+
+        Ok(PTC(FixedVector::new(selected_indices)?))
+    }
+
+    /// Compute the seed to use for the ptc attester selection at the given `slot`.
+    pub fn get_ptc_attester_seed(
+        &self,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Vec<u8>, BeaconStateError> {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let mut preimage = self
+            .get_seed(epoch, Domain::PTCAttester, spec)?
+            .as_slice()
+            .to_vec();
+        preimage.append(&mut int_to_bytes8(slot.as_u64()));
+        Ok(hash(&preimage))
+    }
+
+    /// Return size indices sampled by effective balance, using indices as candidates.
+    ///
+    /// If shuffle_indices is True, candidate indices are themselves sampled from indices
+    /// by shuffling it, otherwise indices is traversed in order.
+    fn compute_balance_weighted_selection(
+        &self,
+        indices: &[usize],
+        seed: &[u8],
+        size: usize,
+        shuffle_indices: bool,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, BeaconStateError> {
+        let total = indices.len();
+        if total == 0 {
+            return Err(BeaconStateError::InvalidIndicesCount);
+        }
+
+        let mut selected = Vec::with_capacity(size);
+        let mut i = 0usize;
+
+        while selected.len() < size {
+            let mut next_index = i.safe_rem(total)?;
+
+            if shuffle_indices {
+                next_index =
+                    compute_shuffled_index(next_index, total, seed, spec.shuffle_round_count)
+                        .ok_or(BeaconStateError::UnableToShuffle)?;
+            }
+
+            let candidate_index = indices
+                .get(next_index)
+                .ok_or(BeaconStateError::InvalidIndicesCount)?;
+
+            if self.compute_balance_weighted_acceptance(*candidate_index, seed, i, spec)? {
+                selected.push(*candidate_index);
+            }
+
+            i.safe_add_assign(1)?;
+        }
+
+        Ok(selected)
+    }
+
+    /// Return whether to accept the selection of the validator `index`, with probability
+    /// proportional to its `effective_balance`, and randomness given by `seed` and `iteration`.
+    fn compute_balance_weighted_acceptance(
+        &self,
+        index: usize,
+        seed: &[u8],
+        iteration: usize,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        // TODO(EIP-7732): Consider grabbing effective balances from the epoch cache here.
+        // Note that this function will be used in a loop, so using cached values could be nice for performance.
+        // However, post-gloas, this function will be used in `compute_proposer_indices`, `get_next_sync_committee_indices`, and `get_ptc`, which has ~15 call sites in total
+        // so we will need to check each one to ensure epoch cache is initialized first, if we deem a good idea.
+        // Currently, we can't test if making the change would work since the test suite is not ready for gloas.
+        let effective_balance = self.get_effective_balance(index)?;
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+        let random_value = self.shuffling_random_value(iteration, seed)?;
+
+        Ok(effective_balance.safe_mul(MAX_RANDOM_VALUE)?
+            >= max_effective_balance.safe_mul(random_value)?)
     }
 }
 

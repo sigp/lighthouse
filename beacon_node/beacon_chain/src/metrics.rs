@@ -1869,13 +1869,6 @@ pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: LazyLock<Result<I
             "Number of entries in the data availability overflow block memory cache.",
         )
     });
-pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
-    LazyLock::new(|| {
-        try_create_int_gauge(
-            "data_availability_overflow_memory_state_cache_size",
-            "Number of entries in the data availability overflow state memory cache.",
-        )
-    });
 pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
@@ -1982,10 +1975,6 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
         da_checker_metrics.block_cache_size,
-    );
-    set_gauge_by_usize(
-        &DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE,
-        da_checker_metrics.state_cache_size,
     );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {
