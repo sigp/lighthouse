@@ -15,7 +15,9 @@ use state_processing::{
 use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use tracing::{Span, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
-use types::consts::gloas::{BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD, EXECUTION_PAYMENT_TRUSTLESS_BUILD};
+use types::consts::gloas::{
+    BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD, EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+};
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BlockProductionVersion,
@@ -103,6 +105,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     // TODO(gloas) need to implement builder boost factor logic
+    #[instrument(level = "debug", skip_all)]
     pub async fn produce_block_on_state_gloas(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
