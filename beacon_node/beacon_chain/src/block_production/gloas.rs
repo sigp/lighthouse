@@ -692,11 +692,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         ));
                     }
                 }
-                // TODO(gloas) we should never receive a blinded response.
-                // Should return some type of `Unexpected` error variant as this should never happen
-                // in the V4 block production flow
                 BlockProposalContentsType::Blinded(_) => {
-                    return Err(BlockProductionError::GloasNotImplemented);
+                    return Err(BlockProductionError::Unexpected("Should never produce a blinded block post-Gloas".to_owned()));
                 }
             };
 
