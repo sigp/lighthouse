@@ -17,6 +17,8 @@ pub enum Error {
     #[cfg(feature = "events")]
     /// The `reqwest_eventsource` client raised an error.
     SseClient(Box<reqwest_eventsource::Error>),
+    #[cfg(feature = "events")]
+    SseEventSource(reqwest_eventsource::CannotCloneRequestError),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message with an array of errors.
@@ -100,6 +102,7 @@ impl Error {
                     None
                 }
             }
+            Error::SseEventSource(_) => None,
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),

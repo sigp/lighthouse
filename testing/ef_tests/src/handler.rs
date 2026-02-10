@@ -422,6 +422,11 @@ where
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
+    }
 }
 
 impl<T, E> Handler for SszStaticWithSpecHandler<T, E>
@@ -442,6 +447,11 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -1125,9 +1135,20 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // TODO(gloas): So far only withdrawals tests are enabled for Gloas.
         Self::Case::is_enabled_for_fork(fork_name)
-            && (!fork_name.gloas_enabled() || self.handler_name() == "withdrawals")
+            && (!fork_name.gloas_enabled()
+                || self.handler_name() == "attestation"
+                || self.handler_name() == "attester_slashing"
+                || self.handler_name() == "bls_to_execution_change"
+                || self.handler_name() == "consolidation_request"
+                || self.handler_name() == "deposit_request"
+                || self.handler_name() == "deposit"
+                || self.handler_name() == "execution_payload"
+                || self.handler_name() == "proposer_slashing"
+                || self.handler_name() == "sync_aggregate"
+                || self.handler_name() == "withdrawal_request"
+                || self.handler_name() == "withdrawals"
+                || self.handler_name() == "voluntary_exit")
     }
 }
 
