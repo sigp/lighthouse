@@ -453,7 +453,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             let (block_slot, block_has_data, block_imported) = if let Some(block) =
                 match self.chain.get_block_process_status(&block_root) {
                     BlockProcessStatus::Unknown => None,
-                    BlockProcessStatus::NotValidated(block)
+                    BlockProcessStatus::NotValidated(block, _)
                     | BlockProcessStatus::ExecutionValidated(block) => Some(block.clone()),
                 } {
                 (block.slot(), block.has_data(), false)
@@ -506,7 +506,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             {
                 Ok(data_columns) => {
                     for index in requested_columns_we_custody {
-                        if let Some(data_column) = data_columns.iter().find(|c| c.index == index) {
+                        if let Some(data_column) = data_columns.iter().find(|c| c.index() == index) {
                             self.send_response(
                                 peer_id,
                                 inbound_request_id,
