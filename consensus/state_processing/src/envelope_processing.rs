@@ -239,15 +239,17 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
             payment_index,
         ))?;
 
-    // Re-order the blanking out of the pending payment to avoid a double-lookup.
-    let payment = payment_mut.clone();
+    // We have re-ordered the blanking out of the pending payment to avoid a double-lookup.
+    // This is semantically equivalent to the ordering used by the spec because we have taken a
+    // clone of the payment prior to doing the write.
+    let payment_withdrawal = payment_mut.withdrawal.clone();
     *payment_mut = BuilderPendingPayment::default();
 
-    let amount = payment.withdrawal.amount;
+    let amount = payment_withdrawal.amount;
     if amount > 0 {
         state
             .builder_pending_withdrawals_mut()?
-            .push(payment.withdrawal)
+            .push(payment_withdrawal)
             .map_err(|e| EnvelopeProcessingError::BeaconStateError(e.into()))?;
     }
 

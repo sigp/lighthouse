@@ -2025,6 +2025,10 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(builder_index)
     }
 
+    // TODO(gloas): Optimize this function if we see a lot of registered builders on-chain.
+    // A cache here could be quite fiddly because this calculation depends on withdrawable epoch
+    // and balance - a cache for this would need to be updated whenever either of those fields
+    // changes.
     pub fn get_index_for_new_builder(&self) -> Result<BuilderIndex, BeaconStateError> {
         let current_epoch = self.current_epoch();
         for (index, builder) in self.builders()?.iter().enumerate() {
