@@ -5,7 +5,7 @@
 use axum::{
     Router,
     extract::State,
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
     routing::get,
@@ -129,7 +129,9 @@ pub async fn serve<E: EthSpec>(
         config.allow_origin.as_deref(),
         config.listen_addr,
         config.listen_port,
-    )?;
+    )?
+    .allow_methods([Method::GET])
+    .allow_headers([header::CONTENT_TYPE]);
 
     let router = router.layer(cors_layer);
 

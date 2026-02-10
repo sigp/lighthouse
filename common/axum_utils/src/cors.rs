@@ -153,6 +153,9 @@ fn format_default_origin(ip: IpAddr, port: u16) -> String {
 /// This is the main function for CLI usage:
 /// - If `allow_origin` is `Some`, parse it as comma-separated origins
 /// - If `allow_origin` is `None`, use the default IP and port
+///
+/// Callers can chain additional configuration like `.allow_methods()` and
+/// `.allow_headers()` on the returned `CorsLayer`.
 pub fn build_cors_layer(
     allow_origin: Option<&str>,
     default_ip: IpAddr,
@@ -424,5 +427,104 @@ mod tests {
                 .unwrap(),
             "*"
         );
+    }
+
+    #[tokio::test]
+    async fn verify_allowed_methods() {
+        use axum::{Router, routing::get};
+        use http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let config = HttpConfig {
+            allow_origin: Some("http://localhost:3000".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let cors_layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        )
+        .unwrap()
+        .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE]);
+
+        async fn handler() -> &'static str {
+            "test"
+        }
+
+        let app = Router::new().route("/", get(handler)).layer(cors_layer);
+
+        let request = Request::builder()
+            .method("OPTIONS")
+            .uri("/")
+            .header("Origin", "http://localhost:3000")
+            .header("Access-Control-Request-Method", "GET")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let allowed_methods = response
+            .headers()
+            .get("access-control-allow-methods")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(allowed_methods.contains("GET"));
+        assert!(allowed_methods.contains("POST"));
+    }
+
+    #[tokio::test]
+    async fn verify_allowed_headers() {
+        use axum::{Router, routing::get};
+        use http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let config = HttpConfig {
+            allow_origin: Some("http://localhost:3000".to_string()),
+            listen_addr: "127.0.0.1".parse().unwrap(),
+            listen_port: 5052,
+        };
+
+        let cors_layer = build_cors_layer(
+            config.allow_origin.as_deref(),
+            config.listen_addr,
+            config.listen_port,
+        )
+        .unwrap()
+        .allow_methods([http::Method::GET])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION]);
+
+        async fn handler() -> &'static str {
+            "test"
+        }
+
+        let app = Router::new().route("/", get(handler)).layer(cors_layer);
+
+        // Preflight request with Content-Type header
+        let request = Request::builder()
+            .method("OPTIONS")
+            .uri("/")
+            .header("Origin", "http://localhost:3000")
+            .header("Access-Control-Request-Method", "GET")
+            .header("Access-Control-Request-Headers", "content-type")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let allowed_headers = response
+            .headers()
+            .get("access-control-allow-headers")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_lowercase();
+        assert!(allowed_headers.contains("content-type"));
+        assert!(allowed_headers.contains("authorization"));
     }
 }

@@ -6,7 +6,7 @@ mod metrics;
 use axum::{
     Router,
     extract::State,
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware,
     response::IntoResponse,
     routing::get,
@@ -112,7 +112,9 @@ pub async fn serve<T: BeaconChainTypes>(
         config.allow_origin.as_deref(),
         config.listen_addr,
         config.listen_port,
-    )?;
+    )?
+    .allow_methods([Method::GET])
+    .allow_headers([header::CONTENT_TYPE]);
 
     let version = lighthouse_version::version_with_platform();
 
