@@ -1405,6 +1405,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("ignore-ws-check")
+                .long("ignore-ws-check")
+                .help("Using this flag allows a node to run in a state that may expose it to long-range attacks. \
+                    For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, you can use this flag to disable the Weak Subjectivity check at startup.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("builder-fallback-skips")
                 .long("builder-fallback-skips")
                 .help("If this node is proposing a block and has seen this number of skip slots \
