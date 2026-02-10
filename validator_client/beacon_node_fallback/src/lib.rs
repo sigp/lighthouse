@@ -427,7 +427,6 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         config: Config,
         broadcast_topics: Vec<ApiTopic>,
         spec: Arc<ChainSpec>,
-        user_agent: String,
     ) -> Self {
         let distance_tiers = config.sync_tolerances;
         Self {
@@ -438,8 +437,13 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             head_monitor_send: None,
             broadcast_topics,
             spec,
-            user_agent,
+            user_agent: String::new(),
         }
+    }
+
+    pub fn with_user_agent(mut self, user_agent: String) -> Self {
+        self.user_agent = user_agent;
+        self
     }
 
     /// Used to update the slot clock post-instantiation.
@@ -537,7 +541,8 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             .enumerate()
             .map(|(index, url)| {
                 CandidateBeaconNode::new(
-                    BeaconNodeHttpClient::new(url, timeouts.clone(), &self.user_agent),
+                    BeaconNodeHttpClient::new(url, timeouts.clone())
+                        .with_user_agent(&self.user_agent),
                     index,
                 )
             })
@@ -893,7 +898,6 @@ mod tests {
             let beacon_node = BeaconNodeHttpClient::new(
                 SensitiveUrl::parse(&format!("http://example_{index}.com")).unwrap(),
                 Timeouts::set_all(Duration::from_secs(index as u64)),
-                "test",
             );
             CandidateBeaconNode::new(beacon_node, index)
         }
@@ -1013,7 +1017,7 @@ mod tests {
         spec: Arc<ChainSpec>,
     ) -> BeaconNodeFallback<TestingSlotClock> {
         let mut beacon_node_fallback =
-            BeaconNodeFallback::new(candidates, Config::default(), topics, spec, "test".into());
+            BeaconNodeFallback::new(candidates, Config::default(), topics, spec);
 
         beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
             Slot::new(1),

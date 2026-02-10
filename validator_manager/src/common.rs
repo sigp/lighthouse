@@ -328,14 +328,12 @@ pub async fn vc_http_client<P: AsRef<Path>>(
         fs::read(token_path).map_err(|e| format!("Failed to read {:?}: {:?}", token_path, e))?;
     let token_string = String::from_utf8(strip_off_newlines(token_bytes))
         .map_err(|e| format!("Failed to parse {:?} as utf8: {:?}", token_path, e))?;
-    let http_client =
-        ValidatorClientHttpClient::new(url.clone(), token_string, lighthouse_version::VERSION)
-            .map_err(|e| {
-                format!(
-                    "Could not instantiate HTTP client from URL and secret: {:?}",
-                    e
-                )
-            })?;
+    let http_client = ValidatorClientHttpClient::new(url.clone(), token_string).map_err(|e| {
+        format!(
+            "Could not instantiate HTTP client from URL and secret: {:?}",
+            e
+        )
+    })?;
 
     // Perform a request to check that the connection works
     let remote_keystores = http_client

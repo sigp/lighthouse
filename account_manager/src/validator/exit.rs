@@ -103,7 +103,6 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
         Timeouts::set_all(env.eth2_config.spec.get_slot_duration()),
-        lighthouse_version::VERSION,
     );
 
     let eth2_network_config = env

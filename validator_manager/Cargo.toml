@@ -16,7 +16,6 @@ eth2_network_config = { workspace = true }
 eth2_wallet = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
-lighthouse_version = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 slot_clock = { workspace = true }

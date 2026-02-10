@@ -324,7 +324,6 @@ impl ApiTester {
         let client = BeaconNodeHttpClient::new(
             beacon_url,
             Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
-            lighthouse_version::VERSION,
         );
 
         Self {
@@ -413,7 +412,6 @@ impl ApiTester {
             ))
             .unwrap(),
             Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
-            lighthouse_version::VERSION,
         );
 
         Self {

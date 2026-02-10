@@ -45,14 +45,9 @@ impl Display for AuthorizationHeader {
 
 impl ValidatorClientHttpClient {
     /// Create a new client pre-initialised with an API token.
-    pub fn new(server: SensitiveUrl, secret: String, user_agent: &str) -> Result<Self, Error> {
-        let client = reqwest::Client::builder()
-            .user_agent(user_agent)
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-
+    pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
         Ok(Self {
-            client,
+            client: reqwest::Client::new(),
             server,
             api_token: Some(secret.into()),
             authorization_header: AuthorizationHeader::Bearer,
@@ -62,18 +57,21 @@ impl ValidatorClientHttpClient {
     /// Create a client without an API token.
     ///
     /// A token can be fetched by using `self.get_auth`, and then reading the token from disk.
-    pub fn new_unauthenticated(server: SensitiveUrl, user_agent: &str) -> Result<Self, Error> {
-        let client = reqwest::Client::builder()
-            .user_agent(user_agent)
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-
+    pub fn new_unauthenticated(server: SensitiveUrl) -> Result<Self, Error> {
         Ok(Self {
-            client,
+            client: reqwest::Client::new(),
             server,
             api_token: None,
             authorization_header: AuthorizationHeader::Omit,
         })
+    }
+
+    pub fn with_user_agent(mut self, user_agent: &str) -> Self {
+        self.client = reqwest::Client::builder()
+            .user_agent(user_agent)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        self
     }
 
     pub fn from_components(

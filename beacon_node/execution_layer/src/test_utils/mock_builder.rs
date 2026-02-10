@@ -345,11 +345,7 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let builder = MockBuilder::new(
             el,
-            BeaconNodeHttpClient::new(
-                beacon_url,
-                Timeouts::set_all(Duration::from_secs(1)),
-                "test",
-            ),
+            BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
             validate_pubkey,
             apply_operations,
             broadcast_to_bn,

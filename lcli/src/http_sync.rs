@@ -43,16 +43,8 @@ pub async fn run_async<T: EthSpec>(
     let cache_dir_path: PathBuf =
         parse_optional(matches, "block-cache-dir")?.unwrap_or(DEFAULT_CACHE_DIR.into());
 
-    let source = BeaconNodeHttpClient::new(
-        source_url,
-        Timeouts::set_all(HTTP_TIMEOUT),
-        lighthouse_version::VERSION,
-    );
-    let target = BeaconNodeHttpClient::new(
-        target_url,
-        Timeouts::set_all(HTTP_TIMEOUT),
-        lighthouse_version::VERSION,
-    );
+    let source = BeaconNodeHttpClient::new(source_url, Timeouts::set_all(HTTP_TIMEOUT));
+    let target = BeaconNodeHttpClient::new(target_url, Timeouts::set_all(HTTP_TIMEOUT));
 
     if !cache_dir_path.exists() {
         fs::create_dir_all(&cache_dir_path)

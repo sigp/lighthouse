@@ -169,8 +169,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             default: Duration::from_secs(5),
             ..Timeouts::set_all(Duration::from_secs(5))
         };
-        let client =
-            BeaconNodeHttpClient::new(beacon_url.clone(), timeouts, lighthouse_version::VERSION);
+        let client = BeaconNodeHttpClient::new(beacon_url.clone(), timeouts);
 
         Self {
             ctx,

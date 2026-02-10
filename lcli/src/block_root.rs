@@ -69,11 +69,7 @@ pub fn run<E: EthSpec>(
         }
         (None, Some(beacon_url)) => {
             let block_id: BlockId = parse_required(matches, "block-id")?;
-            let client = BeaconNodeHttpClient::new(
-                beacon_url,
-                Timeouts::set_all(HTTP_TIMEOUT),
-                lighthouse_version::VERSION,
-            );
+            let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT));
             executor
                 .handle()
                 .ok_or("shutdown in progress")?
