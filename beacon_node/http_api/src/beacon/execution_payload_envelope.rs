@@ -99,10 +99,12 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         )));
     }
 
-    // TODO(gloas): Add more validation:
+    // TODO(gloas): Do we want to add more validation like:
     // - Verify the signature
     // - Check builder_index is valid
     // - Verify the envelope references a known block
+    //
+    // If we do, then we must post the signed execution payload envelope to the BN that originally produced it.
 
     info!(
         %slot,
