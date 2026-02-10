@@ -15,7 +15,7 @@ use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes
 use fixed_bytes::FixedBytesExtended;
 use ssz_types::Bitfield;
 use ssz_types::VariableList;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use test_utils::generate_deterministic_keypairs;
 use types::*;
 
@@ -40,9 +40,9 @@ async fn get_harness<E: EthSpec>(
     let last_slot_of_epoch =
         (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
     // Use Electra spec to ensure blocks are created at the same fork as the state
-    let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let spec = Arc::new(ForkName::Electra.make_genesis_spec(E::default_spec()));
     let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-        .spec(spec)
+        .spec(spec.clone())
         .keypairs(KEYPAIRS[0..num_validators].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
