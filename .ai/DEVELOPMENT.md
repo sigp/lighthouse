@@ -161,3 +161,19 @@ async fn handler() {
 - Full builds take 5+ minutes - use large timeouts (300s+)
 - Use `cargo check` for faster iteration
 - MSRV documented in `Cargo.toml`
+
+## Parallel Development
+
+For working on multiple branches simultaneously, use git worktrees:
+
+```bash
+git worktree add -b my-feature ../lighthouse-my-feature unstable
+```
+
+This creates a separate working directory without needing multiple clones. To save disk space across worktrees, configure a shared target directory:
+
+```bash
+# In .cargo/config.toml at your workspace root
+[build]
+target-dir = "/path/to/shared-target"
+```
