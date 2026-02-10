@@ -1,5 +1,5 @@
 use crate::local_network::LocalNetworkParams;
-use crate::{checks, LocalNetwork};
+use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
@@ -7,8 +7,9 @@ use environment::tracing_common;
 use futures::prelude::*;
 use logging::build_workspace_filter;
 use node_test_rig::{
+    ValidatorFiles,
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ValidatorFiles,
+    testing_validator_config,
 };
 use rayon::prelude::*;
 use std::cmp::max;
@@ -18,16 +19,17 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{Epoch, EthSpec, MinimalEthSpec};
 const END_EPOCH: u64 = 16;
-const GENESIS_DELAY: u64 = 32;
+const GENESIS_DELAY: u64 = 38;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 1;
 const DENEB_FORK_EPOCH: u64 = 2;
 // const ELECTRA_FORK_EPOCH: u64 = 3;
 // const FULU_FORK_EPOCH: u64 = 4;
+// const GLOAS_FORK_EPOCH: u64 = 5;
 
 // Since simulator tests are non-deterministic and there is a non-zero chance of missed
 // attestations, define an acceptable network-wide attestation performance.

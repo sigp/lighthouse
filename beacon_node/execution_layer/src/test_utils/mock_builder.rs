@@ -1,19 +1,22 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
+use bls::{PublicKeyBytes, SecretKey, Signature};
 use bytes::Bytes;
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::PublishBlockRequest;
 use eth2::types::{
-    BlobsBundle, BlockId, BroadcastValidation, EventKind, EventTopic, FullPayloadContents,
-    ProposerData, StateId, ValidatorId,
+    BlobsBundle, BlockId, BroadcastValidation, EndpointVersion, EventKind, EventTopic,
+    FullPayloadContents, ProposerData, StateId, ValidatorId,
 };
 use eth2::{
-    BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
-    SSZ_CONTENT_TYPE_HEADER,
+    BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    Timeouts,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
+use ssz_types::VariableList;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -25,22 +28,21 @@ use tempfile::NamedTempFile;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
+use types::ExecutionBlockHash;
 use types::builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode,
-    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
-    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
+    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
-use types::{ExecutionBlockHash, SecretKey};
 use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
-pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 pub const DEFAULT_BUILDER_PRIVATE_KEY: &str =
     "607a11b45a7219cc61a3d9c5fd08c7eebd602a6a19a977f8d3771d5711a550f2";
 
@@ -71,8 +73,8 @@ impl Operation {
     }
 }
 
-pub fn mock_builder_extra_data<E: EthSpec>() -> types::VariableList<u8, E::MaxExtraDataBytes> {
-    "mock_builder".as_bytes().to_vec().into()
+pub fn mock_builder_extra_data<E: EthSpec>() -> VariableList<u8, E::MaxExtraDataBytes> {
+    "mock_builder".as_bytes().to_vec().try_into().unwrap()
 }
 
 #[derive(Debug)]
@@ -307,6 +309,10 @@ pub struct MockBuilder<E: EthSpec> {
     payload_id_cache: Arc<RwLock<HashMap<ExecutionBlockHash, PayloadParametersCloned>>>,
     /// If set to `true`, sets the bid returned by `get_header` to Uint256::MAX
     max_bid: bool,
+    /// Broadcast the full block with payload to the attached beacon node (simulating the relay).
+    ///
+    /// Turning this off is useful for testing.
+    broadcast_to_bn: bool,
     /// A cache that stores the proposers index for a given epoch
     proposers_cache: Arc<RwLock<HashMap<Epoch, Vec<ProposerData>>>>,
 }
@@ -315,6 +321,9 @@ impl<E: EthSpec> MockBuilder<E> {
     pub fn new_for_testing(
         mock_el_url: SensitiveUrl,
         beacon_url: SensitiveUrl,
+        validate_pubkey: bool,
+        apply_operations: bool,
+        broadcast_to_bn: bool,
         spec: Arc<ChainSpec>,
         executor: TaskExecutor,
     ) -> (Self, (SocketAddr, impl Future<Output = ()>)) {
@@ -332,12 +341,15 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
 
+        let max_bid = false;
+
         let builder = MockBuilder::new(
             el,
             BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
-            true,
-            true,
-            false,
+            validate_pubkey,
+            apply_operations,
+            broadcast_to_bn,
+            max_bid,
             spec,
             None,
         );
@@ -353,6 +365,7 @@ impl<E: EthSpec> MockBuilder<E> {
         beacon_client: BeaconNodeHttpClient,
         validate_pubkey: bool,
         apply_operations: bool,
+        broadcast_to_bn: bool,
         max_bid: bool,
         spec: Arc<ChainSpec>,
         sk: Option<&[u8]>,
@@ -382,6 +395,7 @@ impl<E: EthSpec> MockBuilder<E> {
             proposers_cache: Arc::new(RwLock::new(HashMap::new())),
             apply_operations,
             max_bid,
+            broadcast_to_bn,
             genesis_time: None,
         }
     }
@@ -457,15 +471,25 @@ impl<E: EthSpec> MockBuilder<E> {
             SignedBlindedBeaconBlock::Fulu(block) => {
                 block.message.body.execution_payload.tree_hash_root()
             }
+            SignedBlindedBeaconBlock::Gloas(_) => {
+                // TODO(EIP7732) Check if this is how we want to do error handling for gloas
+                return Err("invalid fork".to_string());
+            }
         };
+        let block_hash = block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .block_hash();
         info!(
-            block_hash = %root,
+            execution_payload_root = %root,
+            ?block_hash,
             "Submitting blinded beacon block to builder"
         );
-        let payload = self
-            .el
-            .get_payload_by_root(&root)
-            .ok_or_else(|| "missing payload for tx root".to_string())?;
+        let payload = self.el.get_payload_by_root(&root).ok_or_else(|| {
+            format!("missing payload for root: {root:?}, block_hash: {block_hash:?}",)
+        })?;
 
         let (payload, blobs) = payload.deconstruct();
         let full_block = block
@@ -474,16 +498,28 @@ impl<E: EthSpec> MockBuilder<E> {
         debug!(
             txs_count = payload.transactions().len(),
             blob_count = blobs.as_ref().map(|b| b.commitments.len()),
-            "Got full payload, sending to local beacon node for propagation"
+            "Got full payload"
         );
-        let publish_block_request = PublishBlockRequest::new(
-            Arc::new(full_block),
-            blobs.clone().map(|b| (b.proofs, b.blobs)),
-        );
-        self.beacon_client
-            .post_beacon_blocks_v2(&publish_block_request, Some(BroadcastValidation::Gossip))
-            .await
-            .map_err(|e| format!("Failed to post blinded block {:?}", e))?;
+        if self.broadcast_to_bn {
+            debug!(
+                block_hash = ?payload.block_hash(),
+                "Broadcasting builder block to BN"
+            );
+            let publish_block_request = PublishBlockRequest::new(
+                Arc::new(full_block),
+                blobs.clone().map(|b| (b.proofs, b.blobs)),
+            );
+            self.beacon_client
+                .post_beacon_blocks_v2(
+                    &publish_block_request,
+                    Some(BroadcastValidation::ConsensusAndEquivocation),
+                )
+                .await
+                .map_err(|e| {
+                    // XXX: this should really be a 400 but warp makes that annoyingly difficult
+                    format!("Failed to post blinded block {e:?}")
+                })?;
+        }
         Ok(FullPayloadContents::new(payload, blobs))
     }
 
@@ -514,16 +550,29 @@ impl<E: EthSpec> MockBuilder<E> {
         info!("Got payload params");
 
         let fork = self.fork_name_at_slot(slot);
+
         let payload_response_type = self
             .el
-            .get_full_payload_caching(PayloadParameters {
-                parent_hash: payload_parameters.parent_hash,
-                parent_gas_limit: payload_parameters.parent_gas_limit,
-                proposer_gas_limit: payload_parameters.proposer_gas_limit,
-                payload_attributes: &payload_parameters.payload_attributes,
-                forkchoice_update_params: &payload_parameters.forkchoice_update_params,
-                current_fork: payload_parameters.current_fork,
-            })
+            .get_full_payload_with(
+                PayloadParameters {
+                    parent_hash: payload_parameters.parent_hash,
+                    parent_gas_limit: payload_parameters.parent_gas_limit,
+                    proposer_gas_limit: payload_parameters.proposer_gas_limit,
+                    payload_attributes: &payload_parameters.payload_attributes,
+                    forkchoice_update_params: &payload_parameters.forkchoice_update_params,
+                    current_fork: payload_parameters.current_fork,
+                },
+                // If apply_operations is set, do NOT cache the payload at this point, we are about
+                // to mutate it and it would be incorrect to cache the unmutated payload.
+                //
+                // This is a flaw in apply_operations generally, if you want the mock builder to
+                // actually return payloads then this option should be turned off.
+                if self.apply_operations {
+                    |_, _| None
+                } else {
+                    ExecutionLayer::cache_payload
+                },
+            )
             .await
             .map_err(|e| format!("couldn't get payload {:?}", e))?;
 
@@ -540,6 +589,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 ) = payload_response.into();
 
                 match fork {
+                    ForkName::Gloas => {
+                        // TODO(EIP7732) Check if this is how we want to do error handling for gloas
+                        return Err("invalid fork".to_string());
+                    }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
                         header: payload
                             .as_fulu()
@@ -759,7 +812,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .beacon_client
             .get_beacon_blocks::<E>(BlockId::Finalized)
             .await
-            .map_err(|_| "couldn't get finalized block".to_string())?
+            .map_err(|e| format!("couldn't get finalized block: {e:?}"))?
             .ok_or_else(|| "missing finalized block".to_string())?
             .data()
             .message()
@@ -772,7 +825,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .beacon_client
             .get_beacon_blocks::<E>(BlockId::Justified)
             .await
-            .map_err(|_| "couldn't get justified block".to_string())?
+            .map_err(|e| format!("couldn't get justified block: {e:?}"))?
             .ok_or_else(|| "missing justified block".to_string())?
             .data()
             .message()
@@ -845,13 +898,15 @@ impl<E: EthSpec> MockBuilder<E> {
                 expected_withdrawals,
                 None,
             ),
-            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => PayloadAttributes::new(
-                timestamp,
-                *prev_randao,
-                fee_recipient,
-                expected_withdrawals,
-                Some(head_block_root),
-            ),
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+                PayloadAttributes::new(
+                    timestamp,
+                    *prev_randao,
+                    fee_recipient,
+                    expected_withdrawals,
+                    Some(head_block_root),
+                )
+            }
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());
             }
@@ -916,11 +971,21 @@ pub fn serve<E: EthSpec>(
     let inner_ctx = builder.clone();
     let ctx_filter = warp::any().map(move || inner_ctx.clone());
 
-    let prefix = warp::path("eth")
+    let prefix_v1 = warp::path("eth")
         .and(warp::path("v1"))
         .and(warp::path("builder"));
 
-    let validators = prefix
+    let prefix_either = warp::path("eth")
+        .and(
+            warp::path::param::<EndpointVersion>().or_else(|_| async move {
+                Err(warp::reject::custom(Custom(
+                    "Invalid EndpointVersion".to_string(),
+                )))
+            }),
+        )
+        .and(warp::path("builder"));
+
+    let validators = prefix_v1
         .and(warp::path("validators"))
         .and(warp::body::json())
         .and(warp::path::end())
@@ -932,61 +997,89 @@ pub fn serve<E: EthSpec>(
                     .register_validators(registrations)
                     .await
                     .map_err(|e| warp::reject::custom(Custom(e)))?;
-                Ok::<_, Rejection>(warp::reply())
-            },
-        )
-        .boxed();
-
-    let blinded_block_ssz = prefix
-        .and(warp::path("blinded_blocks"))
-        .and(warp::body::bytes())
-        .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
-        .and(warp::path::end())
-        .and(ctx_filter.clone())
-        .and_then(
-            |block_bytes: Bytes, fork_name: ForkName, builder: MockBuilder<E>| async move {
-                let block =
-                    SignedBlindedBeaconBlock::<E>::from_ssz_bytes_by_fork(&block_bytes, fork_name)
-                        .map_err(|e| warp::reject::custom(Custom(format!("{:?}", e))))?;
-                let payload = builder
-                    .submit_blinded_block(block)
-                    .await
-                    .map_err(|e| warp::reject::custom(Custom(e)))?;
-
-                Ok::<_, warp::reject::Rejection>(
-                    warp::http::Response::builder()
-                        .status(200)
-                        .body(payload.as_ssz_bytes())
-                        .map(add_ssz_content_type_header)
-                        .map(|res| add_consensus_version_header(res, fork_name))
-                        .unwrap(),
-                )
+                Ok::<_, Rejection>(warp::reply().into_response())
             },
         );
 
-    let blinded_block =
-        prefix
+    let blinded_block_ssz =
+        prefix_either
             .and(warp::path("blinded_blocks"))
-            .and(warp::body::json())
+            .and(warp::body::bytes())
             .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
             .and(warp::path::end())
             .and(ctx_filter.clone())
             .and_then(
-                |block: SignedBlindedBeaconBlock<E>,
+                |endpoint_version,
+                 block_bytes: Bytes,
                  fork_name: ForkName,
                  builder: MockBuilder<E>| async move {
+                    if endpoint_version != EndpointVersion(1)
+                        && endpoint_version != EndpointVersion(2)
+                    {
+                        return Err(warp::reject::custom(Custom(format!(
+                            "Unsupported version: {endpoint_version}"
+                        ))));
+                    }
+                    let block = SignedBlindedBeaconBlock::<E>::from_ssz_bytes_by_fork(
+                        &block_bytes,
+                        fork_name,
+                    )
+                    .map_err(|e| warp::reject::custom(Custom(format!("{:?}", e))))?;
                     let payload = builder
                         .submit_blinded_block(block)
                         .await
                         .map_err(|e| warp::reject::custom(Custom(e)))?;
-                    let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                        version: fork_name,
-                        metadata: Default::default(),
-                        data: payload,
-                    };
 
-                    let json_payload = serde_json::to_string(&resp)
-                        .map_err(|_| reject("coudn't serialize response"))?;
+                    if endpoint_version == EndpointVersion(1) {
+                        Ok::<_, warp::reject::Rejection>(
+                            warp::http::Response::builder()
+                                .status(200)
+                                .body(payload.as_ssz_bytes())
+                                .map(add_ssz_content_type_header)
+                                .map(|res| add_consensus_version_header(res, fork_name))
+                                .unwrap(),
+                        )
+                    } else {
+                        Ok(warp::http::Response::builder()
+                            .status(202)
+                            .body(&[] as &'static [u8])
+                            .map(|res| add_consensus_version_header(res, fork_name))
+                            .unwrap())
+                    }
+                },
+            );
+
+    let blinded_block = prefix_either
+        .and(warp::path("blinded_blocks"))
+        .and(warp::body::json())
+        .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(warp::path::end())
+        .and(ctx_filter.clone())
+        .and_then(
+            |endpoint_version,
+             block: SignedBlindedBeaconBlock<E>,
+             fork_name: ForkName,
+             builder: MockBuilder<E>| async move {
+                if endpoint_version != EndpointVersion(1) && endpoint_version != EndpointVersion(2)
+                {
+                    return Err(warp::reject::custom(Custom(format!(
+                        "Unsupported version: {endpoint_version}"
+                    ))));
+                }
+                let payload = builder
+                    .submit_blinded_block(block)
+                    .await
+                    .map_err(|e| warp::reject::custom(Custom(e)))?;
+                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
+                    version: fork_name,
+                    metadata: Default::default(),
+                    data: payload,
+                };
+
+                let json_payload = serde_json::to_string(&resp)
+                    .map_err(|_| reject("coudn't serialize response"))?;
+
+                if endpoint_version == EndpointVersion(1) {
                     Ok::<_, warp::reject::Rejection>(
                         warp::http::Response::builder()
                             .status(200)
@@ -994,16 +1087,24 @@ pub fn serve<E: EthSpec>(
                                 serde_json::to_string(&json_payload)
                                     .map_err(|_| reject("invalid JSON"))?,
                             )
+                            .map(|res| add_consensus_version_header(res, fork_name))
                             .unwrap(),
                     )
-                },
-            );
+                } else {
+                    Ok(warp::http::Response::builder()
+                        .status(202)
+                        .body("".to_string())
+                        .map(|res| add_consensus_version_header(res, fork_name))
+                        .unwrap())
+                }
+            },
+        );
 
-    let status = prefix
+    let status = prefix_v1
         .and(warp::path("status"))
-        .then(|| async { warp::reply() });
+        .then(|| async { warp::reply().into_response() });
 
-    let header = prefix
+    let header = prefix_v1
         .and(warp::path("header"))
         .and(warp::path::param::<Slot>().or_else(|_| async { Err(reject("Invalid slot")) }))
         .and(

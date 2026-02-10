@@ -8,8 +8,6 @@
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
 pub mod blob_sidecar_list_from_root;
-pub mod chunked_iter;
-pub mod chunked_vector;
 pub mod config;
 pub mod consensus_context;
 pub mod errors;
@@ -21,7 +19,6 @@ mod impls;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
@@ -92,17 +89,17 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<'_, K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     /// Iterate through all keys and values in a column from a given starting point that fulfill the given predicate.
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K>;
 
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K>;
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<'_, K>;
 
     fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error>;
 
@@ -264,6 +261,8 @@ pub enum DBColumn {
     BeaconBlob,
     #[strum(serialize = "bdc")]
     BeaconDataColumn,
+    #[strum(serialize = "bdi")]
+    BeaconDataColumnCustodyInfo,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     ///
     /// DEPRECATED.
@@ -316,6 +315,7 @@ pub enum DBColumn {
     BeaconChain,
     #[strum(serialize = "opo")]
     OpPool,
+    /// DEPRECATED.
     #[strum(serialize = "etc")]
     Eth1Cache,
     #[strum(serialize = "frk")]
@@ -423,6 +423,7 @@ impl DBColumn {
             | Self::CustodyContext
             | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
+            | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked
             | Self::BeaconStateRoots
             | Self::BeaconStateRootsChunked

@@ -3,10 +3,9 @@ use crate::cli::DatabaseManager;
 use crate::cli::Migrate;
 use crate::cli::PruneStates;
 use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
-    slot_clock::SystemTimeSlotClock,
+    builder::Witness, schema_change::migrate_schema, slot_clock::SystemTimeSlotClock,
 };
-use beacon_node::{get_data_dir, ClientConfig};
+use beacon_node::{ClientConfig, get_data_dir};
 use clap::ArgMatches;
 use clap::ValueEnum;
 use cli::{Compact, Inspect};
@@ -17,12 +16,12 @@ use std::io::Write;
 use std::path::PathBuf;
 use store::KeyValueStore;
 use store::{
+    DBColumn, HotColdDB,
     database::interface::BeaconNodeBackend,
     errors::Error,
-    metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
-    DBColumn, HotColdDB,
+    metadata::{CURRENT_SCHEMA_VERSION, SchemaVersion},
 };
-use strum::{EnumString, EnumVariantNames};
+use strum::{EnumString, VariantNames};
 use tracing::{info, warn};
 use types::{BeaconState, EthSpec, Slot};
 
@@ -81,7 +80,7 @@ pub fn display_db_version<E: EthSpec>(
 }
 
 #[derive(
-    Debug, PartialEq, Eq, Clone, EnumString, Deserialize, Serialize, EnumVariantNames, ValueEnum,
+    Debug, PartialEq, Eq, Clone, EnumString, Deserialize, Serialize, VariantNames, ValueEnum,
 )]
 pub enum InspectTarget {
     #[strum(serialize = "sizes")]
@@ -328,7 +327,7 @@ pub fn migrate_db<E: EthSpec>(
         "Migrating database schema"
     );
 
-    migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(db, from, to)
+    migrate_schema::<Witness<SystemTimeSlotClock, _, _, _>>(db, from, to)
 }
 
 pub fn prune_payloads<E: EthSpec>(

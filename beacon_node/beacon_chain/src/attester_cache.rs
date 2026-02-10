@@ -10,17 +10,18 @@
 //! and penalties can be computed and the `state.current_justified_checkpoint` can be updated.
 
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use fixed_bytes::FixedBytesExtended;
 use parking_lot::RwLock;
-use state_processing::state_advance::{partial_state_advance, Error as StateAdvanceError};
+use state_processing::state_advance::{Error as StateAdvanceError, partial_state_advance};
 use std::collections::HashMap;
 use std::ops::Range;
 use types::{
-    attestation::Error as AttestationError,
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch,
+    Slot,
+    attestation::AttestationError,
     beacon_state::{
         compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     },
-    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
-    Hash256, RelativeEpoch, Slot,
 };
 
 type JustifiedCheckpoint = Checkpoint;
@@ -365,11 +366,7 @@ impl AttesterCache {
         value: AttesterCacheValue,
     ) {
         while cache.len() >= MAX_CACHE_LEN {
-            if let Some(oldest) = cache
-                .iter()
-                .map(|(key, _)| *key)
-                .min_by_key(|key| key.epoch)
-            {
+            if let Some(oldest) = cache.keys().copied().min_by_key(|key| key.epoch) {
                 cache.remove(&oldest);
             } else {
                 break;

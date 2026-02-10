@@ -44,8 +44,7 @@ pub fn process_payload_status(
                 } else {
                     let error = format!(
                         "new_payload: response.status = VALID but invalid latest_valid_hash. Expected({:?}) Found({:?})",
-                        head_block_hash,
-                        response.latest_valid_hash
+                        head_block_hash, response.latest_valid_hash
                     );
                     Err(EngineError::Api {
                         error: ApiError::BadResponse(error),

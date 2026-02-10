@@ -20,18 +20,21 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
+    use bls::{AggregateSignature, Keypair, PublicKeyBytes, SecretKey, Signature};
     use eth2::types::FullBlockContents;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use fixed_bytes::FixedBytesExtended;
     use initialized_validators::{
-        load_pem_certificate, load_pkcs12_identity, InitializedValidators,
+        InitializedValidators, load_pem_certificate, load_pkcs12_identity,
     };
     use lighthouse_validator_store::LighthouseValidatorStore;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
-    use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+    use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
     use slot_clock::{SlotClock, TestingSlotClock};
+    use ssz_types::BitList;
     use std::env;
     use std::fmt::Debug;
     use std::fs::{self, File};
@@ -41,7 +44,7 @@ mod tests {
     use std::sync::{Arc, LazyLock};
     use std::time::{Duration, Instant};
     use task_executor::TaskExecutor;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};

@@ -2,16 +2,17 @@
 #![cfg(test)]
 use crate::persisted_dht::load_dht;
 use crate::{NetworkConfig, NetworkService};
-use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::BeaconChainTypes;
+use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
 use futures::StreamExt;
+use lighthouse_network::identity::secp256k1;
 use lighthouse_network::types::{GossipEncoding, GossipKind};
 use lighthouse_network::{Enr, GossipTopic};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
+use types::{Epoch, EthSpec, MinimalEthSpec, SubnetId};
 
 impl<T: BeaconChainTypes> NetworkService<T> {
     fn get_topic_params(&self, topic: GossipTopic) -> Option<&gossipsub::TopicScoreParams> {
@@ -66,6 +67,7 @@ fn test_dht_persistence() {
             executor,
             None,
             beacon_processor_tx,
+            secp256k1::Keypair::generate().into(),
         )
         .await
         .unwrap();
@@ -106,8 +108,8 @@ fn test_removing_topic_weight_on_old_topics() {
         .mock_execution_layer()
         .build()
         .chain;
-    let (next_fork_name, _) = beacon_chain.duration_to_next_fork().expect("next fork");
-    assert_eq!(next_fork_name, ForkName::Capella);
+    let (next_fork_epoch, _) = beacon_chain.duration_to_next_digest().expect("next fork");
+    assert_eq!(Some(next_fork_epoch), spec.capella_fork_epoch);
 
     // Build network service.
     let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
@@ -134,6 +136,7 @@ fn test_removing_topic_weight_on_old_topics() {
             executor.clone(),
             None,
             beacon_processor_channels.beacon_processor_tx,
+            secp256k1::Keypair::generate().into(),
         )
         .await
         .unwrap()
@@ -189,9 +192,8 @@ fn test_removing_topic_weight_on_old_topics() {
         beacon_chain.slot_clock.advance_slot();
     }
 
-    // Run `NetworkService::update_next_fork()`.
     runtime.block_on(async {
-        network_service.update_next_fork();
+        network_service.update_next_fork_digest();
     });
 
     // Check that topic_weight on the old topics has been zeroed.

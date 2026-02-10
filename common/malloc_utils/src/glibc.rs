@@ -173,11 +173,7 @@ fn mallinfo() -> libc::mallinfo2 {
 }
 
 fn into_result(result: c_int) -> Result<(), c_int> {
-    if result == 1 {
-        Ok(())
-    } else {
-        Err(result)
-    }
+    if result == 1 { Ok(()) } else { Err(result) }
 }
 
 #[cfg(test)]

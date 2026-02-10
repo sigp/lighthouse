@@ -1,16 +1,18 @@
 use crate::version::inconsistent_fork_rejection;
-use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
+use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use eth2::types::BlobIndicesQuery;
+use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
+use eth2::types::{BlobIndicesQuery, BlobWrapper, BlobsVersionedHashesQuery};
+use fixed_bytes::FixedBytesExtended;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, ForkName, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -352,6 +354,68 @@ impl BlockId {
         Ok((block, blob_sidecar_list, execution_optimistic, finalized))
     }
 
+    #[allow(clippy::type_complexity)]
+    pub fn get_blobs_by_versioned_hashes<T: BeaconChainTypes>(
+        &self,
+        query: BlobsVersionedHashesQuery,
+        chain: &BeaconChain<T>,
+    ) -> Result<
+        UnversionedResponse<Vec<BlobWrapper<T::EthSpec>>, ExecutionOptimisticFinalizedMetadata>,
+        warp::Rejection,
+    > {
+        let (root, execution_optimistic, finalized) = self.root(chain)?;
+        let block = BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
+            warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
+        })?;
+
+        // Error if the block is pre-Deneb and lacks blobs.
+        let blob_kzg_commitments = block.message().body().blob_kzg_commitments().map_err(|_| {
+            warp_utils::reject::custom_bad_request(
+                "block is pre-Deneb and has no blobs".to_string(),
+            )
+        })?;
+
+        let blob_indices_opt = query.versioned_hashes.map(|versioned_hashes| {
+            versioned_hashes
+                .iter()
+                .flat_map(|versioned_hash| {
+                    blob_kzg_commitments.iter().position(|commitment| {
+                        let computed_hash = commitment.calculate_versioned_hash();
+                        computed_hash == *versioned_hash
+                    })
+                })
+                .map(|index| index as u64)
+                .collect::<Vec<_>>()
+        });
+
+        let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
+        let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
+            if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+                Self::get_blobs_from_data_columns(chain, root, blob_indices_opt, &block)?
+            } else {
+                Self::get_blobs(chain, root, blob_indices_opt, max_blobs_per_block)?
+            }
+        } else {
+            BlobSidecarList::new(vec![], max_blobs_per_block)
+                .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
+        };
+
+        let blobs = blob_sidecar_list
+            .into_iter()
+            .map(|sidecar| BlobWrapper::<T::EthSpec> {
+                blob: sidecar.blob.clone(),
+            })
+            .collect();
+
+        Ok(UnversionedResponse {
+            metadata: ExecutionOptimisticFinalizedMetadata {
+                execution_optimistic: Some(execution_optimistic),
+                finalized: Some(finalized),
+            },
+            data: blobs,
+        })
+    }
+
     fn get_blobs<T: BeaconChainTypes>(
         chain: &BeaconChain<T>,
         root: Hash256,
@@ -369,9 +433,9 @@ impl BlockId {
 
         let blob_sidecar_list_filtered = match indices {
             Some(vec) => {
-                let list: Vec<_> = blob_sidecar_list
+                let list: Vec<_> = vec
                     .into_iter()
-                    .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
+                    .flat_map(|index| blob_sidecar_list.get(index as usize).cloned())
                     .collect();
 
                 BlobSidecarList::new(list, max_blobs_per_block)
@@ -396,8 +460,8 @@ impl BlockId {
         })?;
 
         let num_found_column_keys = column_indices.len();
-        let num_required_columns = chain.spec.number_of_columns / 2;
-        let is_blob_available = num_found_column_keys >= num_required_columns as usize;
+        let num_required_columns = T::EthSpec::number_of_columns() / 2;
+        let is_blob_available = num_found_column_keys >= num_required_columns;
 
         if is_blob_available {
             let data_columns = column_indices
@@ -411,7 +475,7 @@ impl BlockId {
                 )
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reconstruct_blobs(&chain.kzg, &data_columns, blob_indices, block, &chain.spec).map_err(
+            reconstruct_blobs(&chain.kzg, data_columns, blob_indices, block, &chain.spec).map_err(
                 |e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Error reconstructing data columns: {e:?}"
@@ -419,9 +483,9 @@ impl BlockId {
                 },
             )
         } else {
-            Err(warp_utils::reject::custom_server_error(
-                format!("Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found.")
-            ))
+            Err(warp_utils::reject::custom_server_error(format!(
+                "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found."
+            )))
         }
     }
 }

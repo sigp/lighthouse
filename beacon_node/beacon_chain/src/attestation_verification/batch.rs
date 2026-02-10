@@ -13,7 +13,7 @@ use super::{
     CheckAttestationSignature, Error, IndexedAggregatedAttestation, IndexedUnaggregatedAttestation,
     VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
 };
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::verify_signature_sets;
 use state_processing::signature_sets::{
     indexed_attestation_signature_set_from_pubkeys, signed_aggregate_selection_proof_signature_set,

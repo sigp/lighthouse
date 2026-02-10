@@ -1,10 +1,11 @@
+use crate::ChainConfig;
+use crate::CustodyContext;
 use crate::beacon_chain::{
-    CanonicalHead, LightClientProducerEvent, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY,
+    BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
-use crate::eth1_chain::{CachingEth1Backend, SszEth1};
-use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
@@ -17,14 +18,12 @@ use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::ChainConfig;
-use crate::CustodyContext;
 use crate::{
-    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
-    Eth1ChainBackend, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
-use eth1::Config as Eth1Config;
+use bls::Signature;
 use execution_layer::ExecutionLayer;
+use fixed_bytes::FixedBytesExtended;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
@@ -36,37 +35,36 @@ use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{per_slot_processing, AllCaches};
+use state_processing::{AllCaches, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
+use types::data_column_custody_group::CustodyIndex;
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>(
-    PhantomData<(TSlotClock, TEth1Backend, E, THotStore, TColdStore)>,
+pub struct Witness<TSlotClock, E, THotStore, TColdStore>(
+    PhantomData<(TSlotClock, E, THotStore, TColdStore)>,
 );
 
-impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore> BeaconChainTypes
-    for Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
+impl<TSlotClock, E, THotStore, TColdStore> BeaconChainTypes
+    for Witness<TSlotClock, E, THotStore, TColdStore>
 where
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
     type SlotClock = TSlotClock;
-    type Eth1Chain = TEth1Backend;
     type EthSpec = E;
 }
 
@@ -90,7 +88,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
-    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
@@ -107,17 +104,17 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     kzg: Arc<Kzg>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
+    ordered_custody_column_indices: Option<Vec<CustodyIndex>>,
     rng: Option<Box<dyn RngCore + Send>>,
 }
 
-impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>
+impl<TSlotClock, E, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
 {
     /// Returns a new builder.
@@ -133,7 +130,6 @@ where
             genesis_state_root: None,
             fork_choice: None,
             op_pool: None,
-            eth1_chain: None,
             execution_layer: None,
             event_handler: None,
             slot_clock: None,
@@ -148,7 +144,8 @@ where
             kzg,
             task_executor: None,
             validator_monitor_config: None,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
+            ordered_custody_column_indices: None,
             rng: None,
         }
     }
@@ -226,18 +223,6 @@ where
         self
     }
 
-    /// Attempt to load an existing eth1 cache from the builder's `Store`.
-    pub fn get_persisted_eth1_backend(&self) -> Result<Option<SszEth1>, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or("get_persisted_eth1_backend requires a store.")?;
-
-        store
-            .get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)
-            .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
-    }
-
     /// Returns true if `self.store` contains a persisted beacon chain.
     pub fn store_contains_beacon_chain(&self) -> Result<bool, String> {
         let store = self
@@ -270,16 +255,15 @@ where
                     .to_string()
             })?;
 
-        let fork_choice =
-            BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
-                store.clone(),
-                ResetPayloadStatuses::always_reset_conditionally(
-                    self.chain_config.always_reset_payload_statuses,
-                ),
-                &self.spec,
-            )
-            .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
-            .ok_or("Fork choice not found in store")?;
+        let fork_choice = BeaconChain::<Witness<TSlotClock, _, _, _>>::load_fork_choice(
+            store.clone(),
+            ResetPayloadStatuses::always_reset_conditionally(
+                self.chain_config.always_reset_payload_statuses,
+            ),
+            &self.spec,
+        )
+        .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
+        .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
             .get_blinded_block(&chain.genesis_block_root)
@@ -416,7 +400,7 @@ where
                 .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
         );
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
 
@@ -536,9 +520,26 @@ where
             "Storing split from weak subjectivity state"
         );
 
-        // Set the store's split point *before* storing genesis so that genesis is stored
-        // immediately in the freezer DB.
+        // Set the store's split point *before* storing genesis so that if the genesis state
+        // is prior to the split slot, it will immediately be stored in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
+
+        // It is also possible for the checkpoint state to be equal to the genesis state, in which
+        // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
+        // is initialised prior to storing the state, as the anchor is required for working out
+        // hdiff storage strategies.
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    weak_subj_block.parent_root(),
+                    weak_subj_block.slot(),
+                    weak_subj_slot,
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
+
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
@@ -561,20 +562,6 @@ where
             to_excl = %weak_subj_state.slot(),
             block_root = ?weak_subj_block_root,
             "Stored frozen block roots at skipped slots"
-        );
-
-        // Write the anchor to memory before calling `put_state` otherwise hot hdiff can't store
-        // states that do not align with the `start_slot` grid.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
-        self.pending_io_batch.push(
-            store
-                .init_anchor_info(
-                    weak_subj_block.parent_root(),
-                    weak_subj_block.slot(),
-                    weak_subj_slot,
-                    retain_historic_states,
-                )
-                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
 
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
@@ -635,7 +622,7 @@ where
             beacon_state: weak_subj_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, snapshot.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
         let fork_choice = ForkChoice::from_anchor(
@@ -653,21 +640,25 @@ where
         Ok(self.empty_op_pool())
     }
 
-    /// Sets the `BeaconChain` eth1 backend.
-    pub fn eth1_backend(mut self, backend: Option<TEth1Backend>) -> Self {
-        self.eth1_chain = backend.map(Eth1Chain::new);
-        self
-    }
-
     /// Sets the `BeaconChain` execution layer.
     pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer<E>>) -> Self {
         self.execution_layer = execution_layer;
         self
     }
 
-    /// Sets whether to require and import all data columns when importing block.
-    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
-        self.import_all_data_columns = import_all_data_columns;
+    /// Sets the node custody type for data column import.
+    pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
+        self.node_custody_type = node_custody_type;
+        self
+    }
+
+    /// Sets the ordered custody column indices for this node.
+    /// This is used to determine the data columns the node is required to custody.
+    pub fn ordered_custody_column_indices(
+        mut self,
+        ordered_custody_column_indices: Vec<ColumnIndex>,
+    ) -> Self {
+        self.ordered_custody_column_indices = Some(ordered_custody_column_indices);
         self
     }
 
@@ -749,8 +740,7 @@ where
     #[allow(clippy::type_complexity)] // I think there's nothing to be gained here from a type alias.
     pub fn build(
         mut self,
-    ) -> Result<BeaconChain<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>, String>
-    {
+    ) -> Result<BeaconChain<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
         let slot_clock = self
             .slot_clock
             .ok_or("Cannot build without a slot_clock.")?;
@@ -765,6 +755,9 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
+        let ordered_custody_column_indices = self
+            .ordered_custody_column_indices
+            .ok_or("Cannot build without ordered custody column indices")?;
         let rng = self.rng.ok_or("Cannot build without an RNG")?;
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
@@ -906,15 +899,16 @@ where
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
+            Witness<TSlotClock,  E, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
             genesis_block_root
         ));
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
+            Witness<TSlotClock,  E, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
-            &fork_choice
-        ));
+            &fork_choice,
+            store.get_config(),
+        ).map_err(|e| format!("Fork choice compression error: {e:?}"))?);
         store
             .hot_db
             .do_atomically(self.pending_io_batch)
@@ -924,6 +918,7 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
+        let complete_blob_backfill = self.chain_config.complete_blob_backfill;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -954,17 +949,31 @@ where
 
         // Load the persisted custody context from the db and initialize
         // the context for this run
-        let custody_context = if let Some(custody) =
+        let (custody_context, cgc_changed_opt) = if let Some(custody) =
             load_custody_context::<E, THotStore, TColdStore>(store.clone())
         {
-            Arc::new(CustodyContext::new_from_persisted_custody_context(
+            let head_epoch = canonical_head
+                .cached_head()
+                .head_slot()
+                .epoch(E::slots_per_epoch());
+            CustodyContext::new_from_persisted_custody_context(
                 custody,
-                self.import_all_data_columns,
-            ))
+                self.node_custody_type,
+                head_epoch,
+                ordered_custody_column_indices,
+                &self.spec,
+            )
         } else {
-            Arc::new(CustodyContext::new(self.import_all_data_columns))
+            (
+                CustodyContext::new(
+                    self.node_custody_type,
+                    ordered_custody_column_indices,
+                    &self.spec,
+                ),
+                None,
+            )
         };
-        debug!(?custody_context, "Loading persisted custody context");
+        debug!(?custody_context, "Loaded persisted custody context");
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
@@ -1003,7 +1012,6 @@ where
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
-            eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer.clone(),
             genesis_validators_root,
             genesis_time,
@@ -1017,14 +1025,12 @@ where
                 shuffling_cache_size,
                 head_shuffling_ids,
             )),
-            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::default()),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
-            reqresp_pre_import_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),
             light_client_server_tx: self.light_client_server_tx,
             shutdown_sender: self
@@ -1040,10 +1046,11 @@ where
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
+                    complete_blob_backfill,
                     slot_clock,
                     self.kzg.clone(),
                     store,
-                    custody_context,
+                    Arc::new(custody_context),
                     self.spec,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
@@ -1065,23 +1072,33 @@ where
             .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
-        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-            if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint
+            && let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
                 wss_checkpoint,
                 head.beacon_block_root,
                 &head.beacon_state,
-            ) {
-                crit!(
-                    head_block_root = %head.beacon_block_root,
-                    head_slot = %head.beacon_block.slot(),
-                    finalized_epoch = %head.beacon_state.finalized_checkpoint().epoch,
-                    wss_checkpoint_epoch = %wss_checkpoint.epoch,
-                    error = ?e,
-                    "Weak subjectivity checkpoint verification failed on startup!"
-                );
-                crit!("You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
-                return Err(format!("Weak subjectivity verification failed: {:?}", e));
-            }
+            )
+        {
+            crit!(
+                head_block_root = %head.beacon_block_root,
+                head_slot = %head.beacon_block.slot(),
+                finalized_epoch = %head.beacon_state.finalized_checkpoint().epoch,
+                wss_checkpoint_epoch = %wss_checkpoint.epoch,
+                error = ?e,
+                "Weak subjectivity checkpoint verification failed on startup!"
+            );
+            crit!(
+                "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
+            );
+            return Err(format!("Weak subjectivity verification failed: {:?}", e));
+        }
+
+        if let Some(cgc_changed) = cgc_changed_opt {
+            // Update data column custody info if there's a CGC change from CLI flags.
+            // This will trigger column backfill.
+            let cgc_change_effective_slot =
+                cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
+            beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
         }
 
         info!(
@@ -1122,35 +1139,11 @@ where
     }
 }
 
-impl<TSlotClock, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>>
+impl<E, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TestingSlotClock, E, THotStore, TColdStore>>
 where
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
-    TSlotClock: SlotClock + 'static,
-    E: EthSpec + 'static,
-{
-    /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
-    pub fn no_eth1_backend(self) -> Self {
-        self.eth1_backend(None)
-    }
-
-    /// Sets the `BeaconChain` eth1 back-end to produce predictably junk data when producing blocks.
-    pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
-        let backend = CachingEth1Backend::new(Eth1Config::default(), self.spec.clone())?;
-
-        self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
-
-        Ok(self)
-    }
-}
-
-impl<TEth1Backend, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, E, THotStore, TColdStore>>
-where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
@@ -1250,13 +1243,15 @@ fn build_data_columns_from_blobs<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{get_kzg, EphemeralHarnessType};
+    use crate::test_utils::{
+        EphemeralHarnessType, generate_data_column_indices_rand_order, get_kzg,
+    };
     use ethereum_hashing::hash;
     use genesis::{
-        generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
+        DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state,
     };
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;
@@ -1298,12 +1293,13 @@ mod test {
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
-            .dummy_eth1_backend()
-            .expect("should build the dummy eth1 backend")
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
+            .ordered_custody_column_indices(
+                generate_data_column_indices_rand_order::<MinimalEthSpec>(),
+            )
             .build()
             .expect("should build");
 

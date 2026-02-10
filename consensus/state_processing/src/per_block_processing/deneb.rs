@@ -1,5 +1,5 @@
 use ethereum_hashing::hash_fixed;
-use types::{KzgCommitment, VersionedHash, VERSIONED_HASH_VERSION_KZG};
+use types::{KzgCommitment, VERSIONED_HASH_VERSION_KZG, VersionedHash};
 
 pub fn kzg_commitment_to_versioned_hash(kzg_commitment: &KzgCommitment) -> VersionedHash {
     let mut hashed_commitment = hash_fixed(&kzg_commitment.0);

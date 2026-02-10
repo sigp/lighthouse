@@ -1,12 +1,13 @@
 use super::*;
+use crate::VerifySignatures;
 use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
-use crate::VerifySignatures;
+use ssz_types::FixedVector;
+use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
-use types::typenum::U33;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,

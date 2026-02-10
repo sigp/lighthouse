@@ -2,15 +2,15 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
-};
+use beacon_chain::{builder::Witness, slot_clock::SystemTimeSlotClock};
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
+use lighthouse_network::load_private_key;
+use network_utils::enr_ext::peer_id_to_node_id;
 use slasher::{DatabaseBackendOverride, Slasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -19,15 +19,8 @@ use tracing::{info, warn};
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> = Client<
-    Witness<
-        SystemTimeSlotClock,
-        CachingEth1Backend<E>,
-        E,
-        BeaconNodeBackend<E>,
-        BeaconNodeBackend<E>,
-    >,
->;
+pub type ProductionClient<E> =
+    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
 
 /// The beacon node `Client` that will be used in production.
 ///
@@ -129,25 +122,14 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
         };
 
+        // Generate or load the node id.
+        let local_keypair = load_private_key(&client_config.network);
+        let node_id = peer_id_to_node_id(&local_keypair.public().to_peer_id())?.raw();
+
         let builder = builder
-            .beacon_chain_builder(client_genesis, client_config.clone())
+            .beacon_chain_builder(client_genesis, client_config.clone(), node_id)
             .await?;
-        let builder = if client_config.sync_eth1_chain {
-            info!(
-                endpoint = ?client_config.eth1.endpoint,
-                method = "json rpc via http",
-                "Block production enabled"
-            );
-            builder
-                .caching_eth1_backend(client_config.eth1.clone())
-                .await?
-        } else {
-            info!(
-                reason = "no eth1 backend configured",
-                "Block production disabled"
-            );
-            builder.no_eth1_backend()?
-        };
+        info!("Block production enabled");
 
         let builder = builder.system_time_slot_clock()?;
 
@@ -157,7 +139,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         builder
             .build_beacon_chain()?
-            .network(Arc::new(client_config.network))
+            .network(Arc::new(client_config.network), local_keypair)
             .await?
             .notifier()?
             .http_metrics_config(client_config.http_metrics.clone())
@@ -229,6 +211,7 @@ mod test {
         spec.deneb_fork_epoch = Some(Epoch::new(257));
         spec.electra_fork_epoch = None;
         spec.fulu_fork_epoch = None;
+        spec.gloas_fork_epoch = None;
         let result = validator_fork_epochs(&spec);
         assert_eq!(
             result,

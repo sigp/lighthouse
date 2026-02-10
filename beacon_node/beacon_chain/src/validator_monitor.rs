@@ -4,6 +4,7 @@
 
 use crate::beacon_proposer_cache::{BeaconProposerCache, TYPICAL_SLOTS_PER_EPOCH};
 use crate::metrics;
+use bls::PublicKeyBytes;
 use itertools::Itertools;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
@@ -12,7 +13,7 @@ use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::common::get_attestation_participation_flag_indices;
 use state_processing::per_epoch_processing::{
-    errors::EpochProcessingError, EpochProcessingSummary,
+    EpochProcessingSummary, errors::EpochProcessingError,
 };
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -21,16 +22,17 @@ use std::str::Utf8Error;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::AbstractExecPayload;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, warn};
 use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
 use types::{
     Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
-    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    IndexedAttestationRef, ProposerSlashing, SignedAggregateAndProof, SignedContributionAndProof,
+    Slot, SyncCommitteeMessage, VoluntaryExit,
 };
+
 /// Used for Prometheus labels.
 ///
 /// We've used `total` for this value to align with Nimbus, as per:
@@ -163,7 +165,7 @@ impl EpochSummary {
     /// - It is `None`.
     /// - `new` is greater than its current value.
     fn update_if_lt<T: Ord>(current: &mut Option<T>, new: T) {
-        if let Some(ref mut current) = current {
+        if let Some(current) = current {
             if new < *current {
                 *current = new
             }
@@ -342,7 +344,7 @@ impl MonitoredValidator {
 
         // Prune
         while summaries.len() > HISTORIC_EPOCHS {
-            if let Some(key) = summaries.iter().map(|(epoch, _)| *epoch).min() {
+            if let Some(key) = summaries.keys().copied().min() {
                 summaries.remove(&key);
             }
         }
@@ -405,10 +407,6 @@ pub struct ValidatorMonitor<E: EthSpec> {
 }
 
 impl<E: EthSpec> ValidatorMonitor<E> {
-    #[instrument(parent = None,
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn new(
         config: ValidatorMonitorConfig,
         beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
@@ -438,23 +436,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// Returns `true` when the validator count is sufficiently low enough to
     /// emit metrics and logs on a per-validator basis (rather than just an
     /// aggregated basis).
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn individual_tracking(&self) -> bool {
         self.validators.len() <= self.individual_tracking_threshold
     }
 
     /// Add some validators to `self` for additional monitoring.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
         let index_opt = self
             .indices
@@ -472,43 +458,26 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Add an unaggregated attestation
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn set_unaggregated_attestation(&mut self, attestation: Attestation<E>) {
         let unaggregated_attestations = &mut self.unaggregated_attestations;
 
         // Pruning, this removes the oldest key/pair of the hashmap if it's greater than MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
-        if unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH {
-            if let Some(oldest_slot) = unaggregated_attestations.keys().min().copied() {
-                unaggregated_attestations.remove(&oldest_slot);
-            }
+        if unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
+            && let Some(oldest_slot) = unaggregated_attestations.keys().min().copied()
+        {
+            unaggregated_attestations.remove(&oldest_slot);
         }
+
         let slot = attestation.data().slot;
         self.unaggregated_attestations.insert(slot, attestation);
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn get_unaggregated_attestation(&self, slot: Slot) -> Option<&Attestation<E>> {
         self.unaggregated_attestations.get(&slot)
     }
 
     /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
     /// imported).
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn process_valid_state(
         &mut self,
         current_epoch: Epoch,
@@ -530,7 +499,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             });
 
         // Add missed non-finalized blocks for the monitored validators
-        self.add_validators_missed_blocks(state);
+        self.add_validators_missed_blocks(state, spec);
         self.process_unaggregated_attestations(state, spec);
 
         // Update metrics for individual validators.
@@ -621,13 +590,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Add missed non-finalized blocks for the monitored validators
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
-    fn add_validators_missed_blocks(&mut self, state: &BeaconState<E>) {
+    fn add_validators_missed_blocks(&mut self, state: &BeaconState<E>, spec: &ChainSpec) {
         // Define range variables
         let current_slot = state.slot();
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
@@ -655,8 +618,8 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 if block_root == prev_block_root {
                     let slot_epoch = slot.epoch(E::slots_per_epoch());
 
-                    if let Ok(shuffling_decision_block) =
-                        state.proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root)
+                    if let Ok(shuffling_decision_block) = state
+                        .proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root, spec)
                     {
                         // Update the cache if it has not yet been initialised, or if it is
                         // initialised for a prior epoch. This is an optimisation to avoid bouncing
@@ -723,12 +686,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         }
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn get_proposers_by_epoch_from_cache(
         &mut self,
         epoch: Epoch,
@@ -742,12 +699,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
     /// Process the unaggregated attestations generated by the service `attestation_simulator_service`
     /// and check if the attestation qualifies for a reward matching the flags source/target/head
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn process_unaggregated_attestations(&mut self, state: &BeaconState<E>, spec: &ChainSpec) {
         let current_slot = state.slot();
 
@@ -820,12 +771,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     ///
     /// We allow disabling tracking metrics on an individual validator basis
     /// since it can result in untenable cardinality with high validator counts.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn aggregatable_metric<F: Fn(&str)>(&self, individual_id: &str, func: F) {
         func(TOTAL_LABEL);
 
@@ -834,12 +779,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         }
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn process_validator_statuses(
         &self,
         epoch: Epoch,
@@ -1117,12 +1056,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         Ok(())
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn get_validator(&self, validator_index: u64) -> Option<&MonitoredValidator> {
         self.indices
             .get(&validator_index)
@@ -1130,33 +1063,15 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Returns the number of validators monitored by `self`.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn num_validators(&self) -> usize {
         self.validators.len()
     }
 
     /// Return the `id`'s of all monitored validators.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn get_all_monitored_validators(&self) -> Vec<String> {
         self.validators.values().map(|val| val.id.clone()).collect()
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn get_monitored_validator(&self, index: u64) -> Option<&MonitoredValidator> {
         if let Some(pubkey) = self.indices.get(&index) {
             self.validators.get(pubkey)
@@ -1165,12 +1080,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         }
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn get_monitored_validator_missed_block_count(&self, validator_index: u64) -> u64 {
         self.missed_blocks
             .iter()
@@ -1178,52 +1087,34 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             .count() as u64
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn get_beacon_proposer_cache(&self) -> Arc<Mutex<BeaconProposerCache>> {
         self.beacon_proposer_cache.clone()
     }
 
     /// If `self.auto_register == true`, add the `validator_index` to `self.monitored_validators`.
     /// Otherwise, do nothing.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn auto_register_local_validator(&mut self, validator_index: u64) {
         if !self.auto_register {
             return;
         }
 
-        if let Some(pubkey) = self.indices.get(&validator_index) {
-            if !self.validators.contains_key(pubkey) {
-                info!(
-                    %pubkey,
-                    validator = %validator_index,
-                    "Started monitoring validator"
-                );
+        if let Some(pubkey) = self.indices.get(&validator_index)
+            && !self.validators.contains_key(pubkey)
+        {
+            info!(
+                %pubkey,
+                validator = %validator_index,
+                "Started monitoring validator"
+            );
 
-                self.validators.insert(
-                    *pubkey,
-                    MonitoredValidator::new(*pubkey, Some(validator_index)),
-                );
-            }
+            self.validators.insert(
+                *pubkey,
+                MonitoredValidator::new(*pubkey, Some(validator_index)),
+            );
         }
     }
 
     /// Process a block received on gossip.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_gossip_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1235,12 +1126,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Process a block received on the HTTP API from a local validator.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_api_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1251,12 +1136,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         self.register_beacon_block("api", seen_timestamp, block, block_root, slot_clock)
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_beacon_block<S: SlotClock>(
         &self,
         src: &str,
@@ -1296,12 +1175,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register an attestation seen on the gossip network.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_gossip_unaggregated_attestation<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1317,12 +1190,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register an attestation seen on the HTTP API.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_api_unaggregated_attestation<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1337,12 +1204,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         )
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_unaggregated_attestation<S: SlotClock>(
         &self,
         src: &str,
@@ -1355,7 +1216,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            slot_clock.unagg_attestation_production_delay(),
+            Duration::from_secs(0),
             slot_clock,
         );
 
@@ -1429,12 +1290,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         )
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_aggregated_attestation<S: SlotClock>(
         &self,
         src: &str,
@@ -1553,11 +1408,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// We use the parent slot instead of block slot to ignore skip slots when calculating inclusion distance.
     ///
     /// Note: Blocks that get orphaned will skew the inclusion distance calculation.
-    #[instrument(parent = None,
-        level = "info",
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_attestation_in_block(
         &self,
         indexed_attestation: IndexedAttestationRef<'_, E>,
@@ -1633,12 +1483,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a sync committee message received over gossip.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_gossip_sync_committee_message<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1654,12 +1498,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a sync committee message received over the http api.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_api_sync_committee_message<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1675,12 +1513,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a sync committee message.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_sync_committee_message<S: SlotClock>(
         &self,
         src: &str,
@@ -1730,12 +1562,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a sync committee contribution received over gossip.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_gossip_sync_committee_contribution<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1753,12 +1579,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a sync committee contribution received over the http api.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_api_sync_committee_contribution<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
@@ -1776,12 +1596,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a sync committee contribution.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_sync_committee_contribution<S: SlotClock>(
         &self,
         src: &str,
@@ -1864,12 +1678,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register that the `sync_aggregate` was included in a *valid* `BeaconBlock`.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_sync_aggregate_in_block(
         &self,
         slot: Slot,
@@ -1907,44 +1715,20 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register an exit from the gossip network.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_gossip_voluntary_exit(&self, exit: &VoluntaryExit) {
         self.register_voluntary_exit("gossip", exit)
     }
 
     /// Register an exit from the HTTP API.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_api_voluntary_exit(&self, exit: &VoluntaryExit) {
         self.register_voluntary_exit("api", exit)
     }
 
     /// Register an exit included in a *valid* beacon block.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_block_voluntary_exit(&self, exit: &VoluntaryExit) {
         self.register_voluntary_exit("block", exit)
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_voluntary_exit(&self, src: &str, exit: &VoluntaryExit) {
         if let Some(validator) = self.get_validator(exit.validator_index) {
             let id = &validator.id;
@@ -1968,44 +1752,20 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a proposer slashing from the gossip network.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_gossip_proposer_slashing(&self, slashing: &ProposerSlashing) {
         self.register_proposer_slashing("gossip", slashing)
     }
 
     /// Register a proposer slashing from the HTTP API.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_api_proposer_slashing(&self, slashing: &ProposerSlashing) {
         self.register_proposer_slashing("api", slashing)
     }
 
     /// Register a proposer slashing included in a *valid* `BeaconBlock`.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_block_proposer_slashing(&self, slashing: &ProposerSlashing) {
         self.register_proposer_slashing("block", slashing)
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_proposer_slashing(&self, src: &str, slashing: &ProposerSlashing) {
         let proposer = slashing.signed_header_1.message.proposer_index;
         let slot = slashing.signed_header_1.message.slot;
@@ -2039,44 +1799,20 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register an attester slashing from the gossip network.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_gossip_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("gossip", slashing)
     }
 
     /// Register an attester slashing from the HTTP API.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_api_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("api", slashing)
     }
 
     /// Register an attester slashing included in a *valid* `BeaconBlock`.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn register_block_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("block", slashing)
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     fn register_attester_slashing(&self, src: &str, slashing: AttesterSlashingRef<'_, E>) {
         let data = slashing.attestation_1().data();
         let attestation_1_indices: HashSet<u64> = slashing
@@ -2118,12 +1854,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// Scrape `self` for metrics.
     ///
     /// Should be called whenever Prometheus is scraping Lighthouse.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "validator_monitor"),
-        name = "validator_monitor",
-        skip_all
-    )]
     pub fn scrape_metrics<S: SlotClock>(&self, slot_clock: &S, spec: &ChainSpec) {
         metrics::set_gauge(
             &metrics::VALIDATOR_MONITOR_VALIDATORS_TOTAL,

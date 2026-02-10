@@ -1,11 +1,12 @@
 use crate::common::update_progressive_balances_cache::update_progressive_balances_on_slashing;
 use crate::{
+    ConsensusContext,
     common::{decrease_balance, increase_balance, initiate_validator_exit},
     per_block_processing::errors::BlockProcessingError,
-    ConsensusContext,
 };
 use safe_arith::SafeArith;
 use std::cmp;
+use typenum::Unsigned;
 use types::{
     consts::altair::{PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     *,

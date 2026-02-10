@@ -1,13 +1,13 @@
 use crate::cli::ValidatorClient;
-use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
 use beacon_node_fallback::ApiTopic;
+use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
-    get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
-    DEFAULT_VALIDATOR_DIR,
+    DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR,
+    get_network_dir,
 };
-use eth2::types::Graffiti;
+use eth2::types::{Graffiti, GraffitiPolicy};
 use graffiti_file::GraffitiFile;
 use initialized_validators::Config as InitializedValidatorsConfig;
 use lighthouse_validator_store::Config as ValidatorStoreConfig;
@@ -55,6 +55,8 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
     pub graffiti_file: Option<GraffitiFile>,
+    /// GraffitiPolicy to append client version info
+    pub graffiti_policy: Option<GraffitiPolicy>,
     /// Configuration for the HTTP REST API.
     pub http_api: validator_http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -102,8 +104,10 @@ impl Default for Config {
         let validator_dir = base_dir.join(DEFAULT_VALIDATOR_DIR);
         let secrets_dir = base_dir.join(DEFAULT_SECRET_DIR);
 
-        let beacon_nodes = vec![SensitiveUrl::parse(DEFAULT_BEACON_NODE)
-            .expect("beacon_nodes must always be a valid url.")];
+        let beacon_nodes = vec![
+            SensitiveUrl::parse(DEFAULT_BEACON_NODE)
+                .expect("beacon_nodes must always be a valid url."),
+        ];
         Self {
             validator_store: ValidatorStoreConfig::default(),
             validator_dir,
@@ -117,6 +121,7 @@ impl Default for Config {
             long_timeouts_multiplier: 1,
             graffiti: None,
             graffiti_file: None,
+            graffiti_policy: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             beacon_node_fallback: <_>::default(),
@@ -230,6 +235,12 @@ impl Config {
                 config.graffiti = Some(graffiti.into());
             }
         }
+
+        config.graffiti_policy = if validator_client_config.graffiti_append {
+            Some(GraffitiPolicy::AppendClientVersions)
+        } else {
+            Some(GraffitiPolicy::PreserveUserGraffiti)
+        };
 
         if let Some(input_fee_recipient) = validator_client_config.suggested_fee_recipient {
             config.validator_store.fee_recipient = Some(input_fee_recipient);

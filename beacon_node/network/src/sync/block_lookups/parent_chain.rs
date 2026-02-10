@@ -117,8 +117,9 @@ pub(crate) fn find_oldest_fork_ancestor(
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_parent_chains, find_oldest_fork_ancestor, Node};
-    use types::{FixedBytesExtended, Hash256};
+    use super::{Node, compute_parent_chains, find_oldest_fork_ancestor};
+    use fixed_bytes::FixedBytesExtended;
+    use types::Hash256;
 
     fn h(n: u64) -> Hash256 {
         Hash256::from_low_u64_be(n)

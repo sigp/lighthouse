@@ -41,7 +41,7 @@ impl Environment {
         Ok(Environment { env })
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&self) -> Result<OpenDatabases<'_>, Error> {
         let indexed_attestation_db = self
             .env
             .create_db(Some(INDEXED_ATTESTATION_DB), Self::db_flags())?;
@@ -80,7 +80,7 @@ impl Environment {
         })
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
         let txn = self.env.begin_rw_txn()?;
         Ok(RwTransaction { txn })
     }
@@ -137,7 +137,7 @@ impl<'env> RwTransaction<'env> {
 }
 
 impl<'env> Cursor<'env> {
-    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
+    pub fn first_key(&mut self) -> Result<Option<Key<'_>>, Error> {
         let opt_key = self
             .cursor
             .get(None, None, MDB_FIRST)

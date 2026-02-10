@@ -40,7 +40,7 @@ Options:
           The gas limit to be used in all builder proposals for all validators
           managed by this validator client. Note this will not necessarily be
           used if the gas limit set here moves too far from the previous block's
-          gas limit. [default: 36000000]
+          gas limit. [default: 60000000]
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -134,6 +134,13 @@ Options:
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
           database.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
       --validator-registration-batch-size <INTEGER>
           Defines the number of validators per validator/register_validator
           request sent to the BN. This value can be reduced to avoid timeouts
@@ -214,6 +221,10 @@ Flags:
           automatically enabled for <= 64 validators. Enabling this metric for
           higher validator counts will lead to higher volume of prometheus
           metrics being collected.
+      --graffiti-append
+          When used, client version info will be prepended to user custom
+          graffiti, with a space in between. This should only be used with a
+          Lighthouse beacon node.
   -h, --help
           Prints help information
       --http

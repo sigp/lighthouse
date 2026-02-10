@@ -1,3 +1,4 @@
+use bls::{PublicKeyBytes, Signature};
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use slashing_protection::NotSafe;
 use std::fmt::Debug;
@@ -5,9 +6,9 @@ use std::future::Future;
 use std::sync::Arc;
 use types::{
     Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec, Graffiti, Hash256,
-    PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedValidatorRegistrationData, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedContributionAndProof,
+    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -21,6 +22,7 @@ pub enum Error<T> {
     GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
     UnableToSignAttestation(AttestationError),
     SpecificError(T),
+    Middleware(String),
 }
 
 impl<T> From<T> for Error<T> {

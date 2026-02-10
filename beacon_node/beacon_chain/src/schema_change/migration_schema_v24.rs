@@ -9,13 +9,13 @@ use std::{
     time::{Duration, Instant},
 };
 use store::{
+    DBColumn, Error, HotColdDB, HotStateSummary, KeyValueStore, KeyValueStoreOp, StoreItem,
     hdiff::StorageStrategy,
     hot_cold_store::{HotStateSummaryV22, OptionalDiffBaseState},
-    DBColumn, Error, HotColdDB, HotStateSummary, KeyValueStore, KeyValueStoreOp, StoreItem,
 };
 use tracing::{debug, info, warn};
 use types::{
-    BeaconState, ChainSpec, Checkpoint, CommitteeCache, EthSpec, Hash256, Slot, CACHED_EPOCHS,
+    BeaconState, CACHED_EPOCHS, ChainSpec, Checkpoint, CommitteeCache, EthSpec, Hash256, Slot,
 };
 
 /// We stopped using the pruning checkpoint in schema v23 but never explicitly deleted it.
