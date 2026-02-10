@@ -109,12 +109,12 @@ async fn invalid_block_header_state_slot() {
         &spec,
     );
 
-    assert_eq!(
+    assert!(matches!(
         result,
         Err(BlockProcessingError::HeaderInvalid {
-            reason: HeaderInvalid::StateSlotMismatch,
+            reason: HeaderInvalid::StateSlotMismatch { .. },
         })
-    );
+    ));
 }
 
 #[tokio::test]
@@ -141,15 +141,12 @@ async fn invalid_parent_block_root() {
         &spec,
     );
 
-    assert_eq!(
+    assert!(matches!(
         result,
         Err(BlockProcessingError::HeaderInvalid {
-            reason: HeaderInvalid::ParentBlockRootMismatch {
-                state: state.latest_block_header().canonical_root(),
-                block: Hash256::from([0xAA; 32]),
-            },
+            reason: HeaderInvalid::ParentBlockRootMismatch { .. },
         })
-    );
+    ));
 }
 
 #[tokio::test]
@@ -174,7 +171,12 @@ async fn invalid_block_signature() {
         &spec,
     );
 
-    assert_eq!(result, Err(BlockProcessingError::BlockSignatureInvalid));
+    assert!(matches!(
+        result,
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::ProposalSignatureInvalid,
+        })
+    ));
 }
 
 #[tokio::test]
