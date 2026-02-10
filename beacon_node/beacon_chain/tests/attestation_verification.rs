@@ -24,8 +24,7 @@ use typenum::Unsigned;
 use types::{
     Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
     MainnetEthSpec, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
-    signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
-    test_utils::generate_deterministic_keypair,
+    attestation::SignedAggregateAndProofRefMut, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;

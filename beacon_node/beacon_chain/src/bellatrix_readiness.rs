@@ -147,7 +147,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(bellatrix_epoch) = self.spec.bellatrix_fork_epoch {
             let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let bellatrix_readiness_preparation_slots =
-                BELLATRIX_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
+                BELLATRIX_READINESS_PREPARATION_SECONDS / self.spec.get_slot_duration().as_secs();
 
             if self.execution_layer.is_some() {
                 // The user has already configured an execution layer, start checking for readiness

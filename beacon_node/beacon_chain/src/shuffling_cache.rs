@@ -6,7 +6,7 @@ use oneshot_broadcast::{Receiver, Sender, oneshot};
 use tracing::debug;
 use types::{
     AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256, RelativeEpoch,
-    beacon_state::CommitteeCache,
+    state::CommitteeCache,
 };
 
 use crate::{BeaconChainError, metrics};
