@@ -308,6 +308,9 @@ async fn run(config: ImportConfig) -> Result<(), String> {
             if let Some(override_builder_boost_factor) = builder_boost_factor {
                 validator.builder_boost_factor = Some(override_builder_boost_factor);
             }
+            if let Some(override_prefer_builder_proposals) = prefer_builder_proposals {
+                validator.prefer_builder_proposals = Some(override_prefer_builder_proposals);
+            }
             if let Some(override_enabled) = enabled {
                 validator.enabled = Some(override_enabled);
             }
