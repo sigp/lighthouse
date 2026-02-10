@@ -2787,7 +2787,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
     ) -> Result<Option<ExecutionOptimisticFinalizedResponse<u64>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
