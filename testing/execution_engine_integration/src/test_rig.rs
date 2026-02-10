@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use types::payload::BlockProductionVersion;
+use types::execution::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ForkName, Hash256, MainnetEthSpec, Slot, Uint256,
@@ -120,12 +120,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         );
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = TaskExecutor::new(
-            Arc::downgrade(&runtime),
-            exit,
-            shutdown_tx,
-            "test".to_string(),
-        );
+        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
         spec.terminal_total_difficulty = Uint256::ZERO;
 

@@ -478,6 +478,17 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Disable the beacon head monitor which tries to attest as soon as any of the \
+                configured beacon nodes sends a head event. Leaving the service enabled is \
+                recommended, but disabling it can lead to reduced bandwidth and more predictable \
+                usage of the primary beacon node (rather than the fastest BN).",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_beacon_head_monitor: bool,
+
+    #[clap(
+        long,
         help = "Disable Lighthouse's slashing protection for all web3signer keys. This can \
                 reduce the I/O burden on the VC but is only safe if slashing protection \
                 is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \

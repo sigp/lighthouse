@@ -44,7 +44,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
-use types::application_domain::ApplicationDomain;
+use types::ApplicationDomain;
 use types::{
     Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
     SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
@@ -52,7 +52,7 @@ use types::{
 
 type E = MainnetEthSpec;
 
-const SECONDS_PER_SLOT: u64 = 12;
+const SLOT_DURATION_MS: u64 = 12_000;
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
@@ -323,7 +323,7 @@ impl ApiTester {
 
         let client = BeaconNodeHttpClient::new(
             beacon_url,
-            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+            Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
         );
 
         Self {
@@ -411,7 +411,7 @@ impl ApiTester {
                 listening_socket.port()
             ))
             .unwrap(),
-            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+            Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
         );
 
         Self {
@@ -1970,8 +1970,8 @@ impl ApiTester {
             .await
         {
             Ok(result) => panic!("Full node are unable to return blobs post-Fulu: {result:?}"),
-            // Post-Fulu, full nodes don't store blobs and return error 500
-            Err(e) => assert_eq!(e.status().unwrap(), 500),
+            // Post-Fulu, full nodes don't store blobs and return error 400 (Bad Request)
+            Err(e) => assert_eq!(e.status().unwrap(), 400),
         };
 
         self
@@ -6567,8 +6567,13 @@ impl ApiTester {
             block_events.as_slice(),
             &[
                 expected_gossip,
-                expected_block,
+                // SSE `Head`` event is now emitted before `Block` event, because we only emit the block event
+                // after it's persisted to the database. We could consider changing this later, but
+                // we might have to serve http API requests for blocks from early_attester_cache
+                // before they're persisted to the database.
+                // https://github.com/sigp/lighthouse/pull/8718#issuecomment-3815593310
                 expected_head,
+                expected_block,
                 expected_finalized
             ]
         );
@@ -6683,7 +6688,8 @@ impl ApiTester {
         }
         let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec)
             .unwrap()
-            .0;
+            .withdrawals()
+            .to_vec();
 
         // fetch expected withdrawals from the client
         let result = self.client.get_expected_withdrawals(&state_id).await;
@@ -6691,7 +6697,7 @@ impl ApiTester {
             Ok(withdrawal_response) => {
                 assert_eq!(withdrawal_response.execution_optimistic, Some(false));
                 assert_eq!(withdrawal_response.finalized, Some(false));
-                assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
+                assert_eq!(withdrawal_response.data, expected_withdrawals);
             }
             Err(_) => {
                 panic!("query failed incorrectly");
@@ -6825,7 +6831,12 @@ impl ApiTester {
             .unwrap();
 
         let block_events = poll_events(&mut events_future, 2, Duration::from_millis(10000)).await;
-        assert_eq!(block_events.as_slice(), &[expected_block, expected_head]);
+        // SSE `Head`` event is now emitted before `Block` event, because we only emit the block event
+        // after it's persisted to the database. We could consider changing this later, but
+        // we might have to serve http API requests for blocks from early_attester_cache
+        // before they're persisted to the database.
+        // https://github.com/sigp/lighthouse/pull/8718#issuecomment-3815593310
+        assert_eq!(block_events.as_slice(), &[expected_head, expected_block]);
 
         self
     }
