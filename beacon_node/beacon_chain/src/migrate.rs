@@ -171,10 +171,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Self::run_migration(self.db.clone(), notif)?;
         } else if let Some(Notification::Finalization(notif)) =
             self.send_background_notification(Notification::Finalization(notif))
+            && let Err(e) = Self::run_migration(self.db.clone(), notif)
         {
-            if let Err(e) = Self::run_migration(self.db.clone(), notif) {
-                warn!(error = ?e, "Database migration failed");
-            }
+            warn!(error = ?e, "Database migration failed");
         }
 
         Ok(())
@@ -435,10 +434,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // Run finalization and blob pruning migrations first, then a reconstruction batch.
                 // This prevents finalization from being starved while reconstruciton runs (a
                 // problem in previous LH versions).
-                if let Some(fin) = finalization_notif {
-                    if let Err(e) = Self::run_migration(db.clone(), fin) {
-                        warn!(error = ?e, "Database migration failed");
-                    }
+                if let Some(fin) = finalization_notif
+                    && let Err(e) = Self::run_migration(db.clone(), fin)
+                {
+                    warn!(error = ?e, "Database migration failed");
                 }
                 if let Some(dab) = prune_blobs_notif {
                     Self::run_prune_blobs(db.clone(), dab);
