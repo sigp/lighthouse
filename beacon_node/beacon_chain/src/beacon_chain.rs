@@ -23,11 +23,9 @@ use crate::chain_config::ChainConfig;
 use crate::custody_context::CustodyContextSsz;
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
-    DataAvailabilityChecker, DataColumnReconstructionResult,
+    DataColumnReconstructionResult,
 };
-use crate::data_availability_checker_v2::{
-    Availability as PayloadAvailability, DataAvailabilityChecker as DataAvailabilityCheckerV2,
-};
+use crate::data_availability_checker_v2::Availability as PayloadAvailability;
 use crate::data_availability_router::{
     AvailabilityOutcome, DataAvailabilityRouter, ReconstructionOutcome,
 };
@@ -484,8 +482,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub genesis_backfill_slot: Slot,
     /// Provides a KZG verification and temporary storage for blocks and blobs as
     /// they are collected and combined.
-    pub data_availability_checker:
-        Arc<DataAvailabilityRouter<T, DataAvailabilityChecker<T>, DataAvailabilityCheckerV2<T>>>,
+    pub data_availability_checker: Arc<DataAvailabilityRouter<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
@@ -1315,11 +1312,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
     /// processing attempts.
     pub fn get_block_process_status(&self, block_root: &Hash256) -> BlockProcessStatus<T::EthSpec> {
-        if let Some(cached_block) = self
-            .data_availability_checker
-            .v1()
-            .get_cached_block(block_root)
-        {
+        if let Some(cached_block) = self.data_availability_checker.get_cached_block(block_root) {
             return cached_block;
         }
 
@@ -3190,7 +3183,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let imported_blobs = self
                 .data_availability_checker
-                .v1()
                 .cached_blob_indexes(block_root)
                 .unwrap_or_default();
             let new_blobs = blobs_iter.filter(|b| !imported_blobs.contains(&b.index));
@@ -3407,9 +3399,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        self.data_availability_checker
-            .v1()
-            .put_pre_execution_block(block_root, unverified_block.block_cloned(), block_source)?;
+        self.data_availability_checker.put_pre_execution_block(
+            block_root,
+            unverified_block.block_cloned(),
+            block_source,
+        )?;
 
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -3444,7 +3438,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // chain to get stuck temporarily if the block is canonical. Therefore we remove
                     // it from the cache if execution fails.
                     self.data_availability_checker
-                        .v1()
                         .remove_block_on_execution_error(&block_root);
                 })?;
 
@@ -3572,11 +3565,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = block.block.slot();
-        let availability = AvailabilityOutcome::Block(
-            self.data_availability_checker
-                .v1()
-                .put_executed_block(block)?,
-        );
+        let availability =
+            AvailabilityOutcome::Block(self.data_availability_checker.put_executed_block(block)?);
         self.process_availability(slot, availability, || Ok(()))
             .await
     }
@@ -3593,7 +3583,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         let availability = AvailabilityOutcome::Block(
             self.data_availability_checker
-                .v1()
                 .put_gossip_verified_blobs(blob.block_root(), std::iter::once(blob))?,
         );
 
@@ -3672,7 +3661,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
         let availability = AvailabilityOutcome::Block(
             self.data_availability_checker
-                .v1()
                 .put_rpc_blobs(block_root, blobs)?,
         );
 
@@ -3694,7 +3682,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )?;
                 let availability = self
                     .data_availability_checker
-                    .v1()
                     .put_kzg_verified_blobs(block_root, blobs)?;
 
                 AvailabilityOutcome::Block(availability)
@@ -7469,15 +7456,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.data_availability_checker
-            .v1()
-            .data_availability_boundary()
+        self.data_availability_checker.data_availability_boundary()
     }
 
     /// Returns true if epoch is within the data availability boundary
     pub fn da_check_required_for_epoch(&self, epoch: Epoch) -> bool {
         self.data_availability_checker
-            .v1()
             .da_check_required_for_epoch(epoch)
     }
 

@@ -490,7 +490,6 @@ mod tests {
 
     use super::RangeBlockComponentsRequest;
     use beacon_chain::custody_context::NodeCustodyType;
-    use beacon_chain::data_availability_router::AvailabilityCache;
     use beacon_chain::test_utils::{
         NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns,
         test_da_checker, test_spec,

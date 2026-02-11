@@ -967,7 +967,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
-            .v1()
             .cached_blob_indexes(&block_root)
             .unwrap_or_default();
         // Include only the blob indexes not yet imported (received through gossip)
@@ -1371,14 +1370,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if self
             .chain
             .data_availability_checker
-            .v1()
             .data_columns_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndColumns
         } else if self
             .chain
             .data_availability_checker
-            .v1()
             .blobs_required_for_epoch(epoch)
         {
             ByRangeRequestType::BlocksAndBlobs

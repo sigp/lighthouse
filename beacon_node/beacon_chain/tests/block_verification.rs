@@ -2219,7 +2219,6 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             let da_boundary = harness
                 .chain
                 .data_availability_checker
-                .v1()
                 .data_availability_boundary()
                 .expect("DA boundary should be set");
             assert!(

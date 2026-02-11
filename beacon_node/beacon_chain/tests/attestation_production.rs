@@ -230,7 +230,6 @@ async fn produces_attestations() {
                 RpcBlock::FullyAvailable(available_block) => {
                     chain
                         .data_availability_checker
-                        .v1()
                         .verify_kzg_for_available_block(&available_block)
                         .unwrap();
                     available_block
@@ -301,7 +300,6 @@ async fn early_attester_cache_old_request() {
             harness
                 .chain
                 .data_availability_checker
-                .v1()
                 .verify_kzg_for_available_block(&available_block)
                 .unwrap();
             available_block

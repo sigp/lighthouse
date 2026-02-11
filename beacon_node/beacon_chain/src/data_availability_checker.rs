@@ -5,7 +5,6 @@ use crate::block_verification_types::{AvailabilityPendingExecutedBlock, Availabl
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::data_availability_router::AvailabilityCache;
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessStatus, CustodyContext, metrics};
 use educe::Educe;
 use kzg::Kzg;
@@ -359,22 +358,22 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 }
 
-impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
-    type Availability = Availability<T::EthSpec>;
-    type ReconstructionResult = DataColumnReconstructionResult<T::EthSpec>;
-
-    fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
+impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
         &self.custody_context
     }
 
     /// Get data columns for a block from the availability cache.
-    fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList<T::EthSpec>> {
+    pub fn get_data_columns(
+        &self,
+        block_root: Hash256,
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
         self.availability_cache.peek_data_columns(block_root)
     }
 
     /// Return the set of cached custody column indices for `block_root`. Returns None if there is
     /// no block component for `block_root`.
-    fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+    pub fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
         self.availability_cache
             .peek_pending_components(block_root, |components| {
                 components.map(|components| components.get_cached_data_columns_indices())
@@ -382,7 +381,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     }
 
     /// Check if the exact data column is in the availability cache.
-    fn is_data_column_cached(
+    pub fn is_data_column_cached(
         &self,
         block_root: &Hash256,
         data_column: &DataColumnSidecar<T::EthSpec>,
@@ -400,7 +399,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     /// verification on the blobs in the list.
     #[allow(clippy::type_complexity)]
     #[instrument(skip_all, level = "trace")]
-    fn put_rpc_custody_columns(
+    pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
         slot: Slot,
@@ -435,7 +434,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     ///
     /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
     #[instrument(skip_all, level = "trace")]
-    fn put_gossip_verified_data_columns<O: ObservationStrategy>(
+    pub fn put_gossip_verified_data_columns<O: ObservationStrategy>(
         &self,
         block_root: Hash256,
         slot: Slot,
@@ -456,7 +455,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    fn put_kzg_verified_custody_data_columns(
+    pub fn put_kzg_verified_custody_data_columns(
         &self,
         block_root: Hash256,
         custody_columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
@@ -466,7 +465,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     }
 
     #[instrument(skip_all, level = "debug")]
-    fn reconstruct_data_columns(
+    pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
     ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
@@ -554,7 +553,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     }
 
     /// Verifies KZG commitments for data columns.
-    fn verify_kzg_for_data_columns(
+    pub fn verify_kzg_for_data_columns(
         &self,
         data_columns: &DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {

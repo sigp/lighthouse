@@ -3,7 +3,6 @@ use crate::data_availability_checker_v2::pending_components_cache::{
 };
 
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::data_availability_router::AvailabilityCache;
 use crate::{BeaconChain, BeaconChainTypes, CustodyContext, metrics};
 use kzg::Kzg;
 use slot_clock::SlotClock;
@@ -87,24 +86,43 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     spec: Arc<ChainSpec>,
 }
 
-impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
-    type Availability = Availability<T::EthSpec>;
-    type ReconstructionResult = DataColumnReconstructionResult<T::EthSpec>;
+impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
+    pub fn new(
+        slot_clock: T::SlotClock,
+        kzg: Arc<Kzg>,
+        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        spec: Arc<ChainSpec>,
+    ) -> Result<Self, AvailabilityCheckError> {
+        let inner = DataAvailabilityCheckerInner::new(
+            OVERFLOW_LRU_CAPACITY_NON_ZERO,
+            custody_context.clone(),
+            spec.clone(),
+        )?;
+        Ok(Self {
+            availability_cache: Arc::new(inner),
+            slot_clock,
+            kzg,
+            custody_context,
+            spec,
+        })
+    }
 
-    /// Returns the custody context.
-    fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
         &self.custody_context
     }
 
     /// Returns all cached data columns for the given block root, if any.
     #[instrument(skip_all, level = "trace")]
-    fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList<T::EthSpec>> {
+    pub fn get_data_columns(
+        &self,
+        block_root: Hash256,
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
         self.availability_cache.peek_data_columns(block_root)
     }
 
     /// Returns the indices of cached data columns for the given block root.
     #[instrument(skip_all, level = "trace")]
-    fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<ColumnIndex>> {
+    pub fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<ColumnIndex>> {
         self.availability_cache
             .peek_pending_components(block_root, |components| {
                 components.map(|components| components.get_cached_data_columns_indices())
@@ -113,7 +131,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
 
     /// Checks if a specific data column is cached for the given block root.
     #[instrument(skip_all, level = "trace")]
-    fn is_data_column_cached(
+    pub fn is_data_column_cached(
         &self,
         block_root: &Hash256,
         data_column: &DataColumnSidecar<T::EthSpec>,
@@ -129,7 +147,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
 
     /// Insert RPC custody columns and check if the payload becomes available.
     #[instrument(skip_all, level = "trace")]
-    fn put_rpc_custody_columns(
+    pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
         slot: Slot,
@@ -158,7 +176,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     /// Check if we've cached other data columns for this block root. If it satisfies the custody
     /// requirement, return the `Availability::Available` variant. Otherwise cache the data column sidecar.
     #[instrument(skip_all, level = "trace")]
-    fn put_gossip_verified_data_columns<O: ObservationStrategy>(
+    pub fn put_gossip_verified_data_columns<O: ObservationStrategy>(
         &self,
         block_root: Hash256,
         slot: Slot,
@@ -179,7 +197,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
-    fn put_kzg_verified_custody_data_columns(
+    pub fn put_kzg_verified_custody_data_columns(
         &self,
         block_root: Hash256,
         custody_columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
@@ -189,7 +207,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     }
 
     #[instrument(skip_all, level = "debug")]
-    fn reconstruct_data_columns(
+    pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
     ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
@@ -277,7 +295,7 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
     }
 
     /// Verifies KZG commitments for data columns.
-    fn verify_kzg_for_data_columns(
+    pub fn verify_kzg_for_data_columns(
         &self,
         data_columns: &DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {
@@ -286,32 +304,6 @@ impl<T: BeaconChainTypes> AvailabilityCache<T> for DataAvailabilityChecker<T> {
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
         Ok(())
-    }
-}
-
-impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
-    pub fn new(
-        slot_clock: T::SlotClock,
-        kzg: Arc<Kzg>,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
-        spec: Arc<ChainSpec>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        let inner = DataAvailabilityCheckerInner::new(
-            OVERFLOW_LRU_CAPACITY_NON_ZERO,
-            custody_context.clone(),
-            spec.clone(),
-        )?;
-        Ok(Self {
-            availability_cache: Arc::new(inner),
-            slot_clock,
-            kzg,
-            custody_context,
-            spec,
-        })
-    }
-
-    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
-        &self.custody_context
     }
 
     /// Insert an execution payload bid into the cache and check if data becomes available.

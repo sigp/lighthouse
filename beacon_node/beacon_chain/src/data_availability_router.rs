@@ -6,7 +6,7 @@
 //!
 //! ## Design
 //!
-//! - **Unified operations**: Via the `AvailabilityCache` trait (blocks, columns, availability checks)
+//! - **Unified operations**: Shared column operations dispatched to v1 or v2
 //! - **Fork-aware routing**: `DataAvailabilityRouter` dispatches to v1 or v2 based on slot
 //! - **Processing**: `BeaconChain::process_availability_outcome()` handles both result types
 //!
@@ -14,21 +14,25 @@
 //! use the Gloas DA checker directly.
 
 use crate::BeaconChainTypes;
+use crate::BlockProcessStatus;
+use crate::blob_verification::{GossipVerifiedBlob, KzgVerifiedBlob};
+use crate::block_verification_types::AvailabilityPendingExecutedBlock;
 use crate::custody_context::CustodyContext;
 use crate::data_availability_checker::{
-    Availability as BlockAvailability, AvailabilityCheckError,
-    DataColumnReconstructionResult as BlockReconstructionResult,
+    Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock,
+    DataAvailabilityChecker, DataColumnReconstructionResult as BlockReconstructionResult,
 };
 use crate::data_availability_checker_v2::{
-    Availability as PayloadAvailability,
+    Availability as PayloadAvailability, DataAvailabilityChecker as DataAvailabilityCheckerV2,
     DataColumnReconstructionResult as PayloadReconstructionResult,
 };
 use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
 use crate::observed_data_sidecars::ObservationStrategy;
 use std::sync::Arc;
+use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkName, Hash256,
-    Slot,
+    BlobSidecar, BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar,
+    DataColumnSidecarList, Epoch, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// Unified result from operations that can come from either DA checker.
@@ -122,74 +126,6 @@ impl<E: EthSpec> ReconstructionOutcome<E> {
     }
 }
 
-/// Trait for data availability operations on availability checkers.
-///
-/// Both `DataAvailabilityChecker` (v1) and `DataAvailabilityChecker` (v2) implement
-/// this trait. The associated types differ:
-/// - V1: Returns `Availability<E>` containing `AvailableExecutedBlock<E>`
-/// - V2: Returns `Availability<E>` containing `(Hash256, DataColumnSidecarList<E>)` (block root + columns)
-pub trait AvailabilityCache<T: BeaconChainTypes>: Send + Sync {
-    /// The availability type returned by write operations.
-    /// V1 returns block availability, V2 returns payload availability.
-    type Availability;
-
-    /// The reconstruction result type.
-    /// V1 returns `DataColumnReconstructionResult` with block availability.
-    /// V2 returns `DataColumnReconstructionResult` with payload availability.
-    type ReconstructionResult;
-
-    /// Returns the custody context.
-    fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>>;
-
-    /// Returns all cached data columns for the given block root, if any.
-    fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList<T::EthSpec>>;
-
-    /// Returns the indices of cached data columns for the given block root.
-    fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<ColumnIndex>>;
-
-    /// Checks if a specific data column is cached for the given block root.
-    fn is_data_column_cached(
-        &self,
-        block_root: &Hash256,
-        data_column: &DataColumnSidecar<T::EthSpec>,
-    ) -> bool;
-
-    /// Insert RPC custody columns and check if the block/payload becomes available.
-    fn put_rpc_custody_columns(
-        &self,
-        block_root: Hash256,
-        slot: Slot,
-        custody_columns: DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<Self::Availability, AvailabilityCheckError>;
-
-    /// Insert gossip-verified data columns and check availability.
-    fn put_gossip_verified_data_columns<O: ObservationStrategy>(
-        &self,
-        block_root: Hash256,
-        slot: Slot,
-        data_columns: Vec<GossipVerifiedDataColumn<T, O>>,
-    ) -> Result<Self::Availability, AvailabilityCheckError>;
-
-    /// Insert KZG-verified custody data columns and check availability.
-    fn put_kzg_verified_custody_data_columns(
-        &self,
-        block_root: Hash256,
-        custody_columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
-    ) -> Result<Self::Availability, AvailabilityCheckError>;
-
-    /// Attempt to reconstruct missing data columns from available ones.
-    fn reconstruct_data_columns(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Self::ReconstructionResult, AvailabilityCheckError>;
-
-    /// Verifies KZG commitments for a list of data columns.
-    fn verify_kzg_for_data_columns(
-        &self,
-        data_columns: &DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<(), AvailabilityCheckError>;
-}
-
 /// Router that directs data availability checker operations to the appropriate version based on fork.
 ///
 /// This wraps both the legacy (v1) and Gloas (v2) DA checkers, providing unified operations
@@ -197,47 +133,21 @@ pub trait AvailabilityCache<T: BeaconChainTypes>: Send + Sync {
 ///
 /// After Gloas is fully activated and v1 is deprecated, this router can be deleted and
 /// we can use the V2 DA checker directly.
-pub struct DataAvailabilityRouter<T: BeaconChainTypes, V1, V2>
-where
-    V1: AvailabilityCache<
-            T,
-            Availability = BlockAvailability<T::EthSpec>,
-            ReconstructionResult = BlockReconstructionResult<T::EthSpec>,
-        >,
-    V2: AvailabilityCache<
-            T,
-            Availability = PayloadAvailability<T::EthSpec>,
-            ReconstructionResult = PayloadReconstructionResult<T::EthSpec>,
-        >,
-{
+pub struct DataAvailabilityRouter<T: BeaconChainTypes> {
     /// Legacy DA checker for pre-Gloas blocks
-    v1: Arc<V1>,
+    v1: Arc<DataAvailabilityChecker<T>>,
     /// Gloas DA checker for payload envelopes
-    v2: Arc<V2>,
+    v2: Arc<DataAvailabilityCheckerV2<T>>,
     spec: Arc<ChainSpec>,
-    _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: BeaconChainTypes, V1, V2> DataAvailabilityRouter<T, V1, V2>
-where
-    V1: AvailabilityCache<
-            T,
-            Availability = BlockAvailability<T::EthSpec>,
-            ReconstructionResult = BlockReconstructionResult<T::EthSpec>,
-        >,
-    V2: AvailabilityCache<
-            T,
-            Availability = PayloadAvailability<T::EthSpec>,
-            ReconstructionResult = PayloadReconstructionResult<T::EthSpec>,
-        >,
-{
-    pub fn new(v1: Arc<V1>, v2: Arc<V2>, spec: Arc<ChainSpec>) -> Self {
-        Self {
-            v1,
-            v2,
-            spec,
-            _phantom: std::marker::PhantomData,
-        }
+impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
+    pub fn new(
+        v1: Arc<DataAvailabilityChecker<T>>,
+        v2: Arc<DataAvailabilityCheckerV2<T>>,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
+        Self { v1, v2, spec }
     }
 
     /// Returns true if the given slot is in the Gloas fork or later.
@@ -246,6 +156,8 @@ where
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
     }
+
+    // ── Shared methods (dispatched to v1 or v2 based on fork) ──
 
     /// Returns the custody context (same for both checkers).
     pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
@@ -363,17 +275,127 @@ where
         }
     }
 
+    // ── V1-only methods (blobs, blocks, boundary queries) ──
+
+    /// Returns the data availability boundary epoch (v1).
+    pub fn data_availability_boundary(&self) -> Option<Epoch> {
+        self.v1.data_availability_boundary()
+    }
+
+    /// Returns whether a DA check is required for the given epoch (v1).
+    pub fn da_check_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.v1.da_check_required_for_epoch(epoch)
+    }
+
+    /// Returns whether blobs are required for the given epoch (v1).
+    pub fn blobs_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.v1.blobs_required_for_epoch(epoch)
+    }
+
+    /// Returns whether data columns are required for the given epoch (v1).
+    pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.v1.data_columns_required_for_epoch(epoch)
+    }
+
+    /// Verifies KZG commitments for a single available block (v1).
+    pub fn verify_kzg_for_available_block(
+        &self,
+        available_block: &AvailableBlock<T::EthSpec>,
+    ) -> Result<(), AvailabilityCheckError> {
+        self.v1.verify_kzg_for_available_block(available_block)
+    }
+
+    /// Batch verifies KZG commitments for multiple available blocks (v1).
+    pub fn batch_verify_kzg_for_available_blocks(
+        &self,
+        available_blocks: &[AvailableBlock<T::EthSpec>],
+    ) -> Result<(), AvailabilityCheckError> {
+        self.v1
+            .batch_verify_kzg_for_available_blocks(available_blocks)
+    }
+
+    /// Get a blob from the availability cache (v1).
+    pub fn get_blob(
+        &self,
+        blob_id: &BlobIdentifier,
+    ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        self.v1.get_blob(blob_id)
+    }
+
+    /// Returns the cached blob indexes for a given block root (v1).
+    pub fn cached_blob_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+        self.v1.cached_blob_indexes(block_root)
+    }
+
+    /// Returns the cached block for a given block root (v1).
+    pub fn get_cached_block(&self, block_root: &Hash256) -> Option<BlockProcessStatus<T::EthSpec>> {
+        self.v1.get_cached_block(block_root)
+    }
+
+    /// Inserts a pre-execution block into the cache (v1).
+    pub fn put_pre_execution_block(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        source: BlockImportSource,
+    ) -> Result<(), AvailabilityCheckError> {
+        self.v1.put_pre_execution_block(block_root, block, source)
+    }
+
+    /// Insert an executed block and check availability (v1).
+    pub fn put_executed_block(
+        &self,
+        executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+    ) -> Result<BlockAvailability<T::EthSpec>, AvailabilityCheckError> {
+        self.v1.put_executed_block(executed_block)
+    }
+
+    /// Removes a pre-execution block from the cache on execution error (v1).
+    pub fn remove_block_on_execution_error(&self, block_root: &Hash256) {
+        self.v1.remove_block_on_execution_error(block_root)
+    }
+
+    /// Insert blobs received via RPC and check availability (v1).
+    pub fn put_rpc_blobs(
+        &self,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+    ) -> Result<BlockAvailability<T::EthSpec>, AvailabilityCheckError> {
+        self.v1.put_rpc_blobs(block_root, blobs)
+    }
+
+    /// Insert KZG-verified blobs and check availability (v1).
+    pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
+        &self,
+        block_root: Hash256,
+        blobs: I,
+    ) -> Result<BlockAvailability<T::EthSpec>, AvailabilityCheckError> {
+        self.v1.put_kzg_verified_blobs(block_root, blobs)
+    }
+
+    /// Insert gossip-verified blobs into the v1 checker.
+    pub fn put_gossip_verified_blobs<
+        I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
+        O: ObservationStrategy,
+    >(
+        &self,
+        block_root: Hash256,
+        blobs: I,
+    ) -> Result<BlockAvailability<T::EthSpec>, AvailabilityCheckError> {
+        self.v1.put_gossip_verified_blobs(block_root, blobs)
+    }
+
     /// Direct access to v1 checker for block execution/availability checks.
     ///
     /// Use this for operations that are specific to the legacy DA checker,
-    pub fn v1(&self) -> Arc<V1> {
+    pub fn v1(&self) -> Arc<DataAvailabilityChecker<T>> {
         self.v1.clone()
     }
 
     /// Direct access to v2 checker for payload availability checks.
     ///
     /// Use this for operations that are specific to the Gloas DA checker,
-    pub fn v2(&self) -> Arc<V2> {
+    pub fn v2(&self) -> Arc<DataAvailabilityCheckerV2<T>> {
         self.v2.clone()
     }
 }

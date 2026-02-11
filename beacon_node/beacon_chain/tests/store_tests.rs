@@ -3182,7 +3182,6 @@ async fn weak_subjectivity_sync_test(
                     harness
                         .chain
                         .data_availability_checker
-                        .v1()
                         .verify_kzg_for_available_block(&available_block)
                         .expect("should verify kzg");
                     available_blocks.push(available_block);

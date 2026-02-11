@@ -739,7 +739,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match self
             .chain
             .data_availability_checker
-            .v1()
             .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
             Ok(()) => {}

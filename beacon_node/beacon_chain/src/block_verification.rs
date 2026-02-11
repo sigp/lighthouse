@@ -675,7 +675,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     // we need a batch verify kzg function in the new da checker as well.
     chain
         .data_availability_checker
-        .v1()
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
 
     // verify signatures
@@ -1316,7 +1315,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
                 // added to the new da checker as well.
                 chain
                     .data_availability_checker
-                    .v1()
                     .verify_kzg_for_available_block(available_block)
                     .map_err(|e| {
                         BlockSlashInfo::SignatureNotChecked(
