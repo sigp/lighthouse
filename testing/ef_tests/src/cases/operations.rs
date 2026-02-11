@@ -16,7 +16,7 @@ use state_processing::{
     per_block_processing::{
         VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
-        process_block_header, process_execution_payload,
+        process_block_header, process_execution_payload, process_execution_payload_bid,
         process_operations::{
             altair_deneb, base, gloas, process_attester_slashings,
             process_bls_to_execution_changes, process_deposits, process_exits,
@@ -49,6 +49,12 @@ struct ExecutionMetadata {
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<E: EthSpec> {
     payload: Option<ExecutionPayload<E>>,
+}
+
+/// Newtype for testing execution payload bids.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExecutionPayloadBidBlock<E: EthSpec> {
+    block: BeaconBlock<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -456,6 +462,37 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
         } else {
             Err(EnvelopeProcessingError::ExecutionInvalid)
         }
+    }
+}
+
+impl<E: EthSpec> Operation<E> for ExecutionPayloadBidBlock<E> {
+    type Error = BlockProcessingError;
+
+    fn handler_name() -> String {
+        "execution_payload_bid".into()
+    }
+
+    fn filename() -> String {
+        "block.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.gloas_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file_with(path, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
+            .map(|block| ExecutionPayloadBidBlock { block })
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_execution_payload_bid(state, self.block.to_ref(), VerifySignatures::True, spec)?;
+        Ok(())
     }
 }
 

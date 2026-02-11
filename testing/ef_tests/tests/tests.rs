@@ -94,6 +94,12 @@ fn operations_execution_payload_envelope() {
 }
 
 #[test]
+fn operations_execution_payload_bid() {
+    OperationsHandler::<MinimalEthSpec, ExecutionPayloadBidBlock<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, ExecutionPayloadBidBlock<_>>::default().run();
+}
+
+#[test]
 fn operations_withdrawals() {
     OperationsHandler::<MinimalEthSpec, WithdrawalsPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalsPayload<_>>::default().run();
