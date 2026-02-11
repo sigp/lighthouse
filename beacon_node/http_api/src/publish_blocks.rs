@@ -533,7 +533,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
 
     for data_col in data_column_sidecars {
         if let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref() {
-            partial_columns.push(Arc::new((*fulu_data_col).clone().into_partial()));
+            partial_columns.push(Arc::new(fulu_data_col.to_partial()));
         }
 
         let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);

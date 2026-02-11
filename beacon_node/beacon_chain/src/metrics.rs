@@ -1821,15 +1821,6 @@ pub static BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL: LazyLock<Result<IntCount
         )
     });
 
-pub static BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL: LazyLock<Result<IntCounterVec>> =
-    LazyLock::new(|| {
-        try_create_int_counter_vec(
-            "beacon_useful_full_columns_received_total",
-            "Number of useful full columns (any cell being useful) received",
-            &["column_index"],
-        )
-    });
-
 pub static BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
         try_create_int_counter_vec(

@@ -5,7 +5,7 @@ use crate::block_verification_types::{AvailabilityPendingExecutedBlock, Availabl
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::partial_data_column_assembler::PartialDataColumnAssembler;
+use crate::partial_data_column_assembler::{AssemblyColumn, PartialDataColumnAssembler};
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessStatus, CustodyContext, metrics};
 use educe::Educe;
 use kzg::Kzg;
@@ -206,13 +206,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         // Check assembler for partial columns
-        if let Some(cached_partial) = self.partial_assembler.get_partial(block_root, column_index) {
-            // Compare: find which cells from incoming full column aren't in cached partial
-            return compare_full_to_partial(cell_count, cached_partial.as_data_column());
+        match self.partial_assembler.get_partial(block_root, column_index) {
+            Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                // Compare: find which cells from incoming full column aren't in cached partial
+                compare_full_to_partial(cell_count, cached_partial.as_data_column())
+            }
+            Some(AssemblyColumn::Complete) => Some(vec![]),
+            None => {
+                // No cached data, all cells are "missing" (new data we want)
+                Some((0..cell_count).collect())
+            }
         }
-
-        // No cached data, all cells are "missing" (new data we want)
-        Some((0..cell_count).collect())
     }
 
     /// Check if the partial data column is in the availability cache.
@@ -238,20 +242,24 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         // Check assembler for partial columns
-        if let Some(cached_partial) = self.partial_assembler.get_partial(block_root, column_index) {
-            // Compare: find which cells from incoming partial aren't in cached partial
-            return compare_partial_to_partial(data_column, cached_partial.as_data_column());
+        match self.partial_assembler.get_partial(block_root, column_index) {
+            Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                // Compare: find which cells from incoming full column aren't in cached partial
+                compare_partial_to_partial(data_column, cached_partial.as_data_column())
+            }
+            Some(AssemblyColumn::Complete) => Some(vec![]),
+            None => {
+                // No cached data, return all present cells as "missing" (new data we want)
+                let incoming_cells: Vec<usize> = data_column
+                    .sidecar
+                    .cells_present_bitmap
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, present)| present.then_some(idx))
+                    .collect();
+                Some(incoming_cells)
+            }
         }
-
-        // No cached data, return all present cells as "missing" (new data we want)
-        let incoming_cells: Vec<usize> = data_column
-            .sidecar
-            .cells_present_bitmap
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, present)| present.then_some(idx))
-            .collect();
-        Some(incoming_cells)
     }
 
     /// Get a blob from the availability cache.

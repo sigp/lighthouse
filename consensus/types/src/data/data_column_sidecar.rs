@@ -210,7 +210,7 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
     }
 
     /// Convert this full data column into a verifiable partial data column.
-    pub fn into_partial(self) -> PartialDataColumn<E> {
+    pub fn to_partial(&self) -> PartialDataColumn<E> {
         let cell_count = self.column.len();
         let mut bitmap =
             CellBitmap::<E>::with_capacity(cell_count).expect("our column has the same bound");
@@ -224,8 +224,8 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
 
         let column = self
             .column
-            .into_iter()
-            .map(Arc::new)
+            .iter()
+            .map(|col| Arc::new(col.clone()))
             .collect::<Vec<_>>()
             .try_into()
             .expect("our column has the same bound");
@@ -236,11 +236,11 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
             sidecar: PartialDataColumnSidecar {
                 cells_present_bitmap: bitmap,
                 column,
-                kzg_proofs: self.kzg_proofs,
+                kzg_proofs: self.kzg_proofs.clone(),
                 header: VariableList::repeat_full(PartialDataColumnHeader {
                     kzg_commitments: self.kzg_commitments.clone(),
-                    signed_block_header: self.signed_block_header,
-                    kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof,
+                    signed_block_header: self.signed_block_header.clone(),
+                    kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof.clone(),
                 }),
             },
         }

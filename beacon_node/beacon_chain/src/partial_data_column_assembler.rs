@@ -9,7 +9,7 @@ use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::sync::Arc;
 use types::data::{ColumnIndex, DataColumnSidecar, PartialDataColumn, PartialDataColumnHeader};
-use types::{EthSpec, Hash256};
+use types::{DataColumnSidecarFulu, EthSpec, Hash256};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {
@@ -22,7 +22,13 @@ struct PartialAssembly<E: EthSpec> {
     header: PartialDataColumnHeader<E>,
     has_local_blobs: bool,
     /// Map of column_index -> partial column being assembled
-    columns: HashMap<ColumnIndex, KzgVerifiedCustodyPartialDataColumn<E>>,
+    columns: HashMap<ColumnIndex, AssemblyColumn<E>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum AssemblyColumn<E: EthSpec> {
+    Complete,
+    Incomplete(KzgVerifiedCustodyPartialDataColumn<E>),
 }
 
 /// Result of merging a partial column
@@ -103,11 +109,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             let column_index = partial_column.index;
 
             let merged = if let Some(existing) = assembly.columns.get(&column_index) {
-                let column = existing.as_data_column();
-                // Check if the column is already completed
-                if column.sidecar.is_complete() {
+                let AssemblyColumn::Incomplete(existing) = existing else {
+                    // Already complete.
                     continue;
-                }
+                };
+                let column = existing.as_data_column();
 
                 let old_len = column.sidecar.column.len();
 
@@ -137,12 +143,15 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             };
 
             // Check if merged column is now complete by trying to convert into full
-            if let Some(full_column) = merged.try_clone_full() {
+            let column = if let Some(full_column) = merged.try_clone_full() {
                 full_columns.push(full_column);
-            }
+                AssemblyColumn::Complete
+            } else {
+                AssemblyColumn::Incomplete(merged.clone())
+            };
 
             // Update assembly with merged partial
-            assembly.columns.insert(column_index, merged.clone());
+            assembly.columns.insert(column_index, column);
             updated_partials.push(merged);
         }
 
@@ -158,12 +167,31 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         })
     }
 
+    /// Mark a column as assembled. Returns true if the column was previously incomplete or not
+    /// in the assembly at all.
+    pub fn mark_as_complete(&self, block_root: Hash256, column: &DataColumnSidecarFulu<E>) -> bool {
+        let mut assemblies = self.assemblies.write();
+        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
+            header: PartialDataColumnHeader {
+                kzg_commitments: column.kzg_commitments.clone(),
+                signed_block_header: column.signed_block_header.clone(),
+                kzg_commitments_inclusion_proof: column.kzg_commitments_inclusion_proof.clone(),
+            },
+            has_local_blobs: false,
+            columns: Default::default(),
+        });
+        let prev = assembly
+            .columns
+            .insert(column.index, AssemblyColumn::Complete);
+        !matches!(prev, Some(AssemblyColumn::Complete))
+    }
+
     /// Get the current partial for a specific column if it exists in assembly
     pub fn get_partial(
         &self,
         block_root: &Hash256,
         column_index: ColumnIndex,
-    ) -> Option<KzgVerifiedCustodyPartialDataColumn<E>> {
+    ) -> Option<AssemblyColumn<E>> {
         self.assemblies
             .read()
             .peek(block_root)?
@@ -183,7 +211,13 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                 .peek(block_root)?
                 .columns
                 .values()
-                .cloned()
+                .filter_map(|value| {
+                    if let AssemblyColumn::Incomplete(partial) = value {
+                        Some(partial.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect(),
         )
     }

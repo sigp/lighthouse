@@ -1275,7 +1275,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.index();
 
-        // TODO(dknopik): import into assembly and track BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL metric
+        if let DataColumnSidecar::Fulu(col) = verified_data_column.as_data_column()
+            && self
+                .chain
+                .data_availability_checker
+                .partial_assembler()
+                .mark_as_complete(block_root, col)
+        {
+            metrics::inc_counter_vec(
+                &metrics::BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL,
+                &[&data_column_index.to_string()],
+            );
+
+            self.send_network_message(NetworkMessage::PublishPartial {
+                columns: vec![Arc::new(col.to_partial())],
+            });
+        }
 
         let result = self
             .chain
@@ -1386,16 +1401,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     });
                 }
 
-                if merge_result.local_blobs || self.chain.config.disable_get_blobs {
-                    self.send_network_message(NetworkMessage::PublishPartial {
-                        columns: merge_result
-                            .updated_partials
-                            .into_iter()
-                            .map(|partial| partial.into_inner())
-                            .collect(),
-                    });
-                } else {
-                    debug!(block = %block_root, "Not publishing partials - waiting for getBlobs");
+                let only_send_completed_partials =
+                    merge_result.local_blobs || self.chain.config.disable_get_blobs;
+                debug!(block = %block_root, "Not incomplete publishing partials before getBlobs");
+                let columns = merge_result
+                    .updated_partials
+                    .into_iter()
+                    .map(|partial| partial.into_inner())
+                    .filter(|partial| {
+                        !only_send_completed_partials || partial.sidecar.is_complete()
+                    })
+                    .collect::<Vec<_>>();
+
+                if !columns.is_empty() {
+                    self.send_network_message(NetworkMessage::PublishPartial { columns });
                 }
                 Ok(avail)
             }
