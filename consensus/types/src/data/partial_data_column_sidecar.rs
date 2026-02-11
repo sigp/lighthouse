@@ -10,6 +10,7 @@ use merkle_proof::verify_merkle_proof;
 use ssz::{BitList, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
+use std::fmt::Display;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -230,6 +231,22 @@ impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
                 .kzg_commitments_merkle_proof()?
                 .clone(),
         })
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
+pub struct PartialDataColumnPartsMetadata<E: EthSpec> {
+    pub available: CellBitmap<E>,
+    pub request: CellBitmap<E>,
+}
+
+impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "(available: {}, requested: {})",
+            self.available, self.request
+        )
     }
 }
 

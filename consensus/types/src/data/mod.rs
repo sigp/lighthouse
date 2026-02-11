@@ -19,7 +19,8 @@ pub use data_column_sidecar::{
 };
 pub use data_column_subnet_id::{DataColumnSubnetId, all_data_column_sidecar_subnets_from_spec};
 pub use partial_data_column_sidecar::{
-    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
+    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
+    PartialDataColumnSidecar,
 };
 
 use crate::core::EthSpec;
