@@ -461,19 +461,14 @@ pub enum ExitInvalid {
     PendingWithdrawalInQueue(u64),
 }
 
-// TODO(gloas): remove unnecessary variants
 #[derive(Debug, PartialEq, Clone)]
 pub enum ExecutionPayloadBidInvalid {
-    /// The builder sent a 0 amount
-    BadAmount,
+    /// The validator set a non-zero amount for a self-build.
+    SelfBuildNonZeroAmount,
     /// The signature is invalid.
     BadSignature,
-    /// The builder's withdrawal credential is invalid
-    BadWithdrawalCredentials,
-    /// The builder is not an active validator.
+    /// The builder is not active.
     BuilderNotActive(u64),
-    /// The builder is slashed
-    BuilderSlashed(u64),
     /// The builder has insufficient balance to cover the bid
     InsufficientBalance {
         builder_index: u64,
@@ -492,6 +487,8 @@ pub enum ExecutionPayloadBidInvalid {
         block_parent_root: Hash256,
         bid_parent_root: Hash256,
     },
+    /// The bid's prev randao doesn't match the state.
+    PrevRandaoMismatch { expected: Hash256, bid: Hash256 },
     /// The bid contains more than the maximum number of kzg blob commitments.
     ExcessBlobCommitments { max: usize, bid: usize },
 }

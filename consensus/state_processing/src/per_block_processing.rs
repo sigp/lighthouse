@@ -563,7 +563,10 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
 
     // For self-builds, amount must be zero regardless of withdrawal credential prefix
     if builder_index == BUILDER_INDEX_SELF_BUILD {
-        block_verify!(amount == 0, ExecutionPayloadBidInvalid::BadAmount.into());
+        block_verify!(
+            amount == 0,
+            ExecutionPayloadBidInvalid::SelfBuildNonZeroAmount.into()
+        );
         block_verify!(
             signed_bid.signature.is_infinity(),
             ExecutionPayloadBidInvalid::BadSignature.into()
@@ -658,10 +661,11 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
     let expected_randao = *state.get_randao_mix(state.current_epoch())?;
     block_verify!(
         bid.prev_randao == expected_randao,
-        BlockProcessingError::ExecutionRandaoMismatch {
+        ExecutionPayloadBidInvalid::PrevRandaoMismatch {
             expected: expected_randao,
-            found: bid.prev_randao,
+            bid: bid.prev_randao,
         }
+        .into()
     );
 
     // Record the pending payment if there is some payment
