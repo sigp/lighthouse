@@ -113,7 +113,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
-            notify_new_payload(&self.chain, self.block.message()).await
+            notify_new_payload(&self.chain, self.block.message().tree_hash_root(), self.block.message().try_into()?).await
         }
     }
 }
@@ -127,17 +127,18 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-async fn notify_new_payload<T: BeaconChainTypes>(
+pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'_, T::EthSpec>,
+    beacon_block_root: Hash256,
+    new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    let execution_block_hash = block.execution_payload()?.block_hash();
-    let new_payload_response = execution_layer.notify_new_payload(block.try_into()?).await;
+    let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
+    let new_payload_response = execution_layer.notify_new_payload(new_payload_request.clone()).await;
 
     match new_payload_response {
         Ok(status) => match status {
@@ -153,10 +154,10 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                     ?validation_error,
                     ?latest_valid_hash,
                     ?execution_block_hash,
-                    root = ?block.tree_hash_root(),
-                    graffiti = block.body().graffiti().as_utf8_lossy(),
-                    proposer_index = block.proposer_index(),
-                    slot = %block.slot(),
+                    // root = ?block.tree_hash_root(),
+                    // graffiti = block.body().graffiti().as_utf8_lossy(),
+                    // proposer_index = block.proposer_index(),
+                    // slot = %block.slot(),
                     method = "new_payload",
                     "Invalid execution payload"
                 );
@@ -179,11 +180,11 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                 {
                     // This block has not yet been applied to fork choice, so the latest block that was
                     // imported to fork choice was the parent.
-                    let latest_root = block.parent_root();
+                    let latest_root = new_payload_request.parent_beacon_block_root()?;
 
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                            head_block_root: latest_root,
+                            head_block_root: *latest_root,
                             always_invalidate_head: false,
                             latest_valid_ancestor: latest_valid_hash,
                         })
@@ -198,10 +199,10 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                 warn!(
                     ?validation_error,
                     ?execution_block_hash,
-                    root = ?block.tree_hash_root(),
-                    graffiti = block.body().graffiti().as_utf8_lossy(),
-                    proposer_index = block.proposer_index(),
-                    slot = %block.slot(),
+                    // root = ?block.tree_hash_root(),
+                    // graffiti = block.body().graffiti().as_utf8_lossy(),
+                    // proposer_index = block.proposer_index(),
+                    // slot = %block.slot(),
                     method = "new_payload",
                     "Invalid execution payload block hash"
                 );
