@@ -2989,7 +2989,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
             genesis_state,
             ForkChoiceStoreInit::FinalizedState(Box::new(BeaconSnapshot {
                 beacon_block_root: wss_block.canonical_root(),
-                beacon_block: Arc::new(wss_block),
+                beacon_block: Arc::new(wss_block.clone()),
                 beacon_state: wss_state,
             })),
         )
@@ -3195,7 +3195,7 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
             genesis_state,
             ForkChoiceStoreInit::FinalizedState(Box::new(BeaconSnapshot {
                 beacon_block_root: wss_block.canonical_root(),
-                beacon_block: Arc::new(wss_block),
+                beacon_block: Arc::new(wss_block.clone()),
                 beacon_state: wss_state,
             })),
         )
