@@ -360,7 +360,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
         )
-        .with_user_agent(lighthouse_version::VERSION.to_string());
+        .with_user_agent(config.user_agent.clone());
 
         let mut proposer_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             proposer_candidates,
@@ -368,7 +368,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
         )
-        .with_user_agent(lighthouse_version::VERSION.to_string());
+        .with_user_agent(config.user_agent.clone());
 
         let (genesis_time, genesis_validators_root) =
             if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {

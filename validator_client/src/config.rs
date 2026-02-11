@@ -92,6 +92,9 @@ pub struct Config {
     #[serde(flatten)]
     pub initialized_validators: InitializedValidatorsConfig,
     pub disable_attesting: bool,
+    /// User-Agent string for HTTP clients (set by the top-level binary).
+    #[serde(skip)]
+    pub user_agent: String,
 }
 
 impl Default for Config {
@@ -139,11 +142,18 @@ impl Default for Config {
             distributed: false,
             initialized_validators: <_>::default(),
             disable_attesting: false,
+            user_agent: String::new(),
         }
     }
 }
 
 impl Config {
+    pub fn with_user_agent(mut self, user_agent: String) -> Self {
+        self.initialized_validators.user_agent = user_agent.clone();
+        self.user_agent = user_agent;
+        self
+    }
+
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
     pub fn from_cli(
@@ -283,8 +293,6 @@ impl Config {
                 .initialized_validators
                 .web3_signer_max_idle_connections = Some(n);
         }
-
-        config.initialized_validators.user_agent = lighthouse_version::VERSION.to_string();
 
         /*
          * Http API server

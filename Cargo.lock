@@ -9530,7 +9530,6 @@ dependencies = [
  "hyper 1.8.1",
  "initialized_validators",
  "lighthouse_validator_store",
- "lighthouse_version",
  "metrics",
  "monitoring_api",
  "parking_lot",
