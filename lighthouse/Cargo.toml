@@ -10,7 +10,6 @@ rust-version = "1.88.0"
 # to assert properties of the compilation target.
 [package.metadata.cargo-udeps.ignore]
 normal = ["target_check"]
-development = ["cargo-husky"]
 
 [features]
 default = ["slasher-lmdb", "beacon-node-leveldb"]
@@ -85,7 +84,6 @@ malloc_utils = { workspace = true, features = [] }
 beacon_node = { workspace = true, features = ["testing"] }
 beacon_node_fallback = { workspace = true }
 beacon_processor = { workspace = true }
-cargo-husky = { workspace = true }
 eth2 = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_network = { workspace = true }
