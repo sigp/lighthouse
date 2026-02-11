@@ -99,6 +99,9 @@ pub enum BlockProcessingError {
     IncorrectExpectedWithdrawalsVariant,
     MissingLastWithdrawal,
     PendingAttestationInElectra,
+    ExecutionPayloadBidInvalid {
+        reason: ExecutionPayloadBidInvalid,
+    },
     /// Builder payment index out of bounds (Gloas)
     BuilderPaymentIndexOutOfBounds(usize),
 }
@@ -154,6 +157,12 @@ impl From<EpochCacheError> for BlockProcessingError {
 impl From<milhouse::Error> for BlockProcessingError {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)
+    }
+}
+
+impl From<ExecutionPayloadBidInvalid> for BlockProcessingError {
+    fn from(reason: ExecutionPayloadBidInvalid) -> Self {
+        Self::ExecutionPayloadBidInvalid { reason }
     }
 }
 
@@ -450,6 +459,41 @@ pub enum ExitInvalid {
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
     PendingWithdrawalInQueue(u64),
+}
+
+// TODO(gloas): remove unnecessary variants
+#[derive(Debug, PartialEq, Clone)]
+pub enum ExecutionPayloadBidInvalid {
+    /// The builder sent a 0 amount
+    BadAmount,
+    /// The signature is invalid.
+    BadSignature,
+    /// The builder's withdrawal credential is invalid
+    BadWithdrawalCredentials,
+    /// The builder is not an active validator.
+    BuilderNotActive(u64),
+    /// The builder is slashed
+    BuilderSlashed(u64),
+    /// The builder has insufficient balance to cover the bid
+    InsufficientBalance {
+        builder_index: u64,
+        builder_balance: u64,
+        bid_value: u64,
+    },
+    /// Bid slot doesn't match state slot
+    SlotMismatch { state_slot: Slot, bid_slot: Slot },
+    /// The bid's parent block hash doesn't match the state's latest block hash
+    ParentBlockHashMismatch {
+        state_block_hash: ExecutionBlockHash,
+        bid_parent_hash: ExecutionBlockHash,
+    },
+    /// The bid's parent block root doesn't match the block's parent root
+    ParentBlockRootMismatch {
+        block_parent_root: Hash256,
+        bid_parent_root: Hash256,
+    },
+    /// The bid contains more than the maximum number of kzg blob commitments.
+    ExcessBlobCommitments { max: usize, bid: usize },
 }
 
 #[derive(Debug, PartialEq, Clone)]
