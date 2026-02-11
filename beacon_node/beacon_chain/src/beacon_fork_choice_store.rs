@@ -32,7 +32,7 @@ pub enum Error {
 }
 
 pub enum ForkChoiceStoreInit<E: EthSpec> {
-    FinalizedState(BeaconSnapshot<E>),
+    FinalizedState(Box<BeaconSnapshot<E>>),
     NonFinalizedState {
         anchor_state: Box<BeaconState<E>>,
         justified_state: Box<BeaconState<E>>,
@@ -180,7 +180,7 @@ where
     ) -> Result<Self, Error> {
         match init {
             ForkChoiceStoreInit::FinalizedState(anchor) => {
-                Self::from_finalized_anchor(store, anchor)
+                Self::from_finalized_anchor(store, *anchor)
             }
             ForkChoiceStoreInit::NonFinalizedState {
                 anchor_state,

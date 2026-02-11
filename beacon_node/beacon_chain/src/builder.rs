@@ -404,7 +404,7 @@ where
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(
             store,
-            ForkChoiceStoreInit::FinalizedState(genesis.clone()),
+            ForkChoiceStoreInit::FinalizedState(Box::new(genesis.clone())),
         )
         .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
@@ -629,7 +629,7 @@ where
 
         let fork_choice_store_init = match fork_choice_store_init {
             ForkChoiceStoreInit::FinalizedState(_) => {
-                ForkChoiceStoreInit::FinalizedState(snapshot.clone())
+                ForkChoiceStoreInit::FinalizedState(Box::new(snapshot.clone()))
             }
             ForkChoiceStoreInit::NonFinalizedState {
                 justified_state,

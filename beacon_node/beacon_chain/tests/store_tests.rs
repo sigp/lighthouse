@@ -2987,11 +2987,11 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
             wss_block.clone(),
             wss_blobs_opt.clone(),
             genesis_state,
-            ForkChoiceStoreInit::FinalizedState(BeaconSnapshot {
+            ForkChoiceStoreInit::FinalizedState(Box::new(BeaconSnapshot {
                 beacon_block_root: wss_block.canonical_root(),
                 beacon_block: Arc::new(wss_block),
                 beacon_state: wss_state,
-            }),
+            })),
         )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
@@ -3193,11 +3193,11 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
                 wss_blobs_opt.clone()
             },
             genesis_state,
-            ForkChoiceStoreInit::FinalizedState(BeaconSnapshot {
+            ForkChoiceStoreInit::FinalizedState(Box::new(BeaconSnapshot {
                 beacon_block_root: wss_block.canonical_root(),
                 beacon_block: Arc::new(wss_block),
                 beacon_state: wss_state,
-            }),
+            })),
         )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())

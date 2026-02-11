@@ -374,11 +374,11 @@ where
                     anchor_block.clone(),
                     anchor_blobs,
                     genesis_state,
-                    ForkChoiceStoreInit::FinalizedState(beacon_chain::BeaconSnapshot {
+                    ForkChoiceStoreInit::FinalizedState(Box::new(beacon_chain::BeaconSnapshot {
                         beacon_block_root: anchor_block.canonical_root(),
                         beacon_block: Arc::new(anchor_block),
                         beacon_state: anchor_state,
-                    }),
+                    })),
                 )?
             }
             ClientGenesis::CheckpointSyncUrl { url, state_id } => {
@@ -431,13 +431,13 @@ where
                 // checkpoint as potentially non-finalized and load explicit justified/finalized
                 // fork-choice inputs.
                 let fork_choice_store_init = match state_id {
-                    StateId::Finalized | StateId::Genesis => {
-                        ForkChoiceStoreInit::FinalizedState(beacon_chain::BeaconSnapshot {
+                    StateId::Finalized | StateId::Genesis => ForkChoiceStoreInit::FinalizedState(
+                        Box::new(beacon_chain::BeaconSnapshot {
                             beacon_block_root: block_root,
                             beacon_block: Arc::new(block.clone()),
                             beacon_state: state.clone(),
-                        })
-                    }
+                        }),
+                    ),
                     _ => load_non_finalized_fork_choice_init(&remote, &state, &spec).await?,
                 };
 
