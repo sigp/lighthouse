@@ -475,8 +475,8 @@ pub enum ExecutionPayloadBidInvalid {
         builder_balance: u64,
         bid_value: u64,
     },
-    /// Bid slot doesn't match state slot
-    SlotMismatch { state_slot: Slot, bid_slot: Slot },
+    /// Bid slot doesn't match block slot
+    SlotMismatch { bid_slot: Slot, block_slot: Slot },
     /// The bid's parent block hash doesn't match the state's latest block hash
     ParentBlockHashMismatch {
         state_block_hash: ExecutionBlockHash,

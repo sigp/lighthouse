@@ -29,7 +29,7 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
-    /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
+    /// Attempted to find the public key of a builder that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     BuilderUnknown(BuilderIndex),
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
@@ -75,7 +75,7 @@ where
         .map(Cow::Owned)
 }
 
-/// Helper function to get a validator public key from a `state`.
+/// Helper function to get a builder public key from a `state`.
 pub fn get_builder_pubkey_from_state<E>(
     state: &BeaconState<E>,
     builder_index: BuilderIndex,

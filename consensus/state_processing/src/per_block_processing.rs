@@ -623,8 +623,8 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
     block_verify!(
         bid.slot == block.slot(),
         ExecutionPayloadBidInvalid::SlotMismatch {
-            state_slot: block.slot(),
             bid_slot: bid.slot,
+            block_slot: block.slot(),
         }
         .into()
     );
@@ -636,15 +636,6 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
         ExecutionPayloadBidInvalid::ParentBlockHashMismatch {
             state_block_hash: *latest_block_hash,
             bid_parent_hash: bid.parent_block_hash,
-        }
-        .into()
-    );
-
-    block_verify!(
-        bid.parent_block_root == block.parent_root(),
-        ExecutionPayloadBidInvalid::ParentBlockRootMismatch {
-            block_parent_root: block.parent_root(),
-            bid_parent_root: bid.parent_block_root,
         }
         .into()
     );
