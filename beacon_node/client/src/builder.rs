@@ -1028,9 +1028,9 @@ async fn load_non_finalized_fork_choice_init<E: EthSpec>(
         "Downloaded and aligned justified checkpoint state"
     );
     Ok(ForkChoiceStoreInit::NonFinalizedState {
-        anchor_state: checkpoint_state.clone(),
-        justified_state,
-        justified_block,
-        finalized_block,
+        anchor_state: Box::new(checkpoint_state.clone()),
+        justified_state: Box::new(justified_state),
+        justified_block: Box::new(justified_block),
+        finalized_block: Box::new(finalized_block),
     })
 }

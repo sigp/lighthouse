@@ -637,7 +637,7 @@ where
                 finalized_block,
                 ..
             } => ForkChoiceStoreInit::NonFinalizedState {
-                anchor_state: snapshot.beacon_state.clone(),
+                anchor_state: Box::new(snapshot.beacon_state.clone()),
                 justified_state,
                 justified_block,
                 finalized_block,

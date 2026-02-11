@@ -34,10 +34,10 @@ pub enum Error {
 pub enum ForkChoiceStoreInit<E: EthSpec> {
     FinalizedState(BeaconSnapshot<E>),
     NonFinalizedState {
-        anchor_state: BeaconState<E>,
-        justified_state: BeaconState<E>,
-        justified_block: SignedBeaconBlock<E>,
-        finalized_block: SignedBeaconBlock<E>,
+        anchor_state: Box<BeaconState<E>>,
+        justified_state: Box<BeaconState<E>>,
+        justified_block: Box<SignedBeaconBlock<E>>,
+        finalized_block: Box<SignedBeaconBlock<E>>,
     },
 }
 
@@ -189,10 +189,10 @@ where
                 finalized_block,
             } => Self::from_unfinalized_anchor(
                 store,
-                anchor_state,
-                justified_state,
-                justified_block,
-                finalized_block,
+                *anchor_state,
+                *justified_state,
+                *justified_block,
+                *finalized_block,
             ),
         }
     }
