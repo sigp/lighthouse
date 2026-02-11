@@ -621,6 +621,7 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
             );
         }
 
+        let mut num_validators_updated: u64 = 0;
         for (validator_start_slot, duty) in pre_compute_duties {
             if slot < *validator_start_slot {
                 continue;
@@ -670,10 +671,10 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                     if let Some(Some(duty)) = validators.get(&validator_index) {
                         debug!(
                             validator_index,
-                            "slot" = %proof_slot,
-                            "subcommittee_index" = *subnet_id,
+                            slot = %proof_slot,
+                            subcommittee_index = *subnet_id,
                             // log full selection proof for debugging
-                            "full selection proof" = ?proof,
+                            selection_proof = ?proof,
                             "Validator is sync aggregator"
                         );
 
@@ -701,5 +702,11 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                 }
             }
         }
+
+        debug!(
+            %slot,
+            updated_validators = num_validators_updated,
+            "Finished computing sync selection proofs"
+        );
     }
 }
