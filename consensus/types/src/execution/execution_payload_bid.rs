@@ -1,5 +1,6 @@
+use crate::kzg_ext::KzgCommitments;
 use crate::test_utils::TestRandom;
-use crate::{Address, ExecutionBlockHash, ForkName, Hash256, SignedRoot, Slot};
+use crate::{Address, EthSpec, ExecutionBlockHash, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
@@ -10,11 +11,16 @@ use tree_hash_derive::TreeHash;
 #[derive(
     Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe, TestRandom,
 )]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
 #[educe(PartialEq, Hash)]
+#[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/beacon-chain.md#executionpayloadbid
-pub struct ExecutionPayloadBid {
+pub struct ExecutionPayloadBid<E: EthSpec> {
     pub parent_block_hash: ExecutionBlockHash,
     pub parent_block_root: Hash256,
     pub block_hash: ExecutionBlockHash,
@@ -30,14 +36,15 @@ pub struct ExecutionPayloadBid {
     pub value: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub execution_payment: u64,
-    pub blob_kzg_commitments_root: Hash256,
+    pub blob_kzg_commitments: KzgCommitments<E>,
 }
 
-impl SignedRoot for ExecutionPayloadBid {}
+impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MainnetEthSpec;
 
-    ssz_and_tree_hash_tests!(ExecutionPayloadBid);
+    ssz_and_tree_hash_tests!(ExecutionPayloadBid<MainnetEthSpec>);
 }

@@ -343,6 +343,12 @@ vendor:
 udeps:
 	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release --features "$(TEST_FEATURES)"
 
+# Checks Cargo.toml files for unencrypted HTTP links
+insecure-deps:
+	@ BAD_LINKS=$$(find . -name Cargo.toml | xargs grep -n "http://" || true); \
+	if [ -z "$$BAD_LINKS" ]; then echo "No insecure HTTP links found"; \
+	else echo "$$BAD_LINKS"; echo "Using plain HTTP in Cargo.toml files is forbidden"; exit 1; fi
+
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
 	cargo clean

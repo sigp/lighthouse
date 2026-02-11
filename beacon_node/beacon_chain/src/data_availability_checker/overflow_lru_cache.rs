@@ -1,7 +1,5 @@
 use super::AvailableBlockData;
-use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
 use crate::CustodyContext;
-use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
@@ -23,10 +21,9 @@ use types::{
     DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
 };
 
-#[derive(Clone)]
 pub enum CachedBlock<E: EthSpec> {
     PreExecution(Arc<SignedBeaconBlock<E>>, BlockImportSource),
-    Executed(Box<DietAvailabilityPendingExecutedBlock<E>>),
+    Executed(Box<AvailabilityPendingExecutedBlock<E>>),
 }
 
 impl<E: EthSpec> CachedBlock<E> {
@@ -43,7 +40,7 @@ impl<E: EthSpec> CachedBlock<E> {
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match self {
             CachedBlock::PreExecution(b, _) => b,
-            CachedBlock::Executed(b) => b.as_block(),
+            CachedBlock::Executed(b) => b.block.as_ref(),
         }
     }
 
@@ -84,14 +81,6 @@ impl<E: EthSpec> PendingComponents<E> {
         &self.verified_blobs
     }
 
-    #[cfg(test)]
-    fn get_diet_block(&self) -> Option<&DietAvailabilityPendingExecutedBlock<E>> {
-        self.block.as_ref().and_then(|block| match block {
-            CachedBlock::Executed(block) => Some(block.as_ref()),
-            _ => None,
-        })
-    }
-
     /// Returns an immutable reference to the cached data column.
     pub fn get_cached_data_column(
         &self,
@@ -129,7 +118,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Inserts an executed block into the cache.
-    pub fn insert_executed_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
+    pub fn insert_executed_block(&mut self, block: AvailabilityPendingExecutedBlock<E>) {
         self.block = Some(CachedBlock::Executed(Box::new(block)))
     }
 
@@ -201,7 +190,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Inserts a new block and revalidates the existing blobs against it.
     ///
     /// Blobs that don't match the new block's commitments are evicted.
-    pub fn merge_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
+    pub fn merge_block(&mut self, block: AvailabilityPendingExecutedBlock<E>) {
         self.insert_executed_block(block);
         let reinsert = self.get_cached_blobs_mut().take();
         self.merge_blobs(reinsert);
@@ -209,21 +198,11 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns Some if the block has received all its required data for import. The return value
     /// must be persisted in the DB along with the block.
-    ///
-    /// WARNING: This function can potentially take a lot of time if the state needs to be
-    /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(
+    pub fn make_available(
         &self,
         spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
-        recover: R,
-    ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
-    where
-        R: FnOnce(
-            DietAvailabilityPendingExecutedBlock<E>,
-            &Span,
-        ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
-    {
+    ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError> {
         let Some(CachedBlock::Executed(block)) = &self.block else {
             // Block not available yet
             return Ok(None);
@@ -266,7 +245,7 @@ impl<E: EthSpec> PendingComponents<E> {
                     )));
                 }
                 Ordering::Equal => {
-                    let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
+                    let max_blobs = spec.max_blobs_per_block(block.block.epoch()) as usize;
                     let blobs_vec = self
                         .verified_blobs
                         .iter()
@@ -311,11 +290,11 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             import_data,
             payload_verification_outcome,
-        } = recover(*block.clone(), &self.span)?;
+        } = block.as_ref();
 
         let available_block = AvailableBlock {
             block_root: self.block_root,
-            block,
+            block: block.clone(),
             blob_data,
             blobs_available_timestamp,
             spec: spec.clone(),
@@ -326,8 +305,8 @@ impl<E: EthSpec> PendingComponents<E> {
         });
         Ok(Some(AvailableExecutedBlock::new(
             available_block,
-            import_data,
-            payload_verification_outcome,
+            import_data.clone(),
+            payload_verification_outcome.clone(),
         )))
     }
 
@@ -399,9 +378,6 @@ impl<E: EthSpec> PendingComponents<E> {
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     critical: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
-    /// This cache holds a limited number of states in memory and reconstructs them
-    /// from disk when necessary. This is necessary until we merge tree-states
-    state_cache: StateLRUCache<T>,
     custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
 }
@@ -418,13 +394,11 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
-        beacon_store: BeaconStore<T>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
-            state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             custody_context,
             spec,
         })
@@ -441,7 +415,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                         BlockProcessStatus::NotValidated(b.clone(), *source)
                     }
                     CachedBlock::Executed(b) => {
-                        BlockProcessStatus::ExecutionValidated(b.block_cloned())
+                        BlockProcessStatus::ExecutionValidated(b.block.clone())
                     }
                 })
             })
@@ -580,11 +554,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        if let Some(available_block) = pending_components.make_available(
-            &self.spec,
-            num_expected_columns_opt,
-            |block, span| self.state_cache.recover_pending_executed_block(block, span),
-        )? {
+        if let Some(available_block) =
+            pending_components.make_available(&self.spec, num_expected_columns_opt)?
+        {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
             if let Some(components) = self.critical.write().get_mut(&block_root) {
@@ -739,14 +711,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let epoch = executed_block.as_block().epoch();
         let block_root = executed_block.import_data.block_root;
 
-        // register the block to get the diet block
-        let diet_executed_block = self
-            .state_cache
-            .register_pending_executed_block(executed_block);
-
         let pending_components =
             self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
-                pending_components.merge_block(diet_executed_block);
+                pending_components.merge_block(executed_block);
                 Ok(())
             })?;
 
@@ -780,9 +747,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     /// maintain the cache
     pub fn do_maintenance(&self, cutoff_epoch: Epoch) -> Result<(), AvailabilityCheckError> {
-        // clean up any lingering states in the state cache
-        self.state_cache.do_maintenance(cutoff_epoch);
-
         // Collect keys of pending blocks from a previous epoch to cutoff
         let mut write_lock = self.critical.write();
         let mut keys_to_remove = vec![];
@@ -801,17 +765,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         Ok(())
     }
 
-    #[cfg(test)]
-    /// get the state cache for inspection (used only for tests)
-    pub fn state_lru_cache(&self) -> &StateLRUCache<T> {
-        &self.state_cache
-    }
-
-    /// Number of states stored in memory in the cache.
-    pub fn state_cache_size(&self) -> usize {
-        self.state_cache.lru_cache().read().len()
-    }
-
     /// Number of pending component entries in memory in the cache.
     pub fn block_cache_size(&self) -> usize {
         self.critical.read().len()
@@ -828,21 +781,18 @@ mod test {
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         custody_context::NodeCustodyType,
-        data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
-    use std::collections::VecDeque;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
-    use tracing::{debug_span, info};
+    use tracing::info;
     use types::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
-    const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
@@ -1021,7 +971,6 @@ mod test {
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
-        let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
@@ -1031,7 +980,6 @@ mod test {
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(
                 capacity_non_zero,
-                test_store,
                 custody_context,
                 spec.clone(),
             )
@@ -1137,121 +1085,6 @@ mod test {
             "cache should still have available block"
         );
     }
-
-    #[tokio::test]
-    // ensure the state cache keeps memory usage low and that it can properly recover states
-    // THIS TEST CAN BE DELETED ONCE TREE STATES IS MERGED AND WE RIP OUT THE STATE CACHE
-    async fn overflow_cache_test_state_cache() {
-        type E = MinimalEthSpec;
-        type T = DiskHarnessType<E>;
-        let capacity = STATE_LRU_CAPACITY * 2;
-        let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
-
-        let mut pending_blocks = VecDeque::new();
-        let mut states = Vec::new();
-        let mut state_roots = Vec::new();
-        // Get enough blocks to fill the cache to capacity, ensuring all blocks have blobs
-        while pending_blocks.len() < capacity {
-            let (mut pending_block, _) = availability_pending_block(&harness).await;
-            if pending_block.num_blobs_expected() == 0 {
-                // we need blocks with blobs
-                continue;
-            }
-            let state_root = pending_block.import_data.state.canonical_root().unwrap();
-            states.push(pending_block.import_data.state.clone());
-            pending_blocks.push_back(pending_block);
-            state_roots.push(state_root);
-        }
-
-        let state_cache = cache.state_lru_cache().lru_cache();
-        let mut pushed_diet_blocks = VecDeque::new();
-
-        for i in 0..capacity {
-            let pending_block = pending_blocks.pop_front().expect("should have block");
-            let block_root = pending_block.as_block().canonical_root();
-
-            assert_eq!(
-                state_cache.read().len(),
-                std::cmp::min(i, STATE_LRU_CAPACITY),
-                "state cache should be empty at start"
-            );
-
-            if i >= STATE_LRU_CAPACITY {
-                let lru_root = state_roots[i - STATE_LRU_CAPACITY];
-                assert_eq!(
-                    state_cache.read().peek_lru().map(|(root, _)| root),
-                    Some(&lru_root),
-                    "lru block should be in cache"
-                );
-            }
-
-            // put the block in the cache
-            let availability = cache
-                .put_executed_block(pending_block)
-                .expect("should put block");
-
-            // grab the diet block from the cache for later testing
-            let diet_block = cache
-                .critical
-                .read()
-                .peek(&block_root)
-                .and_then(|pending_components| pending_components.get_diet_block().cloned())
-                .expect("should exist");
-            pushed_diet_blocks.push_back(diet_block);
-
-            // should be unavailable since we made sure all blocks had blobs
-            assert!(
-                matches!(availability, Availability::MissingComponents(_)),
-                "should be pending blobs"
-            );
-
-            if i >= STATE_LRU_CAPACITY {
-                let evicted_index = i - STATE_LRU_CAPACITY;
-                let evicted_root = state_roots[evicted_index];
-                assert!(
-                    state_cache.read().peek(&evicted_root).is_none(),
-                    "lru root should be evicted"
-                );
-                // get the diet block via direct conversion (testing only)
-                let diet_block = pushed_diet_blocks.pop_front().expect("should have block");
-                // reconstruct the pending block by replaying the block on the parent state
-                let recovered_pending_block = cache
-                    .state_lru_cache()
-                    .recover_pending_executed_block(diet_block, &debug_span!("test"))
-                    .expect("should reconstruct pending block");
-
-                // assert the recovered state is the same as the original
-                assert_eq!(
-                    recovered_pending_block.import_data.state, states[evicted_index],
-                    "recovered state should be the same as the original"
-                );
-            }
-        }
-
-        // now check the last block
-        let last_block = pushed_diet_blocks.pop_back().expect("should exist").clone();
-        // the state should still be in the cache
-        assert!(
-            state_cache
-                .read()
-                .peek(&last_block.as_block().state_root())
-                .is_some(),
-            "last block state should still be in cache"
-        );
-        // get the diet block via direct conversion (testing only)
-        let diet_block = last_block.clone();
-        // recover the pending block from the cache
-        let recovered_pending_block = cache
-            .state_lru_cache()
-            .recover_pending_executed_block(diet_block, &debug_span!("test"))
-            .expect("should reconstruct pending block");
-        // assert the recovered state is the same as the original
-        assert_eq!(
-            Some(&recovered_pending_block.import_data.state),
-            states.last(),
-            "recovered state should be the same as the original"
-        );
-    }
 }
 
 #[cfg(test)]
@@ -1307,7 +1140,7 @@ mod pending_components_tests {
     }
 
     type PendingComponentsSetup<E> = (
-        DietAvailabilityPendingExecutedBlock<E>,
+        AvailabilityPendingExecutedBlock<E>,
         RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
         RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
     );
@@ -1351,7 +1184,7 @@ mod pending_components_tests {
                 is_valid_merge_transition_block: false,
             },
         };
-        (block.into(), blobs, invalid_blobs)
+        (block, blobs, invalid_blobs)
     }
 
     pub fn assert_cache_consistent(cache: PendingComponents<E>, max_len: usize) {

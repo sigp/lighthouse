@@ -1296,6 +1296,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_blinded_block(block_root)?)
     }
 
+    pub fn get_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {
+        Ok(self.store.get_payload_envelope(block_root)?)
+    }
+
     /// Return the status of a block as it progresses through the various caches of the beacon
     /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
     /// processing attempts.
@@ -4687,7 +4694,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let proposing_on_time = slot_delay < self.config.re_org_cutoff(self.spec.seconds_per_slot);
+        let proposing_on_time =
+            slot_delay < self.config.re_org_cutoff(self.spec.get_slot_duration());
         if !proposing_on_time {
             debug!(reason = "not proposing on time", "Not attempting re-org");
             return None;
@@ -4881,7 +4889,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
         if head_state.current_epoch() == proposal_epoch {
             return get_expected_withdrawals(&unadvanced_state, &self.spec)
-                .map(|(withdrawals, _)| withdrawals)
+                .map(Into::into)
                 .map_err(Error::PrepareProposerFailed);
         }
 
@@ -4899,7 +4907,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         )?;
         get_expected_withdrawals(&advanced_state, &self.spec)
-            .map(|(withdrawals, _)| withdrawals)
+            .map(Into::into)
             .map_err(Error::PrepareProposerFailed)
     }
 
@@ -4977,7 +4985,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .and_then(|slot_start| {
                     let now = self.slot_clock.now_duration()?;
                     let slot_delay = now.saturating_sub(slot_start);
-                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.seconds_per_slot))
+                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.get_slot_duration()))
                 })
                 .unwrap_or(false)
         } else {
@@ -5094,7 +5102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         block_delays
             .observed
-            .is_some_and(|delay| delay >= self.slot_clock.unagg_attestation_production_delay())
+            .is_some_and(|delay| delay >= self.spec.get_unaggregated_attestation_due())
     }
 
     /// Produce a block for some `slot` upon the given `state`.

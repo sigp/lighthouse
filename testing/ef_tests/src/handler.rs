@@ -333,6 +333,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
 
+    pub fn gloas_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[7..].to_vec())
+    }
+
     pub fn pre_electra() -> Self {
         Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
@@ -397,10 +401,7 @@ where
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // TODO(gloas): DataColumnSidecar tests are disabled until we update the DataColumnSidecar
-        // type.
         self.supported_forks.contains(&fork_name)
-            && !(fork_name == ForkName::Gloas && T::name() == "DataColumnSidecar")
     }
 }
 
@@ -420,6 +421,11 @@ where
 
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
     }
 }
 
@@ -441,6 +447,11 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -1116,6 +1127,28 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
 
     fn handler_name(&self) -> String {
         O::handler_name()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): Can be removed once we enable Gloas on all tests
+        vec![]
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        Self::Case::is_enabled_for_fork(fork_name)
+            && (!fork_name.gloas_enabled()
+                || self.handler_name() == "attestation"
+                || self.handler_name() == "attester_slashing"
+                || self.handler_name() == "bls_to_execution_change"
+                || self.handler_name() == "consolidation_request"
+                || self.handler_name() == "deposit_request"
+                || self.handler_name() == "deposit"
+                || self.handler_name() == "execution_payload"
+                || self.handler_name() == "proposer_slashing"
+                || self.handler_name() == "sync_aggregate"
+                || self.handler_name() == "withdrawal_request"
+                || self.handler_name() == "withdrawals"
+                || self.handler_name() == "voluntary_exit")
     }
 }
 
