@@ -44,7 +44,7 @@ fn get_harness_with_spec(
     spec: &ChainSpec,
 ) -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..Default::default()
     };
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
