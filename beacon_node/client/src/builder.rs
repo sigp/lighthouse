@@ -390,7 +390,7 @@ where
                         config.chain.checkpoint_sync_url_timeout,
                     )),
                 )
-                .with_user_agent(lighthouse_version::VERSION);
+                .with_user_agent(&config.user_agent);
 
                 debug!("Downloading finalized state");
                 let state = remote

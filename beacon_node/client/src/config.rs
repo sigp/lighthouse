@@ -79,6 +79,9 @@ pub struct Config {
     pub genesis_state_url: Option<String>,
     pub genesis_state_url_timeout: Duration,
     pub allow_insecure_genesis_sync: bool,
+    /// User-Agent string for HTTP clients (set by the top-level binary).
+    #[serde(skip)]
+    pub user_agent: String,
 }
 
 impl Default for Config {
@@ -107,11 +110,17 @@ impl Default for Config {
             // This default value should always be overwritten by the CLI default value.
             genesis_state_url_timeout: Duration::from_secs(60),
             allow_insecure_genesis_sync: false,
+            user_agent: String::new(),
         }
     }
 }
 
 impl Config {
+    pub fn with_user_agent(mut self, user_agent: String) -> Self {
+        self.user_agent = user_agent;
+        self
+    }
+
     /// Updates the data directory for the Client.
     pub fn set_data_dir(&mut self, data_dir: PathBuf) {
         self.data_dir.clone_from(&data_dir);

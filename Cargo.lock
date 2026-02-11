@@ -1908,7 +1908,6 @@ dependencies = [
  "http_metrics",
  "kzg",
  "lighthouse_network",
- "lighthouse_version",
  "logging",
  "metrics",
  "monitoring_api",
