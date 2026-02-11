@@ -397,7 +397,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         awaiting_head_peers: &mut AwaitingHeadPeers,
     ) {
         let local_finalized_slot = local_info
-            .finalized_epoch
+            .local_irreversible_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
         let beacon_chain = &self.beacon_chain;
