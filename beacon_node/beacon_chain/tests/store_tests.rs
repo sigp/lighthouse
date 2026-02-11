@@ -117,6 +117,7 @@ fn get_harness_import_all_data_columns(
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
     let chain_config = ChainConfig {
+        ignore_ws_check: true,
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };

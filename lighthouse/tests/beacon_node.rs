@@ -296,6 +296,21 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
+fn ignore_ws_check_enabled() {
+    CommandLineTest::new()
+        .flag("ignore-ws-check", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.ignore_ws_check));
+}
+
+#[test]
+fn ignore_ws_check_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.ignore_ws_check));
+}
+
+#[test]
 fn reset_payload_statuses_default() {
     CommandLineTest::new()
         .run_with_zero_port()
