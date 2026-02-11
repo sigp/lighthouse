@@ -1249,7 +1249,9 @@ pub fn cli_app() -> Command {
             Arg::new("archive")
                 .long("archive")
                 .alias("reconstruct-historic-states")
-                .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
+                .help("Store all beacon states in the database. When checkpoint syncing, \
+                    states are reconstructed after backfill completes. This requires \
+                    syncing all the way back to genesis.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)

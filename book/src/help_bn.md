@@ -440,8 +440,9 @@ Flags:
           set a fee recipient on this BN and also consider adjusting the
           --prepare-payload-lookahead flag.
       --archive
-          After a checkpoint sync, reconstruct historic states in the database.
-          This requires syncing all the way back to genesis.
+          Store all beacon states in the database. When checkpoint syncing,
+          states are reconstructed after backfill completes. This requires
+          syncing all the way back to genesis.
       --builder-fallback-disable-checks
           This flag disables all checks related to chain health. This means the
           builder API will always be used for payload construction, regardless
