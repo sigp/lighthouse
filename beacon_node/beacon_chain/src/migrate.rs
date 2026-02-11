@@ -158,6 +158,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         &self,
         finalized_state_root: BeaconStateHash,
         finalized_checkpoint: Checkpoint,
+        force_foreground: bool,
     ) -> Result<(), BeaconChainError> {
         let notif = FinalizationNotification {
             finalized_state_root,
@@ -165,11 +166,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             prev_migration: self.prev_migration.clone(),
         };
 
-        // Send to background thread if configured, otherwise run in foreground.
-        if let Some(Notification::Finalization(notif)) =
+        // Force foreground mode for call-sites that require success/failure semantics.
+        if force_foreground {
+            Self::run_migration(self.db.clone(), notif)?;
+        } else if let Some(Notification::Finalization(notif)) =
             self.send_background_notification(Notification::Finalization(notif))
         {
-            Self::run_migration(self.db.clone(), notif);
+            if let Err(e) = Self::run_migration(self.db.clone(), notif) {
+                warn!(error = ?e, "Database migration failed");
+            }
         }
 
         Ok(())
@@ -273,7 +278,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     /// Perform the actual work of `process_finalization`.
-    fn run_migration(db: Arc<HotColdDB<E, Hot, Cold>>, notif: FinalizationNotification) {
+    fn run_migration(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        notif: FinalizationNotification,
+    ) -> Result<(), BeaconChainError> {
         // Do not run too frequently.
         let epoch = notif.finalized_checkpoint.epoch;
         let mut prev_migration = notif.prev_migration.lock();
@@ -284,7 +292,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 epochs_per_migration = prev_migration.epochs_per_migration,
                 "Database consolidation deferred"
             );
-            return;
+            return Ok(());
         }
 
         // Update the previous migration epoch immediately to avoid holding the lock. If the
@@ -301,14 +309,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         // The enshrined finalized state should be in the state cache.
         let finalized_state = match db.get_state(&finalized_state_root.into(), None, true) {
             Ok(Some(state)) => state,
-            other => {
-                error!(
-                    state_root = ?finalized_state_root,
-                    error = ?other,
-                    "Migrator failed to load state"
-                );
-                return;
+            Ok(None) => {
+                return Err(BeaconChainError::MissingBeaconState(
+                    finalized_state_root.into(),
+                ));
             }
+            Err(e) => return Err(BeaconChainError::DBError(e)),
         };
 
         let split_prior_to_migration = match migrate_database(
@@ -330,8 +336,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 db.get_split_info()
             }
             Err(e) => {
-                warn!(error = ?e, "Database migration failed");
-                return;
+                return Err(BeaconChainError::DBError(e));
             }
         };
 
@@ -346,31 +351,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 old_finalized_checkpoint_epoch,
             }) => old_finalized_checkpoint_epoch,
             Ok(PruningOutcome::DeferredConcurrentHeadTrackerMutation) => {
-                warn!(
-                    message = "this is expected only very rarely!",
-                    "Pruning deferred because of a concurrent mutation"
-                );
-                return;
+                return Err(BeaconChainError::DBInconsistent(
+                    "Pruning deferred due to concurrent head tracker mutation".to_string(),
+                ));
             }
             Ok(PruningOutcome::OutOfOrderFinalization {
                 old_finalized_checkpoint,
                 new_finalized_checkpoint,
             }) => {
-                warn!(
-                    old_finalized_epoch = %old_finalized_checkpoint.epoch,
-                    new_finalized_epoch = %new_finalized_checkpoint.epoch,
-                    message = "this is expected occasionally due to a (harmless) race condition",
-                    "Ignoring out of order finalization request"
-                );
-                return;
+                return Err(BeaconChainError::PruningError(
+                    PruningError::FinalizedStateOutOfOrder {
+                        old_finalized_checkpoint,
+                        new_finalized_checkpoint,
+                    },
+                ));
             }
-            Err(e) => {
-                warn!(
-                    error = ?e,
-                    "Hot DB pruning failed"
-                );
-                return;
-            }
+            Err(e) => return Err(e),
         };
 
         // Finally, compact the database so that new free space is properly reclaimed.
@@ -379,10 +375,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             old_finalized_checkpoint_epoch,
             notif.finalized_checkpoint.epoch,
         ) {
-            warn!(error = ?e, "Database compaction failed");
+            return Err(BeaconChainError::DBError(e));
         }
 
         debug!("Database consolidation complete");
+        Ok(())
     }
 
     fn run_manual_compaction(db: Arc<HotColdDB<E, Hot, Cold>>) {
@@ -439,7 +436,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // This prevents finalization from being starved while reconstruciton runs (a
                 // problem in previous LH versions).
                 if let Some(fin) = finalization_notif {
-                    Self::run_migration(db.clone(), fin);
+                    if let Err(e) = Self::run_migration(db.clone(), fin) {
+                        warn!(error = ?e, "Database migration failed");
+                    }
                 }
                 if let Some(dab) = prune_blobs_notif {
                     Self::run_prune_blobs(db.clone(), dab);

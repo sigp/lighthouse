@@ -531,7 +531,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .spawn_blocking_handle(
                 move || {
                     let _guard = span.enter();
-                    chain.recompute_head_at_slot_internal(current_slot)
+                    chain.recompute_head_at_slot_internal(current_slot, false)
                 },
                 "recompute_head_internal",
             )
@@ -574,6 +574,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Execute fork choice and update the canonical head, returning any error.
+    ///
+    /// Unlike `Self::recompute_head_at_slot`, this method propagates post-update errors (e.g.
+    /// finalization side-effects) to the caller.
+    pub async fn recompute_head_at_slot_strict(
+        self: &Arc<Self>,
+        current_slot: Slot,
+    ) -> Result<(), Error> {
+        let span = info_span!(
+            "lh_recompute_head_at_slot",
+            slot = %current_slot
+        );
+
+        metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
+
+        let chain = self.clone();
+        let opt_el_update = self
+            .spawn_blocking_handle(
+                move || {
+                    let _guard = span.enter();
+                    chain.recompute_head_at_slot_internal(current_slot, true)
+                },
+                "recompute_head_internal",
+            )
+            .await??;
+
+        if let Some(join_handle) = opt_el_update {
+            match join_handle.await {
+                Ok(Some(())) => Ok(()),
+                Ok(None) => Err(Error::RuntimeShutdown),
+                Err(e) => Err(Error::TokioJoin(e)),
+            }
+        } else {
+            Ok(())
+        }
+    }
+
     /// A non-async (blocking) function which recomputes the canonical head and spawns async tasks.
     ///
     /// This function performs long-running, heavy-lifting tasks which should not be performed on
@@ -581,6 +619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn recompute_head_at_slot_internal(
         self: &Arc<Self>,
         current_slot: Slot,
+        strict_finalization_errors: bool,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
         let recompute_head_lock = self.canonical_head.recompute_head_lock.lock();
 
@@ -773,8 +812,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
         // is a dead-lock risk to hold any other lock on fork choice at this point.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint
-            && let Err(e) = self.after_finalization(&new_cached_head, new_view)
+            && let Err(e) =
+                self.after_finalization(&new_cached_head, new_view, strict_finalization_errors)
         {
+            if strict_finalization_errors {
+                return Err(e);
+            }
             crit!(
                 error = ?e,
                 "Error updating finalization"
@@ -905,6 +948,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         new_cached_head: &CachedHead<T::EthSpec>,
         new_view: ForkChoiceView,
+        force_foreground_migration: bool,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_FINALIZATION_TIMES);
         let new_snapshot = &new_cached_head.snapshot;
@@ -1014,6 +1058,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store_migrator.process_finalization(
             new_local_finalized_state_root.into(),
             new_local_finalized_checkpoint,
+            force_foreground_migration,
         )?;
 
         // Prune blobs in the background.
@@ -1049,7 +1094,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Allow to set an irreversible checkpoint that is not an ancestor of the current head. If
         // that happens the current head will become non-viable. Re-compute head in case the
         // current head is not a descendant of the irreversible checkpoint.
-        self.recompute_head_at_slot(self.slot()?).await;
+        self.recompute_head_at_slot_strict(self.slot()?).await?;
         Ok(())
     }
 
