@@ -113,7 +113,12 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
-            notify_new_payload(&self.chain, self.block.message().tree_hash_root(), self.block.message().try_into()?).await
+            notify_new_payload(
+                &self.chain,
+                self.block.message().tree_hash_root(),
+                self.block.message().try_into()?,
+            )
+            .await
         }
     }
 }
@@ -138,7 +143,9 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
-    let new_payload_response = execution_layer.notify_new_payload(new_payload_request.clone()).await;
+    let new_payload_response = execution_layer
+        .notify_new_payload(new_payload_request.clone())
+        .await;
 
     match new_payload_response {
         Ok(status) => match status {

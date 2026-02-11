@@ -277,7 +277,6 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
     Ok(())
 }
 
-
 /// Performs *partial* verification of the `payload envelope`.
 pub fn partially_verify_payload_envelope<E: EthSpec>(
     state: &BeaconState<E>,
@@ -286,7 +285,7 @@ pub fn partially_verify_payload_envelope<E: EthSpec>(
 ) -> Result<(), EnvelopeProcessingError> {
     let envelope = &signed_envelope.message;
     let payload = &signed_envelope.message.payload;
-   
+
     // Verify consistency with the beacon block
     let latest_block_header_root = state.latest_block_header().tree_hash_root();
     envelope_verify!(

@@ -4,7 +4,8 @@ use crate::versioned_hashes::verify_versioned_hashes;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use superstruct::superstruct;
 use types::{
-    BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadEnvelope, ExecutionPayloadRef, Hash256, VersionedHash
+    BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadEnvelope, ExecutionPayloadRef, Hash256, VersionedHash,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,

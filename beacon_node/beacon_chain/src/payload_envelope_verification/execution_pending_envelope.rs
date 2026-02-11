@@ -1,8 +1,10 @@
 use task_executor::JoinHandle;
 use types::{EthSpec, FullPayload};
 
-use crate::{BeaconChainTypes, PayloadVerificationOutcome, payload_envelope_verification::PayloadEnvelopeImportData};
-
+use crate::{
+    BeaconChainTypes, PayloadVerificationOutcome,
+    payload_envelope_verification::{MaybeAvailableEnvelope, PayloadEnvelopeImportData},
+};
 
 /// Used to await the result of executing payload with an EE.
 pub type PayloadVerificationHandle<E: EthSpec> =
@@ -20,7 +22,7 @@ pub type PayloadVerificationHandle<E: EthSpec> =
 /// due to finality or some other event. A `ExecutionPendingEnvelope` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
 pub struct ExecutionPendingEnvelope<T: BeaconChainTypes> {
-    pub block: MaybeAvailableBlock<T::EthSpec>,
+    pub block: MaybeAvailableEnvelope<T::EthSpec>,
     pub import_data: PayloadEnvelopeImportData<T::EthSpec>,
-    pub payload_verification_handle: PayloadVerificationHandle<E>,
+    pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }

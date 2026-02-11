@@ -1,12 +1,19 @@
 use std::sync::Arc;
 
 use educe::Educe;
+use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::process_execution_payload_envelope};
 use tracing::debug;
-use types::{EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
+use types::{EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope, consts::gloas::BUILDER_INDEX_SELF_BUILD};
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer, PayloadVerificationOutcome, payload_envelope_verification::{EnvelopeError, EnvelopeImportData, EnvelopeProcessingSnapshot, ExecutionPendingEnvelope, IntoExecutionPendingEnvelope, MaybeAvailableEnvelope, load_snapshot, payload_notifier::PayloadNotifier}
+    BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
+    PayloadVerificationOutcome,
+    payload_envelope_verification::{
+        EnvelopeError, EnvelopeImportData, EnvelopeProcessingSnapshot, ExecutionPendingEnvelope,
+        IntoExecutionPendingEnvelope, MaybeAvailableEnvelope, load_snapshot,
+        payload_notifier::PayloadNotifier,
+    },
 };
 
 /// A wrapper around a `SignedExecutionPayloadEnvelope` that indicates it has been approved for re-gossiping on
@@ -29,7 +36,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let beacon_block_root = envelope.beacon_block_root;
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
-        // TODO(EIP-7732): We need a block status table in order to differentiate between:
+        // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
         //
         // 1. Blocks we haven't seen (IGNORE), and
         // 2. Blocks we've seen that are invalid (REJECT).
@@ -41,14 +48,16 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 block_root: beacon_block_root,
             });
         };
+
+        let latest_finalized_slot = fork_choice_read_lock
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+
         drop(fork_choice_read_lock);
 
         // TODO(EIP-7732): check that we haven't seen another valid `SignedExecutionPayloadEnvelope`
         //                 for this block root from this builder - envelope status table check
-
-        // TODO(EIP-7732): this could be obtained from the ProtoBlock instead of the DB
-        //                 but this means the ProtoBlock needs to include something like the ExecutionBid
-        //                 will need to answer this question later.
         let block = chain
             .get_full_block(&beacon_block_root)?
             .ok_or_else(|| {
@@ -61,11 +70,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .signed_execution_payload_bid()?
             .message;
 
-        // TODO(EIP-7732): Gossip rules for the beacon block contain the following:
-        // https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/p2p-interface.md#beacon_block
-        // [IGNORE] The block is not from a future slot (with a MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance)
-        // [IGNORE] The block is from a slot greater than the latest finalized slot
-        // should these kinds of checks be included for envelopes as well?
+        // check that the envelopes slot isnt from a slot prior 
+        // to the latest finalized slot.
+        if envelope.slot < latest_finalized_slot {
+            return Err(EnvelopeError::PriorToFinalization {
+                payload_slot: envelope.slot,
+                latest_finalized_slot,
+            });
+        }
 
         // check that the slot of the envelope matches the slot of the parent block
         if envelope.slot != block.slot() {
@@ -119,17 +131,22 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         )?;
         let fork = proposer.fork;
 
-        // True builder index accounting for self-building.
-        let proposer_index = block.message().proposer_index();
         let builder_index = envelope.builder_index;
+        let index = if builder_index == BUILDER_INDEX_SELF_BUILD {
+             block.message().proposer_index()
+        } else {
+            builder_index
+        };
 
         let signature_is_valid = {
+            // TODO(gloas) the builder pubkey wont be in the validator pubkey cache
+            // this will currently only work for local block building.
             let pubkey_cache = chain.validator_pubkey_cache.read();
-            let builder_pubkey = pubkey_cache
-                .get(builder_index as usize)
-                .ok_or_else(|| EnvelopeError::UnknownValidator { builder_index })?;
+            let pubkey = pubkey_cache
+                .get(index as usize)
+                .ok_or_else(|| EnvelopeError::UnknownValidator { builder_index: index })?;
             signed_envelope.verify_signature(
-                builder_pubkey,
+                pubkey,
                 &fork,
                 chain.genesis_validators_root,
                 &chain.spec,
@@ -161,9 +178,17 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         let signed_envelope = self.signed_envelope;
         let envelope = &signed_envelope.message;
         let payload = &envelope.payload;
-        
+
         // TODO(gloas) unwrap
-        let bid = chain.get_full_block(&envelope.beacon_block_root).unwrap().unwrap().message().body().signed_execution_payload_bid().unwrap().message;
+        let bid = chain
+            .get_full_block(&envelope.beacon_block_root)
+            .unwrap()
+            .unwrap()
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message;
 
         // Verify the execution payload is valid
         let payload_notifier =

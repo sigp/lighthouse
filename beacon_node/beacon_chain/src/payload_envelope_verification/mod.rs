@@ -17,6 +17,9 @@
 //!              |---------------
 //!              |
 //!              ▼
+//!  SignatureVerifiedEnvelope
+//!              |
+//!              ▼
 //!  ExecutionPendingEnvelope
 //!              |
 //!            await
@@ -28,15 +31,25 @@
 
 use std::sync::Arc;
 
-use state_processing::{BlockProcessingError, ConsensusContext, envelope_processing::EnvelopeProcessingError};
+use state_processing::{
+    BlockProcessingError, ConsensusContext, envelope_processing::EnvelopeProcessingError,
+};
 use tracing::instrument;
-use types::{BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot};
+use types::{
+    BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
+    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+};
 
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer, block_verification::PayloadVerificationHandle, payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope};
+use crate::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
+    block_verification::PayloadVerificationHandle,
+    payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope,
+};
 
 pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 mod payload_notifier;
+mod signature_verified_envelope;
 
 pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
     fn into_execution_pending_envelope(
@@ -114,6 +127,12 @@ pub enum EnvelopeError {
     BlockHashMismatch {
         committed_bid: ExecutionBlockHash,
         envelope: ExecutionBlockHash,
+    },
+    // The slot belongs to a block that is from a slot prior than
+    // the most recently finalized slot
+    PriorToFinalization {
+        payload_slot: Slot,
+        latest_finalized_slot: Slot,
     },
     // Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
