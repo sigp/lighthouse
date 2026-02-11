@@ -2490,7 +2490,7 @@ where
             return RpcBlock::new(
                 block,
                 Some(AvailableBlockData::NoData),
-                &self.chain.data_availability_checker.v1(),
+                self.chain.data_availability_checker.v1(),
                 self.chain.spec.clone(),
             )
             .unwrap();
@@ -2509,7 +2509,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &self.chain.data_availability_checker.v1(),
+                self.chain.data_availability_checker.v1(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2524,7 +2524,7 @@ where
             RpcBlock::new(
                 block,
                 Some(block_data),
-                &self.chain.data_availability_checker.v1(),
+                self.chain.data_availability_checker.v1(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2555,14 +2555,14 @@ where
                     RpcBlock::new(
                         block,
                         Some(block_data),
-                        &self.chain.data_availability_checker.v1(),
+                        self.chain.data_availability_checker.v1(),
                         self.chain.spec.clone(),
                     )?
                 } else {
                     RpcBlock::new(
                         block,
                         None,
-                        &self.chain.data_availability_checker.v1(),
+                        self.chain.data_availability_checker.v1(),
                         self.chain.spec.clone(),
                     )?
                 }
@@ -2570,14 +2570,14 @@ where
                 RpcBlock::new(
                     block,
                     Some(AvailableBlockData::NoData),
-                    &self.chain.data_availability_checker.v1(),
+                    self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             } else {
                 RpcBlock::new(
                     block,
                     None,
-                    &self.chain.data_availability_checker.v1(),
+                    self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             }
@@ -2598,14 +2598,14 @@ where
                 RpcBlock::new(
                     block,
                     Some(block_data),
-                    &self.chain.data_availability_checker.v1(),
+                    self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             } else {
                 RpcBlock::new(
                     block,
                     None,
-                    &self.chain.data_availability_checker.v1(),
+                    self.chain.data_availability_checker.v1(),
                     self.chain.spec.clone(),
                 )?
             }

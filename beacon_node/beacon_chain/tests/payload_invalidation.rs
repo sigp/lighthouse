@@ -688,7 +688,7 @@ async fn invalidates_all_descendants() {
     let fork_rpc_block = RpcBlock::new(
         fork_block.clone(),
         None,
-        &rig.harness.chain.data_availability_checker.v1(),
+        rig.harness.chain.data_availability_checker.v1(),
         rig.harness.chain.spec.clone(),
     )
     .unwrap();
@@ -796,7 +796,7 @@ async fn switches_heads() {
     let fork_rpc_block = RpcBlock::new(
         fork_block.clone(),
         None,
-        &rig.harness.chain.data_availability_checker.v1(),
+        rig.harness.chain.data_availability_checker.v1(),
         rig.harness.chain.spec.clone(),
     )
     .unwrap();
@@ -1074,7 +1074,7 @@ async fn invalid_parent() {
     let rpc_block = RpcBlock::new(
         block.clone(),
         None,
-        &rig.harness.chain.data_availability_checker.v1(),
+        rig.harness.chain.data_availability_checker.v1(),
         rig.harness.chain.spec.clone(),
     )
     .unwrap();
@@ -1405,7 +1405,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     let fork_rpc_block = RpcBlock::new(
         fork_block.clone(),
         None,
-        &rig.harness.chain.data_availability_checker.v1(),
+        rig.harness.chain.data_availability_checker.v1(),
         rig.harness.chain.spec.clone(),
     )
     .unwrap();

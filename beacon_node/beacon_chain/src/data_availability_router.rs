@@ -388,14 +388,14 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
     /// Direct access to v1 checker for block execution/availability checks.
     ///
     /// Use this for operations that are specific to the legacy DA checker,
-    pub fn v1(&self) -> Arc<DataAvailabilityChecker<T>> {
-        self.v1.clone()
+    pub fn v1(&self) -> &Arc<DataAvailabilityChecker<T>> {
+        &self.v1
     }
 
     /// Direct access to v2 checker for payload availability checks.
     ///
     /// Use this for operations that are specific to the Gloas DA checker,
-    pub fn v2(&self) -> Arc<DataAvailabilityCheckerV2<T>> {
-        self.v2.clone()
+    pub fn v2(&self) -> &Arc<DataAvailabilityCheckerV2<T>> {
+        &self.v2
     }
 }
