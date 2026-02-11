@@ -43,7 +43,9 @@ use crate::validator::post_validator_liveness_epoch;
 use crate::validator::*;
 use crate::version::beacon_response;
 use beacon::states;
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use beacon_chain::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, ForkChoiceError, WhenSlotSkipped,
+};
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
@@ -2582,11 +2584,17 @@ pub fn serve<T: BeaconChainTypes>(
                         root: request_data.block_root,
                     };
 
-                    chain.manual_finalization(checkpoint).await.map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "Failed to finalize state due to error: {e:?}"
-                        ))
-                    })?;
+                    chain
+                        .manual_finalization(checkpoint)
+                        .await
+                        .map_err(|e| match e {
+                            BeaconChainError::ForkChoiceError(
+                                ForkChoiceError::BadIrreversibleCheckpoint(msg),
+                            ) => warp_utils::reject::custom_bad_request(msg),
+                            e => warp_utils::reject::custom_server_error(format!(
+                                "Failed to finalize state due to error: {e:?}"
+                            )),
+                        })?;
                     Ok::<_, warp::reject::Rejection>(
                         warp::reply::json(&api_types::GenericResponse::from(request_data))
                             .into_response(),

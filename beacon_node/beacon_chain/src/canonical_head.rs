@@ -641,7 +641,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
         // Recompute the current head via the fork choice algorithm.
-        // TODO: Just with get_head, is it possible for finality to advance?
         let new_head_block_root = fork_choice_write_lock.get_head(current_slot, &self.spec)?;
 
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
@@ -1055,6 +1054,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We just pass the state root to the finalization thread. It should be able to reload the
         // state from the state_cache near instantly anyway. We could experiment with sending the
         // state over a channel in future, but it's probably no quicker.
+        //
+        // For manual finalization we force foreground migration so API callers get an accurate
+        // success/failure response.
         self.store_migrator.process_finalization(
             new_local_finalized_state_root.into(),
             new_local_finalized_checkpoint,

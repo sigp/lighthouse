@@ -166,7 +166,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             prev_migration: self.prev_migration.clone(),
         };
 
-        // Force foreground mode for call-sites that require success/failure semantics.
+        // Manual finalization uses foreground mode so the HTTP response can reflect real migration
+        // success/failure instead of "enqueued successfully".
         if force_foreground {
             Self::run_migration(self.db.clone(), notif, true)?;
         } else if let Some(Notification::Finalization(notif)) =
