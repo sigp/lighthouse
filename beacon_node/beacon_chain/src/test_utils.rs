@@ -222,7 +222,6 @@ pub fn test_da_checker<E: EthSpec>(
         Duration::from_secs(spec.seconds_per_slot),
     );
     let kzg = get_kzg(&spec);
-    let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
     let custody_context = Arc::new(CustodyContext::new(
         node_custody_type,
@@ -234,7 +233,6 @@ pub fn test_da_checker<E: EthSpec>(
         complete_blob_backfill,
         slot_clock,
         kzg,
-        store,
         custody_context,
         spec,
     )
@@ -3517,7 +3515,6 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
 
         build_data_column_sidecars_gloas(
-            kzg_commitments.clone(),
             signed_block_header.message.tree_hash_root(),
             signed_block_header.message.slot,
             blob_cells_and_proofs_vec,
