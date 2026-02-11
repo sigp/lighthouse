@@ -168,10 +168,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         // Force foreground mode for call-sites that require success/failure semantics.
         if force_foreground {
-            Self::run_migration(self.db.clone(), notif)?;
+            Self::run_migration(self.db.clone(), notif, true)?;
         } else if let Some(Notification::Finalization(notif)) =
             self.send_background_notification(Notification::Finalization(notif))
-            && let Err(e) = Self::run_migration(self.db.clone(), notif)
+            && let Err(e) = Self::run_migration(self.db.clone(), notif, false)
         {
             warn!(error = ?e, "Database migration failed");
         }
@@ -280,11 +280,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     fn run_migration(
         db: Arc<HotColdDB<E, Hot, Cold>>,
         notif: FinalizationNotification,
+        force_run: bool,
     ) -> Result<(), BeaconChainError> {
         // Do not run too frequently.
         let epoch = notif.finalized_checkpoint.epoch;
         let mut prev_migration = notif.prev_migration.lock();
-        if epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
+        if !force_run && epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
             debug!(
                 last_finalized_epoch = %prev_migration.epoch,
                 new_finalized_epoch = %epoch,
@@ -435,7 +436,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // This prevents finalization from being starved while reconstruciton runs (a
                 // problem in previous LH versions).
                 if let Some(fin) = finalization_notif
-                    && let Err(e) = Self::run_migration(db.clone(), fin)
+                    && let Err(e) = Self::run_migration(db.clone(), fin, false)
                 {
                     warn!(error = ?e, "Database migration failed");
                 }
