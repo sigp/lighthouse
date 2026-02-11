@@ -17,9 +17,6 @@
 //!              |---------------
 //!              |
 //!              ▼
-//!  SignatureVerifiedEnvelope
-//!              |
-//!              ▼
 //!  ExecutionPendingEnvelope
 //!              |
 //!            await
@@ -41,15 +38,16 @@ use types::{
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
-    block_verification::PayloadVerificationHandle,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
+    ExecutionPayloadError, NotifyExecutionLayer, PayloadVerificationOutcome,
+    block_verification::PayloadVerificationHandle, block_verification_types::BlockImportData,
     payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 
 pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 mod payload_notifier;
-mod signature_verified_envelope;
+mod tests;
 
 pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
     fn into_execution_pending_envelope(
@@ -101,7 +99,67 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-#[derive(Debug, Clone)]
+/// A payload envelope that has gone through processing checks and execution by an EL client.
+/// This envelope hasn't necessarily completed data availability checks.
+///
+///
+/// It contains 2 variants:
+/// 1. `Available`: This enelope has been executed and also contains all data to consider it
+///    fully available.
+/// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
+///    fully available.
+pub enum ExecutedEnvelope<E: EthSpec> {
+    Available(AvailableExecutedEnvelope<E>),
+    // TODO(gloas) implement availability pending
+    AvailabilityPending(),
+}
+
+impl<E: EthSpec> ExecutedEnvelope<E> {
+    pub fn new(
+        envelope: MaybeAvailableEnvelope<E>,
+        import_data: EnvelopeImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    ) -> Self {
+        match envelope {
+            MaybeAvailableEnvelope::Available(available_envelope) => {
+                Self::Available(AvailableExecutedEnvelope::new(
+                    available_envelope,
+                    import_data,
+                    payload_verification_outcome,
+                ))
+            }
+            // TODO(gloas) implement availability pending
+            MaybeAvailableEnvelope::AvailabilityPending {
+                block_hash: _,
+                envelope: _,
+            } => Self::AvailabilityPending(),
+        }
+    }
+}
+
+/// A payload envelope that has completed all payload processing checks including verification
+/// by an EL client **and** has all requisite blob data to be imported into fork choice.
+pub struct AvailableExecutedEnvelope<E: EthSpec> {
+    pub envelope: AvailableEnvelope<E>,
+    pub import_data: EnvelopeImportData<E>,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
+impl<E: EthSpec> AvailableExecutedEnvelope<E> {
+    pub fn new(
+        envelope: AvailableEnvelope<E>,
+        import_data: EnvelopeImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    ) -> Self {
+        Self {
+            envelope,
+            import_data,
+            payload_verification_outcome,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown {
@@ -142,11 +200,19 @@ pub enum EnvelopeError {
     BlockProcessingError(BlockProcessingError),
     // Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
+    // Error verifying the execution payload
+    ExecutionPayloadError(ExecutionPayloadError),
 }
 
 impl From<BeaconChainError> for EnvelopeError {
     fn from(e: BeaconChainError) -> Self {
         EnvelopeError::BeaconChainError(Arc::new(e))
+    }
+}
+
+impl From<ExecutionPayloadError> for EnvelopeError {
+    fn from(e: ExecutionPayloadError) -> Self {
+        EnvelopeError::ExecutionPayloadError(e)
     }
 }
 

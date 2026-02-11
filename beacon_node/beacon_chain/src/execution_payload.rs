@@ -7,7 +7,6 @@
 //! So, this module contains functions that one might expect to find in other crates, but they live
 //! here for good reason.
 
-use crate::payload_envelope_verification::EnvelopeError;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,

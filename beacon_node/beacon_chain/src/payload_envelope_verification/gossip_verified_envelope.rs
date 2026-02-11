@@ -4,7 +4,10 @@ use educe::Educe;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::process_execution_payload_envelope};
 use tracing::debug;
-use types::{EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope, consts::gloas::BUILDER_INDEX_SELF_BUILD};
+use types::{
+    EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
+};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
@@ -70,7 +73,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .signed_execution_payload_bid()?
             .message;
 
-        // check that the envelopes slot isnt from a slot prior 
+        // check that the envelopes slot isnt from a slot prior
         // to the latest finalized slot.
         if envelope.slot < latest_finalized_slot {
             return Err(EnvelopeError::PriorToFinalization {
@@ -103,54 +106,58 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             });
         }
 
-        // Get the fork from the proposer cache so we can verify the signature.
-        // This is currently the most efficient way to implement envelope signature verification
-        // because the `fork` might depend on advancing the parent state.
+        // Verify the envelope signature.
+        //
+        // For self-build envelopes, we can use the proposer cache for the fork and the
+        // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
+        // For external builder envelopes, we must load the state to access the builder registry.
+        let builder_index = envelope.builder_index;
         let block_slot = envelope.slot;
         let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         let proposer_shuffling_decision_block =
             proto_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
-        let mut opt_snapshot = None;
-        let envelope_ref = signed_envelope.as_ref();
-        let proposer = chain.with_proposer_cache::<_, EnvelopeError>(
-            proposer_shuffling_decision_block,
-            block_epoch,
-            |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
-            || {
-                debug!(
-                    %beacon_block_root,
-                    block_hash = %envelope_ref.block_hash(),
-                    "Proposer shuffling cache miss for envelope verification"
-                );
-                // The proposer index was *not* cached and we must load the parent in order to
-                // determine the proposer index.
-                let snapshot = load_snapshot(envelope_ref, chain)?;
-                opt_snapshot = Some(Box::new(snapshot.clone()));
-                Ok((snapshot.state_root, snapshot.pre_state))
-            },
-        )?;
-        let fork = proposer.fork;
 
-        let builder_index = envelope.builder_index;
-        let index = if builder_index == BUILDER_INDEX_SELF_BUILD {
-             block.message().proposer_index()
-        } else {
-            builder_index
-        };
+        let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
+            // Fast path: self-build envelopes can be verified without loading the state.
+            let envelope_ref = signed_envelope.as_ref();
+            let mut opt_snapshot = None;
+            let proposer = chain.with_proposer_cache::<_, EnvelopeError>(
+                proposer_shuffling_decision_block,
+                block_epoch,
+                |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
+                || {
+                    debug!(
+                        %beacon_block_root,
+                        "Proposer shuffling cache miss for envelope verification"
+                    );
+                    let snapshot = load_snapshot(envelope_ref, chain)?;
+                    opt_snapshot = Some(Box::new(snapshot.clone()));
+                    Ok((snapshot.state_root, snapshot.pre_state))
+                },
+            )?;
+            let fork = proposer.fork;
 
-        let signature_is_valid = {
-            // TODO(gloas) the builder pubkey wont be in the validator pubkey cache
-            // this will currently only work for local block building.
             let pubkey_cache = chain.validator_pubkey_cache.read();
             let pubkey = pubkey_cache
-                .get(index as usize)
-                .ok_or_else(|| EnvelopeError::UnknownValidator { builder_index: index })?;
-            signed_envelope.verify_signature(
+                .get(block.message().proposer_index() as usize)
+                .ok_or_else(|| EnvelopeError::UnknownValidator {
+                    builder_index: block.message().proposer_index(),
+                })?;
+            let is_valid = signed_envelope.verify_signature(
                 pubkey,
                 &fork,
                 chain.genesis_validators_root,
                 &chain.spec,
-            )
+            );
+            (is_valid, opt_snapshot)
+        } else {
+            // TODO(gloas) we should probably introduce a builder cache or some type of
+            // global cache.
+            // External builder: must load the state to get the builder pubkey.
+            let snapshot = load_snapshot(signed_envelope.as_ref(), chain)?;
+            let is_valid =
+                signed_envelope.verify_signature_with_state(&snapshot.pre_state, &chain.spec)?;
+            (is_valid, Some(Box::new(snapshot)))
         };
 
         if !signature_is_valid {
@@ -179,20 +186,13 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         let envelope = &signed_envelope.message;
         let payload = &envelope.payload;
 
-        // TODO(gloas) unwrap
-        let bid = chain
-            .get_full_block(&envelope.beacon_block_root)
-            .unwrap()
-            .unwrap()
-            .message()
-            .body()
-            .signed_execution_payload_bid()
-            .unwrap()
-            .message;
-
         // Verify the execution payload is valid
-        let payload_notifier =
-            PayloadNotifier::new(chain.clone(), envelope, notify_execution_layer)?;
+        let payload_notifier = PayloadNotifier::new(
+            chain.clone(),
+            signed_envelope.clone(),
+            self.block.clone(),
+            notify_execution_layer,
+        )?;
         let block_root = envelope.beacon_block_root;
         let slot = self.block.slot();
 

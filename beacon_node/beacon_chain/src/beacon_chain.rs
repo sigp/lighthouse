@@ -56,6 +56,7 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
+use crate::payload_envelope_verification::{ExecutedEnvelope, ExecutionPendingEnvelope};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
@@ -3542,6 +3543,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         Ok(ExecutedBlock::new(
             block,
+            import_data,
+            payload_verification_outcome,
+        ))
+    }
+
+    /// Accepts a fully-verified payload envelope and awaits on its payload verification handle to
+    /// get a fully `ExecutedEnvelope`.
+    ///
+    /// An error is returned if the verification handle couldn't be awaited.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn into_executed_payload_envelope(
+        self: Arc<Self>,
+        pending_envelope: ExecutionPendingEnvelope<T>,
+    ) -> Result<ExecutedEnvelope<T::EthSpec>, BlockError> {
+        let ExecutionPendingEnvelope {
+            signed_envelope,
+            import_data,
+            payload_verification_handle,
+        } = pending_envelope;
+
+        let payload_verification_outcome = payload_verification_handle
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
+            .ok_or(BeaconChainError::RuntimeShutdown)??;
+
+        Ok(ExecutedEnvelope::new(
+            signed_envelope,
             import_data,
             payload_verification_outcome,
         ))
