@@ -16,11 +16,14 @@ use beacon_chain::{
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
 };
-use beacon_chain::{Kzg, LightClientProducerEvent};
+use beacon_chain::{ForkChoiceStoreInit, Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
-use eth2::{BeaconNodeHttpClient, Error as ApiError, Timeouts, types::BlockId};
+use eth2::{
+    BeaconNodeHttpClient, Error as ApiError, Timeouts,
+    types::{BlockId, StateId},
+};
 use execution_layer::ExecutionLayer;
 use execution_layer::test_utils::generate_genesis_header;
 use futures::channel::mpsc::Receiver;
@@ -33,6 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
 use slasher_service::SlasherService;
+use state_processing::per_slot_processing;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -366,10 +370,15 @@ where
                 let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 builder.weak_subjectivity_state(
-                    anchor_state,
-                    anchor_block,
+                    anchor_state.clone(),
+                    anchor_block.clone(),
                     anchor_blobs,
                     genesis_state,
+                    ForkChoiceStoreInit::FinalizedState(beacon_chain::BeaconSnapshot {
+                        beacon_block_root: anchor_block.canonical_root(),
+                        beacon_block: Arc::new(anchor_block),
+                        beacon_state: anchor_state,
+                    }),
                 )?
             }
             ClientGenesis::CheckpointSyncUrl { url, state_id } => {
@@ -416,6 +425,22 @@ where
 
                 debug!("Downloaded checkpoint block {block_slot}");
 
+                // The checkpointz server is trusted. If the user requests `Finalized` or
+                // `Genesis`, the returned checkpoint state is finalized and we can safely use
+                // finalized-anchor fork-choice initialization. For any other tag, treat the
+                // checkpoint as potentially non-finalized and load explicit justified/finalized
+                // fork-choice inputs.
+                let fork_choice_store_init = match state_id {
+                    StateId::Finalized | StateId::Genesis => {
+                        ForkChoiceStoreInit::FinalizedState(beacon_chain::BeaconSnapshot {
+                            beacon_block_root: block_root,
+                            beacon_block: Arc::new(block.clone()),
+                            beacon_state: state.clone(),
+                        })
+                    }
+                    _ => load_non_finalized_fork_choice_init(&remote, &state, &spec).await?,
+                };
+
                 // `get_blob_sidecars` API is deprecated from Fulu and may not be supported by all servers
                 let is_before_fulu = !spec.fork_name_at_slot::<E>(block_slot).fulu_enabled();
                 let blobs = if is_before_fulu && block.message().body().has_blobs() {
@@ -451,7 +476,13 @@ where
                     "Loaded checkpoint block and state"
                 );
 
-                builder.weak_subjectivity_state(state, block, blobs, genesis_state)?
+                builder.weak_subjectivity_state(
+                    state,
+                    block,
+                    blobs,
+                    genesis_state,
+                    fork_choice_store_init,
+                )?
             }
             ClientGenesis::DepositContract => {
                 return Err("Loading genesis from deposit contract no longer supported".to_string());
@@ -927,4 +958,79 @@ async fn genesis_state<E: EthSpec>(
         )
         .await?
         .ok_or_else(|| "Genesis state is unknown".to_string())
+}
+
+async fn load_non_finalized_fork_choice_init<E: EthSpec>(
+    remote: &BeaconNodeHttpClient,
+    checkpoint_state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<ForkChoiceStoreInit<E>, String> {
+    let justified_checkpoint = checkpoint_state.current_justified_checkpoint();
+    let finalized_checkpoint = checkpoint_state.finalized_checkpoint();
+
+    if justified_checkpoint.root == Hash256::ZERO {
+        return Err(
+            "Non-finalized checkpoint init requested, but checkpoint state has no justified checkpoint"
+                .to_string(),
+        );
+    }
+
+    let justified_epoch_start_slot = justified_checkpoint.epoch.start_slot(E::slots_per_epoch());
+    debug!(
+        root = ?justified_checkpoint.root,
+        target_slot = ?justified_epoch_start_slot,
+        "Downloading justified checkpoint block"
+    );
+    let justified_block = remote
+        .get_beacon_blocks_ssz::<E>(BlockId::Root(justified_checkpoint.root), spec)
+        .await
+        .map_err(|e| format!("Error loading justified checkpoint block from remote: {e:?}"))?
+        .ok_or_else(|| "Justified checkpoint block missing from remote".to_string())?;
+    let justified_state_root = justified_block.message().state_root();
+
+    let finalized_block = if finalized_checkpoint.root == Hash256::ZERO {
+        justified_block.clone()
+    } else {
+        debug!(root = ?finalized_checkpoint.root, "Downloading finalized checkpoint block");
+        remote
+            .get_beacon_blocks_ssz::<E>(BlockId::Root(finalized_checkpoint.root), spec)
+            .await
+            .map_err(|e| format!("Error loading finalized checkpoint block from remote: {e:?}"))?
+            .ok_or_else(|| "Finalized checkpoint block missing from remote".to_string())?
+    };
+
+    debug!(
+        root = ?justified_state_root,
+        "Downloading justified checkpoint state"
+    );
+    let mut justified_state = remote
+        .get_debug_beacon_states_ssz::<E>(StateId::Root(justified_state_root), spec)
+        .await
+        .map_err(|e| format!("Error loading justified checkpoint state from remote: {e:?}"))?
+        .ok_or_else(|| "Justified checkpoint state missing from remote".to_string())?;
+
+    if justified_state.slot() > justified_epoch_start_slot {
+        return Err(format!(
+            "Justified checkpoint state slot {} is after expected epoch boundary slot {}",
+            justified_state.slot(),
+            justified_epoch_start_slot
+        ));
+    }
+
+    while justified_state.slot() < justified_epoch_start_slot {
+        per_slot_processing(&mut justified_state, None, spec)
+            .map_err(|e| format!("Error advancing justified checkpoint state: {e:?}"))?;
+    }
+
+    debug!(
+        slot = ?justified_state.slot(),
+        epoch = ?justified_checkpoint.epoch,
+        "Downloaded and aligned justified checkpoint state"
+    );
+    Ok(ForkChoiceStoreInit::NonFinalizedState {
+        anchor_state: checkpoint_state.clone(),
+        justified_state,
+        justified_block,
+        finalized_block,
+    })
 }

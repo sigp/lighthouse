@@ -17,7 +17,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, Slot,
+    Hash256, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -29,6 +29,16 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     UnalignedCheckpoint { block_slot: Slot, state_slot: Slot },
     Arith(ArithError),
+}
+
+pub enum ForkChoiceStoreInit<E: EthSpec> {
+    FinalizedState(BeaconSnapshot<E>),
+    NonFinalizedState {
+        anchor_state: BeaconState<E>,
+        justified_state: BeaconState<E>,
+        justified_block: SignedBeaconBlock<E>,
+        finalized_block: SignedBeaconBlock<E>,
+    },
 }
 
 impl From<BeaconStateError> for Error {
@@ -166,9 +176,34 @@ where
     /// It is assumed that `anchor` is already persisted in `store`.
     pub fn get_forkchoice_store(
         store: Arc<HotColdDB<E, Hot, Cold>>,
+        init: ForkChoiceStoreInit<E>,
+    ) -> Result<Self, Error> {
+        match init {
+            ForkChoiceStoreInit::FinalizedState(anchor) => {
+                Self::from_finalized_anchor(store, anchor)
+            }
+            ForkChoiceStoreInit::NonFinalizedState {
+                anchor_state,
+                justified_state,
+                justified_block,
+                finalized_block,
+            } => Self::from_unfinalized_anchor(
+                store,
+                anchor_state,
+                justified_state,
+                justified_block,
+                finalized_block,
+            ),
+        }
+    }
+
+    pub fn from_finalized_anchor(
+        store: Arc<HotColdDB<E, Hot, Cold>>,
         anchor: BeaconSnapshot<E>,
     ) -> Result<Self, Error> {
+        let unadvanced_state_root = anchor.beacon_state_root();
         let mut anchor_state = anchor.beacon_state;
+        let mut anchor_block_header = anchor_state.latest_block_header().clone();
 
         // The anchor state MUST be on an epoch boundary (it should be advanced by the caller).
         if !anchor_state
@@ -177,33 +212,69 @@ where
             .is_multiple_of(E::slots_per_epoch())
         {
             return Err(Error::UnalignedCheckpoint {
-                block_slot: anchor_state.latest_block_header().slot,
+                block_slot: anchor_block_header.slot,
                 state_slot: anchor_state.slot(),
             });
         }
 
+        // Compute the accurate block root for the checkpoint block.
+        if anchor_block_header.state_root.is_zero() {
+            anchor_block_header.state_root = unadvanced_state_root;
+        }
+        let anchor_block_root = anchor_block_header.canonical_root();
         let anchor_epoch = anchor_state.current_epoch();
-        let anchor_block_checkpoint = Checkpoint {
+        let justified_checkpoint = Checkpoint {
             epoch: anchor_epoch,
-            root: anchor.beacon_block_root,
+            root: anchor_block_root,
         };
-
-        // For post-genesis states this justified balances will not match the justified checkpoint.
-        // TODO(non-fin-cp-sync): Fetch the justified state from checkpointz server and get the
-        // justified balances from it.
+        let finalized_checkpoint = justified_checkpoint;
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
-        let anchor_state_root = anchor_state.canonical_root()?;
+        let justified_state_root = anchor_state.canonical_root()?;
 
+        Ok(Self {
+            store,
+            balances_cache: <_>::default(),
+            time: anchor_state.slot(),
+            justified_checkpoint,
+            justified_balances,
+            justified_state_root,
+            finalized_checkpoint,
+            local_irreversible_checkpoint: justified_checkpoint,
+            unrealized_justified_checkpoint: justified_checkpoint,
+            unrealized_justified_state_root: justified_state_root,
+            unrealized_finalized_checkpoint: finalized_checkpoint,
+            proposer_boost_root: Hash256::ZERO,
+            equivocating_indices: BTreeSet::new(),
+            _phantom: PhantomData,
+        })
+    }
+
+    pub fn from_unfinalized_anchor(
+        store: Arc<HotColdDB<E, Hot, Cold>>,
+        anchor_state: BeaconState<E>,
+        mut justified_state: BeaconState<E>,
+        justified_block: SignedBeaconBlock<E>,
+        finalized_block: SignedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
+        let anchor_checkpoint = Self::anchor_checkpoint(&anchor_state)?;
         let mut justified_checkpoint_on_chain = anchor_state.current_justified_checkpoint();
         let mut finalized_checkpoint_on_chain = anchor_state.finalized_checkpoint();
 
-        // If the network has not justified or finalized yet, use anchor checkpoint
         if justified_checkpoint_on_chain.root == Hash256::ZERO {
-            justified_checkpoint_on_chain = anchor_block_checkpoint;
+            justified_checkpoint_on_chain = anchor_checkpoint;
+        } else {
+            justified_checkpoint_on_chain.root = justified_block.canonical_root();
         }
         if finalized_checkpoint_on_chain.root == Hash256::ZERO {
-            finalized_checkpoint_on_chain = anchor_block_checkpoint;
+            finalized_checkpoint_on_chain = anchor_checkpoint;
+        } else {
+            finalized_checkpoint_on_chain.root = finalized_block.canonical_root();
         }
+
+        let justified_state_root = justified_state.canonical_root()?;
+        let justified_balances = JustifiedBalances::from_justified_state(&justified_state)?;
+
+        let anchor_block_checkpoint = Self::anchor_checkpoint(&anchor_state)?;
 
         Ok(Self {
             store,
@@ -211,15 +282,31 @@ where
             time: anchor_state.slot(),
             justified_checkpoint: justified_checkpoint_on_chain,
             justified_balances,
-            justified_state_root: anchor_state_root,
+            justified_state_root,
             finalized_checkpoint: finalized_checkpoint_on_chain,
             local_irreversible_checkpoint: anchor_block_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint_on_chain,
-            unrealized_justified_state_root: anchor_state_root,
+            unrealized_justified_state_root: justified_state_root,
             unrealized_finalized_checkpoint: finalized_checkpoint_on_chain,
             proposer_boost_root: Hash256::ZERO,
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
+        })
+    }
+
+    fn anchor_checkpoint(state: &BeaconState<E>) -> Result<Checkpoint, Error> {
+        if !state.slot().as_u64().is_multiple_of(E::slots_per_epoch()) {
+            return Err(Error::UnalignedCheckpoint {
+                block_slot: state.latest_block_header().slot,
+                state_slot: state.slot(),
+            });
+        }
+
+        let mut state_for_root = state.clone();
+        let state_root = state_for_root.canonical_root()?;
+        Ok(Checkpoint {
+            epoch: state.current_epoch(),
+            root: state.get_latest_block_root(state_root),
         })
     }
 

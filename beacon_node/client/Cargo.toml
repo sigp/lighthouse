@@ -31,6 +31,7 @@ serde_json = { workspace = true }
 slasher = { workspace = true }
 slasher_service = { path = "../../slasher/service" }
 slot_clock = { workspace = true }
+state_processing = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
 time = "0.3.5"
@@ -43,5 +44,4 @@ types = { workspace = true }
 [dev-dependencies]
 operation_pool = { workspace = true }
 serde_yaml = { workspace = true }
-state_processing = { workspace = true }
 tokio = { workspace = true }

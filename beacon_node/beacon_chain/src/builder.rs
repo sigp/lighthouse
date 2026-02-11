@@ -19,7 +19,8 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ForkChoiceStoreInit,
+    ServerSentEventHandler,
 };
 use bls::Signature;
 use execution_layer::ExecutionLayer;
@@ -401,8 +402,11 @@ where
                 .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
         );
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
-            .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(
+            store,
+            ForkChoiceStoreInit::FinalizedState(genesis.clone()),
+        )
+        .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
 
         let fork_choice = ForkChoice::from_anchor(
@@ -426,6 +430,7 @@ where
         weak_subj_block: SignedBeaconBlock<E>,
         weak_subj_blobs: Option<BlobSidecarList<E>>,
         genesis_state: BeaconState<E>,
+        fork_choice_store_init: ForkChoiceStoreInit<E>,
     ) -> Result<Self, String> {
         let store = self
             .store
@@ -622,7 +627,24 @@ where
             beacon_state: weak_subj_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, snapshot.clone())
+        let fork_choice_store_init = match fork_choice_store_init {
+            ForkChoiceStoreInit::FinalizedState(_) => {
+                ForkChoiceStoreInit::FinalizedState(snapshot.clone())
+            }
+            ForkChoiceStoreInit::NonFinalizedState {
+                justified_state,
+                justified_block,
+                finalized_block,
+                ..
+            } => ForkChoiceStoreInit::NonFinalizedState {
+                anchor_state: snapshot.beacon_state.clone(),
+                justified_state,
+                justified_block,
+                finalized_block,
+            },
+        };
+
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, fork_choice_store_init)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
         let fork_choice = ForkChoice::from_anchor(

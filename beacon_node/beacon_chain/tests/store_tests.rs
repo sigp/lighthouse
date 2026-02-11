@@ -16,7 +16,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
-    NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
+    ForkChoiceStoreInit, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
     beacon_proposer_cache::{
         compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
     },
@@ -2983,10 +2983,15 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
         .custom_spec(spec.clone().into())
         .task_executor(harness.chain.task_executor.clone())
         .weak_subjectivity_state(
-            wss_state,
+            wss_state.clone(),
             wss_block.clone(),
             wss_blobs_opt.clone(),
             genesis_state,
+            ForkChoiceStoreInit::FinalizedState(BeaconSnapshot {
+                beacon_block_root: wss_block.canonical_root(),
+                beacon_block: Arc::new(wss_block),
+                beacon_state: wss_state,
+            }),
         )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
@@ -3180,7 +3185,7 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
         .weak_subjectivity_state(
-            wss_state,
+            wss_state.clone(),
             wss_block.clone(),
             if without_blobs {
                 None
@@ -3188,6 +3193,11 @@ async fn weak_subjectivity_sync_test(config: WeakSubjectivitySyncTestConfig) {
                 wss_blobs_opt.clone()
             },
             genesis_state,
+            ForkChoiceStoreInit::FinalizedState(BeaconSnapshot {
+                beacon_block_root: wss_block.canonical_root(),
+                beacon_block: Arc::new(wss_block),
+                beacon_state: wss_state,
+            }),
         )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
