@@ -34,17 +34,16 @@ use state_processing::{
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 use crate::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
-    ExecutionPayloadError, NotifyExecutionLayer, PayloadVerificationOutcome,
-    block_verification::PayloadVerificationHandle, block_verification_types::BlockImportData,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError,
+    NotifyExecutionLayer, PayloadVerificationOutcome,
+    block_verification::PayloadVerificationHandle,
     payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 
-pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 mod payload_notifier;
 mod tests;
@@ -54,12 +53,14 @@ pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T>, EnvelopeError>;
+    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, BlockError>;
+
+    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>;
 }
 
-pub struct ExecutionPendingEnvelope<T: BeaconChainTypes> {
-    pub signed_envelope: MaybeAvailableEnvelope<T::EthSpec>,
-    pub import_data: EnvelopeImportData<T::EthSpec>,
+pub struct ExecutionPendingEnvelope<E: EthSpec> {
+    pub signed_envelope: MaybeAvailableEnvelope<E>,
+    pub import_data: EnvelopeImportData<E>,
     pub payload_verification_handle: PayloadVerificationHandle,
 }
 
@@ -80,6 +81,25 @@ pub struct AvailableEnvelope<E: EthSpec> {
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     columns_available_timestamp: Option<std::time::Duration>,
     pub spec: Arc<ChainSpec>,
+}
+
+impl<E: EthSpec> AvailableEnvelope<E> {
+    pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
+        &self.envelope.message
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Arc<SignedExecutionPayloadEnvelope<E>>,
+        DataColumnSidecarList<E>,
+    ) {
+        let AvailableEnvelope {
+            envelope, columns, ..
+        } = self;
+        (envelope, columns)
+    }
 }
 
 pub enum MaybeAvailableEnvelope<E: EthSpec> {
@@ -204,6 +224,12 @@ pub enum EnvelopeError {
     ExecutionPayloadError(ExecutionPayloadError),
 }
 
+impl std::fmt::Display for EnvelopeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl From<BeaconChainError> for EnvelopeError {
     fn from(e: BeaconChainError) -> Self {
         EnvelopeError::BeaconChainError(Arc::new(e))
@@ -248,7 +274,7 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
 pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
+) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, BlockError> {
     // Reject any block if its block is not known to fork choice.
     //
     // A block that is not in fork choice is either:
@@ -263,8 +289,8 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
     let beacon_block_root = envelope.beacon_block_root();
     let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
-        return Err(EnvelopeError::BlockRootUnknown {
-            block_root: beacon_block_root,
+        return Err(BlockError::ParentUnknown {
+            parent_root: beacon_block_root,
         });
     };
     drop(fork_choice_read_lock);
@@ -278,7 +304,7 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     let state = chain
         .store
         .get_hot_state(&block_state_root, cache_state)
-        .map_err(|e| EnvelopeError::BeaconChainError(Arc::new(e.into())))?
+        .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
         .ok_or_else(|| {
             BeaconChainError::DBInconsistent(format!(
                 "Missing state for envelope block {block_state_root:?}",
@@ -299,10 +325,14 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T>, EnvelopeError> {
+    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, BlockError> {
         // TODO(EIP-7732): figure out how this should be refactored..
         GossipVerifiedEnvelope::new(self, chain)?
             .into_execution_pending_envelope(chain, notify_execution_layer)
+    }
+
+    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
+        self
     }
 }
 

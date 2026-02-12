@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
-use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, payload_envelope_verification::{ExecutedEnvelope, ExecutionPendingEnvelope}};
+use crate::{
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes,
+    payload_envelope_verification::{ExecutedEnvelope, ExecutionPendingEnvelope},
+};
 
 async fn import_execution_pending_envelope<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    execution_pending_envelope: ExecutionPendingEnvelope<T>,
+    execution_pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
 ) -> Result<AvailabilityProcessingStatus, String> {
     match chain
         .clone()

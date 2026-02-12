@@ -4,7 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
@@ -18,6 +17,12 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
+};
+use beacon_chain::{
+    blob_verification::{GossipBlobError, GossipVerifiedBlob},
+    payload_envelope_verification::{
+        EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
+    },
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -3224,25 +3229,153 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_execution_payload(
+    pub async fn process_gossip_execution_payload_envelope(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_payload: SignedExecutionPayloadEnvelope<T::EthSpec>,
+        envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
     ) {
         // TODO(EIP-7732): Implement proper execution payload envelope gossip processing.
         // This should integrate with the envelope_verification.rs module once it's implemented.
 
         trace!(
             %peer_id,
-            builder_index = execution_payload.message.builder_index,
-            slot = %execution_payload.message.slot,
-            beacon_block_root = %execution_payload.message.beacon_block_root,
+            builder_index = envelope.message.builder_index,
+            slot = %envelope.message.slot,
+            beacon_block_root = %envelope.message.beacon_block_root,
             "Processing execution payload envelope"
         );
 
         // For now, ignore all envelopes since verification is not implemented
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    }
+
+    async fn process_gossip_unverified_execution_payload_envelope(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    ) -> Option<GossipVerifiedEnvelope<T>> {
+        // TODO(glos) add payload envelope delay metrics
+
+        let verification_result = self
+            .chain
+            .clone()
+            .verify_envelope_for_gossip(envelope.clone())
+            .await;
+
+        // TODO(gloas) delay metrics and write the time that the payload was observed into
+        // the delay cache
+
+        let verified_envelope = match verification_result {
+            Ok(verified_envelope) => {
+                info!(
+                    slot = %verified_envelope.signed_envelope.slot(),
+                    root = ?verified_envelope.signed_envelope.beacon_block_root(),
+                    "New envelope received"
+                );
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                verified_envelope
+            }
+            // TODO(gloas) penalize peers accordingly
+            Err(_) => return None,
+        };
+
+        // TODO(gloas) do we need to register the payload with monitored validators?
+
+        let envelope_slot = verified_envelope.signed_envelope.slot();
+        let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
+        match self.chain.slot() {
+            // We only need to do a simple check about the envelope slot vs the current slot beacuse
+            // `verify_envelope_for_gossip` already ensuresthat the envelope slot is within tolerance
+            // for envelope imports.
+            Ok(current_slot) if envelope_slot > current_slot => {
+                warn!(
+                    ?envelope_slot,
+                    ?beacon_block_root,
+                    msg = "if this happens consistently, check system clock",
+                    "envelope arrived early"
+                );
+
+                // TODO(gloas) update metrics to note how early the envelope arrived
+
+                let inner_self = self.clone();
+                let process_fn = Box::pin(async move {
+                    inner_self
+                        .process_gossip_verified_execution_payload_envelope(
+                            peer_id,
+                            verified_envelope,
+                        )
+                        .await;
+                });
+
+                // TODO(gloas) send to reprocess queue
+                None
+            }
+            Ok(_) => Some(verified_envelope),
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    %envelope_slot,
+                    ?beacon_block_root,
+                    location = "envelope gossip",
+                    "Failed to defer envelope import"
+                );
+                None
+            }
+        }
+    }
+
+    async fn process_gossip_verified_execution_payload_envelope(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        verified_envelope: GossipVerifiedEnvelope<T>,
+    ) {
+        let processing_start_time = Instant::now();
+        let envelope = verified_envelope.envelope_cloned();
+        let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
+
+        let result = self
+            .chain
+            .process_execution_payload_envelope(
+                block_root,
+                verified_envelope,
+                notify_execution_layer,
+                block_source,
+                publish_fn,
+            )
+            .await;
+
+        register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
+
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
+                // TODO(gloas) do we need to send a `PayloadImported` event to the reporcess queue?
+
+                debug!(
+                    ?block_root,
+                    %peer_id,
+                    "Gossipsub envelope processed"
+                );
+
+                // TODO(gloas) do we need to recompute head?
+                // should canonical_head return the block and the payload now?
+                self.chain.recompute_head_at_current_slot().await;
+
+                // TODO(gloas) metrics
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
+                trace!(
+                    %slot,
+                    %block_root,
+                    "Processed envelope, waiting for other components"
+                )
+            }
+
+            Err(_) => todo!(),
+        }
     }
 
     pub fn process_gossip_execution_payload_bid(

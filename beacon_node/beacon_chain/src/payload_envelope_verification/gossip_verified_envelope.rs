@@ -3,14 +3,14 @@ use std::sync::Arc;
 use educe::Educe;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::process_execution_payload_envelope};
-use tracing::debug;
+use tracing::{Span, debug};
 use types::{
     EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, NotifyExecutionLayer,
     PayloadVerificationOutcome,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeImportData, EnvelopeProcessingSnapshot, ExecutionPendingEnvelope,
@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T>, EnvelopeError> {
+    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, BlockError> {
         let signed_envelope = self.signed_envelope;
         let envelope = &signed_envelope.message;
         let payload = &envelope.payload;
@@ -254,5 +254,64 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
             },
             payload_verification_handle,
         })
+    }
+
+    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
+        &self.signed_envelope
+    }
+}
+
+impl<T: BeaconChainTypes> BeaconChain<T> {
+    /// Returns `Ok(GossipVerifiedEnvelope)` if the supplied `envelope` should be forwarded onto the
+    /// gossip network. The envelope is not imported into the chain, it is just partially verified.
+    ///
+    /// The returned `GossipVerifiedEnvelope` should be provided to `Self::process_execution_payload_envelope` immediately
+    /// after it is returned, unless some other circumstance decides it should not be imported at
+    /// all.
+    ///
+    /// ## Errors
+    ///
+    /// Returns an `Err` if the given envelope was invalid, or an error was encountered during
+    pub async fn verify_envelope_for_gossip(
+        self: &Arc<Self>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    ) -> Result<GossipVerifiedEnvelope<T>, EnvelopeError> {
+        let chain = self.clone();
+        let span = Span::current();
+        self.task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    let _guard = span.enter();
+                    let slot = envelope.slot();
+                    let beacon_block_root = envelope.message.beacon_block_root;
+
+                    match GossipVerifiedEnvelope::new(envelope, &chain) {
+                        Ok(verified) => {
+                            debug!(
+                                %slot,
+                                ?beacon_block_root,
+                                "Successfully verified gossip envelope"
+                            );
+
+                            Ok(verified)
+                        }
+                        Err(e) => {
+                            debug!(
+                                error = e.to_string(),
+                                ?beacon_block_root,
+                                %slot,
+                                "Rejected gossip envelope"
+                            );
+
+                            Err(e)
+                        }
+                    }
+                },
+                "gossip_envelope_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
     }
 }

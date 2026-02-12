@@ -160,7 +160,8 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                     ?validation_error,
                     ?latest_valid_hash,
                     ?execution_block_hash,
-                    // root = ?block.tree_hash_root(),
+                    // TODO(gloas) are these other logs important?
+                    root = ?beacon_block_root,
                     // graffiti = block.body().graffiti().as_utf8_lossy(),
                     // proposer_index = block.proposer_index(),
                     // slot = %block.slot(),
@@ -205,7 +206,8 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 warn!(
                     ?validation_error,
                     ?execution_block_hash,
-                    // root = ?block.tree_hash_root(),
+                    // TODO(gloas) are these other logs important?
+                    root = ?beacon_block_root,
                     // graffiti = block.body().graffiti().as_utf8_lossy(),
                     // proposer_index = block.proposer_index(),
                     // slot = %block.slot(),

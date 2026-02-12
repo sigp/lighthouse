@@ -8,7 +8,7 @@ use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockError, ExecutionPayloadError, NotifyExecutionLayer,
-    execution_payload::notify_new_payload,
+    execution_payload::notify_new_payload, payload_envelope_verification::EnvelopeError,
 };
 
 /// Used to await the result of executing payload with a remote EE.

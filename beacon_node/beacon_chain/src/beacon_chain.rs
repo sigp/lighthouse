@@ -3555,7 +3555,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all, level = "debug")]
     pub async fn into_executed_payload_envelope(
         self: Arc<Self>,
-        pending_envelope: ExecutionPendingEnvelope<T>,
+        pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
     ) -> Result<ExecutedEnvelope<T::EthSpec>, BlockError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
@@ -4168,7 +4168,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
-    fn handle_import_block_db_write_error(
+    pub(crate) fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
@@ -4202,7 +4202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Check block's consistentency with any configured weak subjectivity checkpoint.
-    fn check_block_against_weak_subjectivity_checkpoint(
+    pub(crate) fn check_block_against_weak_subjectivity_checkpoint(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
         block_root: Hash256,
