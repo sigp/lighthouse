@@ -22,7 +22,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Gloas]
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -395,11 +395,6 @@ where
         T::name().into()
     }
 
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): Can be removed once we enable Gloas on all tests
-        vec![]
-    }
-
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }
@@ -422,11 +417,6 @@ where
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
     }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): Can be removed once we enable Gloas on all tests
-        vec![]
-    }
 }
 
 impl<T, E> Handler for SszStaticWithSpecHandler<T, E>
@@ -447,11 +437,6 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
-    }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): Can be removed once we enable Gloas on all tests
-        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -725,6 +710,11 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas fork choice tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -1127,11 +1117,6 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
 
     fn handler_name(&self) -> String {
         O::handler_name()
-    }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): Can be removed once we enable Gloas on all tests
-        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
