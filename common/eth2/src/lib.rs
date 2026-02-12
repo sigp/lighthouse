@@ -2808,7 +2808,7 @@ impl BeaconNodeHttpClient {
         let mut es = self
             .client
             .get(path)
-            .timeout(self.timeouts.events)
+            .read_timeout(self.timeouts.events)
             .eventsource()
             .map_err(Error::SseEventSource)?;
         // If we don't await `Event::Open` here, then the consumer
