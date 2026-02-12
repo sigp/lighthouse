@@ -876,7 +876,7 @@ impl<E: EthSpec> BeaconState<E> {
         relative_epoch: RelativeEpoch,
     ) -> Result<u64, BeaconStateError> {
         let cache = self.committee_cache(relative_epoch)?;
-        Ok(cache.epoch_committee_count() as u64)
+        Ok(cache.epoch_committee_count()? as u64)
     }
 
     /// Return the cached active validator indices at some epoch.
@@ -2150,7 +2150,7 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<Option<AttestationDuty>, BeaconStateError> {
         let cache = self.committee_cache(relative_epoch)?;
 
-        Ok(cache.get_attestation_duties(validator_index))
+        Ok(cache.get_attestation_duties(validator_index)?)
     }
 
     /// Check if the attestation is for the block proposed at the attestation slot.
@@ -2909,7 +2909,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
         // Required for macros (which use type-hints internally).
 
@@ -3218,7 +3217,6 @@ impl<E: EthSpec> BeaconState<E> {
         ))
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
     pub fn apply_pending_mutations(&mut self) -> Result<(), BeaconStateError> {
         match self {
             Self::Base(inner) => {
@@ -3321,7 +3319,6 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn get_beacon_state_leaves(&self) -> Vec<Hash256> {
         let mut leaves = vec![];
-        #[allow(clippy::arithmetic_side_effects)]
         match self {
             BeaconState::Base(state) => {
                 map_beacon_state_base_fields!(state, |_, field| {
