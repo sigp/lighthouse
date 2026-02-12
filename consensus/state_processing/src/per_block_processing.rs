@@ -181,7 +181,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         let body = block.body();
         if state.fork_name_unchecked().gloas_enabled() {
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
-            // TODO(EIP-7732): process execution payload bid
+            process_execution_payload_bid(state, block, verify_signatures, spec)?;
         } else {
             if state.fork_name_unchecked().capella_enabled() {
                 withdrawals::capella_electra::process_withdrawals::<E, Payload>(
