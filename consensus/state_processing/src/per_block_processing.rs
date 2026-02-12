@@ -1,12 +1,17 @@
 use crate::consensus_context::ConsensusContext;
-use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
+use errors::{
+    BlockOperationError, BlockProcessingError, ExecutionPayloadBidInvalid, HeaderInvalid,
+};
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
-use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
+use signature_sets::{
+    block_proposal_signature_set, execution_payload_bid_signature_set,
+    get_builder_pubkey_from_state, get_pubkey_from_state, randao_signature_set,
+};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
-use types::*;
+use types::{consts::gloas::BUILDER_INDEX_SELF_BUILD, *};
 
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
@@ -521,4 +526,163 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
     slots_since_genesis
         .safe_mul(spec.get_slot_duration().as_secs())
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
+}
+
+pub fn can_builder_cover_bid<E: EthSpec>(
+    state: &BeaconState<E>,
+    builder_index: BuilderIndex,
+    builder: &Builder,
+    bid_amount: u64,
+    spec: &ChainSpec,
+) -> Result<bool, BlockProcessingError> {
+    let builder_balance = builder.balance;
+    let pending_withdrawals_amount =
+        state.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+    let min_balance = spec
+        .min_deposit_amount
+        .safe_add(pending_withdrawals_amount)?;
+    if builder_balance < min_balance {
+        Ok(false)
+    } else {
+        Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
+    }
+}
+
+pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    state: &mut BeaconState<E>,
+    block: BeaconBlockRef<'_, E, Payload>,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    // Verify the bid signature
+    let signed_bid = block.body().signed_execution_payload_bid()?;
+
+    let bid = &signed_bid.message;
+    let amount = bid.value;
+    let builder_index = bid.builder_index;
+
+    // For self-builds, amount must be zero regardless of withdrawal credential prefix
+    if builder_index == BUILDER_INDEX_SELF_BUILD {
+        block_verify!(
+            amount == 0,
+            ExecutionPayloadBidInvalid::SelfBuildNonZeroAmount.into()
+        );
+        block_verify!(
+            signed_bid.signature.is_infinity(),
+            ExecutionPayloadBidInvalid::BadSignature.into()
+        );
+    } else {
+        let builder = state.get_builder(builder_index)?;
+
+        // Verify that the builder is active
+        block_verify!(
+            builder.is_active_at_finalized_epoch(state.finalized_checkpoint().epoch, spec),
+            ExecutionPayloadBidInvalid::BuilderNotActive(builder_index).into()
+        );
+
+        // Verify that the builder has funds to cover the bid
+        block_verify!(
+            can_builder_cover_bid(state, builder_index, builder, amount, spec)?,
+            ExecutionPayloadBidInvalid::InsufficientBalance {
+                builder_index,
+                builder_balance: builder.balance,
+                bid_value: amount,
+            }
+            .into()
+        );
+
+        if verify_signatures.is_true() {
+            block_verify!(
+                // We know this is NOT a self-build, so there MUST be a signature set (func does not
+                // return None).
+                execution_payload_bid_signature_set(
+                    state,
+                    |i| get_builder_pubkey_from_state(state, i),
+                    signed_bid,
+                    spec
+                )?
+                .ok_or(ExecutionPayloadBidInvalid::BadSignature)?
+                .verify(),
+                ExecutionPayloadBidInvalid::BadSignature.into()
+            );
+        }
+    }
+
+    // Verify commitments are under limit
+    let max_blobs_per_block = spec.max_blobs_per_block(state.current_epoch()) as usize;
+    block_verify!(
+        bid.blob_kzg_commitments.len() <= max_blobs_per_block,
+        ExecutionPayloadBidInvalid::ExcessBlobCommitments {
+            max: max_blobs_per_block,
+            bid: bid.blob_kzg_commitments.len(),
+        }
+        .into()
+    );
+
+    // Verify that the bid is for the current slot
+    block_verify!(
+        bid.slot == block.slot(),
+        ExecutionPayloadBidInvalid::SlotMismatch {
+            bid_slot: bid.slot,
+            block_slot: block.slot(),
+        }
+        .into()
+    );
+
+    // Verify that the bid is for the right parent block
+    let latest_block_hash = state.latest_block_hash()?;
+    block_verify!(
+        bid.parent_block_hash == *latest_block_hash,
+        ExecutionPayloadBidInvalid::ParentBlockHashMismatch {
+            state_block_hash: *latest_block_hash,
+            bid_parent_hash: bid.parent_block_hash,
+        }
+        .into()
+    );
+
+    block_verify!(
+        bid.parent_block_root == block.parent_root(),
+        ExecutionPayloadBidInvalid::ParentBlockRootMismatch {
+            block_parent_root: block.parent_root(),
+            bid_parent_root: bid.parent_block_root,
+        }
+        .into()
+    );
+
+    let expected_randao = *state.get_randao_mix(state.current_epoch())?;
+    block_verify!(
+        bid.prev_randao == expected_randao,
+        ExecutionPayloadBidInvalid::PrevRandaoMismatch {
+            expected: expected_randao,
+            bid: bid.prev_randao,
+        }
+        .into()
+    );
+
+    // Record the pending payment if there is some payment
+    if amount > 0 {
+        let pending_payment = BuilderPendingPayment {
+            weight: 0,
+            withdrawal: BuilderPendingWithdrawal {
+                fee_recipient: bid.fee_recipient,
+                amount,
+                builder_index,
+            },
+        };
+
+        let payment_index = E::SlotsPerEpoch::to_usize()
+            .safe_add(bid.slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
+
+        *state
+            .builder_pending_payments_mut()?
+            .get_mut(payment_index)
+            .ok_or(BlockProcessingError::BeaconStateError(
+                BeaconStateError::InvalidBuilderPendingPaymentsIndex(payment_index),
+            ))? = pending_payment;
+    }
+
+    // Cache the execution bid
+    *state.latest_execution_payload_bid_mut()? = bid.clone();
+
+    Ok(())
 }

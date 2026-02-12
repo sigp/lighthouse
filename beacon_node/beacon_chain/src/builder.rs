@@ -372,8 +372,8 @@ where
 
         // Initialize anchor info before attempting to write the genesis state.
         // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
-        // historic states from being retained (unless `--reconstruct-historic-states` is set).
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        // historic states from being retained (unless `--archive` is set).
+        let retain_historic_states = self.chain_config.archive;
         let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
         self.pending_io_batch.push(
             store
@@ -529,7 +529,7 @@ where
         // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
         // is initialised prior to storing the state, as the anchor is required for working out
         // hdiff storage strategies.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        let retain_historic_states = self.chain_config.archive;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
@@ -1125,9 +1125,7 @@ where
         );
 
         // Check for states to reconstruct (in the background).
-        if beacon_chain.config.reconstruct_historic_states
-            && beacon_chain.store.get_oldest_block_slot() == 0
-        {
+        if beacon_chain.config.archive && beacon_chain.store.get_oldest_block_slot() == 0 {
             beacon_chain.store_migrator.process_reconstruction();
         }
 

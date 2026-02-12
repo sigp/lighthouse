@@ -9,7 +9,7 @@ use fixed_bytes::FixedBytesExtended;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{NumFields, metastruct};
 use milhouse::{List, Vector};
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
@@ -218,6 +218,7 @@ pub enum BeaconStateError {
         envelope_epoch: Epoch,
     },
     InvalidIndicesCount,
+    InvalidBuilderPendingPaymentsIndex(usize),
     InvalidExecutionPayloadAvailabilityIndex(usize),
 }
 
@@ -2747,6 +2748,30 @@ impl<E: EthSpec> BeaconState<E> {
             pending_balance.safe_add_assign(withdrawal.amount)?;
         }
         Ok(pending_balance)
+    }
+
+    pub fn get_pending_balance_to_withdraw_for_builder(
+        &self,
+        builder_index: BuilderIndex,
+    ) -> Result<u64, BeaconStateError> {
+        let pending_withdrawals_total = self
+            .builder_pending_withdrawals()?
+            .iter()
+            .filter_map(|withdrawal| {
+                (withdrawal.builder_index == builder_index).then_some(withdrawal.amount)
+            })
+            .safe_sum()?;
+        let pending_payments_total = self
+            .builder_pending_payments()?
+            .iter()
+            .filter_map(|payment| {
+                (payment.withdrawal.builder_index == builder_index)
+                    .then_some(payment.withdrawal.amount)
+            })
+            .safe_sum()?;
+        pending_withdrawals_total
+            .safe_add(pending_payments_total)
+            .map_err(Into::into)
     }
 
     // ******* Electra mutators *******

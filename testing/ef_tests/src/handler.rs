@@ -1139,11 +1139,13 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
             && (!fork_name.gloas_enabled()
                 || self.handler_name() == "attestation"
                 || self.handler_name() == "attester_slashing"
+                || self.handler_name() == "block_header"
                 || self.handler_name() == "bls_to_execution_change"
                 || self.handler_name() == "consolidation_request"
                 || self.handler_name() == "deposit_request"
                 || self.handler_name() == "deposit"
                 || self.handler_name() == "execution_payload"
+                || self.handler_name() == "execution_payload_bid"
                 || self.handler_name() == "proposer_slashing"
                 || self.handler_name() == "sync_aggregate"
                 || self.handler_name() == "withdrawal_request"

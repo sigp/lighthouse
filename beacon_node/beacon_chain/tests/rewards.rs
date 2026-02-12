@@ -29,7 +29,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 fn get_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..Default::default()
     };
 
@@ -48,7 +48,7 @@ fn get_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
 
 fn get_electra_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..Default::default()
     };
 

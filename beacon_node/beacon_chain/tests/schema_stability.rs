@@ -70,7 +70,7 @@ async fn schema_stability() {
     let store = get_store(&datadir, store_config, spec.clone());
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..ChainConfig::default()
     };
 

@@ -135,7 +135,7 @@ impl ApiTester {
         let mut harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
             .chain_config(ChainConfig {
-                reconstruct_historic_states: config.retain_historic_states,
+                archive: config.retain_historic_states,
                 ..ChainConfig::default()
             })
             .deterministic_keypairs(VALIDATOR_COUNT)
