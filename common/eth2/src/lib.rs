@@ -2805,10 +2805,13 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
-        let mut es = self
-            .client
-            .get(path)
+        let client = reqwest::Client::builder()
             .read_timeout(self.timeouts.events)
+            .build()?;
+
+        let mut es = client
+            .get(path)
+            .timeout(self.timeouts.events)
             .eventsource()
             .map_err(Error::SseEventSource)?;
         // If we don't await `Event::Open` here, then the consumer
