@@ -495,7 +495,9 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .next()
         .unwrap()
         .aggregation_bits_base_mut()
-        .unwrap() = Bitfield::with_capacity(spec.target_committee_size).unwrap();
+        .unwrap() =
+        Bitfield::<ssz::Variable<<MainnetEthSpec as EthSpec>::MaxValidatorsPerCommittee>>::with_capacity(spec.target_committee_size)
+            .unwrap();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
