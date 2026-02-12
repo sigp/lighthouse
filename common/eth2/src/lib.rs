@@ -1936,6 +1936,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/identity`
+    #[cfg(feature = "network")]
     pub async fn get_node_identity(&self) -> Result<GenericResponse<IdentityData>, Error> {
         let mut path = self.eth_path(V1)?;
 
