@@ -1,9 +1,9 @@
 use crate::common::genesis_deposits;
-use bls::{Keypair, PublicKey, Signature, SignatureBytes};
+use bls::{Keypair, PublicKey, Signature};
 use ethereum_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
-use state_processing::{VerifySignatures, initialize_beacon_state_from_eth1};
+use state_processing::initialize_beacon_state_from_eth1;
 use types::{BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256};
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
@@ -124,7 +124,7 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
                     signature: Signature::empty().into(),
                 };
 
-                data.signature = SignatureBytes::empty();
+                data.signature = data.create_signature(&keypair.sk, spec);
 
                 data
             })
@@ -135,7 +135,6 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
             eth1_timestamp,
             genesis_deposits(datas, spec)?,
             self.execution_payload_header,
-            VerifySignatures::False,
             spec,
         )
         .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;

@@ -587,14 +587,7 @@ pub fn process_deposits<E: EthSpec>(
 
     // Update the state in series.
     for deposit in deposits {
-        apply_deposit(
-            state,
-            deposit.data.clone(),
-            None,
-            true,
-            VerifySignatures::True,
-            spec,
-        )?;
+        apply_deposit(state, deposit.data.clone(), None, true, spec)?;
     }
 
     Ok(())
@@ -606,7 +599,6 @@ pub fn apply_deposit<E: EthSpec>(
     deposit_data: DepositData,
     proof: Option<FixedVector<Hash256, U33>>,
     increment_eth1_deposit_index: bool,
-    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let deposit_index = state.eth1_deposit_index() as usize;
@@ -649,7 +641,7 @@ pub fn apply_deposit<E: EthSpec>(
     else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if verify_signatures.is_true() && is_valid_deposit_signature(&deposit_data, spec).is_err() {
+        if is_valid_deposit_signature(&deposit_data, spec).is_err() {
             return Ok(());
         }
 

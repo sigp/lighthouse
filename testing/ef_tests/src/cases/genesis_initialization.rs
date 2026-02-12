@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
-use state_processing::{VerifySignatures, initialize_beacon_state_from_eth1};
+use state_processing::initialize_beacon_state_from_eth1;
 use types::{BeaconState, Deposit, ExecutionPayloadHeader, Hash256};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,7 +77,6 @@ impl<E: EthSpec> Case for GenesisInitialization<E> {
             self.eth1_timestamp,
             self.deposits.clone(),
             self.execution_payload_header.clone(),
-            VerifySignatures::True,
             spec,
         );
 

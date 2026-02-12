@@ -41,6 +41,7 @@ pub enum RangeSyncState {
 pub type SyncChainStatus =
     Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str>;
 
+#[cfg(test)]
 #[derive(Default, Debug)]
 pub struct ChainCollectionMetrics {
     pub chains_added: usize,
@@ -57,6 +58,7 @@ pub struct ChainCollection<T: BeaconChainTypes> {
     head_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The current sync state of the process.
     state: RangeSyncState,
+    #[cfg(test)]
     /// Used for testing assertions
     metrics: ChainCollectionMetrics,
 }
@@ -68,6 +70,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             finalized_chains: FnvHashMap::default(),
             head_chains: FnvHashMap::default(),
             state: RangeSyncState::Idle,
+            #[cfg(test)]
             metrics: <_>::default(),
         }
     }
@@ -80,7 +83,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Updates the Syncing state of the collection after a chain is removed.
     fn on_chain_removed(&mut self, id: &ChainId, was_syncing: bool, sync_type: RangeSyncType) {
         metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_REMOVED, &[sync_type.as_str()]);
-        self.metrics.chains_removed += 1;
+        #[cfg(test)]
+        {
+            self.metrics.chains_removed += 1;
+        }
         self.update_metrics();
 
         match self.state {
@@ -525,7 +531,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 );
                 collection.insert(id, new_chain);
                 metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_ADDED, &[sync_type.as_str()]);
-                self.metrics.chains_added += 1;
+                #[cfg(test)]
+                {
+                    self.metrics.chains_added += 1;
+                }
                 self.update_metrics();
             }
         }

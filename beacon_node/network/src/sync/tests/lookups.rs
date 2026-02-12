@@ -1014,7 +1014,7 @@ impl TestRig {
             .expect("no blocks")
     }
 
-    fn expect_penalties(&self, expected_penalties: &[&'static str]) {
+    fn assert_penalties(&self, expected_penalties: &[&'static str]) {
         let penalties = self
             .penalties
             .iter()
@@ -1032,7 +1032,7 @@ impl TestRig {
         }
     }
 
-    fn expect_penalties_of_type(&self, expected_penalty: &'static str) {
+    fn assert_penalties_of_type(&self, expected_penalty: &'static str) {
         if self.penalties.is_empty() {
             panic!("No penalties but expected some of type {expected_penalty}");
         }
@@ -1049,7 +1049,7 @@ impl TestRig {
         }
     }
 
-    fn expect_no_penalties(&mut self) {
+    fn assert_no_penalties(&mut self) {
         if !self.penalties.is_empty() {
             panic!("Some downscore events: {:?}", self.penalties);
         }
@@ -1063,8 +1063,8 @@ impl TestRig {
             "not all dropped. Current lookups {:?}",
             self.active_single_lookups(),
         );
-        self.expect_empty_network();
-        self.expect_no_active_lookups();
+        self.assert_empty_network();
+        self.assert_no_active_lookups();
     }
 
     fn assert_successful_lookup_sync(&mut self) {
@@ -1076,8 +1076,8 @@ impl TestRig {
             "not all lookups completed. Current lookups {:?}",
             self.active_single_lookups(),
         );
-        self.expect_empty_network();
-        self.expect_no_active_lookups();
+        self.assert_empty_network();
+        self.assert_no_active_lookups();
     }
 
     /// There is a lookup created with the block that triggers the unknown message that can't be
@@ -1090,7 +1090,7 @@ impl TestRig {
             "all completed"
         );
         assert_eq!(self.dropped_lookups(), 0, "some dropped lookups");
-        self.expect_empty_network();
+        self.assert_empty_network();
     }
 
     fn assert_pending_lookup_sync(&self) {
@@ -1292,7 +1292,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_no_active_single_lookups(&self) {
+    fn assert_no_active_single_lookups(&self) {
         assert!(
             self.active_single_lookups().is_empty(),
             "expect no single block lookups: {:?}",
@@ -1301,8 +1301,8 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_no_active_lookups(&self) {
-        self.expect_no_active_single_lookups();
+    fn assert_no_active_lookups(&self) {
+        self.assert_no_active_single_lookups();
     }
 
     pub fn new_connected_peer(&mut self) -> PeerId {
@@ -1447,7 +1447,7 @@ impl TestRig {
         }
     }
 
-    pub fn expect_empty_processor(&mut self) {
+    pub fn assert_empty_processor(&mut self) {
         self.drain_processor_rx();
         if !self.beacon_processor_rx_queue.is_empty() {
             panic!(
@@ -1458,7 +1458,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    pub fn expect_empty_network(&mut self) {
+    pub fn assert_empty_network(&mut self) {
         self.drain_network_rx();
         if !self.network_rx_queue.is_empty() {
             let n = self.network_rx_queue.len();
@@ -1748,7 +1748,7 @@ async fn bad_peer_empty_block_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_no_blocks_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.expect_penalties(&["NotEnoughResponsesReturned"]);
+    r.assert_penalties(&["NotEnoughResponsesReturned"]);
     r.assert_successful_lookup_sync();
 
     // TODO(tree-sync) For post-deneb assert that the blobs are not re-fetched
@@ -1764,7 +1764,7 @@ async fn bad_peer_empty_data_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_no_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.expect_penalties(&["NotEnoughResponsesReturned"]);
+    r.assert_penalties(&["NotEnoughResponsesReturned"]);
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1779,7 +1779,7 @@ async fn bad_peer_too_few_data_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_too_few_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.expect_penalties(&["NotEnoughResponsesReturned"]);
+    r.assert_penalties(&["NotEnoughResponsesReturned"]);
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1790,7 +1790,7 @@ async fn bad_peer_wrong_block_response(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_wrong_blocks_once())
         .await;
-    r.expect_penalties(&["UnrequestedBlockRoot"]);
+    r.assert_penalties(&["UnrequestedBlockRoot"]);
     r.assert_successful_lookup_sync();
 
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
@@ -1805,7 +1805,7 @@ async fn bad_peer_wrong_data_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_wrong_sidecar_for_block_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.expect_penalties(&["UnrequestedBlockRoot"]);
+    r.assert_penalties(&["UnrequestedBlockRoot"]);
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1816,7 +1816,7 @@ async fn bad_peer_rpc_failure(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_rpc_error(RPCError::UnsupportedProtocol))
         .await;
-    r.expect_no_penalties();
+    r.assert_no_penalties();
     r.assert_successful_lookup_sync();
 }
 
@@ -1830,7 +1830,7 @@ async fn too_many_download_failures(depth: usize) {
     r.simulate(SimulateConfig::new().return_no_blocks_always())
         .await;
     // We register multiple penalties, the lookup fails and sync does not progress
-    r.expect_penalties_of_type("NotEnoughResponsesReturned");
+    r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_failed_lookup_sync();
 
     // Trigger sync again for same block, and complete successfully.
@@ -1852,7 +1852,7 @@ async fn too_many_processing_failures(depth: usize) {
     )
     .await;
     // We register multiple penalties, the lookup fails and sync does not progress
-    r.expect_penalties_of_type("lookup_block_processing_failure");
+    r.assert_penalties_of_type("lookup_block_processing_failure");
     r.assert_failed_lookup_sync();
 
     // Trigger sync again for same block, and complete successfully.
@@ -1942,7 +1942,7 @@ async fn peer_disconnected_then_rpc_error(depth: usize) {
     assert_eq!(r.created_lookups(), 1, "no created lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
     assert_eq!(r.dropped_lookups(), 0, "some dropped lookups");
-    r.expect_empty_network();
+    r.assert_empty_network();
     r.assert_single_lookups_count(1);
 }
 
@@ -1982,7 +1982,7 @@ async fn test_parent_lookup_too_deep_grow_ancestor_one() {
     r.simulate(SimulateConfig::happy_path()).await;
 
     r.assert_head_slot(PARENT_DEPTH_TOLERANCE as u64 + 1);
-    r.expect_no_penalties();
+    r.assert_no_penalties();
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     // r.assert_ignored_chain(chain_hash);
     //
@@ -2009,7 +2009,7 @@ async fn test_parent_lookup_too_deep_grow_ancestor_zero() {
     r.simulate(SimulateConfig::happy_path()).await;
 
     r.assert_head_slot(PARENT_DEPTH_TOLERANCE as u64);
-    r.expect_no_penalties();
+    r.assert_no_penalties();
     assert_eq!(
         r.completed_lookups(),
         PARENT_DEPTH_TOLERANCE,
@@ -2033,8 +2033,8 @@ async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing
     // The tip root should have been inserted into ignored chains.
     // Ensure no blocks have been synced
     r.assert_head_slot(0);
-    r.expect_no_active_lookups();
-    r.expect_no_penalties();
+    r.assert_no_active_lookups();
+    r.assert_no_penalties();
     r.assert_ignored_chain(r.block_at_slot(depth as u64).canonical_root());
 
     // WHEN: Trigger the extending block that points to the tip.
@@ -2042,9 +2042,9 @@ async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing
     r.trigger_unknown_parent_block(peer, r.block_at_slot(depth as u64 + 1));
     // THEN: The extending block should not create a lookup because the tip was inserted into
     // ignored chains.
-    r.expect_no_active_lookups();
-    r.expect_no_penalties();
-    r.expect_empty_network();
+    r.assert_no_active_lookups();
+    r.assert_no_penalties();
+    r.assert_empty_network();
 }
 
 #[tokio::test]
@@ -2070,7 +2070,7 @@ async fn test_parent_lookup_too_deep_grow_tip() {
     assert_eq!(r.dropped_lookups(), 0, "some dropped lookups");
     r.assert_successful_lookup_sync();
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
-    r.expect_no_penalties();
+    r.assert_no_penalties();
 }
 
 #[tokio::test]
@@ -2080,9 +2080,9 @@ async fn test_skip_creating_ignored_parent_lookup() {
     r.insert_ignored_chain(r.block_root_at_slot(1));
     r.trigger_with_last_block();
     r.simulate(SimulateConfig::happy_path()).await;
-    r.expect_no_penalties();
+    r.assert_no_penalties();
     // Both current and parent lookup should not be created
-    r.expect_no_active_lookups();
+    r.assert_no_active_lookups();
 }
 
 #[tokio::test]
@@ -2183,9 +2183,9 @@ async fn block_in_processing_cache_becomes_valid_imported() {
     r.simulate_block_gossip_processing_becomes_valid(block)
         .await;
     // Should not trigger block or blob request
-    r.expect_empty_network();
+    r.assert_empty_network();
     // Resolve blob and expect lookup completed
-    r.expect_no_active_lookups();
+    r.assert_no_active_lookups();
 }
 
 // IGNORE: wait for change that delays blob fetching to knowing the block
@@ -2259,7 +2259,7 @@ async fn custody_lookup_happy_path(test_type: FuluTestType) {
     r.new_connected_peers_for_peerdas();
     r.trigger_with_last_block();
     r.simulate(SimulateConfig::happy_path()).await;
-    r.expect_no_penalties();
+    r.assert_no_penalties();
     r.assert_successful_lookup_sync();
 }
 
@@ -2275,7 +2275,7 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
     let custody_columns = r.custody_columns();
     r.simulate(SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3))
         .await;
-    r.expect_penalties_of_type("NotEnoughResponsesReturned");
+    r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_successful_lookup_sync();
 }
 
@@ -2297,7 +2297,7 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
     .await;
     // Every peer that does not return a column is part of the lookup because it claimed to have
     // imported the lookup, so we will penalize.
-    r.expect_penalties_of_type("NotEnoughResponsesReturned");
+    r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_failed_lookup_sync();
 }
 
@@ -2322,10 +2322,10 @@ async fn crypto_on_fail_with_invalid_block_signature() {
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
-        r.expect_no_penalties();
+        r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.expect_penalties_of_type("lookup_block_processing_failure");
+        r.assert_penalties_of_type("lookup_block_processing_failure");
     }
 }
 
@@ -2340,10 +2340,10 @@ async fn crypto_on_fail_with_bad_blob_proposer_signature() {
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
-        r.expect_no_penalties();
+        r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.expect_penalties_of_type("lookup_blobs_processing_failure");
+        r.assert_penalties_of_type("lookup_blobs_processing_failure");
     }
 }
 
@@ -2358,10 +2358,10 @@ async fn crypto_on_fail_with_bad_blob_kzg_proof() {
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
-        r.expect_no_penalties();
+        r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.expect_penalties_of_type("lookup_blobs_processing_failure");
+        r.assert_penalties_of_type("lookup_blobs_processing_failure");
     }
 }
 
@@ -2376,10 +2376,10 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
-        r.expect_no_penalties();
+        r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.expect_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
     }
 }
 
@@ -2394,9 +2394,9 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
-        r.expect_no_penalties();
+        r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.expect_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
     }
 }

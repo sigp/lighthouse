@@ -185,7 +185,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_chain_segments(&mut self, count: usize) {
+    fn assert_chain_segments(&mut self, count: usize) {
         for i in 0..count {
             self.pop_received_processor_event(|ev| {
                 (ev.work_type() == beacon_processor::WorkType::ChainSegment).then_some(())
@@ -559,7 +559,7 @@ fn pause_and_resume_on_ee_offline() {
     // send the response to the request
     rig.find_and_complete_blocks_by_range_request(filter().peer(peer1).epoch(0));
     // the beacon processor shouldn't have received any work
-    rig.expect_empty_processor();
+    rig.assert_empty_processor();
 
     // while the ee is offline, more peers might arrive. Add a new finalized peer.
     let _peer2 = rig.add_finalized_peer();
@@ -570,14 +570,14 @@ fn pause_and_resume_on_ee_offline() {
     // epoch for the other batch. So we can either filter by epoch of by sync type.
     rig.find_and_complete_blocks_by_range_request(filter().epoch(0));
     // the beacon processor shouldn't have received any work
-    rig.expect_empty_processor();
+    rig.assert_empty_processor();
     // make the beacon processor available again.
     // update_execution_engine_state implicitly calls resume
     // now resume range, we should have two processing requests in the beacon processor.
     rig.update_execution_engine_state(EngineState::Online);
 
     // The head chain and finalized chain (2) should be in the processing queue
-    rig.expect_chain_segments(2);
+    rig.assert_chain_segments(2);
 }
 
 /// To attempt to finalize the peer's status finalized checkpoint we synced to its finalized epoch +
@@ -621,7 +621,7 @@ fn finalized_sync_not_enough_custody_peers_on_start() {
     // Because we don't have enough peers on all columns we haven't sent any request.
     // NOTE: There's a small chance that this single peer happens to custody exactly the set we
     // expect, in that case the test will fail. Find a way to make the test deterministic.
-    r.expect_empty_network();
+    r.assert_empty_network();
 
     // Generate enough peers and supernodes to cover all custody columns
     let peer_count = 100;
