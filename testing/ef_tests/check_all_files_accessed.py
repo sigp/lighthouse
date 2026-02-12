@@ -50,7 +50,6 @@ excluded_paths = [
     # TODO(gloas): remove these ignores as more Gloas operations are implemented
     "tests/.*/gloas/operations/payload_attestation/.*",
     # TODO(EIP-7732): remove these ignores as Gloas consensus is implemented
-    "tests/.*/gloas/epoch_processing/.*",
     "tests/.*/gloas/finality/.*",
     "tests/.*/gloas/fork/.*",
     "tests/.*/gloas/fork_choice/.*",
