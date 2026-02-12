@@ -537,6 +537,11 @@ impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
     fn handler_name(&self) -> String {
         "random".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas random tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -606,6 +611,11 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
 
     fn handler_name(&self) -> String {
         "fork".into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once onboard_builders_from_pending_deposits is implemented
+        vec![ForkName::Gloas]
     }
 }
 
@@ -744,6 +754,11 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas optimistic sync tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -965,6 +980,11 @@ impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
     fn handler_name(&self) -> String {
         "compute_cells".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -984,6 +1004,11 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "compute_cells_and_kzg_proofs".into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -1005,6 +1030,11 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
     fn handler_name(&self) -> String {
         "verify_cell_kzg_proof_batch".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -1024,6 +1054,11 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "recover_cells_and_kzg_proofs".into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -1073,6 +1108,11 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.altair_enabled()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas light client tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -1097,6 +1137,11 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
         fork_name.altair_enabled()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas light client tests
+        vec![ForkName::Gloas]
     }
 }
 
