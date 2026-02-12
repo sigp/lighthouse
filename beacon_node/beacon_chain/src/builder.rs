@@ -9,7 +9,7 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::build_data_column_sidecars;
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -41,8 +41,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
-use tracing::{debug, error, info};
-use types::data_column_custody_group::CustodyIndex;
+use tracing::{debug, error, info, warn};
+use tree_hash::TreeHash;
+use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
     Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
@@ -371,8 +372,8 @@ where
 
         // Initialize anchor info before attempting to write the genesis state.
         // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
-        // historic states from being retained (unless `--reconstruct-historic-states` is set).
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        // historic states from being retained (unless `--archive` is set).
+        let retain_historic_states = self.chain_config.archive;
         let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
         self.pending_io_batch.push(
             store
@@ -528,7 +529,7 @@ where
         // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
         // is initialised prior to storing the state, as the anchor is required for working out
         // hdiff storage strategies.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        let retain_historic_states = self.chain_config.archive;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
@@ -847,6 +848,33 @@ where
             ));
         }
 
+        // Check if the head snapshot is within the weak subjectivity period
+        let head_state = &head_snapshot.beacon_state;
+        let Ok(ws_period) = head_state.compute_weak_subjectivity_period(&self.spec) else {
+            return Err(format!(
+                "Unable to compute the weak subjectivity period at the head snapshot slot: {:?}",
+                head_state.slot()
+            ));
+        };
+        if current_slot.epoch(E::slots_per_epoch())
+            > head_state.slot().epoch(E::slots_per_epoch()) + ws_period
+        {
+            if self.chain_config.ignore_ws_check {
+                warn!(
+                    head_slot=%head_state.slot(),
+                    %current_slot,
+                    "The current head state is outside the weak subjectivity period. You are currently running a node that is susceptible to long range attacks. \
+                    It is highly recommended to purge your db and checkpoint sync. For more information please \
+                    read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
+                )
+            }
+            return Err(
+                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
+            );
+        }
+
         let validator_pubkey_cache = self
             .validator_pubkey_cache
             .map(|mut validator_pubkey_cache| {
@@ -1048,7 +1076,6 @@ where
                     complete_blob_backfill,
                     slot_clock,
                     self.kzg.clone(),
-                    store,
                     Arc::new(custody_context),
                     self.spec,
                 )
@@ -1098,9 +1125,7 @@ where
         );
 
         // Check for states to reconstruct (in the background).
-        if beacon_chain.config.reconstruct_historic_states
-            && beacon_chain.store.get_oldest_block_slot() == 0
-        {
+        if beacon_chain.config.archive && beacon_chain.store.get_oldest_block_slot() == 0 {
             beacon_chain.store_migrator.process_reconstruction();
         }
 
@@ -1213,17 +1238,29 @@ fn build_data_columns_from_blobs<E: EthSpec>(
             .blob_kzg_commitments()
             .cloned()
             .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
-        let kzg_commitments_inclusion_proof = beacon_block_body
-            .kzg_commitments_merkle_proof()
-            .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
-        build_data_column_sidecars(
-            kzg_commitments,
-            kzg_commitments_inclusion_proof,
-            block.signed_block_header(),
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+
+        if block.fork_name_unchecked().gloas_enabled() {
+            build_data_column_sidecars_gloas(
+                block.message().tree_hash_root(),
+                block.slot(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        } else {
+            let kzg_commitments_inclusion_proof = beacon_block_body
+                .kzg_commitments_merkle_proof()
+                .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
+
+            build_data_column_sidecars_fulu(
+                kzg_commitments,
+                kzg_commitments_inclusion_proof,
+                block.signed_block_header(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        }
     };
     Ok(data_columns)
 }

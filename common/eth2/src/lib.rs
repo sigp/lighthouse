@@ -42,7 +42,7 @@ use reqwest::{
     header::{HeaderMap, HeaderValue},
 };
 #[cfg(feature = "events")]
-use reqwest_eventsource::{Event, EventSource};
+use reqwest_eventsource::{Event, RequestBuilderExt};
 use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
@@ -78,6 +78,8 @@ const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
+// Generally the timeout for events should be longer than a slot.
+const HTTP_GET_EVENTS_TIMEOUT_MULTIPLIER: u32 = 50;
 const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
 
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
@@ -98,6 +100,7 @@ pub struct Timeouts {
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
     pub get_validator_block: Duration,
+    pub events: Duration,
     pub default: Duration,
 }
 
@@ -118,6 +121,7 @@ impl Timeouts {
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
             get_validator_block: timeout,
+            events: HTTP_GET_EVENTS_TIMEOUT_MULTIPLIER * timeout,
             default: timeout,
         }
     }
@@ -140,6 +144,7 @@ impl Timeouts {
             get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
             get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
             get_validator_block: base_timeout / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
+            events: HTTP_GET_EVENTS_TIMEOUT_MULTIPLIER * base_timeout,
             default: base_timeout / HTTP_DEFAULT_TIMEOUT_QUOTIENT,
         }
     }
@@ -2804,7 +2809,12 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
-        let mut es = EventSource::get(path);
+        let mut es = self
+            .client
+            .get(path)
+            .timeout(self.timeouts.events)
+            .eventsource()
+            .map_err(Error::SseEventSource)?;
         // If we don't await `Event::Open` here, then the consumer
         // will not get any Message events until they start awaiting the stream.
         // This is a way to register the stream with the sse server before

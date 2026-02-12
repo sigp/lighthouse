@@ -24,8 +24,7 @@ use typenum::Unsigned;
 use types::{
     Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
     MainnetEthSpec, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
-    signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
-    test_utils::generate_deterministic_keypair,
+    attestation::SignedAggregateAndProofRefMut, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -55,7 +54,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec)
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -92,7 +91,7 @@ fn get_harness_capella_spec(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec.clone())
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(validator_keypairs)

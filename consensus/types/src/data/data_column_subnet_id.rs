@@ -72,3 +72,9 @@ impl From<&DataColumnSubnetId> for u64 {
         val.0
     }
 }
+
+pub fn all_data_column_sidecar_subnets_from_spec(
+    spec: &ChainSpec,
+) -> impl Iterator<Item = DataColumnSubnetId> {
+    (0..spec.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
+}

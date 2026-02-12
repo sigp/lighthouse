@@ -31,7 +31,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -420,6 +420,92 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::GossipBlsToExecutionChange(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some execution payload envelope.
+    pub fn send_gossip_execution_payload(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload: Box<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_execution_payload(message_id, peer_id, *execution_payload)
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipExecutionPayload(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some execution payload bid
+    pub fn send_gossip_execution_payload_bid(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload_bid: Box<SignedExecutionPayloadBid<T::EthSpec>>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_execution_payload_bid(
+                message_id,
+                peer_id,
+                *execution_payload_bid,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipExecutionPayloadBid(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some payload attestation
+    pub fn send_gossip_payload_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_payload_attestation(
+                message_id,
+                peer_id,
+                *payload_attestation_message,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipPayloadAttestation(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some proposer preferences
+    pub fn send_gossip_proposer_preferences(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_preferences: Box<SignedProposerPreferences>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_proposer_preferences(
+                message_id,
+                peer_id,
+                *proposer_preferences,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipProposerPreferences(Box::new(process_fn)),
         })
     }
 
@@ -980,7 +1066,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             .into_iter()
                             .map(|d| {
                                 let subnet =
-                                    DataColumnSubnetId::from_column_index(d.index, &chain.spec);
+                                    DataColumnSubnetId::from_column_index(*d.index(), &chain.spec);
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
                             .collect(),

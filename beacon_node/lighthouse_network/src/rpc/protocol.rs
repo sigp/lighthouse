@@ -17,11 +17,12 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecar,
-    EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
-    LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
-    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecarFulu,
+    DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
+    SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -640,10 +641,23 @@ pub fn rpc_data_column_limits<E: EthSpec>(
     current_digest_epoch: Epoch,
     spec: &ChainSpec,
 ) -> RpcLimits {
-    RpcLimits::new(
-        DataColumnSidecar::<E>::min_size(),
-        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block(current_digest_epoch) as usize),
-    )
+    let fork_name = spec.fork_name_at_epoch(current_digest_epoch);
+
+    if fork_name.gloas_enabled() {
+        RpcLimits::new(
+            DataColumnSidecarGloas::<E>::min_size(),
+            DataColumnSidecarGloas::<E>::max_size(
+                spec.max_blobs_per_block(current_digest_epoch) as usize
+            ),
+        )
+    } else {
+        RpcLimits::new(
+            DataColumnSidecarFulu::<E>::min_size(),
+            DataColumnSidecarFulu::<E>::max_size(
+                spec.max_blobs_per_block(current_digest_epoch) as usize
+            ),
+        )
+    }
 }
 
 /* Inbound upgrade */
@@ -661,7 +675,7 @@ where
     E: EthSpec,
 {
     type Output = InboundOutput<TSocket, E>;
-    type Error = RPCError;
+    type Error = (Protocol, RPCError);
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
@@ -703,10 +717,12 @@ where
                     )
                     .await
                     {
-                        Err(e) => Err(RPCError::from(e)),
+                        Err(e) => Err((versioned_protocol.protocol(), RPCError::from(e))),
                         Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
-                        Ok((Some(Err(e)), _)) => Err(e),
-                        Ok((None, _)) => Err(RPCError::IncompleteStream),
+                        Ok((Some(Err(e)), _)) => Err((versioned_protocol.protocol(), e)),
+                        Ok((None, _)) => {
+                            Err((versioned_protocol.protocol(), RPCError::IncompleteStream))
+                        }
                     }
                 }
             }

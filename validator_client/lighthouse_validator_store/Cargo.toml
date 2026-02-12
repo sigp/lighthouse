@@ -12,6 +12,7 @@ doppelganger_service = { workspace = true }
 either = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
+futures = { workspace = true }
 initialized_validators = { workspace = true }
 logging = { workspace = true }
 parking_lot = { workspace = true }
