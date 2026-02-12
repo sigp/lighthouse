@@ -8,19 +8,23 @@ edition = { workspace = true }
 default = []
 lighthouse = ["proto_array", "eth2_keystore", "eip_3076", "zeroize"]
 events = ["reqwest-eventsource", "futures", "futures-util"]
+network = ["libp2p-identity", "enr", "multiaddr"]
 
 [dependencies]
 bls = { workspace = true }
 context_deserialize = { workspace = true }
 educe = { workspace = true }
 eip_3076 = { workspace = true, optional = true }
+enr = { version = "0.13.0", features = ["ed25519"], optional = true }
 eth2_keystore = { workspace = true, optional = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 futures = { workspace = true, optional = true }
 futures-util = { version = "0.3.8", optional = true }
+libp2p-identity = { version = "0.2", features = ["peerid"], optional = true }
 mediatype = "0.19.13"
+multiaddr = { version = "0.18.2", optional = true }
 pretty_reqwest_error = { workspace = true }
 proto_array = { workspace = true, optional = true }
 reqwest = { workspace = true }

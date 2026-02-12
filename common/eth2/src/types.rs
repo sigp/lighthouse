@@ -9,7 +9,11 @@ use crate::{
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::ContextDeserialize;
+#[cfg(feature = "network")]
+use enr::{CombinedKey, Enr};
 use mediatype::{MediaType, MediaTypeList, names};
+#[cfg(feature = "network")]
+use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -559,12 +563,13 @@ pub struct ChainHeadData {
     pub execution_optimistic: Option<bool>,
 }
 
+#[cfg(feature = "network")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentityData {
     pub peer_id: String,
-    pub enr: String,
-    pub p2p_addresses: Vec<String>,
-    pub discovery_addresses: Vec<String>,
+    pub enr: Enr<CombinedKey>,
+    pub p2p_addresses: Vec<Multiaddr>,
+    pub discovery_addresses: Vec<Multiaddr>,
     pub metadata: MetaData,
 }
 
