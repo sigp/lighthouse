@@ -29,7 +29,6 @@ hex = { workspace = true }
 igd-next = { version = "0.16", features = ["aio_tokio"] }
 itertools = { workspace = true }
 lighthouse_network = { workspace = true }
-lighthouse_tracing = { workspace = true }
 logging = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
@@ -54,9 +53,9 @@ bls = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 genesis = { workspace = true }
-gossipsub = { workspace = true }
 k256 = "0.13.4"
 kzg = { workspace = true }
+libp2p = { workspace = true }
 matches = "0.1.8"
 rand_08 = { package = "rand", version = "0.8.5" }
 rand_chacha = "0.9.0"

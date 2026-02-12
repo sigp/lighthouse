@@ -5,6 +5,9 @@ use crate::sync::SyncMessage;
 use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::range_sync::RangeSyncType;
+use beacon_chain::BeaconChain;
+use beacon_chain::block_verification_types::AvailableBlockData;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use beacon_chain::{EngineState, NotifyExecutionLayer, block_verification_types::RpcBlock};
@@ -393,7 +396,7 @@ impl TestRig {
 
         let data_sidecars = if fork.fulu_enabled() {
             store
-                .get_data_columns(&block_root)
+                .get_data_columns(&block_root, fork)
                 .unwrap()
                 .map(|columns| {
                     columns
@@ -427,7 +430,7 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                build_rpc_block(block.into(), &data_sidecars),
+                build_rpc_block(block.into(), &data_sidecars, self.harness.chain.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -443,16 +446,42 @@ impl TestRig {
 fn build_rpc_block(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
+    chain: Arc<BeaconChain<T>>,
 ) -> RpcBlock<E> {
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
-            RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
+            let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
-            RpcBlock::new_with_custody_columns(None, block, columns.clone()).unwrap()
+            let block_data = AvailableBlockData::new_with_data_columns(
+                columns
+                    .iter()
+                    .map(|c| c.as_data_column().clone())
+                    .collect::<Vec<_>>(),
+            );
+            RpcBlock::new(
+                block,
+                Some(block_data),
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
         // Block has no data, expects zero columns
-        None => RpcBlock::new_without_blobs(None, block),
+        None => RpcBlock::new(
+            block,
+            Some(AvailableBlockData::NoData),
+            &chain.data_availability_checker,
+            chain.spec.clone(),
+        )
+        .unwrap(),
     }
 }
 
@@ -485,10 +514,11 @@ fn head_chain_removed_while_finalized_syncing() {
 async fn state_update_while_purging() {
     // NOTE: this is a regression test.
     // Added in PR https://github.com/sigp/lighthouse/pull/2827
-    let mut rig = TestRig::test_setup();
+    let mut rig = TestRig::test_setup_with_custody_type(NodeCustodyType::SemiSupernode);
 
     // Create blocks on a separate harness
-    let mut rig_2 = TestRig::test_setup();
+    // SemiSupernode ensures enough columns are stored for sampling + custody RPC block validation
+    let mut rig_2 = TestRig::test_setup_with_custody_type(NodeCustodyType::SemiSupernode);
     // Need to create blocks that can be inserted into the fork-choice and fit the "known
     // conditions" below.
     let head_peer_block = rig_2.create_canonical_block().await;

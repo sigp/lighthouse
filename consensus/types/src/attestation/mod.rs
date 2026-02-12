@@ -11,6 +11,7 @@ mod payload_attestation;
 mod payload_attestation_data;
 mod payload_attestation_message;
 mod pending_attestation;
+mod ptc;
 mod selection_proof;
 mod shuffling_id;
 mod signed_aggregate_and_proof;
@@ -36,6 +37,7 @@ pub use payload_attestation::PayloadAttestation;
 pub use payload_attestation_data::PayloadAttestationData;
 pub use payload_attestation_message::PayloadAttestationMessage;
 pub use pending_attestation::PendingAttestation;
+pub use ptc::PTC;
 pub use selection_proof::SelectionProof;
 pub use shuffling_id::AttestationShufflingId;
 pub use signed_aggregate_and_proof::{

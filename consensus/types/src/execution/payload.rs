@@ -11,9 +11,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, Hash256},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256},
     execution::{
-        ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
+        ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
         ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
         ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,

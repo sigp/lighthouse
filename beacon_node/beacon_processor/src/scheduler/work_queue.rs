@@ -128,13 +128,17 @@ pub struct BeaconProcessorQueueLengths {
     gossip_data_column_queue: usize,
     delayed_block_queue: usize,
     status_queue: usize,
-    bbrange_queue: usize,
-    bbroots_queue: usize,
-    blbroots_queue: usize,
-    blbrange_queue: usize,
+    block_brange_queue: usize,
+    block_broots_queue: usize,
+    blob_broots_queue: usize,
+    blob_brange_queue: usize,
     dcbroots_queue: usize,
     dcbrange_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
+    gossip_execution_payload_queue: usize,
+    gossip_execution_payload_bid_queue: usize,
+    gossip_payload_attestation_queue: usize,
+    gossip_proposer_preferences_queue: usize,
     lc_bootstrap_queue: usize,
     lc_rpc_optimistic_update_queue: usize,
     lc_rpc_finality_update_queue: usize,
@@ -194,13 +198,22 @@ impl BeaconProcessorQueueLengths {
             gossip_data_column_queue: 1024,
             delayed_block_queue: 1024,
             status_queue: 1024,
-            bbrange_queue: 1024,
-            bbroots_queue: 1024,
-            blbroots_queue: 1024,
-            blbrange_queue: 1024,
+            block_brange_queue: 1024,
+            block_broots_queue: 1024,
+            blob_broots_queue: 1024,
+            blob_brange_queue: 1024,
             dcbroots_queue: 1024,
             dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
+            // TODO(EIP-7732): verify 1024 is preferable. I used same value as `gossip_block_queue` and `gossip_blob_queue`
+            gossip_execution_payload_queue: 1024,
+            // TODO(EIP-7732) how big should this queue be?
+            gossip_execution_payload_bid_queue: 1024,
+            // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
+            // TODO(EIP-7732): verify if this is preferable queue length or otherwise
+            gossip_payload_attestation_queue: 1536,
+            // TODO(EIP-7732): verify if this is preferable queue length
+            gossip_proposer_preferences_queue: 1024,
             lc_gossip_finality_update_queue: 1024,
             lc_gossip_optimistic_update_queue: 1024,
             lc_bootstrap_queue: 1024,
@@ -238,13 +251,17 @@ pub struct WorkQueues<E: EthSpec> {
     pub gossip_data_column_queue: FifoQueue<Work<E>>,
     pub delayed_block_queue: FifoQueue<Work<E>>,
     pub status_queue: FifoQueue<Work<E>>,
-    pub bbrange_queue: FifoQueue<Work<E>>,
-    pub bbroots_queue: FifoQueue<Work<E>>,
-    pub blbroots_queue: FifoQueue<Work<E>>,
-    pub blbrange_queue: FifoQueue<Work<E>>,
+    pub block_brange_queue: FifoQueue<Work<E>>,
+    pub block_broots_queue: FifoQueue<Work<E>>,
+    pub blob_broots_queue: FifoQueue<Work<E>>,
+    pub blob_brange_queue: FifoQueue<Work<E>>,
     pub dcbroots_queue: FifoQueue<Work<E>>,
     pub dcbrange_queue: FifoQueue<Work<E>>,
     pub gossip_bls_to_execution_change_queue: FifoQueue<Work<E>>,
+    pub gossip_execution_payload_queue: FifoQueue<Work<E>>,
+    pub gossip_execution_payload_bid_queue: FifoQueue<Work<E>>,
+    pub gossip_payload_attestation_queue: FifoQueue<Work<E>>,
+    pub gossip_proposer_preferences_queue: FifoQueue<Work<E>>,
     pub lc_gossip_finality_update_queue: FifoQueue<Work<E>>,
     pub lc_gossip_optimistic_update_queue: FifoQueue<Work<E>>,
     pub lc_bootstrap_queue: FifoQueue<Work<E>>,
@@ -300,15 +317,24 @@ impl<E: EthSpec> WorkQueues<E> {
         let delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
 
         let status_queue = FifoQueue::new(queue_lengths.status_queue);
-        let bbrange_queue = FifoQueue::new(queue_lengths.bbrange_queue);
-        let bbroots_queue = FifoQueue::new(queue_lengths.bbroots_queue);
-        let blbroots_queue = FifoQueue::new(queue_lengths.blbroots_queue);
-        let blbrange_queue = FifoQueue::new(queue_lengths.blbrange_queue);
+        let block_brange_queue = FifoQueue::new(queue_lengths.block_brange_queue);
+        let block_broots_queue = FifoQueue::new(queue_lengths.block_broots_queue);
+        let blob_broots_queue = FifoQueue::new(queue_lengths.blob_broots_queue);
+        let blob_brange_queue = FifoQueue::new(queue_lengths.blob_brange_queue);
         let dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
         let dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
 
         let gossip_bls_to_execution_change_queue =
             FifoQueue::new(queue_lengths.gossip_bls_to_execution_change_queue);
+
+        let gossip_execution_payload_queue =
+            FifoQueue::new(queue_lengths.gossip_execution_payload_queue);
+        let gossip_execution_payload_bid_queue =
+            FifoQueue::new(queue_lengths.gossip_execution_payload_bid_queue);
+        let gossip_payload_attestation_queue =
+            FifoQueue::new(queue_lengths.gossip_payload_attestation_queue);
+        let gossip_proposer_preferences_queue =
+            FifoQueue::new(queue_lengths.gossip_proposer_preferences_queue);
 
         let lc_gossip_optimistic_update_queue =
             FifoQueue::new(queue_lengths.lc_gossip_optimistic_update_queue);
@@ -350,13 +376,17 @@ impl<E: EthSpec> WorkQueues<E> {
             gossip_data_column_queue,
             delayed_block_queue,
             status_queue,
-            bbrange_queue,
-            bbroots_queue,
-            blbroots_queue,
-            blbrange_queue,
+            block_brange_queue,
+            block_broots_queue,
+            blob_broots_queue,
+            blob_brange_queue,
             dcbroots_queue,
             dcbrange_queue,
             gossip_bls_to_execution_change_queue,
+            gossip_execution_payload_queue,
+            gossip_execution_payload_bid_queue,
+            gossip_payload_attestation_queue,
+            gossip_proposer_preferences_queue,
             lc_gossip_optimistic_update_queue,
             lc_gossip_finality_update_queue,
             lc_bootstrap_queue,
