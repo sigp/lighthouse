@@ -557,10 +557,11 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         }
         .tree_hash_root();
 
-        // [New in Electra:EIP7549]
         let fork_name = chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
+
+        // [New in Electra:EIP7549]
         verify_committee_index(attestation, fork_name)?;
 
         if chain
