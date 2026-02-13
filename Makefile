@@ -36,7 +36,11 @@ PROFILE ?= release
 RECENT_FORKS_BEFORE_GLOAS=electra fulu
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
+# Include phase0 to test the code paths in sync that are pre blobs
 RECENT_FORKS=electra fulu gloas
+
+# For network tests include phase0 to cover genesis syncing (blocks without blobs or columns)
+TEST_NETWORK_FORKS=phase0 $(RECENT_FORKS_BEFORE_GLOAS)
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -226,12 +230,15 @@ test-op-pool-%:
 
 # Run the tests in the `network` crate for all known forks.
 # TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
-test-network: $(patsubst %,test-network-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
 test-network-%:
-	env FORK_NAME=$* cargo nextest run --release \
-		--features "fork_from_env,$(TEST_FEATURES)" \
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,fake_crypto,$(TEST_FEATURES)" \
 		-p network
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,$(TEST_FEATURES)" \
+		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:

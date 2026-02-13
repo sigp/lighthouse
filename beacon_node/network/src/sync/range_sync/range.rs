@@ -98,6 +98,11 @@ where
         self.failed_chains.keys().copied().collect()
     }
 
+    #[cfg(test)]
+    pub(crate) fn metrics(&self) -> &super::chain_collection::ChainCollectionMetrics {
+        self.chains.metrics()
+    }
+
     pub fn state(&self) -> SyncChainStatus {
         self.chains.state()
     }
