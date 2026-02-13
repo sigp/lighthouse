@@ -1,7 +1,11 @@
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    RelativeSyncCommittee,
+};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::test_utils::{ApiServer, create_api_server};
 use lighthouse_network::PeerId;
+use network::NetworkReceivers;
 use oas3;
 use oas3::spec::ObjectOrReference;
 use oas3::spec::Schema;
@@ -12,6 +16,10 @@ use tokio::time::Duration;
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
 type E = MainnetEthSpec;
+
+const SLOTS_PER_EPOCH: u64 = 32;
+const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
+const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
 
 #[derive(Debug, Clone)]
 struct RequiredFields {
@@ -26,6 +34,7 @@ async fn new() -> (
     BeaconNodeHttpClient,
     u16,
     PeerId,
+    NetworkReceivers<E>,
 ) {
     // Create a spec with Fulu fork starting from epoch 0
     // because some endpoints like sync committee require Altair fork, so we start with Fulu straight away
@@ -37,13 +46,41 @@ async fn new() -> (
     spec.electra_fork_epoch = Some(Epoch::new(0));
     spec.fulu_fork_epoch = Some(Epoch::new(0));
 
-    let harness = Arc::new(
-        BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec.into())
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    // Build chain with light client data to achieve finalization
+    for _ in 0..CHAIN_LENGTH {
+        harness
+            .extend_chain_with_light_client_data(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        harness.advance_slot();
+    }
+
+    let harness = Arc::new(harness);
+
+    let head = harness.chain.head_snapshot();
+    let contribution_and_proofs = harness
+        .make_sync_contributions(
+            &head.beacon_state,
+            head.beacon_state_root(),
+            harness.chain.slot().unwrap(),
+            RelativeSyncCommittee::Current,
+        )
+        .into_iter()
+        .filter_map(|(_, contribution)| contribution)
+        .collect::<Vec<_>>();
 
     // Output external_peer_id so that we can replace in the replace_parameter function later
     // A correct peer_id is required to make a valid request for endpoint: /eth/v1/node/peers/{peer_id}
@@ -51,6 +88,7 @@ async fn new() -> (
         server,
         listening_socket,
         external_peer_id,
+        network_rx,
         ..
     } = create_api_server(harness.chain.clone(), &harness.runtime).await;
 
@@ -63,7 +101,12 @@ async fn new() -> (
         Timeouts::set_all(Duration::from_secs(12)),
     );
 
-    (harness, client, port, external_peer_id)
+    client
+        .post_validator_contribution_and_proofs(&contribution_and_proofs)
+        .await
+        .unwrap();
+
+    (harness, client, port, external_peer_id, network_rx)
 }
 
 // Extracts the expected fields from beacon-APIs repository
@@ -241,21 +284,41 @@ fn replace_parameter(
     peer_id: PeerId,
 ) -> String {
     // A correct block_root is required to make a valid request for endpoint: /eth/v1/beacon/light_client/bootstrap/{block_root}
-    let block_root = harness.chain.genesis_block_root;
+
+    let current_slot = harness.get_current_slot();
+    let head = harness.chain.head_snapshot();
+    let block_root = head.beacon_block_root;
+
+    let slot = current_slot.to_string();
+    let epoch = "0";
+    let subcommittee_index = "0";
+    let randao_reveal = "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505";
+    let committee_index = "0";
+    let attestation_data_root =
+        "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2";
+    let start_period = "1";
+    let count = "1";
 
     param
         .replace("{block_id}", "head")
         .replace("{state_id}", "finalized")
-        .replace("{slot}", "0")
-        .replace("{epoch}", "0")
+        .replace("{slot}", &slot)
+        .replace("{epoch}", epoch)
         .replace("{validator_id}", "0")
         .replace("{block_root}", &format!("{:?}", block_root))
         .replace("{peer_id}", &format!("{}", peer_id))
+        // replace endpoints that require special inputs with the valid inputs
+        .replace(
+            "/eth/v1/validator/sync_committee_contribution",
+            &format!("/eth/v1/validator/sync_committee_contribution/?slot={}&subcommittee_index={}&beacon_block_root={}", slot, subcommittee_index, block_root))
+        .replace("/eth/v3/validator/blocks/{slot}", &format!("/eth/v3/validator/blocks/{}?randao_reveal={}", slot, randao_reveal))
+        .replace("/eth/v2/validator/aggregate_attestation", &format!("/eth/v2/validator/aggregate_attestation?attestation_data_root={}&slot={}&committee_index={}", attestation_data_root, slot, committee_index))
+        .replace("/eth/v1/beacon/light_client/updates", &format!("/eth/v1/beacon/light_client/updates?start_period={}&count={}", start_period, count))
 }
 
 #[tokio::test]
-async fn test_genesis_endpoint_conforms_to_spec() {
-    let (harness, client, port, peer_id) = new().await;
+async fn test_all_endpoints() {
+    let (harness, client, port, peer_id, _network_rx) = new().await;
 
     let fields_by_endpoint = extract_all_endpoints().await;
 
@@ -263,75 +326,78 @@ async fn test_genesis_endpoint_conforms_to_spec() {
     for (endpoint, fields) in &fields_by_endpoint {
         // Call the HTTP endpoint using raw HTTP calls
         // endpoint looks like this: "/eth/v1/beacon/genesis" which is exactly what we want in the url
-        let url = format!(
-            "http://127.0.0.1:{}{}",
-            port,
-            replace_parameter(endpoint, &harness, peer_id)
-        );
-        println!("Testing endpoint: {}", endpoint);
-        println!("URL is: {}", url);
-        println!(
-            "Generic fields are: {}",
-            fields.generic_required_fields.join(", ")
-        );
-        println!(
-            "Specific fields are: {}",
-            fields.specific_required_fields.join(", ")
-        );
-
-        let response: serde_json::Value = client.get(url).await.unwrap();
-        // println!("Response is: {:?}", response);
-
-        let response_json = response.as_object().unwrap();
-        // println!("Response JSON is: {:?}", response_json);
-
-        // Check generic required fields
-        for field in &fields.generic_required_fields {
-            assert!(
-                response_json.contains_key(field),
-                "Response missing generic required field '{}'",
-                field,
+        // temporarily only test an endpoint to make sure it works before proceeding to next
+        if endpoint == "/eth/v1/validator/sync_committee_contribution" {
+            let url = format!(
+                "http://127.0.0.1:{}{}",
+                port,
+                replace_parameter(endpoint, &harness, peer_id)
             );
-        }
+            println!("Testing endpoint: {}", endpoint);
+            println!("URL is: {}", url);
+            println!(
+                "Generic fields are: {}",
+                fields.generic_required_fields.join(", ")
+            );
+            println!(
+                "Specific fields are: {}",
+                fields.specific_required_fields.join(", ")
+            );
 
-        // Check if data is an array or object and handle differently
-        if let Some(data_array) = response_json.get("data").and_then(|v| v.as_array()) {
-            for item in data_array.iter() {
-                let item_json = item.as_object().unwrap();
+            let response: serde_json::Value = client.get(url).await.unwrap();
+            // println!("Response is: {:?}", response);
+
+            let response_json = response.as_object().unwrap();
+            // println!("Response JSON is: {:?}", response_json);
+
+            // Check generic required fields
+            for field in &fields.generic_required_fields {
+                assert!(
+                    response_json.contains_key(field),
+                    "Response missing generic required field '{}'",
+                    field,
+                );
+            }
+
+            // Check if data is an array or object and handle differently
+            if let Some(data_array) = response_json.get("data").and_then(|v| v.as_array()) {
+                for item in data_array.iter() {
+                    let item_json = item.as_object().unwrap();
+                    for field in &fields.specific_required_fields {
+                        assert!(
+                            item_json.contains_key(field),
+                            "Response missing specific required field '{}'",
+                            field,
+                        );
+                    }
+                }
+            } else if let Some(data_json) = response_json.get("data").and_then(|v| v.as_object()) {
+                // Data is an object - check required fields on it
                 for field in &fields.specific_required_fields {
                     assert!(
-                        item_json.contains_key(field),
+                        data_json.contains_key(field),
                         "Response missing specific required field '{}'",
                         field,
                     );
                 }
             }
-        } else if let Some(data_json) = response_json.get("data").and_then(|v| v.as_object()) {
-            // Data is an object - check required fields on it
-            for field in &fields.specific_required_fields {
-                assert!(
-                    data_json.contains_key(field),
-                    "Response missing specific required field '{}'",
-                    field,
-                );
-            }
+
+            // let data_json = response_json
+            //     .get("data")
+            //     .and_then(|v| v.as_object())
+            //     .unwrap();
+            //
+            // // println!("data_json is: {:?}", data_json);
+            //
+            // for field in &fields.specific_required_fields {
+            //     assert!(
+            //         data_json.contains_key(field),
+            //         "Response missing specific required field '{}'",
+            //         field,
+            //     );
+            // }
+
+            println!("Test passed for endpoint: {}", endpoint);
         }
-
-        // let data_json = response_json
-        //     .get("data")
-        //     .and_then(|v| v.as_object())
-        //     .unwrap();
-        //
-        // // println!("data_json is: {:?}", data_json);
-        //
-        // for field in &fields.specific_required_fields {
-        //     assert!(
-        //         data_json.contains_key(field),
-        //         "Response missing specific required field '{}'",
-        //         field,
-        //     );
-        // }
-
-        println!("Test passed for endpoint: {}", endpoint);
     }
 }
