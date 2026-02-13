@@ -643,10 +643,7 @@ where
 
     /// Register that a valid execution payload envelope has been received for `block_root`,
     /// updating the node's `payload_status` from PENDING to FULL.
-    pub fn on_execution_payload(
-        &mut self,
-        block_root: Hash256,
-    ) -> Result<(), Error<T::Error>> {
+    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error<T::Error>> {
         self.proto_array
             .on_execution_payload(block_root)
             .map_err(Error::FailedToProcessValidExecutionPayload)

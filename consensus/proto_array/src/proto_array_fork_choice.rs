@@ -491,10 +491,7 @@ impl ProtoArrayForkChoice {
     /// Register that a valid execution payload envelope has been received for `block_root`.
     ///
     /// See `ProtoArray::on_execution_payload` for documentation.
-    pub fn on_execution_payload(
-        &mut self,
-        block_root: Hash256,
-    ) -> Result<(), String> {
+    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), String> {
         self.proto_array
             .on_execution_payload(block_root)
             .map_err(|e| format!("on_execution_payload error: {:?}", e))
@@ -897,6 +894,16 @@ impl ProtoArrayForkChoice {
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         let block = self.get_proto_node(block_root)?;
         Some(block.execution_status)
+    }
+
+    /// Returns the first *beacon block root* which contains an execution payload with the given
+    /// `block_hash`, if any.
+    pub fn execution_block_hash_to_beacon_block_root(
+        &self,
+        block_hash: &ExecutionBlockHash,
+    ) -> Option<Hash256> {
+        self.proto_array
+            .execution_block_hash_to_beacon_block_root(block_hash)
     }
 
     /// Returns the weight of a given block.

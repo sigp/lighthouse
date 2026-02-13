@@ -51,7 +51,9 @@
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
-use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
+use crate::data_availability_checker::{
+    AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
+};
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
@@ -333,6 +335,15 @@ pub enum BlockError {
     InvalidBlobCount {
         max_blobs_at_epoch: usize,
         block: usize,
+    },
+    /// The bid's parent_block_root does not match the block's parent_root.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer should be penalised.
+    BidParentRootMismatch {
+        bid_parent_root: Hash256,
+        block_parent_root: Hash256,
     },
 }
 
@@ -888,7 +899,19 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // Do not gossip blocks that claim to contain more blobs than the max allowed
         // at the given block epoch.
-        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
+        // GLOAS: check bid's commitments; pre-GLOAS: check body's commitments.
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            let max_blobs_at_epoch = chain
+                .spec
+                .max_blobs_per_block(block.slot().epoch(T::EthSpec::slots_per_epoch()))
+                as usize;
+            if bid.message.blob_kzg_commitments.len() > max_blobs_at_epoch {
+                return Err(BlockError::InvalidBlobCount {
+                    max_blobs_at_epoch,
+                    block: bid.message.blob_kzg_commitments.len(),
+                });
+            }
+        } else if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
             let max_blobs_at_epoch = chain
                 .spec
                 .max_blobs_per_block(block.slot().epoch(T::EthSpec::slots_per_epoch()))
@@ -933,6 +956,32 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) =
             verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
+
+        // GLOAS: Verify bid.parent_block_root matches block.parent_root.
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            if bid.message.parent_block_root != block.message().parent_root() {
+                return Err(BlockError::BidParentRootMismatch {
+                    bid_parent_root: bid.message.parent_block_root,
+                    block_parent_root: block.message().parent_root(),
+                });
+            }
+
+            // GLOAS: Check if the execution payload parent (bid.parent_block_hash) has been
+            // verified by the EL. If verified and found invalid, reject.
+            if let Some(beacon_root) = fork_choice_read_lock
+                .proto_array()
+                .execution_block_hash_to_beacon_block_root(&bid.message.parent_block_hash)
+            {
+                if let Some(parent_payload_block) = fork_choice_read_lock.get_block(&beacon_root) {
+                    if parent_payload_block.execution_status.is_invalid() {
+                        return Err(BlockError::ParentExecutionPayloadInvalid {
+                            parent_root: beacon_root,
+                        });
+                    }
+                }
+            }
+        }
+
         drop(fork_choice_read_lock);
 
         // Track the number of skip slots between the block and its parent.
@@ -1212,15 +1261,32 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
         match result {
-            Ok(_) => Ok(Self {
-                block: MaybeAvailableBlock::AvailabilityPending {
+            Ok(_) => {
+                // GLOAS blocks are always "data available" from the block's perspective
+                // (the execution payload arrives separately via the payload envelope).
+                let maybe_available = if block.fork_name_unchecked().gloas_enabled() {
+                    MaybeAvailableBlock::Available(
+                        AvailableBlock::new(
+                            block,
+                            AvailableBlockData::NoData,
+                            &chain.data_availability_checker,
+                            chain.spec.clone(),
+                        )
+                        .map_err(BlockError::AvailabilityCheck)?,
+                    )
+                } else {
+                    MaybeAvailableBlock::AvailabilityPending {
+                        block_root: from.block_root,
+                        block,
+                    }
+                };
+                Ok(Self {
+                    block: maybe_available,
                     block_root: from.block_root,
-                    block,
-                },
-                block_root: from.block_root,
-                parent: Some(parent),
-                consensus_context,
-            }),
+                    parent: Some(parent),
+                    consensus_context,
+                })
+            }
             Err(_) => Err(BlockError::InvalidSignature(
                 InvalidSignature::BlockBodySignatures,
             )),

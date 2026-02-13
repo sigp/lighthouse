@@ -383,10 +383,7 @@ impl ProtoArray {
     /// Updates the node's `payload_status` from `PENDING` to `FULL`.
     ///
     /// Returns an error if the block is unknown to fork choice.
-    pub fn on_execution_payload(
-        &mut self,
-        block_root: Hash256,
-    ) -> Result<(), Error> {
+    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error> {
         let index = self
             .indices
             .get(&block_root)

@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use educe::Educe;
 use slot_clock::SlotClock;
-use state_processing::{VerifySignatures, envelope_processing::{VerifyStateRoot, process_execution_payload_envelope}};
+use state_processing::{
+    VerifySignatures,
+    envelope_processing::{VerifyStateRoot, process_execution_payload_envelope},
+};
 use tracing::{Span, debug};
 use types::{
     EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
