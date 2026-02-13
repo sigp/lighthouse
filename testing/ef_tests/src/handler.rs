@@ -1198,3 +1198,5 @@ pub struct Containers;
 type_name!(Containers, "containers");
 pub struct ProgressiveContainers;
 type_name!(ProgressiveContainers, "progressive_containers");
+pub struct CompatibleUnions;
+type_name!(CompatibleUnions, "compatible_unions");

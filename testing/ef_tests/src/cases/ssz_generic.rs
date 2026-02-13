@@ -7,6 +7,7 @@ use crate::decode::{context_yaml_decode_file, log_file_access, snappy_decode_fil
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use milhouse::{List, ProgressiveList, Vector};
 use serde::{Deserialize, Deserializer, de::Error as SerdeError};
+use serde_json::Value as JsonValue;
 use ssz::ProgressiveBitList;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector, FixedVector, VariableList};
@@ -14,6 +15,43 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use typenum::*;
 use types::ForkName;
+
+/// Helper struct for deserializing compatible unions from `{selector, data}` YAML format.
+#[derive(Deserialize)]
+struct CompatibleUnionYaml {
+    selector: u8,
+    data: JsonValue,
+}
+
+/// Implements `Deserialize` for compatible union types to handle the EF test YAML format.
+///
+/// Deserialize into `CompatibleUnionYaml` which captures `selector` (`u8`) and
+///    `data` (`JsonValue`).
+/// Match on the selector to determine which variant to construct.
+/// Deserialize the `data` field into the appropriate inner type.
+macro_rules! impl_compatible_union_deserialize {
+    ($type:ty, { $($selector:literal => $variant:ident($inner:ty)),+ $(,)? }) => {
+        impl<'de> Deserialize<'de> for $type {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let yaml = CompatibleUnionYaml::deserialize(deserializer)?;
+                match yaml.selector {
+                    $(
+                        $selector => {
+                            let inner: $inner = serde_json::from_value(yaml.data).map_err(D::Error::custom)?;
+                            Ok(<$type>::$variant(inner))
+                        }
+                    )+
+                    s => Err(D::Error::custom(format!(
+                        "unknown selector {s} for {}", stringify!($type)
+                    ))),
+                }
+            }
+        }
+    };
+}
 
 type U1280 = op!(U128 * U10);
 type U1281 = op!(U1280 + U1);
@@ -252,6 +290,17 @@ impl Case for SszGeneric {
                     [type_name => test_container]
                 )?;
             }
+            "compatible_unions" => {
+                let type_name = parts[0];
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path, fork_name),
+                    _,
+                    <>,
+                    [type_name => test_container]
+                )?;
+            }
             _ => panic!("unsupported handler: {}", self.handler_name),
         }
         Ok(())
@@ -425,7 +474,7 @@ struct ProgressiveComplexTestStruct {
     H: ProgressiveList<ProgressiveVarTestStruct>,
 }
 
-#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash)]
 #[ssz(enum_behaviour = "compatible_union")]
 #[tree_hash(enum_behaviour = "compatible_union")]
 #[context_deserialize(ForkName)]
@@ -434,7 +483,11 @@ enum CompatibleUnionA {
     ProgressiveSingleFieldContainerTestStruct(ProgressiveSingleFieldContainerTestStruct),
 }
 
-#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+impl_compatible_union_deserialize!(CompatibleUnionA, {
+    1 => ProgressiveSingleFieldContainerTestStruct(ProgressiveSingleFieldContainerTestStruct),
+});
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash)]
 #[ssz(enum_behaviour = "compatible_union")]
 #[tree_hash(enum_behaviour = "compatible_union")]
 #[context_deserialize(ForkName)]
@@ -445,7 +498,12 @@ enum CompatibleUnionBC {
     ProgressiveVarTestStruct(ProgressiveVarTestStruct),
 }
 
-#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+impl_compatible_union_deserialize!(CompatibleUnionBC, {
+    2 => ProgressiveSingleListContainerTestStruct(ProgressiveSingleListContainerTestStruct),
+    3 => ProgressiveVarTestStruct(ProgressiveVarTestStruct),
+});
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash)]
 #[ssz(enum_behaviour = "compatible_union")]
 #[tree_hash(enum_behaviour = "compatible_union")]
 #[context_deserialize(ForkName)]
@@ -459,6 +517,13 @@ enum CompatibleUnionABCA {
     #[ssz(selector = "4")]
     A2(ProgressiveSingleFieldContainerTestStruct),
 }
+
+impl_compatible_union_deserialize!(CompatibleUnionABCA, {
+    1 => A1(ProgressiveSingleFieldContainerTestStruct),
+    2 => B1(ProgressiveSingleListContainerTestStruct),
+    3 => C1(ProgressiveVarTestStruct),
+    4 => A2(ProgressiveSingleFieldContainerTestStruct),
+});
 
 fn byte_list_from_hex_str<'de, D, N: Unsigned>(
     deserializer: D,

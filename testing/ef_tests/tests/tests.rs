@@ -856,6 +856,7 @@ fn ssz_generic_progressive() {
     SszGenericHandler::<BasicProgressiveList>::default().run();
     SszGenericHandler::<ProgressiveBitlist>::default().run();
     SszGenericHandler::<ProgressiveContainers>::default().run();
+    SszGenericHandler::<CompatibleUnions>::default().run();
 }
 
 #[test]

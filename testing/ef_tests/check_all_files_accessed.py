@@ -66,12 +66,6 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
     # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
-    # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
-    "tests/general/phase0/ssz_generic/progressive_bitlist",
-    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveBitsStruct.*",
-    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveTestStruct.*",
-    "tests/general/phase0/ssz_generic/progressive_containers/.*",
-    "tests/general/phase0/ssz_generic/compatible_unions/.*",
     # Ignore full epoch tests for now (just test the sub-transitions).
     "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
