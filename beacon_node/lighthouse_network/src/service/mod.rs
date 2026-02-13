@@ -944,10 +944,10 @@ impl<E: EthSpec> Network<E> {
                 .publish_partial(publish_topic, partial_message)
             {
                 match e {
-                    PublishError::Duplicate => {
+                    PublishError::NoPeersSubscribedToTopic => {
                         debug!(
                             kind = %topic.kind(),
-                            "Attempted to publish duplicate partial message"
+                            "No peers supporting partial messages"
                         );
                     }
                     ref e => {
