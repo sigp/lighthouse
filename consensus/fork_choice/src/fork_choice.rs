@@ -21,6 +21,7 @@ use types::{
     AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
     Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::gloas::{PAYLOAD_STATUS_FULL, PAYLOAD_STATUS_PENDING},
 };
 
 #[derive(Debug)]
@@ -386,6 +387,13 @@ where
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
+        // TODO(gloas) this probably isnt true, but AI is hallucinating, and we probably dont need
+        // this right now anyways
+        // The anchor is a trusted finalized block. Pre-Gloas blocks always have their payload
+        // inline (FULL). For Gloas anchors, we trust the finalized state was fully processed,
+        // so FULL is appropriate.
+        let payload_status = PAYLOAD_STATUS_FULL;
+
         let proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
             finalized_block_slot,
@@ -395,6 +403,7 @@ where
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
+            payload_status,
         )?;
 
         let mut fork_choice = Self {
@@ -630,6 +639,17 @@ where
         self.proto_array
             .process_execution_payload_invalidation::<E>(op, self.finalized_checkpoint())
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
+    }
+
+    /// Register that a valid execution payload envelope has been received for `block_root`,
+    /// updating the node's `payload_status` from PENDING to FULL.
+    pub fn on_execution_payload(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .on_execution_payload(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
     /// Add `block` to the fork choice DAG.
@@ -908,6 +928,13 @@ where
                 execution_status,
                 unrealized_justified_checkpoint: Some(unrealized_justified_checkpoint),
                 unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
+                // Pre-Gloas blocks have their payload inline, so they are always FULL.
+                // Gloas blocks start as PENDING until the payload envelope arrives.
+                payload_status: if block.fork_name_unchecked().gloas_enabled() {
+                    PAYLOAD_STATUS_PENDING
+                } else {
+                    PAYLOAD_STATUS_FULL
+                },
             },
             current_slot,
             self.justified_checkpoint(),

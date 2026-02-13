@@ -89,6 +89,7 @@ impl ForkChoiceTestDefinition {
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+            types::consts::gloas::PAYLOAD_STATUS_FULL,
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
@@ -211,6 +212,8 @@ impl ForkChoiceTestDefinition {
                         ),
                         unrealized_justified_checkpoint: None,
                         unrealized_finalized_checkpoint: None,
+                        // Test blocks default to FULL payload status.
+                        payload_status: types::consts::gloas::PAYLOAD_STATUS_FULL,
                     };
                     fork_choice
                         .process_block::<MainnetEthSpec>(

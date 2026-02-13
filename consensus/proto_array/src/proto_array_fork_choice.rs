@@ -17,7 +17,7 @@ use std::{
 };
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    Slot, consts::gloas::PayloadStatus,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -159,6 +159,8 @@ pub struct Block {
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
+    /// The payload status for this block (Gloas fork choice).
+    pub payload_status: PayloadStatus,
 }
 
 impl Block {
@@ -422,6 +424,7 @@ impl ProtoArrayForkChoice {
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
+        payload_status: PayloadStatus,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -445,6 +448,7 @@ impl ProtoArrayForkChoice {
             execution_status,
             unrealized_justified_checkpoint: Some(justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
+            payload_status,
         };
 
         proto_array
@@ -482,6 +486,18 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .propagate_execution_payload_invalidation::<E>(op, finalized_checkpoint)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
+    }
+
+    /// Register that a valid execution payload envelope has been received for `block_root`.
+    ///
+    /// See `ProtoArray::on_execution_payload` for documentation.
+    pub fn on_execution_payload(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), String> {
+        self.proto_array
+            .on_execution_payload(block_root)
+            .map_err(|e| format!("on_execution_payload error: {:?}", e))
     }
 
     pub fn process_attestation(
@@ -873,6 +889,7 @@ impl ProtoArrayForkChoice {
             execution_status: block.execution_status,
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
+            payload_status: block.payload_status,
         })
     }
 
@@ -1136,6 +1153,7 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
+            types::consts::gloas::PAYLOAD_STATUS_FULL,
         )
         .unwrap();
 
@@ -1155,6 +1173,7 @@ mod test_compute_deltas {
                     execution_status,
                     unrealized_justified_checkpoint: Some(genesis_checkpoint),
                     unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                    payload_status: types::consts::gloas::PAYLOAD_STATUS_FULL,
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
@@ -1180,6 +1199,7 @@ mod test_compute_deltas {
                     execution_status,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
+                    payload_status: types::consts::gloas::PAYLOAD_STATUS_FULL,
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
@@ -1280,6 +1300,7 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
+            types::consts::gloas::PAYLOAD_STATUS_FULL,
         )
         .unwrap();
 
@@ -1308,6 +1329,7 @@ mod test_compute_deltas {
                         execution_status,
                         unrealized_justified_checkpoint: Some(genesis_checkpoint),
                         unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                        payload_status: types::consts::gloas::PAYLOAD_STATUS_FULL,
                     },
                     Slot::from(block.slot),
                     genesis_checkpoint,
