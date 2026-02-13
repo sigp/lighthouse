@@ -68,6 +68,52 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
         .boxed()
 }
 
+// GET beacon/states/{state_id}/proposer_lookahead
+pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("proposer_lookahead"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(lookahead) = state.proposer_lookahead() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Proposer lookahead not available".to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    lookahead.to_vec(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+
+                    execution_optimistic_finalized_beacon_response(
+                        ResponseIncludesVersion::Yes(fork_name),
+                        execution_optimistic,
+                        finalized,
+                        data,
+                    )
+                    .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        )
+        .boxed()
+}
+
 // GET beacon/states/{state_id}/pending_partial_withdrawals
 pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
