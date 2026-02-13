@@ -2,7 +2,7 @@ use crate::duties_service::DutiesService;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::{Duration, sleep};
+use tokio::time::sleep;
 use tracing::{debug, error, info};
 use types::{ChainSpec, EthSpec};
 use validator_metrics::set_gauge;
@@ -14,7 +14,7 @@ pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
     executor: TaskExecutor,
     spec: &ChainSpec,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
 
     let interval_fut = async move {
         loop {

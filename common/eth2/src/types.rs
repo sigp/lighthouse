@@ -9,7 +9,11 @@ use crate::{
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::ContextDeserialize;
+#[cfg(feature = "network")]
+use enr::{CombinedKey, Enr};
 use mediatype::{MediaType, MediaTypeList, names};
+#[cfg(feature = "network")]
+use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -559,12 +563,13 @@ pub struct ChainHeadData {
     pub execution_optimistic: Option<bool>,
 }
 
+#[cfg(feature = "network")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentityData {
     pub peer_id: String,
-    pub enr: String,
-    pub p2p_addresses: Vec<String>,
-    pub discovery_addresses: Vec<String>,
+    pub enr: Enr<CombinedKey>,
+    pub p2p_addresses: Vec<Multiaddr>,
+    pub discovery_addresses: Vec<Multiaddr>,
     pub metadata: MetaData,
 }
 
@@ -1016,14 +1021,18 @@ impl SseDataColumnSidecar {
     pub fn from_data_column_sidecar<E: EthSpec>(
         data_column_sidecar: &DataColumnSidecar<E>,
     ) -> SseDataColumnSidecar {
-        let kzg_commitments = data_column_sidecar.kzg_commitments.to_vec();
+        // TODO(gloas): fetch kzg_commitments from block for Gloas SSE events
+        let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
+            DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
+            DataColumnSidecar::Gloas(_) => vec![],
+        };
         let versioned_hashes = kzg_commitments
             .iter()
             .map(|c| c.calculate_versioned_hash())
             .collect();
         SseDataColumnSidecar {
             block_root: data_column_sidecar.block_root(),
-            index: data_column_sidecar.index,
+            index: *data_column_sidecar.index(),
             slot: data_column_sidecar.slot(),
             kzg_commitments,
             versioned_hashes,

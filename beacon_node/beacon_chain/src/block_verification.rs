@@ -645,26 +645,36 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
-    // unzip chain segment and verify kzg in bulk
-    let (roots, blocks): (Vec<_>, Vec<_>) = chain_segment.into_iter().unzip();
-    let maybe_available_blocks = chain
-        .data_availability_checker
-        .verify_kzg_for_rpc_blocks(blocks)?;
-    // zip it back up
-    let mut signature_verified_blocks = roots
-        .into_iter()
-        .zip(maybe_available_blocks)
-        .map(|(block_root, maybe_available_block)| {
-            let consensus_context = ConsensusContext::new(maybe_available_block.slot())
-                .set_current_block_root(block_root);
-            SignatureVerifiedBlock {
-                block: maybe_available_block,
-                block_root,
-                parent: None,
-                consensus_context,
+    let mut available_blocks = Vec::with_capacity(chain_segment.len());
+    let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
+
+    for (block_root, block) in chain_segment {
+        let consensus_context =
+            ConsensusContext::new(block.slot()).set_current_block_root(block_root);
+
+        match block {
+            RpcBlock::FullyAvailable(available_block) => {
+                available_blocks.push(available_block.clone());
+                signature_verified_blocks.push(SignatureVerifiedBlock {
+                    block: MaybeAvailableBlock::Available(available_block),
+                    block_root,
+                    parent: None,
+                    consensus_context,
+                });
             }
-        })
-        .collect::<Vec<_>>();
+            RpcBlock::BlockOnly { .. } => {
+                // RangeSync and BackfillSync already ensure that the chain segment is fully available
+                // so this shouldn't be possible in practice.
+                return Err(BlockError::InternalError(
+                    "Chain segment is not fully available".to_string(),
+                ));
+            }
+        }
+    }
+
+    chain
+        .data_availability_checker
+        .batch_verify_kzg_for_available_blocks(&available_blocks)?;
 
     // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
@@ -1297,16 +1307,28 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
-        let maybe_available = chain
-            .data_availability_checker
-            .verify_kzg_for_rpc_block(self.clone())
-            .map_err(|e| {
-                BlockSlashInfo::SignatureNotChecked(
-                    self.signed_block_header(),
-                    BlockError::AvailabilityCheck(e),
-                )
-            })?;
-        SignatureVerifiedBlock::check_slashable(maybe_available, block_root, chain)?
+
+        let maybe_available_block = match &self {
+            RpcBlock::FullyAvailable(available_block) => {
+                chain
+                    .data_availability_checker
+                    .verify_kzg_for_available_block(available_block)
+                    .map_err(|e| {
+                        BlockSlashInfo::SignatureNotChecked(
+                            self.signed_block_header(),
+                            BlockError::AvailabilityCheck(e),
+                        )
+                    })?;
+                MaybeAvailableBlock::Available(available_block.clone())
+            }
+            // No need to perform KZG verification unless we have a fully available block
+            RpcBlock::BlockOnly { block, block_root } => MaybeAvailableBlock::AvailabilityPending {
+                block_root: *block_root,
+                block: block.clone(),
+            },
+        };
+
+        SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
 
@@ -1776,10 +1798,12 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 ) -> Result<Hash256, BlockError> {
     let block = signed_block.message();
 
+    let present_slot = chain.slot()?;
+
     // Do not process blocks from the future.
-    if block.slot() > chain.slot()? {
+    if block.slot() > present_slot {
         return Err(BlockError::FutureSlot {
-            present_slot: chain.slot()?,
+            present_slot,
             block_slot: block.slot(),
         });
     }
@@ -2126,11 +2150,13 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
-    let head_fork = chain.canonical_head.cached_head().head_fork();
+    let fork = chain
+        .spec
+        .fork_at_epoch(header.message.slot.epoch(T::EthSpec::slots_per_epoch()));
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
-        &head_fork,
+        &fork,
         chain.genesis_validators_root,
         &chain.spec,
     ) {

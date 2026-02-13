@@ -52,8 +52,6 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
 ///
 /// Returns a descriptive `Err` if the attestation is malformed or does not accurately reflect the
 /// prior blocks in `state`.
-///
-/// Spec v0.12.1
 pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     state: &BeaconState<E>,
     attestation: AttestationRef<'ctxt, E>,
@@ -74,12 +72,18 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
             );
         }
         AttestationRef::Electra(_) => {
+<<<<<<< HEAD
             if spec.fork_name_at_slot::<E>(data.slot).gloas_enabled() {
                 verify!(data.index < 2, Invalid::BadCommitteeIndex);
                 // When attestation is in the same slot as the block, index must be 0.
                 if state.slot() == data.slot {
                     verify!(data.index == 0, Invalid::BadCommitteeIndex);
                 }
+=======
+            let fork_at_attestation_slot = spec.fork_name_at_slot::<E>(data.slot);
+            if fork_at_attestation_slot.gloas_enabled() {
+                verify!(data.index < 2, Invalid::BadOverloadedDataIndex);
+>>>>>>> c59e4a0cee78d311ffe17d8045cbd82032b501c9
             } else {
                 verify!(data.index == 0, Invalid::BadCommitteeIndex);
             }
@@ -97,8 +101,6 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 }
 
 /// Check target epoch and source checkpoint.
-///
-/// Spec v0.12.1
 fn verify_casper_ffg_vote<E: EthSpec>(
     attestation: AttestationRef<E>,
     state: &BeaconState<E>,
