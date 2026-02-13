@@ -1,7 +1,7 @@
 pub use case_result::CaseResult;
 pub use cases::{
-    Case, EffectiveBalanceUpdates, Eth1DataReset, ExecutionPayloadBidBlock, FeatureName,
-    HistoricalRootsUpdate, HistoricalSummariesUpdate, InactivityUpdates,
+    BuilderPendingPayments, Case, EffectiveBalanceUpdates, Eth1DataReset, ExecutionPayloadBidBlock,
+    FeatureName, HistoricalRootsUpdate, HistoricalSummariesUpdate, InactivityUpdates,
     JustificationAndFinalization, ParticipationFlagUpdates, ParticipationRecordUpdates,
     PendingBalanceDeposits, PendingConsolidations, ProposerLookahead, RandaoMixesReset,
     RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset, SyncCommitteeUpdates,

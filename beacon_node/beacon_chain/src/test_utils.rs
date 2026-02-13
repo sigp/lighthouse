@@ -818,7 +818,11 @@ where
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
-        let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
+        let block = self
+            .chain
+            .get_blinded_block(block_root)
+            .unwrap()
+            .unwrap_or_else(|| panic!("block root does not exist in harness {block_root:?}"));
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
         self.build_rpc_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
     }

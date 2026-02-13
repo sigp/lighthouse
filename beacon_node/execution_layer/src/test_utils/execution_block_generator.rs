@@ -18,6 +18,7 @@ use ssz_types::VariableList;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::warn;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
@@ -537,6 +538,21 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 .contains_key(&forkchoice_state.finalized_block_hash);
 
         if unknown_head_block_hash || unknown_safe_block_hash || unknown_finalized_block_hash {
+            if unknown_head_block_hash {
+                warn!(?head_block_hash, "Received unknown head block hash");
+            }
+            if unknown_safe_block_hash {
+                warn!(
+                    safe_block_hash = ?forkchoice_state.safe_block_hash,
+                    "Received unknown safe block hash"
+                );
+            }
+            if unknown_finalized_block_hash {
+                warn!(
+                    finalized_block_hash = ?forkchoice_state.finalized_block_hash,
+                    "Received unknown finalized block hash"
+                )
+            }
             return Ok(JsonForkchoiceUpdatedV1Response {
                 payload_status: JsonPayloadStatusV1 {
                     status: JsonPayloadStatusV1Status::Syncing,
