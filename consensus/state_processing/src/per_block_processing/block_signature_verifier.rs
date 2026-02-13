@@ -170,6 +170,7 @@ where
         self.include_exits(block)?;
         self.include_sync_aggregate(block)?;
         self.include_bls_to_execution_changes(block)?;
+        self.include_execution_payload_bid(block)?;
 
         Ok(())
     }
@@ -352,6 +353,27 @@ where
                     bls_to_execution_change,
                     self.spec,
                 )?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Include the signature of the block's execution payload bid.
+    pub fn include_execution_payload_bid<Payload: AbstractExecPayload<E>>(
+        &mut self,
+        block: &'a SignedBeaconBlock<E, Payload>,
+    ) -> Result<()> {
+        if let Ok(signed_execution_payload_bid) =
+            block.message().body().signed_execution_payload_bid()
+        {
+            // TODO(gloas): if we implement a global builder pubkey cache we need to inject it here
+            if let Some(signature_set) = execution_payload_bid_signature_set(
+                self.state,
+                |builder_index| get_builder_pubkey_from_state(self.state, builder_index),
+                signed_execution_payload_bid,
+                self.spec,
+            )? {
+                self.sets.push(signature_set);
             }
         }
         Ok(())

@@ -955,6 +955,12 @@ fn epoch_processing_proposer_lookahead() {
 }
 
 #[test]
+fn epoch_processing_builder_pending_payments() {
+    EpochProcessingHandler::<MinimalEthSpec, BuilderPendingPayments>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, BuilderPendingPayments>::default().run();
+}
+
+#[test]
 fn fork_upgrade() {
     ForkHandler::<MinimalEthSpec>::default().run();
     ForkHandler::<MainnetEthSpec>::default().run();
