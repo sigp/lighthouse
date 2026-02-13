@@ -30,7 +30,7 @@ use types::{
     Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
     IndexedAttestationRef, ProposerSlashing, SignedAggregateAndProof, SignedContributionAndProof,
-    SignedExecutionPayloadEnvelope, Slot, SyncCommitteeMessage, VoluntaryExit,
+    Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.

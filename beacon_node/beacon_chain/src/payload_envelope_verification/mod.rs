@@ -1,8 +1,9 @@
 //! The incremental processing steps (e.g., signatures verified but not the state transition) is
 //! represented as a sequence of wrapper-types around the block. There is a linear progression of
-//! types, starting at a `SignedBeaconBlock` and finishing with a `Fully VerifiedBlock` (see
+//! types, starting at a `SignedExecutionPayloadEnvelope` and finishing with an `AvailableExecutedEnvelope` (see
 //! diagram below).
 //!
+//! // TODO(gloas) we might want to update this diagram to include `AvailabelExecutedEnvelope`
 //! ```ignore
 //!            START
 //!              |
@@ -28,9 +29,9 @@
 
 use std::sync::Arc;
 
-use state_processing::{
-    BlockProcessingError, ConsensusContext, envelope_processing::EnvelopeProcessingError,
-};
+use store::Error as DBError;
+
+use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProcessingError};
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
@@ -45,15 +46,15 @@ use crate::{
 };
 
 pub mod gossip_verified_envelope;
+pub mod import;
 mod payload_notifier;
-mod tests;
 
 pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
     fn into_execution_pending_envelope(
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, BlockError>;
+    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError>;
 
     fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>;
 }
@@ -74,8 +75,7 @@ pub struct EnvelopeImportData<E: EthSpec> {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
-    // TODO(EIP-7732): rename to execution_block_hash
-    block_hash: ExecutionBlockHash,
+    execution_block_hash: ExecutionBlockHash,
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     columns: DataColumnSidecarList<E>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
@@ -222,6 +222,10 @@ pub enum EnvelopeError {
     EnvelopeProcessingError(EnvelopeProcessingError),
     // Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
+    // An error from block-level checks reused during envelope import
+    BlockError(BlockError),
+    // Internal error
+    InternalError(String),
 }
 
 impl std::fmt::Display for EnvelopeError {
@@ -245,6 +249,18 @@ impl From<ExecutionPayloadError> for EnvelopeError {
 impl From<BeaconStateError> for EnvelopeError {
     fn from(e: BeaconStateError) -> Self {
         EnvelopeError::BeaconStateError(e)
+    }
+}
+
+impl From<DBError> for EnvelopeError {
+    fn from(e: DBError) -> Self {
+        EnvelopeError::BeaconChainError(Arc::new(BeaconChainError::DBError(e)))
+    }
+}
+
+impl From<BlockError> for EnvelopeError {
+    fn from(e: BlockError) -> Self {
+        EnvelopeError::BlockError(e)
     }
 }
 
@@ -274,14 +290,14 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
 pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, BlockError> {
-    // Reject any block if its block is not known to fork choice.
+) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
+    // Reject any envelope if its block is not known to fork choice.
     //
     // A block that is not in fork choice is either:
     //
-    //  - Not yet imported: we should reject this block because we should only import a child
-    //  envelope after its parent has been fully imported.
-    //  - Pre-finalized: if the block is _prior_ to finalization, we should ignore the envelope
+    //  - Not yet imported: we should reject this envelope because we should only import it after its parent block
+    //  has been fully imported.
+    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore the envelope
     //  because it will revert finalization. Note that the finalized block is stored in fork
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
@@ -289,8 +305,8 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
     let beacon_block_root = envelope.beacon_block_root();
     let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
-        return Err(BlockError::ParentUnknown {
-            parent_root: beacon_block_root,
+        return Err(EnvelopeError::BlockRootUnknown {
+            block_root: beacon_block_root,
         });
     };
     drop(fork_choice_read_lock);
@@ -304,7 +320,7 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     let state = chain
         .store
         .get_hot_state(&block_state_root, cache_state)
-        .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
+        .map_err(EnvelopeError::from)?
         .ok_or_else(|| {
             BeaconChainError::DBInconsistent(format!(
                 "Missing state for envelope block {block_state_root:?}",
@@ -325,8 +341,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, BlockError> {
-        // TODO(EIP-7732): figure out how this should be refactored..
+    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
         GossipVerifiedEnvelope::new(self, chain)?
             .into_execution_pending_envelope(chain, notify_execution_layer)
     }
@@ -334,11 +349,4 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
     fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
         self
     }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PayloadEnvelopeImportData<E: EthSpec> {
-    pub block_root: Hash256,
-    pub state: BeaconState<E>,
-    pub consensus_context: ConsensusContext<E>,
 }

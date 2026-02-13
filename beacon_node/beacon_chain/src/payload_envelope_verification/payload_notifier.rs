@@ -7,7 +7,7 @@ use tracing::warn;
 use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
-    BeaconChain, BeaconChainTypes, BlockError, ExecutionPayloadError, NotifyExecutionLayer,
+    BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
     execution_payload::notify_new_payload, payload_envelope_verification::EnvelopeError,
 };
 
@@ -25,15 +25,13 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<Self, ExecutionPayloadError> {
+    ) -> Result<Self, EnvelopeError> {
         let payload_verification_status = {
             let payload_message = &envelope.message;
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    // TODO(gloas) unwrap
-                    let new_payload_request =
-                        Self::build_new_payload_request(&envelope, &block).unwrap();
+                    let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
                             block_number = ?payload_message.payload.block_number,

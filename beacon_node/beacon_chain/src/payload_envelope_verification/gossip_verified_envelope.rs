@@ -10,7 +10,7 @@ use types::{
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, NotifyExecutionLayer,
+    BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
     PayloadVerificationOutcome,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeImportData, EnvelopeProcessingSnapshot, ExecutionPendingEnvelope,
@@ -151,8 +151,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             );
             (is_valid, opt_snapshot)
         } else {
-            // TODO(gloas) we should probably introduce a builder cache or some type of
-            // global cache.
+            // TODO(gloas) if we implement a builder pubkey cache, we'll need to use it here.
             // External builder: must load the state to get the builder pubkey.
             let snapshot = load_snapshot(signed_envelope.as_ref(), chain)?;
             let is_valid =
@@ -181,7 +180,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, BlockError> {
+    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
         let signed_envelope = self.signed_envelope;
         let envelope = &signed_envelope.message;
         let payload = &envelope.payload;
@@ -198,13 +197,11 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
 
         let payload_verification_future = async move {
             let chain = payload_notifier.chain.clone();
-            // TODO:(gloas): timing metrics
             if let Some(started_execution) = chain.slot_clock.now_duration() {
-                chain.block_times_cache.write().set_time_started_execution(
-                    block_root,
-                    slot,
-                    started_execution,
-                );
+                chain
+                    .envelope_times_cache
+                    .write()
+                    .set_time_started_execution(block_root, slot, started_execution);
             }
 
             let payload_verification_status = payload_notifier.notify_new_payload().await?;

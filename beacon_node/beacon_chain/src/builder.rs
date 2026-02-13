@@ -1055,6 +1055,7 @@ where
             )),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
+            envelope_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             early_attester_cache: <_>::default(),

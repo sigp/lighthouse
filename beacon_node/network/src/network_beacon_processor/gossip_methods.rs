@@ -20,9 +20,7 @@ use beacon_chain::{
 };
 use beacon_chain::{
     blob_verification::{GossipBlobError, GossipVerifiedBlob},
-    payload_envelope_verification::{
-        EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
-    },
+    payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -3230,24 +3228,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub async fn process_gossip_execution_payload_envelope(
-        self: &Arc<Self>,
+        self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
     ) {
-        // TODO(EIP-7732): Implement proper execution payload envelope gossip processing.
-        // This should integrate with the envelope_verification.rs module once it's implemented.
+        if let Some(gossip_verified_envelope) = self
+            .process_gossip_unverified_execution_payload_envelope(
+                message_id,
+                peer_id,
+                envelope.clone(),
+                seen_timestamp,
+            )
+            .await
+        {
+            let beacon_block_root = gossip_verified_envelope.signed_envelope.beacon_block_root();
 
-        trace!(
-            %peer_id,
-            builder_index = envelope.message.builder_index,
-            slot = %envelope.message.slot,
-            beacon_block_root = %envelope.message.beacon_block_root,
-            "Processing execution payload envelope"
-        );
+            Span::current().record("beacon_block_root", beacon_block_root.to_string());
 
-        // For now, ignore all envelopes since verification is not implemented
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            // TODO(gloas) in process_gossip_block here we check_and_insert on the duplicate cache
+            // before calling gossip_verified_block
+
+            self.process_gossip_verified_execution_payload_envelope(
+                peer_id,
+                gossip_verified_envelope,
+            )
+            .await;
+        }
     }
 
     async fn process_gossip_unverified_execution_payload_envelope(
@@ -3255,8 +3263,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_duration: Duration,
     ) -> Option<GossipVerifiedEnvelope<T>> {
-        // TODO(glos) add payload envelope delay metrics
+        let envelope_delay =
+            get_slot_delay_ms(seen_duration, envelope.slot(), &self.chain.slot_clock);
 
         let verification_result = self
             .chain
@@ -3264,11 +3274,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .verify_envelope_for_gossip(envelope.clone())
             .await;
 
-        // TODO(gloas) delay metrics and write the time that the payload was observed into
-        // the delay cache
-
         let verified_envelope = match verification_result {
             Ok(verified_envelope) => {
+                metrics::set_gauge(
+                    &metrics::ENVELOPE_DELAY_GOSSIP,
+                    envelope_delay.as_millis() as i64,
+                );
+
+                // Write the time the envelope was observed into the delay cache.
+                self.chain.envelope_times_cache.write().set_time_observed(
+                    verified_envelope.signed_envelope.beacon_block_root(),
+                    envelope.slot(),
+                    seen_duration,
+                    Some(peer_id.to_string()),
+                );
+
                 info!(
                     slot = %verified_envelope.signed_envelope.slot(),
                     root = ?verified_envelope.signed_envelope.beacon_block_root(),
@@ -3302,7 +3322,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // TODO(gloas) update metrics to note how early the envelope arrived
 
                 let inner_self = self.clone();
-                let process_fn = Box::pin(async move {
+                let _process_fn = Box::pin(async move {
                     inner_self
                         .process_gossip_verified_execution_payload_envelope(
                             peer_id,
@@ -3333,27 +3353,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
-        let processing_start_time = Instant::now();
-        let envelope = verified_envelope.envelope_cloned();
+        let _processing_start_time = Instant::now();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
 
         let result = self
             .chain
             .process_execution_payload_envelope(
-                block_root,
+                beacon_block_root,
                 verified_envelope,
-                notify_execution_layer,
-                block_source,
-                publish_fn,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Gossip,
+                || Ok(()),
             )
             .await;
 
-        register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
+        // TODO(gloas) metrics
+        // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // TODO(gloas) do we need to send a `PayloadImported` event to the reporcess queue?
-
                 debug!(
                     ?block_root,
                     %peer_id,
@@ -3374,7 +3393,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 )
             }
 
-            Err(_) => todo!(),
+            Err(_) => {
+                // TODO(gloas) implement peer penalties
+                warn!("process_gossip_verified_execution_payload_envelope_failed")
+            }
         }
     }
 

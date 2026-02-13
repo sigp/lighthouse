@@ -27,6 +27,7 @@ use crate::data_availability_checker::{
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
+use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
@@ -56,7 +57,9 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
-use crate::payload_envelope_verification::{ExecutedEnvelope, ExecutionPendingEnvelope};
+use crate::payload_envelope_verification::{
+    EnvelopeError, ExecutedEnvelope, ExecutionPendingEnvelope,
+};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
@@ -460,6 +463,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
+    /// A cache used to keep track of various envelope timings.
+    pub envelope_times_cache: Arc<RwLock<EnvelopeTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to produce light_client server messages
@@ -1158,8 +1163,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self.store.try_get_full_block(block_root)? {
             Some(DatabaseBlock::Full(block)) => Ok(Some(block)),
             Some(DatabaseBlock::Blinded(_)) => {
-                // TODO(gloas) this should error out
-                todo!()
+                // TODO(gloas) should we return None here?
+                Ok(None)
             }
             None => Ok(None),
         }
@@ -3556,7 +3561,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn into_executed_payload_envelope(
         self: Arc<Self>,
         pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
-    ) -> Result<ExecutedEnvelope<T::EthSpec>, BlockError> {
+    ) -> Result<ExecutedEnvelope<T::EthSpec>, EnvelopeError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
             import_data,
@@ -4168,7 +4173,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
-    pub(crate) fn handle_import_block_db_write_error(
+    fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
@@ -6698,6 +6703,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // sync anyway).
             self.naive_aggregation_pool.write().prune(slot);
             self.block_times_cache.write().prune(slot);
+            self.envelope_times_cache.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
