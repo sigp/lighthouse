@@ -922,6 +922,10 @@ impl<E: EthSpec> Network<E> {
 
     /// Publishes partial data column sidecars to the gossipsub network.
     pub fn publish_partial(&mut self, columns: Vec<Arc<PartialDataColumn<E>>>) {
+        if !self.network_globals.config.enable_partial_columns {
+            return;
+        }
+
         for column in columns {
             let subnet =
                 DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
