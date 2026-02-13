@@ -310,6 +310,7 @@ pub enum BlockProductionError {
     MissingSyncAggregate,
     MissingExecutionPayload,
     MissingKzgCommitment(String),
+    MissingStateRoot,
     TokioJoin(JoinError),
     BeaconChain(Box<BeaconChainError>),
     InvalidPayloadFork,
@@ -320,6 +321,7 @@ pub enum BlockProductionError {
     SszTypesError(ssz_types::Error),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented,
+    Unexpected(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

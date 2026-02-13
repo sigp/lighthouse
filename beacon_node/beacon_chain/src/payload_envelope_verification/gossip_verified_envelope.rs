@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use educe::Educe;
 use slot_clock::SlotClock;
-use state_processing::{VerifySignatures, envelope_processing::process_execution_payload_envelope};
+use state_processing::{VerifySignatures, envelope_processing::{VerifyStateRoot, process_execution_payload_envelope}};
 use tracing::{Span, debug};
 use types::{
     EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
@@ -236,6 +236,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
             &signed_envelope,
             // verify signature already done for GossipVerifiedEnvelope
             VerifySignatures::False,
+            VerifyStateRoot::True,
             &chain.spec,
         )?;
 

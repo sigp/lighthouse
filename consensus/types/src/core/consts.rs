@@ -28,6 +28,8 @@ pub mod deneb {
 pub mod gloas {
     pub const BUILDER_INDEX_SELF_BUILD: u64 = u64::MAX;
     pub const BUILDER_INDEX_FLAG: u64 = 1 << 40;
+    pub const BID_VALUE_SELF_BUILD: u64 = 0;
+    pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
     // Fork choice constants
     pub type PayloadStatus = u8;

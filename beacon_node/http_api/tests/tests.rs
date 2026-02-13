@@ -47,7 +47,8 @@ use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
     Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
-    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
+    SignedExecutionPayloadEnvelope, SignedRoot, SingleAttestation, Slot,
+    attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 type E = MainnetEthSpec;
@@ -3721,6 +3722,241 @@ impl ApiTester {
                     self.chain.slot_clock.set_slot(slot.as_u64() + 1);
                 }
             }
+        }
+
+        self
+    }
+
+    /// Test V4 block production (JSON). Only runs if Gloas is scheduled.
+    pub async fn test_block_production_v4(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            // Skip if not in Gloas fork yet
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let (response, metadata) = self
+                .client
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None)
+                .await
+                .unwrap();
+
+            let block = response.data;
+            assert_eq!(
+                metadata.consensus_version,
+                block.to_ref().fork_name(&self.chain.spec).unwrap()
+            );
+            assert!(!metadata.consensus_block_value.is_zero());
+
+            // Verify that the execution payload envelope is cached for local building.
+            // The envelope is stored in the pending cache (keyed by slot) until publishing.
+            let block_root = block.tree_hash_root();
+            {
+                let envelope = self
+                    .chain
+                    .pending_payload_envelopes
+                    .read()
+                    .get(slot)
+                    .cloned()
+                    .expect("envelope should exist in pending cache for local building");
+                assert_eq!(envelope.beacon_block_root, block_root);
+                assert_eq!(envelope.slot, slot);
+            }
+
+            // Fetch the envelope via the HTTP API
+            let envelope_response = self
+                .client
+                .get_validator_execution_payload_envelope::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .await
+                .unwrap();
+            let envelope = envelope_response.data;
+
+            // Verify envelope fields
+            assert_eq!(envelope.beacon_block_root, block_root);
+            assert_eq!(envelope.slot, slot);
+            assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
+            assert_ne!(envelope.state_root, Hash256::ZERO);
+
+            // Sign and publish the block
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
+
+            self.client
+                .post_beacon_blocks_v2(&signed_block_request, None)
+                .await
+                .unwrap();
+
+            assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
+
+            // Sign and publish the execution payload envelope
+            let domain = self.chain.spec.get_builder_domain();
+            let signing_root = envelope.signing_root(domain);
+            let signature = sk.sign(signing_root);
+
+            let signed_envelope = SignedExecutionPayloadEnvelope {
+                message: envelope,
+                signature,
+            };
+
+            self.client
+                .post_beacon_execution_payload_envelope(&signed_envelope)
+                .await
+                .unwrap();
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    /// Test V4 block production (SSZ). Only runs if Gloas is scheduled.
+    pub async fn test_block_production_v4_ssz(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            // Skip if not in Gloas fork yet
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let (block, metadata) = self
+                .client
+                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, None, None)
+                .await
+                .unwrap();
+
+            let block_root = block.tree_hash_root();
+
+            assert_eq!(
+                metadata.consensus_version,
+                block.to_ref().fork_name(&self.chain.spec).unwrap()
+            );
+            assert!(!metadata.consensus_block_value.is_zero());
+
+            // Fetch the envelope via the HTTP API (SSZ)
+            let envelope = self
+                .client
+                .get_validator_execution_payload_envelope_ssz::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .await
+                .unwrap();
+
+            // Verify envelope fields
+            assert_eq!(envelope.beacon_block_root, block_root);
+            assert_eq!(envelope.slot, slot);
+            assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
+            assert_ne!(envelope.state_root, Hash256::ZERO);
+
+            // Sign and publish the block
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
+
+            self.client
+                .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                .await
+                .unwrap();
+
+            assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
+
+            // Sign and publish the execution payload envelope
+            let domain = self.chain.spec.get_builder_domain();
+            let signing_root = envelope.signing_root(domain);
+            let signature = sk.sign(signing_root);
+
+            let signed_envelope = SignedExecutionPayloadEnvelope {
+                message: envelope,
+                signature,
+            };
+
+            self.client
+                .post_beacon_execution_payload_envelope(&signed_envelope)
+                .await
+                .unwrap();
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
         self
@@ -7456,6 +7692,22 @@ async fn block_production_v3_ssz_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production_v3_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v4() {
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_block_production_v4()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v4_ssz() {
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_block_production_v4_ssz()
         .await;
 }
 
