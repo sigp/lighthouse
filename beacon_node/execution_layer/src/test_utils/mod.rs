@@ -45,6 +45,7 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v2: true,
     new_payload_v3: true,
     new_payload_v4: true,
+    new_payload_v5: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
