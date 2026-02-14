@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
@@ -372,8 +372,8 @@ where
 
         // Initialize anchor info before attempting to write the genesis state.
         // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
-        // historic states from being retained (unless `--reconstruct-historic-states` is set).
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        // historic states from being retained (unless `--archive` is set).
+        let retain_historic_states = self.chain_config.archive;
         let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
         self.pending_io_batch.push(
             store
@@ -529,7 +529,7 @@ where
         // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
         // is initialised prior to storing the state, as the anchor is required for working out
         // hdiff storage strategies.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        let retain_historic_states = self.chain_config.archive;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
@@ -848,6 +848,33 @@ where
             ));
         }
 
+        // Check if the head snapshot is within the weak subjectivity period
+        let head_state = &head_snapshot.beacon_state;
+        let Ok(ws_period) = head_state.compute_weak_subjectivity_period(&self.spec) else {
+            return Err(format!(
+                "Unable to compute the weak subjectivity period at the head snapshot slot: {:?}",
+                head_state.slot()
+            ));
+        };
+        if current_slot.epoch(E::slots_per_epoch())
+            > head_state.slot().epoch(E::slots_per_epoch()) + ws_period
+        {
+            if self.chain_config.ignore_ws_check {
+                warn!(
+                    head_slot=%head_state.slot(),
+                    %current_slot,
+                    "The current head state is outside the weak subjectivity period. You are currently running a node that is susceptible to long range attacks. \
+                    It is highly recommended to purge your db and checkpoint sync. For more information please \
+                    read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
+                )
+            }
+            return Err(
+                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
+            );
+        }
+
         let validator_pubkey_cache = self
             .validator_pubkey_cache
             .map(|mut validator_pubkey_cache| {
@@ -1098,9 +1125,7 @@ where
         );
 
         // Check for states to reconstruct (in the background).
-        if beacon_chain.config.reconstruct_historic_states
-            && beacon_chain.store.get_oldest_block_slot() == 0
-        {
+        if beacon_chain.config.archive && beacon_chain.store.get_oldest_block_slot() == 0 {
             beacon_chain.store_migrator.process_reconstruction();
         }
 

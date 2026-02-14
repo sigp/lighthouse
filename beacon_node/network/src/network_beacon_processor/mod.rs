@@ -526,7 +526,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::RpcBlock { process_fn },
+            work: Work::RpcBlock {
+                process_fn,
+                beacon_block_root: block_root,
+            },
         })
     }
 

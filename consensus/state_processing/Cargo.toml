@@ -5,9 +5,8 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Michael Sproul <michael@sigmapr
 edition = { workspace = true }
 
 [features]
-default = ["legacy-arith"]
+default = []
 fake_crypto = ["bls/fake_crypto"]
-legacy-arith = ["types/legacy-arith"]
 arbitrary-fuzz = [
     "types/arbitrary-fuzz",
     "merkle_proof/arbitrary",

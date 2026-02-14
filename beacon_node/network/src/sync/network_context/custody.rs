@@ -198,7 +198,14 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         let _guard = self.span.clone().entered();
-        if self.column_requests.values().all(|r| r.is_downloaded()) {
+        let total_requests = self.column_requests.len();
+        let completed_requests = self
+            .column_requests
+            .values()
+            .filter(|r| r.is_downloaded())
+            .count();
+
+        if completed_requests >= total_requests {
             // All requests have completed successfully.
             let mut peers = HashMap::<PeerId, Vec<usize>>::new();
             let mut seen_timestamps = vec![];
@@ -222,6 +229,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
         let active_request_count_by_peer = cx.active_request_count_by_peer();
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let mut columns_without_peers = vec![];
         let lookup_peers = self.lookup_peers.read();
         // Create deterministic hasher per request to ensure consistent peer ordering within
         // this request (avoiding fragmentation) while varying selection across different requests
@@ -256,6 +264,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     return Err(Error::NoPeer(*column_index));
                 } else {
                     // Do not issue requests if there is no custody peer on this column
+                    columns_without_peers.push(*column_index);
                 }
             }
         }
@@ -270,10 +279,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 lookup_peers = lookup_peers.len(),
                 "Requesting {} columns from {} peers", columns_requested_count, peer_requests,
             );
-        } else {
+        } else if !columns_without_peers.is_empty() {
             debug!(
                 lookup_peers = lookup_peers.len(),
-                "No column peers found for look up",
+                total_requests,
+                completed_requests,
+                ?columns_without_peers,
+                "No column peers found for lookup",
             );
         }
 
@@ -288,7 +300,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     },
                     // If peer is in the lookup peer set, it claims to have imported the block and
                     // must have its columns in custody. In that case, set `true = enforce max_requests`
-                    // and downscore if data_columns_by_root does not returned the expected custody
+                    // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
                     lookup_peers.contains(&peer_id),
                 )
