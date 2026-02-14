@@ -1064,6 +1064,12 @@ pub struct BlockGossip {
     pub slot: Slot,
     pub block: Hash256,
 }
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct SseExecutionPayloadAvailable {
+    pub slot: Slot,
+    pub block_root: Hash256,
+}
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseChainReorg {
     pub slot: Slot,
@@ -1206,6 +1212,8 @@ pub enum EventKind<E: EthSpec> {
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     BlockGossip(Box<BlockGossip>),
+    ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
+    ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1231,6 +1239,8 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::AttesterSlashing(_) => "attester_slashing",
             EventKind::BlsToExecutionChange(_) => "bls_to_execution_change",
             EventKind::BlockGossip(_) => "block_gossip",
+            EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
+            EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
         }
     }
 
@@ -1324,6 +1334,22 @@ impl<E: EthSpec> EventKind<E> {
             "block_gossip" => Ok(EventKind::BlockGossip(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Gossip: {:?}", e)),
             )?)),
+            "execution_payload_bid" => Ok(EventKind::ExecutionPayloadBid(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Execution Payload Bid: {:?}",
+                        e
+                    ))
+                })?,
+            )),
+            "execution_payload_available" => Ok(EventKind::ExecutionPayloadAvailable(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Execution Payload Available: {:?}",
+                        e
+                    ))
+                })?,
+            )),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1361,6 +1387,8 @@ pub enum EventTopic {
     ProposerSlashing,
     BlsToExecutionChange,
     BlockGossip,
+    ExecutionPayloadBid,
+    ExecutionPayloadAvailable,
 }
 
 impl FromStr for EventTopic {
@@ -1388,6 +1416,8 @@ impl FromStr for EventTopic {
             "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             "bls_to_execution_change" => Ok(EventTopic::BlsToExecutionChange),
             "block_gossip" => Ok(EventTopic::BlockGossip),
+            "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
+            "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1416,6 +1446,8 @@ impl fmt::Display for EventTopic {
             EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
             EventTopic::BlsToExecutionChange => write!(f, "bls_to_execution_change"),
             EventTopic::BlockGossip => write!(f, "block_gossip"),
+            EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
+            EventTopic::ExecutionPayloadAvailable => write!(f, "execution_payload_available"),
         }
     }
 }

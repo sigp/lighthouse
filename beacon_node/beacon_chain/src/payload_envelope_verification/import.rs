@@ -19,6 +19,7 @@ use crate::{
     metrics,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
 };
+use eth2::types::{EventKind, SseExecutionPayloadAvailable};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(block_root)` if the given `unverified_envelope` was successfully verified and
@@ -357,6 +358,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // TODO(gloas) emit SSE event for envelope import (similar to SseBlock for blocks).
+        // Beacon API execution_payload_available events
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_execution_payload_available_subscribers()
+        {
+            event_handler.register(EventKind::ExecutionPayloadAvailable(
+                SseExecutionPayloadAvailable {
+                    slot: envelope_slot,
+                    block_root,
+                },
+            ));
+        }
     }
 }
