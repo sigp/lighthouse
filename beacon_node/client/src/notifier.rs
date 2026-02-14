@@ -436,7 +436,7 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
     if beacon_chain
         .spec
         .fork_name_at_slot(current_slot)
-        .gloas_enabled
+        .gloas_enabled()
     {
         return;
     }
