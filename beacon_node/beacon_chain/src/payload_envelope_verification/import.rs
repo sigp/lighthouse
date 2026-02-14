@@ -5,7 +5,7 @@ use fork_choice::PayloadVerificationStatus;
 use logging::crit;
 use slot_clock::SlotClock;
 use store::StoreOp;
-use tracing::{debug, error, info_span, instrument};
+use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{BeaconState, BlockImportSource, Hash256, SignedBeaconBlock, Slot};
 
 use super::{
@@ -112,11 +112,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match import_envelope.await {
             // The block was successfully verified and imported. Yay.
             Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
-                debug!(
+                info!(
                     ?block_root,
                     %block_slot,
                     source = %block_source,
-                    "Envelope imported"
+                    "Execution payload envelope imported"
                 );
 
                 metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_SUCCESSES);
@@ -149,7 +149,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             // The block failed verification.
             Err(other) => {
-                debug!(reason = other.to_string(), " Envelope rejected");
+                warn!(reason = other.to_string(), "Execution payload envelope rejected");
                 Err(other)
             }
         }
