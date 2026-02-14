@@ -435,7 +435,7 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
     // bellatrix readiness logging in gloas if we dont skip the check below
     if beacon_chain
         .spec
-        .fork_name_at_slot(current_slot)
+        .fork_name_at_slot::<T::EthSpec>(current_slot)
         .gloas_enabled()
     {
         return;
