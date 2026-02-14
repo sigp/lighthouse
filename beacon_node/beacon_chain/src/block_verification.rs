@@ -1798,10 +1798,12 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 ) -> Result<Hash256, BlockError> {
     let block = signed_block.message();
 
+    let present_slot = chain.slot()?;
+
     // Do not process blocks from the future.
-    if block.slot() > chain.slot()? {
+    if block.slot() > present_slot {
         return Err(BlockError::FutureSlot {
-            present_slot: chain.slot()?,
+            present_slot,
             block_slot: block.slot(),
         });
     }

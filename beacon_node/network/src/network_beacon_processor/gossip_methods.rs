@@ -2415,6 +2415,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_comm_index_non_zero",
                 );
             }
+            AttnError::CommitteeIndexInvalid => {
+                /*
+                 * The committee index is invalid after Gloas.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                debug!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    ?attestation_type,
+                    "Committee index invalid"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_comm_index_invalid",
+                );
+            }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 trace!(
                     %peer_id,

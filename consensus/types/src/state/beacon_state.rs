@@ -9,7 +9,7 @@ use fixed_bytes::FixedBytesExtended;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{NumFields, metastruct};
 use milhouse::{List, Vector};
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
@@ -218,6 +218,7 @@ pub enum BeaconStateError {
         envelope_epoch: Epoch,
     },
     InvalidIndicesCount,
+    InvalidBuilderPendingPaymentsIndex(usize),
     InvalidExecutionPayloadAvailabilityIndex(usize),
 }
 
@@ -875,7 +876,7 @@ impl<E: EthSpec> BeaconState<E> {
         relative_epoch: RelativeEpoch,
     ) -> Result<u64, BeaconStateError> {
         let cache = self.committee_cache(relative_epoch)?;
-        Ok(cache.epoch_committee_count() as u64)
+        Ok(cache.epoch_committee_count()? as u64)
     }
 
     /// Return the cached active validator indices at some epoch.
@@ -2149,7 +2150,7 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<Option<AttestationDuty>, BeaconStateError> {
         let cache = self.committee_cache(relative_epoch)?;
 
-        Ok(cache.get_attestation_duties(validator_index))
+        Ok(cache.get_attestation_duties(validator_index)?)
     }
 
     /// Check if the attestation is for the block proposed at the attestation slot.
@@ -2749,6 +2750,30 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(pending_balance)
     }
 
+    pub fn get_pending_balance_to_withdraw_for_builder(
+        &self,
+        builder_index: BuilderIndex,
+    ) -> Result<u64, BeaconStateError> {
+        let pending_withdrawals_total = self
+            .builder_pending_withdrawals()?
+            .iter()
+            .filter_map(|withdrawal| {
+                (withdrawal.builder_index == builder_index).then_some(withdrawal.amount)
+            })
+            .safe_sum()?;
+        let pending_payments_total = self
+            .builder_pending_payments()?
+            .iter()
+            .filter_map(|payment| {
+                (payment.withdrawal.builder_index == builder_index)
+                    .then_some(payment.withdrawal.amount)
+            })
+            .safe_sum()?;
+        pending_withdrawals_total
+            .safe_add(pending_payments_total)
+            .map_err(Into::into)
+    }
+
     // ******* Electra mutators *******
 
     pub fn queue_excess_active_balance(
@@ -2884,7 +2909,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
         // Required for macros (which use type-hints internally).
 
@@ -3193,7 +3217,6 @@ impl<E: EthSpec> BeaconState<E> {
         ))
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
     pub fn apply_pending_mutations(&mut self) -> Result<(), BeaconStateError> {
         match self {
             Self::Base(inner) => {
@@ -3296,7 +3319,6 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn get_beacon_state_leaves(&self) -> Vec<Hash256> {
         let mut leaves = vec![];
-        #[allow(clippy::arithmetic_side_effects)]
         match self {
             BeaconState::Base(state) => {
                 map_beacon_state_base_fields!(state, |_, field| {

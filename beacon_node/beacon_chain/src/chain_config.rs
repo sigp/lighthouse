@@ -38,7 +38,7 @@ pub struct ChainConfig {
     /// If `None`, there is no weak subjectivity verification.
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
-    pub reconstruct_historic_states: bool,
+    pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
     /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
@@ -130,7 +130,7 @@ impl Default for ChainConfig {
         Self {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
-            reconstruct_historic_states: false,
+            archive: false,
             max_network_size: 10 * 1_048_576, // 10M
             re_org_head_threshold: Some(DEFAULT_RE_ORG_HEAD_THRESHOLD),
             re_org_parent_threshold: Some(DEFAULT_RE_ORG_PARENT_THRESHOLD),

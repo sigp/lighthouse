@@ -136,7 +136,7 @@ impl ApiTester {
         let mut harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
             .chain_config(ChainConfig {
-                reconstruct_historic_states: config.retain_historic_states,
+                archive: config.retain_historic_states,
                 ..ChainConfig::default()
             })
             .deterministic_keypairs(VALIDATOR_COUNT)
@@ -2856,19 +2856,9 @@ impl ApiTester {
 
         let expected = IdentityData {
             peer_id: self.local_enr.peer_id().to_string(),
-            enr: self.local_enr.to_base64(),
-            p2p_addresses: self
-                .local_enr
-                .multiaddr_p2p_tcp()
-                .iter()
-                .map(|a| a.to_string())
-                .collect(),
-            discovery_addresses: self
-                .local_enr
-                .multiaddr_p2p_udp()
-                .iter()
-                .map(|a| a.to_string())
-                .collect(),
+            enr: self.local_enr.clone(),
+            p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
+            discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
             metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
@@ -2897,7 +2887,7 @@ impl ApiTester {
     pub async fn test_get_node_peers_by_id(self) -> Self {
         let result = self
             .client
-            .get_node_peers_by_id(&self.external_peer_id.to_string())
+            .get_node_peers_by_id(self.external_peer_id)
             .await
             .unwrap()
             .data;

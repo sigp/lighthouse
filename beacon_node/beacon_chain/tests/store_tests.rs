@@ -100,7 +100,7 @@ fn get_harness(
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..ChainConfig::default()
     };
     get_harness_generic(
@@ -118,7 +118,7 @@ fn get_harness_import_all_data_columns(
     // Most tests expect to retain historic states, so we use this as the default.
     let chain_config = ChainConfig {
         ignore_ws_check: true,
-        reconstruct_historic_states: true,
+        archive: true,
         ..ChainConfig::default()
     };
     get_harness_generic(
@@ -2876,7 +2876,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..ChainConfig::default()
     };
 
@@ -3030,9 +3030,9 @@ async fn weak_subjectivity_sync_test(
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
-        // Set reconstruct_historic_states to true from the start in the genesis case. This makes
+        // Set archive to true from the start in the genesis case. This makes
         // some of the later checks more uniform across the genesis/non-genesis cases.
-        reconstruct_historic_states: checkpoint_slot == 0,
+        archive: checkpoint_slot == 0,
         ..ChainConfig::default()
     };
 
@@ -3685,7 +3685,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let temp = tempdir().unwrap();
     let store = get_store(&temp);
     let chain_config = ChainConfig {
-        reconstruct_historic_states: false,
+        archive: false,
         ..ChainConfig::default()
     };
     let harness = get_harness_generic(
@@ -4110,16 +4110,13 @@ async fn revert_minority_fork_on_resume() {
 // version is correct. This is the easiest schema test to write without historic versions of
 // Lighthouse on-hand, but has the disadvantage that the min version needs to be adjusted manually
 // as old downgrades are deprecated.
-async fn schema_downgrade_to_min_version(
-    store_config: StoreConfig,
-    reconstruct_historic_states: bool,
-) {
+async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: bool) {
     let num_blocks_produced = E::slots_per_epoch() * 4;
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states,
+        archive,
         ..ChainConfig::default()
     };
 
@@ -4174,7 +4171,7 @@ async fn schema_downgrade_to_min_version(
         .build();
 
     // Check chain dump for appropriate range depending on whether this is an archive node.
-    let chain_dump_start_slot = if reconstruct_historic_states {
+    let chain_dump_start_slot = if archive {
         Slot::new(0)
     } else {
         store.get_split_slot()
@@ -5154,7 +5151,7 @@ async fn ancestor_state_root_prior_to_split() {
         ..StoreConfig::default()
     };
     let chain_config = ChainConfig {
-        reconstruct_historic_states: false,
+        archive: false,
         ..ChainConfig::default()
     };
 
@@ -5247,7 +5244,7 @@ async fn replay_from_split_state() {
         ..StoreConfig::default()
     };
     let chain_config = ChainConfig {
-        reconstruct_historic_states: false,
+        archive: false,
         ..ChainConfig::default()
     };
 

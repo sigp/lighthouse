@@ -9,11 +9,12 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     AbstractExecPayload, AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError,
-    ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
+    BuilderIndex, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
     IndexedAttestation, IndexedAttestationRef, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
-    SyncAggregatorSelectionData,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedRoot, SignedVoluntaryExit,
+    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -28,6 +29,9 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
+    /// Attempted to find the public key of a builder that does not exist. You cannot distinguish
+    /// between an error and an invalid block in this case.
+    BuilderUnknown(BuilderIndex),
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorPubkeyUnknown(PublicKeyBytes),
@@ -53,7 +57,7 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-/// Helper function to get a public key from a `state`.
+/// Helper function to get a validator public key from a `state`.
 pub fn get_pubkey_from_state<E>(
     state: &BeaconState<E>,
     validator_index: usize,
@@ -66,6 +70,25 @@ where
         .get(validator_index)
         .and_then(|v| {
             let pk: Option<PublicKey> = v.pubkey.decompress().ok();
+            pk
+        })
+        .map(Cow::Owned)
+}
+
+/// Helper function to get a builder public key from a `state`.
+pub fn get_builder_pubkey_from_state<E>(
+    state: &BeaconState<E>,
+    builder_index: BuilderIndex,
+) -> Option<Cow<'_, PublicKey>>
+where
+    E: EthSpec,
+{
+    state
+        .builders()
+        .ok()?
+        .get(builder_index as usize)
+        .and_then(|b| {
+            let pk: Option<PublicKey> = b.pubkey.decompress().ok();
             pk
         })
         .map(Cow::Owned)
@@ -330,6 +353,41 @@ where
     let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
+}
+
+pub fn execution_payload_bid_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_builder_pubkey: F,
+    signed_execution_payload_bid: &'a SignedExecutionPayloadBid<E>,
+    spec: &'a ChainSpec,
+) -> Result<Option<SignatureSet<'a>>>
+where
+    E: EthSpec,
+    F: Fn(BuilderIndex) -> Option<Cow<'a, PublicKey>>,
+{
+    let execution_payload_bid = &signed_execution_payload_bid.message;
+    let builder_index = execution_payload_bid.builder_index;
+    if builder_index == BUILDER_INDEX_SELF_BUILD {
+        // No signatures to verify in case of a self-build, but consensus code MUST check that
+        // the signature is the point at infinity.
+        // See `process_execution_payload_bid`.
+        return Ok(None);
+    }
+    let domain = spec.get_domain(
+        state.current_epoch(),
+        Domain::BeaconBuilder,
+        &state.fork(),
+        state.genesis_validators_root(),
+    );
+
+    let pubkey = get_builder_pubkey(builder_index).ok_or(Error::BuilderUnknown(builder_index))?;
+    let message = execution_payload_bid.signing_root(domain);
+
+    Ok(Some(SignatureSet::single_pubkey(
+        &signed_execution_payload_bid.signature,
+        pubkey,
+        message,
+    )))
 }
 
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.

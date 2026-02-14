@@ -439,6 +439,10 @@ Flags:
           intended for use by block builders, relays and developers. You should
           set a fee recipient on this BN and also consider adjusting the
           --prepare-payload-lookahead flag.
+      --archive
+          Store all beacon states in the database. When checkpoint syncing,
+          states are reconstructed after backfill completes. This requires
+          syncing all the way back to genesis.
       --builder-fallback-disable-checks
           This flag disables all checks related to chain health. This means the
           builder API will always be used for payload construction, regardless
@@ -552,9 +556,6 @@ Flags:
       --purge-db-force
           If present, the chain database will be deleted without confirmation.
           Use with caution.
-      --reconstruct-historic-states
-          After a checkpoint sync, reconstruct historic states in the database.
-          This requires syncing all the way back to genesis.
       --reset-payload-statuses
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a
