@@ -102,6 +102,7 @@ impl Error {
                     None
                 }
             }
+            #[cfg(feature = "events")]
             Error::SseEventSource(_) => None,
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
