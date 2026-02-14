@@ -732,7 +732,25 @@ where
 
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
         if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
-            self.fc_store.set_proposer_boost_root(block_root);
+            let head_root = self.proto_array.find_head::<E>(
+                *self.fc_store.justified_checkpoint(),
+                *self.fc_store.finalized_checkpoint(),
+                self.fc_store.justified_balances(),
+                self.fc_store.proposer_boost_root(),
+                self.fc_store.equivocating_indices(),
+                current_slot,
+                spec,
+            ).map_err(Error::ProtoArrayStringError)?;
+
+            let head_block = self.proto_array.get_block(&head_root).ok_or(Error::MissingProtoArrayBlock(head_root))?;
+
+            let current_epoch = current_slot.epoch(E::slots_per_epoch());
+            let head_proposer_shuffling_root = head_block.proposer_shuffling_root_for_child_block(current_epoch, spec);
+            let parent_proposer_shuffling_root = parent_block.proposer_shuffling_root_for_child_block(current_epoch, spec);
+
+            if head_proposer_shuffling_root == parent_proposer_shuffling_root {
+                self.fc_store.set_proposer_boost_root(block_root);
+            }
         }
 
         // Update store with checkpoints if necessary
