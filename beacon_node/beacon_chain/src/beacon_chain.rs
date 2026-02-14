@@ -240,7 +240,7 @@ pub struct PrePayloadAttributes {
     ///
     /// The parent block number is not part of the payload attributes sent to the EL, but *is*
     /// sent to builders via SSE.
-    pub parent_block_number: u64,
+    pub parent_block_number: Option<u64>,
     /// The block root of the block being built upon (same block as fcU `headBlockHash`).
     pub parent_beacon_block_root: Hash256,
 }
@@ -4694,15 +4694,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // Get the `prev_randao` and parent block number.
-        let head_block_number = cached_head.head_block_number()?;
-        let (prev_randao, parent_block_number) = if proposer_head == head_parent_block_root {
-            (
-                cached_head.parent_random()?,
-                head_block_number.saturating_sub(1),
-            )
+        // TODO(gloas) not sure what to do here see this issue
+        // https://github.com/sigp/lighthouse/issues/8817
+        let (prev_randao, parent_block_number) = if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(proposal_slot)
+            .gloas_enabled()
+        {
+            (cached_head.head_random()?, None)
         } else {
-            (cached_head.head_random()?, head_block_number)
+            // Get the `prev_randao` and parent block number.
+            let head_block_number = cached_head.head_block_number()?;
+            if proposer_head == head_parent_block_root {
+                (
+                    cached_head.parent_random()?,
+                    Some(head_block_number.saturating_sub(1)),
+                )
+            } else {
+                (cached_head.head_random()?, Some(head_block_number))
+            }
         };
 
         Ok(Some(PrePayloadAttributes {
@@ -6057,18 +6067,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
         {
-            event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
-                data: SseExtendedPayloadAttributes {
-                    proposal_slot: prepare_slot,
-                    proposer_index: proposer,
-                    parent_block_root: head_root,
-                    parent_block_number: pre_payload_attributes.parent_block_number,
-                    parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
-                    payload_attributes: payload_attributes.into(),
-                },
-                metadata: Default::default(),
-                version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
-            }));
+            if let Some(parent_block_number) = pre_payload_attributes.parent_block_number {
+                event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
+                    data: SseExtendedPayloadAttributes {
+                        proposal_slot: prepare_slot,
+                        proposer_index: proposer,
+                        parent_block_root: head_root,
+                        parent_block_number,
+                        parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
+                        payload_attributes: payload_attributes.into(),
+                    },
+                    metadata: Default::default(),
+                    version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
+                }));
+            }
         }
 
         let Some(till_prepare_slot) = self.slot_clock.duration_to_slot(prepare_slot) else {
