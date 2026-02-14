@@ -367,9 +367,9 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let timestamp =
         compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
-    let header = state.latest_execution_payload_header()?;
-    let (latest_execution_payload_header_block_hash, latest_execution_payload_header_gas_limit) =
-        (header.block_hash(), header.gas_limit());
+    let latest_execution_payload_header = state.latest_execution_payload_header()?;
+    let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
+    let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
     let withdrawals = if state.fork_name_unchecked().capella_enabled() {
         Some(Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into())
     } else {
