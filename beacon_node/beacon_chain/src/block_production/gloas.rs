@@ -3,33 +3,37 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use bls::Signature;
-use execution_layer::{BlockProposalContentsType, BuilderParams};
+use execution_layer::{
+    BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
+};
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::get_attesting_indices_from_state;
 use state_processing::envelope_processing::{VerifyStateRoot, process_execution_payload_envelope};
 use state_processing::epoch_cache::initialize_epoch_cache;
-use state_processing::per_block_processing::verify_attestation_for_block_inclusion;
+use state_processing::per_block_processing::{
+    compute_timestamp_at_slot, get_expected_withdrawals, verify_attestation_for_block_inclusion,
+};
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
 };
 use state_processing::{VerifyOperation, state_advance::complete_state_advance};
-use tracing::{Span, debug, debug_span, error, instrument, trace, warn};
+use task_executor::JoinHandle;
+use tracing::{Instrument, Span, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::consts::gloas::{
     BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD, EXECUTION_PAYMENT_TRUSTLESS_BUILD,
 };
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
-    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BlockProductionVersion,
-    BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope,
-    ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti, Hash256, PayloadAttestation,
-    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
-    SyncAggregate,
+    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
+    BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
+    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
 
-use crate::execution_payload::get_execution_payload;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
     ProduceBlockVerification, graffiti_calculator::GraffitiSettings, metrics,
@@ -37,6 +41,9 @@ use crate::{
 
 type ConsensusBlockValue = u64;
 type BlockProductionResult<E> = (BeaconBlock<E, FullPayload<E>>, ConsensusBlockValue);
+
+pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
+pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
 
 pub struct PartialBeaconBlock<E: EthSpec> {
     slot: Slot,
@@ -687,53 +694,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO(gloas) this should be BlockProductionVersion::V4
         // V3 is okay for now as long as we're not connected to a builder
         // TODO(gloas) add builder boost factor
-        let prepare_payload_handle = get_execution_payload(
+        let prepare_payload_handle = get_execution_payload_gloas(
             self.clone(),
             &state,
             parent_root,
             proposer_index,
             builder_params,
-            None,
-            BlockProductionVersion::V3,
         )?;
 
-        let block_contents_type = prepare_payload_handle
+        let block_proposal_contents = prepare_payload_handle
             .await
             .map_err(BlockProductionError::TokioJoin)?
             .ok_or(BlockProductionError::ShuttingDown)??;
 
-        let (execution_payload, blob_kzg_commitments, execution_requests) =
-            match block_contents_type {
-                BlockProposalContentsType::Full(block_proposal_contents) => {
-                    let (payload, blob_kzg_commitments, _, execution_requests, _) =
-                        block_proposal_contents.deconstruct();
-
-                    if let Some(blob_kzg_commitments) = blob_kzg_commitments
-                        && let Some(execution_requests) = execution_requests
-                    {
-                        (
-                            payload.execution_payload(),
-                            blob_kzg_commitments,
-                            execution_requests,
-                        )
-                    } else {
-                        return Err(BlockProductionError::MissingKzgCommitment(
-                            "No KZG commitments from the payload".to_owned(),
-                        ));
-                    }
-                }
-                BlockProposalContentsType::Blinded(_) => {
-                    return Err(BlockProductionError::Unexpected(
-                        "Should never produce a blinded block post-Gloas".to_owned(),
-                    ));
-                }
-            };
-
-        // TODO(gloas) this is just a dummy error variant for now
-        let execution_payload_gloas = execution_payload
-            .as_gloas()
-            .map_err(|_| BlockProductionError::GloasNotImplemented)?
-            .to_owned();
+        let BlockProposalContentsGloas {
+            payload,
+            payload_value: _,
+            execution_requests,
+            blob_kzg_commitments,
+            blobs_and_proofs: _,
+        } = block_proposal_contents;
 
         let state_root = state.update_tree_hash_cache()?;
 
@@ -742,10 +722,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let bid = ExecutionPayloadBid::<T::EthSpec> {
             parent_block_hash: state.latest_block_hash()?.to_owned(),
             parent_block_root: state.get_latest_block_root(state_root),
-            block_hash: execution_payload.block_hash(),
-            prev_randao: execution_payload.prev_randao(),
+            block_hash: payload.block_hash,
+            prev_randao: payload.prev_randao,
             fee_recipient: Address::ZERO,
-            gas_limit: execution_payload.gas_limit(),
+            gas_limit: payload.gas_limit,
             builder_index,
             slot: produce_at_slot,
             value: bid_value,
@@ -755,7 +735,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Store payload data for envelope construction after block is created
         let payload_data = ExecutionPayloadData {
-            payload: execution_payload_gloas,
+            payload,
             execution_requests,
             builder_index,
             slot: produce_at_slot,
@@ -776,4 +756,147 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(payload_data),
         ))
     }
+}
+
+/// Gets an execution payload for inclusion in a block.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-Gloas `state`. Ensure to only run this function
+/// after the Gloas fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `get_execution_payload` function in the Validator Guide:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
+fn get_execution_payload_gloas<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    state: &BeaconState<T::EthSpec>,
+    parent_beacon_block_root: Hash256,
+    proposer_index: u64,
+    builder_params: BuilderParams,
+) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
+    // Compute all required values from the `state` now to avoid needing to pass it into a spawned
+    // task.
+    let spec = &chain.spec;
+    let current_epoch = state.current_epoch();
+    let timestamp =
+        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
+    let random = *state.get_randao_mix(current_epoch)?;
+
+    let latest_execution_block_hash = *state.latest_block_hash()?;
+    let latest_gas_limit = state.latest_execution_payload_bid()?.gas_limit;
+
+    let withdrawals =
+        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into();
+
+    // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
+    // `join_handle` can be used to await the result of the function.
+    let join_handle = chain
+        .task_executor
+        .clone()
+        .spawn_handle(
+            async move {
+                prepare_execution_payload::<T>(
+                    &chain,
+                    timestamp,
+                    random,
+                    proposer_index,
+                    latest_execution_block_hash,
+                    latest_gas_limit,
+                    builder_params,
+                    withdrawals,
+                    parent_beacon_block_root,
+                )
+                .await
+            }
+            .instrument(debug_span!("prepare_execution_payload")),
+            "prepare_execution_payload",
+        )
+        .ok_or(BlockProductionError::ShuttingDown)?;
+
+    Ok(join_handle)
+}
+
+/// Prepares an execution payload for inclusion in a block.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-Gloas fork `state`. Ensure to only run this function
+/// after the Gloas fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
+#[allow(clippy::too_many_arguments)]
+async fn prepare_execution_payload<T>(
+    chain: &Arc<BeaconChain<T>>,
+    timestamp: u64,
+    random: Hash256,
+    proposer_index: u64,
+    parent_block_hash: ExecutionBlockHash,
+    parent_gas_limit: u64,
+    builder_params: BuilderParams,
+    withdrawals: Vec<Withdrawal>,
+    parent_beacon_block_root: Hash256,
+) -> Result<BlockProposalContentsGloas<T::EthSpec>, BlockProductionError>
+where
+    T: BeaconChainTypes,
+{
+    let spec = &chain.spec;
+    let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
+    let execution_layer = chain
+        .execution_layer
+        .as_ref()
+        .ok_or(BlockProductionError::ExecutionLayerMissing)?;
+
+    // Try to obtain the fork choice update parameters from the cached head.
+    //
+    // Use a blocking task to interact with the `canonical_head` lock otherwise we risk blocking the
+    // core `tokio` executor.
+    let inner_chain = chain.clone();
+    let forkchoice_update_params = chain
+        .spawn_blocking_handle(
+            move || {
+                inner_chain
+                    .canonical_head
+                    .cached_head()
+                    .forkchoice_update_parameters()
+            },
+            "prepare_execution_payload_forkchoice_update_params",
+        )
+        .instrument(debug_span!("forkchoice_update_params"))
+        .await
+        .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
+
+    let suggested_fee_recipient = execution_layer
+        .get_suggested_fee_recipient(proposer_index)
+        .await;
+    let payload_attributes = PayloadAttributes::new(
+        timestamp,
+        random,
+        suggested_fee_recipient,
+        Some(withdrawals),
+        Some(parent_beacon_block_root),
+    );
+
+    let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
+    let payload_parameters = PayloadParameters {
+        parent_hash: parent_block_hash,
+        parent_gas_limit,
+        proposer_gas_limit: target_gas_limit,
+        payload_attributes: &payload_attributes,
+        forkchoice_update_params: &forkchoice_update_params,
+        current_fork: fork,
+    };
+
+    let block_contents = execution_layer
+        .get_payload_gloas(payload_parameters)
+        .await
+        .map_err(BlockProductionError::GetPayloadFailed)?;
+
+    Ok(block_contents)
 }
