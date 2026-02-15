@@ -86,9 +86,7 @@ pub trait Handler {
                 .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap())
         };
 
-        let read_dir_res = fs::read_dir(&handler_path);
-
-        let test_cases = read_dir_res
+        let test_cases = fs::read_dir(&handler_path)
             .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
             .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
@@ -601,15 +599,6 @@ impl<E: EthSpec + TypeName> Handler for RewardsHandler<E> {
             fork_name.altair_enabled()
         } else {
             true
-        }
-    }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        if self.handler_name == "inactivity_scores" {
-            // Enable Gloas for inactivity_scores tests.
-            vec![]
-        } else {
-            vec![ForkName::Gloas]
         }
     }
 }
