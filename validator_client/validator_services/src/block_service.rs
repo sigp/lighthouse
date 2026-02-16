@@ -625,7 +625,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
         if fork_name.gloas_enabled() {
             self_ref
-                .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
+                .fetch_sign_and_publish_payload_envelope(
+                    &proposer_fallback,
+                    slot,
+                    &validator_pubkey,
+                )
                 .await?;
         }
 
