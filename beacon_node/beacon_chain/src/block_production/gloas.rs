@@ -573,6 +573,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // TODO(gloas) add better error variant
+            // We skip state root verification here because the correct state root
+            // cant be calculated until after the new block has been constructed.
             process_execution_payload_envelope(
                 &mut state,
                 None,
