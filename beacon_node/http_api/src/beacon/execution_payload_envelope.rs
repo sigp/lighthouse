@@ -86,13 +86,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     let slot = envelope.message.slot;
     let beacon_block_root = envelope.message.beacon_block_root;
 
-    // TODO(gloas): Do we want to add more validation like:
-    // - Verify the signature
-    // - Check builder_index is valid
-    // - Verify the envelope references a known block
-    //
-    // If we do, then we must post the signed execution payload envelope to the BN that originally produced it.
-
+    // TODO(gloas): We should probably add validation here i.e. BroadcastValidation::Gossip
     info!(
         %slot,
         %beacon_block_root,
