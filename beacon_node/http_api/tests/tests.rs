@@ -3832,7 +3832,12 @@ impl ApiTester {
             assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
 
             // Sign and publish the execution payload envelope
-            let domain = self.chain.spec.get_builder_domain();
+            let domain = self.chain.spec.get_domain(
+                epoch,
+                Domain::BeaconBuilder,
+                &fork,
+                genesis_validators_root,
+            );
             let signing_root = envelope.signing_root(domain);
             let signature = sk.sign(signing_root);
 
@@ -3942,7 +3947,12 @@ impl ApiTester {
             assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
 
             // Sign and publish the execution payload envelope
-            let domain = self.chain.spec.get_builder_domain();
+            let domain = self.chain.spec.get_domain(
+                epoch,
+                Domain::BeaconBuilder,
+                &fork,
+                genesis_validators_root,
+            );
             let signing_root = envelope.signing_root(domain);
             let signature = sk.sign(signing_root);
 
