@@ -465,18 +465,12 @@ pub enum IndexedPayloadAttestationInvalid {
     /// The number of indices is 0.
     IndicesEmpty,
     /// The validator indices were not in increasing order.
-    ///
-    /// The error occurred between the given `index` and `index + 1`
-    BadValidatorIndicesOrdering(usize),
-    /// The validator index is unknown. One cannot slash one who does not exist.
-    UnknownValidator(u64),
+    BadValidatorIndicesOrdering,
     /// The indexed attestation aggregate signature was not valid.
     BadSignature,
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
-    /// Invalid Payload Status
-    PayloadStatusInvalid,
 }
 
 #[derive(Debug, PartialEq, Clone)]
