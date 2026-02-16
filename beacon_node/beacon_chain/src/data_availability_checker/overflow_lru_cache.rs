@@ -698,6 +698,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn remove_pre_execution_block(&self, block_root: &Hash256) {
         // The read lock is immediately dropped so we can safely remove the block from the cache.
         if let Some(BlockProcessStatus::NotValidated(_, _)) = self.get_cached_block(block_root) {
+            // If the block is execution invalid, this status is permanent and idempotent to this
+            // block_root. We drop its components (e.g. columns) because they will never be useful.
             self.critical.write().pop(block_root);
         }
     }

@@ -9,7 +9,6 @@
 //! tests for implementation examples.
 pub mod blob_sidecar_list_from_root;
 pub mod config;
-pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 pub mod hdiff;
@@ -27,7 +26,6 @@ pub mod iter;
 
 pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
-pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;

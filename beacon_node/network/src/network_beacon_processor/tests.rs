@@ -940,20 +940,20 @@ async fn data_column_reconstruction_at_deadline() {
         .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
     let min_columns_for_reconstruction = E::number_of_columns() / 2;
+
+    // Enqueue all columns first - at deadline, reconstruction races with gossip drain
     for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
-            .await;
     }
 
-    // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
-    rig.assert_event_journal_with_timeout(
-        &[WorkType::ColumnReconstruction.into()],
-        Duration::from_millis(50),
-        false,
-        false,
-    )
-    .await;
+    // Expect all gossip events + reconstruction
+    let mut expected_events: Vec<WorkType> = (0..min_columns_for_reconstruction)
+        .map(|_| WorkType::GossipDataColumnSidecar)
+        .collect();
+    expected_events.push(WorkType::ColumnReconstruction);
+
+    rig.assert_event_journal_contains_ordered(&expected_events)
+        .await;
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.

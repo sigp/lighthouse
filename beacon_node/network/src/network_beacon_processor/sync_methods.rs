@@ -221,7 +221,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 {
                     let publish_blobs = false;
                     self.fetch_engine_blobs_and_publish(&header, block_root, publish_blobs)
-                        .await
+                        .await;
                 }
             }
             _ => {}

@@ -401,9 +401,9 @@ fn genesis_backfill_flag() {
 
 /// The genesis backfill flag should be enabled if historic states flag is set.
 #[test]
-fn genesis_backfill_with_historic_flag() {
+fn genesis_backfill_with_archive_flag() {
     CommandLineTest::new()
-        .flag("reconstruct-historic-states", None)
+        .flag("archive", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.genesis_backfill));
 }
@@ -2030,17 +2030,24 @@ fn blob_prune_margin_epochs_on_startup_ten() {
         .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 10));
 }
 #[test]
-fn reconstruct_historic_states_flag() {
+fn archive_flag() {
+    CommandLineTest::new()
+        .flag("archive", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.archive));
+}
+#[test]
+fn archive_flag_alias() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.reconstruct_historic_states));
+        .with_config(|config| assert!(config.chain.archive));
 }
 #[test]
-fn no_reconstruct_historic_states_flag() {
+fn no_archive_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.reconstruct_historic_states));
+        .with_config(|config| assert!(!config.chain.archive));
 }
 #[test]
 fn epochs_per_migration_default() {

@@ -17,7 +17,7 @@ use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
 use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
@@ -1095,13 +1095,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })?;
 
         // Include only the blob indexes not yet imported (received through gossip)
-        let custody_indexes_to_fetch = self
+        let mut custody_indexes_to_fetch = self
             .chain
             .sampling_columns_for_epoch(current_epoch)
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
+        custody_indexes_to_fetch.sort_unstable();
 
         if custody_indexes_to_fetch.is_empty() {
             // No indexes required, do not issue any request
@@ -1595,7 +1596,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         )
         .map_err(|_| SendErrorProcessor::SendError)?;
 
-        debug!(block = ?block_root, id, "Sending block for processing");
+        debug!(block = ?block_root, block_slot = %block.slot(), id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
         beacon_processor

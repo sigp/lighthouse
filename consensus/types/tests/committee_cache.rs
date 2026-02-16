@@ -33,9 +33,9 @@ fn default_values() {
     assert!(!cache.is_initialized_at(Epoch::new(0)));
     assert!(&cache.active_validator_indices().is_empty());
     assert_eq!(cache.get_beacon_committee(Slot::new(0), 0), None);
-    assert_eq!(cache.get_attestation_duties(0), None);
+    assert_eq!(cache.get_attestation_duties(0), Ok(None));
     assert_eq!(cache.active_validator_count(), 0);
-    assert_eq!(cache.epoch_committee_count(), 0);
+    assert_eq!(cache.epoch_committee_count(), Ok(0));
     assert!(cache.get_beacon_committees_at_slot(Slot::new(0)).is_err());
 }
 
