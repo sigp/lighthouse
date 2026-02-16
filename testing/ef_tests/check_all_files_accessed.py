@@ -47,8 +47,6 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
-    # TODO(gloas): remove these ignores as more Gloas operations are implemented
-    "tests/.*/gloas/operations/payload_attestation/.*",
     # TODO(gloas): remove these ignores as Gloas consensus is implemented
     "tests/.*/gloas/fork/.*",
     "tests/.*/gloas/fork_choice/.*",

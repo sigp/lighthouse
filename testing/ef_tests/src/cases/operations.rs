@@ -20,7 +20,7 @@ use state_processing::{
         process_operations::{
             altair_deneb, base, gloas, process_attester_slashings,
             process_bls_to_execution_changes, process_deposits, process_exits,
-            process_proposer_slashings,
+            process_payload_attestation, process_proposer_slashings,
         },
         process_sync_aggregate, withdrawals,
     },
@@ -30,8 +30,9 @@ use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
     BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
-    ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
+    ForkVersionDecode, FullPayload, PayloadAttestation, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SyncAggregate,
+    WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -656,6 +657,34 @@ impl<E: EthSpec> Operation<E> for ConsolidationRequest {
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
         process_consolidation_requests(state, std::slice::from_ref(self), spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for PayloadAttestation<E> {
+    type Error = BlockProcessingError;
+
+    fn handler_name() -> String {
+        "payload_attestation".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.gloas_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        initialize_epoch_cache(state, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
+        let mut ctxt = ConsensusContext::new(state.slot());
+        process_payload_attestation(state, self, 0, VerifySignatures::True, &mut ctxt, spec)
     }
 }
 
