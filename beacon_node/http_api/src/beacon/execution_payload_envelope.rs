@@ -57,7 +57,6 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
     network_tx_filter: NetworkTxFilter<T>,
 ) -> ResponseFilter {
     eth_v1
-        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelope"))
         .and(warp::path::end())
