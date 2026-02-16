@@ -681,8 +681,6 @@ impl<E: EthSpec> Operation<E> for PayloadAttestation<E> {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        initialize_epoch_cache(state, spec)?;
-        initialize_progressive_balances_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         process_payload_attestation(state, self, 0, VerifySignatures::True, &mut ctxt, spec)
     }

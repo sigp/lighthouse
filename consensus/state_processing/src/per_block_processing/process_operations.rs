@@ -1105,13 +1105,11 @@ pub fn process_payload_attestations<'a, E: EthSpec, I>(
 where
     I: Iterator<Item = &'a PayloadAttestation<E>>,
 {
-    // Ensure required caches are all built. These should be no-ops during regular operation.
-    // TODO(EIP-7732): verify necessary caches
+    // Presently the PTC cache requires the committee cache for `state.slot() - 1` which is either
+    // in the current or previous epoch.
+    // TODO(gloas): These requirements may change if we introduce a PTC cache.
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-    initialize_epoch_cache(state, spec)?;
-    initialize_progressive_balances_cache(state, spec)?;
-    state.build_slashings_cache()?;
 
     payload_attestations
         .enumerate()
