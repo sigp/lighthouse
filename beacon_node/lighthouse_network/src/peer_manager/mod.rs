@@ -409,12 +409,12 @@ impl<E: EthSpec> PeerManager<E> {
     /// maintain adequate number of peers for.
     pub fn add_sync_subnet(&mut self, subnet_id: SyncSubnetId, min_ttl: Instant) {
         match self.sync_committee_subnets.entry(subnet_id) {
-            Entry::Vacant(_) => {
-                self.sync_committee_subnets.insert(subnet_id, min_ttl);
+            Entry::Vacant(entry) => {
+                entry.insert(min_ttl);
             }
-            Entry::Occupied(old) => {
-                if *old.get() < min_ttl {
-                    self.sync_committee_subnets.insert(subnet_id, min_ttl);
+            Entry::Occupied(mut entry) => {
+                if *entry.get() < min_ttl {
+                    entry.insert(min_ttl);
                 }
             }
         }
