@@ -86,19 +86,6 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     let slot = envelope.message.slot;
     let beacon_block_root = envelope.message.beacon_block_root;
 
-    // Basic validation: check that the slot is reasonable
-    let current_slot = chain.slot().map_err(|_| {
-        warp_utils::reject::custom_server_error("Unable to get current slot".into())
-    })?;
-
-    // Don't accept envelopes too far in the future
-    if slot > current_slot + 1 {
-        return Err(warp_utils::reject::custom_bad_request(format!(
-            "Envelope slot {} is too far in the future (current slot: {})",
-            slot, current_slot
-        )));
-    }
-
     // TODO(gloas): Do we want to add more validation like:
     // - Verify the signature
     // - Check builder_index is valid
