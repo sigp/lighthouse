@@ -22,8 +22,6 @@ pub use beacon_response::{
 };
 
 pub use self::error::{Error, ok_or_error, success_or_error};
-pub use reqwest;
-pub use reqwest::{StatusCode, Url};
 pub use sensitive_url::SensitiveUrl;
 
 use self::mixin::{RequestAccept, ResponseOptional};
@@ -38,7 +36,7 @@ use futures_util::StreamExt;
 #[cfg(feature = "network")]
 use libp2p_identity::PeerId;
 use reqwest::{
-    Body, IntoUrl, RequestBuilder, Response,
+    Body, IntoUrl, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, HeaderValue},
 };
 #[cfg(feature = "events")]

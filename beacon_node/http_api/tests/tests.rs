@@ -10,9 +10,8 @@ use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes
 use eth2::{
     BeaconNodeHttpClient, Error,
     Error::ServerMessage,
-    StatusCode, Timeouts,
+    Timeouts,
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
-    reqwest::{RequestBuilder, Response},
     types::{
         BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
     },
@@ -34,6 +33,7 @@ use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
+use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::BitList;

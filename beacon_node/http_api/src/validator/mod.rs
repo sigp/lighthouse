@@ -10,7 +10,6 @@ use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
-use eth2::StatusCode;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, EndpointVersion, Failure, GenericResponse,
     StandardLivenessResponseData, StateId as CoreStateId, ValidatorAggregateAttestationQuery,
@@ -18,6 +17,7 @@ use eth2::types::{
 };
 use lighthouse_network::PubsubMessage;
 use network::{NetworkMessage, ValidatorSubscriptionMessage};
+use reqwest::StatusCode;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};

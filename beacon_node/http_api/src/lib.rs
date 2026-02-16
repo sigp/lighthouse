@@ -50,7 +50,6 @@ use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
 use directory::DEFAULT_ROOT_DIR;
-use eth2::StatusCode;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
@@ -69,6 +68,7 @@ use parking_lot::RwLock;
 pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use ssz::Encode;
