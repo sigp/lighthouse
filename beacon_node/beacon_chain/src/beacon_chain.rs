@@ -5670,7 +5670,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
-            BeaconState::Gloas(_) => return Err(BlockProductionError::GloasNotImplemented("Attempting to produce gloas beacn block via non gloas code path".to_owned())),
+            BeaconState::Gloas(_) => {
+                return Err(BlockProductionError::GloasNotImplemented(
+                    "Attempting to produce gloas beacn block via non gloas code path".to_owned(),
+                ));
+            }
         };
 
         let block = SignedBeaconBlock::from_block(
