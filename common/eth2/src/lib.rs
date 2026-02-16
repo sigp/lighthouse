@@ -2595,7 +2595,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Slot,
         builder_index: u64,
-    ) -> Result<GenericResponse<ExecutionPayloadEnvelope<E>>, Error> {
+    ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

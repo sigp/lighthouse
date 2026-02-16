@@ -3756,12 +3756,10 @@ impl ApiTester {
             .unwrap();
 
         let randao_reveal = {
-            let domain = self.chain.spec.get_domain(
-                epoch,
-                Domain::Randao,
-                fork,
-                genesis_validators_root,
-            );
+            let domain =
+                self.chain
+                    .spec
+                    .get_domain(epoch, Domain::Randao, fork, genesis_validators_root);
             let message = epoch.signing_root(domain);
             sk.sign(message).into()
         };
@@ -3816,12 +3814,10 @@ impl ApiTester {
         fork: &Fork,
         genesis_validators_root: Hash256,
     ) -> SignedExecutionPayloadEnvelope<E> {
-        let domain = self.chain.spec.get_domain(
-            epoch,
-            Domain::BeaconBuilder,
-            fork,
-            genesis_validators_root,
-        );
+        let domain =
+            self.chain
+                .spec
+                .get_domain(epoch, Domain::BeaconBuilder, fork, genesis_validators_root);
         let signing_root = envelope.signing_root(domain);
         let signature = sk.sign(signing_root);
 
@@ -3849,8 +3845,9 @@ impl ApiTester {
                 continue;
             }
 
-            let (sk, randao_reveal) =
-                self.proposer_setup(slot, epoch, &fork, genesis_validators_root).await;
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
 
             let (response, metadata) = self
                 .client
@@ -3910,8 +3907,9 @@ impl ApiTester {
                 continue;
             }
 
-            let (sk, randao_reveal) =
-                self.proposer_setup(slot, epoch, &fork, genesis_validators_root).await;
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
 
             let (block, metadata) = self
                 .client
