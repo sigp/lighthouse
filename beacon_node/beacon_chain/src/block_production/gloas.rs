@@ -605,7 +605,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 VerifyStateRoot::False,
                 &self.spec,
             )
-            .map_err(|_| BlockProductionError::GloasNotImplemented)?;
+            .map_err(|_| BlockProductionError::GloasNotImplemented("process_execution_payload_envelope failed".to_owned()))?;
 
             signed_envelope.message.state_root = state.update_tree_hash_cache()?;
 
@@ -748,7 +748,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 message: bid,
                 // TODO(gloas) return better error variant here
                 signature: Signature::infinity()
-                    .map_err(|_| BlockProductionError::GloasNotImplemented)?,
+                    .map_err(|_| BlockProductionError::GloasNotImplemented("Failed to generate infinity signature".to_owned()))?,
             },
             state,
             // Local building always returns payload data.
