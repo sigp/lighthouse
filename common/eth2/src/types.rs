@@ -1604,7 +1604,7 @@ pub struct BroadcastValidationQuery {
 }
 
 pub mod serde_status_code {
-    use crate::StatusCode;
+    use reqwest::StatusCode;
     use serde::{Deserialize, Serialize, de::Error};
 
     pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
