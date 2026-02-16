@@ -658,12 +658,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             .beacon_nodes
             .first_success(|beacon_node| async move {
                 beacon_node
-                    .get_validator_execution_payload_envelope::<S::E>(
+                    .get_validator_execution_payload_envelope_ssz::<S::E>(
                         slot,
                         BUILDER_INDEX_SELF_BUILD,
                     )
                     .await
-                    .map(|response| response.data)
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
                             "Error fetching execution payload envelope: {:?}",
@@ -703,7 +702,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 let signed_envelope = signed_envelope.clone();
                 async move {
                     beacon_node
-                        .post_beacon_execution_payload_envelope(&signed_envelope)
+                        .post_beacon_execution_payload_envelope_ssz(&signed_envelope)
                         .await
                         .map_err(|e| {
                             BlockError::Recoverable(format!(
