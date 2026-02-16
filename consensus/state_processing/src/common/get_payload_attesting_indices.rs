@@ -2,16 +2,17 @@ use crate::per_block_processing::errors::{
     BlockOperationError, PayloadAttestationInvalid as Invalid,
 };
 use ssz_types::VariableList;
-use typenum::Unsigned;
-use types::*;
+use types::{
+    BeaconState, BeaconStateError, ChainSpec, EthSpec, IndexedPayloadAttestation,
+    PayloadAttestation,
+};
 
 pub fn get_indexed_payload_attestation<E: EthSpec>(
     state: &BeaconState<E>,
-    slot: Slot,
     payload_attestation: &PayloadAttestation<E>,
     spec: &ChainSpec,
 ) -> Result<IndexedPayloadAttestation<E>, BlockOperationError<Invalid>> {
-    let attesting_indices = get_payload_attesting_indices(state, slot, payload_attestation, spec)?;
+    let attesting_indices = get_payload_attesting_indices(state, payload_attestation, spec)?;
 
     Ok(IndexedPayloadAttestation {
         attesting_indices: VariableList::new(attesting_indices)?,
@@ -22,20 +23,16 @@ pub fn get_indexed_payload_attestation<E: EthSpec>(
 
 pub fn get_payload_attesting_indices<E: EthSpec>(
     state: &BeaconState<E>,
-    slot: Slot,
     payload_attestation: &PayloadAttestation<E>,
     spec: &ChainSpec,
 ) -> Result<Vec<u64>, BeaconStateError> {
+    let slot = payload_attestation.data.slot;
     let ptc = state.get_ptc(slot, spec)?;
+    let bits = &payload_attestation.aggregation_bits;
 
-    let bitlist = &payload_attestation.aggregation_bits;
-    if bitlist.len() != E::PTCSize::to_usize() {
-        return Err(BeaconStateError::InvalidBitfield);
-    }
-
-    let mut attesting_indices = Vec::<u64>::new();
+    let mut attesting_indices = vec![];
     for (i, index) in ptc.into_iter().enumerate() {
-        if let Ok(true) = bitlist.get(i) {
+        if let Ok(true) = bits.get(i) {
             attesting_indices.push(index as u64);
         }
     }

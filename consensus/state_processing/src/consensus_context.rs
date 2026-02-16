@@ -188,7 +188,6 @@ impl<E: EthSpec> ConsensusContext<E> {
     pub fn get_indexed_payload_attestation<'a>(
         &'a mut self,
         state: &BeaconState<E>,
-        slot: Slot,
         payload_attestation: &'a PayloadAttestation<E>,
         spec: &ChainSpec,
     ) -> Result<&'a IndexedPayloadAttestation<E>, BlockOperationError<PayloadAttestationInvalid>>
@@ -198,7 +197,7 @@ impl<E: EthSpec> ConsensusContext<E> {
             Entry::Occupied(occupied) => Ok(occupied.into_mut()),
             Entry::Vacant(vacant) => {
                 let indexed_payload_attestation =
-                    get_indexed_payload_attestation(state, slot, payload_attestation, spec)?;
+                    get_indexed_payload_attestation(state, payload_attestation, spec)?;
                 Ok(vacant.insert(indexed_payload_attestation))
             }
         }
