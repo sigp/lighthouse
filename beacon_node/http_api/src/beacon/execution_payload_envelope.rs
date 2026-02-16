@@ -80,7 +80,7 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
 /// Publishes a signed execution payload envelope to the network.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
-    chain: Arc<BeaconChain<T>>,
+    _chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let slot = envelope.message.slot;

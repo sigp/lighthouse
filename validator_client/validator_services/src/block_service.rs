@@ -335,7 +335,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
     async fn sign_and_publish_block(
         &self,
-        proposer_fallback: ProposerFallback<T>,
+        proposer_fallback: &ProposerFallback<T>,
         slot: Slot,
         graffiti: Option<Graffiti>,
         validator_pubkey: &PublicKeyBytes,
@@ -612,7 +612,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         self_ref
             .sign_and_publish_block(
-                proposer_fallback.clone(),
+                &proposer_fallback,
                 slot,
                 graffiti,
                 &validator_pubkey,
@@ -625,7 +625,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
         if fork_name.gloas_enabled() {
             self_ref
-                .fetch_sign_and_publish_payload_envelope(proposer_fallback, slot, &validator_pubkey)
+                .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
                 .await?;
         }
 
@@ -642,7 +642,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     #[instrument(skip_all)]
     async fn fetch_sign_and_publish_payload_envelope(
         &self,
-        proposer_fallback: ProposerFallback<T>,
+        proposer_fallback: &ProposerFallback<T>,
         slot: Slot,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<(), BlockError> {
