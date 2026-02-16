@@ -10,8 +10,8 @@ use beacon_chain::graffiti_calculator::GraffitiSettings;
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
-use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
+use eth2::{beacon_response::ForkVersionedResponse, types::ProduceBlockV4Metadata};
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::instrument;
@@ -143,6 +143,11 @@ pub fn build_response_v4<T: BeaconChainTypes>(
     let consensus_block_value_wei =
         Uint256::from(consensus_block_value) * Uint256::from(1_000_000_000u64);
 
+    let metadata = ProduceBlockV4Metadata {
+        consensus_version: fork_name,
+        consensus_block_value: consensus_block_value_wei,
+    };
+
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()
             .status(200)
@@ -153,10 +158,11 @@ pub fn build_response_v4<T: BeaconChainTypes>(
             .map_err(|e| -> warp::Rejection {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
             }),
-        _ => Ok(warp::reply::json(&beacon_response(
-            ResponseIncludesVersion::Yes(fork_name),
-            block,
-        ))
+        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+            version: fork_name,
+            metadata,
+            data: block,
+        })
         .into_response())
         .map(|res| add_consensus_version_header(res, fork_name))
         .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei)),
