@@ -20,10 +20,10 @@ pub struct NoHeaderInColumnError;
 
 #[derive(Debug, Clone)]
 pub struct OutgoingPartialColumn<E: EthSpec> {
-    pub partial_column: Arc<PartialDataColumn<E>>,
-    pub metadata: Vec<u8>,
-    pub header_message: Vec<u8>,
-    pub header_sent_set: HeaderSentSet,
+    partial_column: Arc<PartialDataColumn<E>>,
+    metadata: MaybeKnownMetadata<E>,
+    header_message: Vec<u8>,
+    header_sent_set: HeaderSentSet,
 }
 
 impl<E: EthSpec> OutgoingPartialColumn<E> {
@@ -46,7 +46,7 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
             available: partial_column.sidecar.cells_present_bitmap.clone(),
             request: partial_column.sidecar.cells_present_bitmap.clone(),
         }
-        .as_ssz_bytes();
+        .into();
 
         let header_message = PartialDataColumnSidecar {
             cells_present_bitmap: CellBitmap::<E>::with_capacity(
@@ -137,8 +137,8 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
         group_id
     }
 
-    fn metadata(&self) -> Vec<u8> {
-        self.metadata.clone()
+    fn metadata(&self) -> Box<dyn Metadata> {
+        Box::new(self.metadata.clone())
     }
 
     fn partial_action_from_metadata(
