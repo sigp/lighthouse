@@ -3288,7 +3288,8 @@ mod yaml_tests {
         // Now, the blob retention period starts still before the fulu fork epoch, so the boundary
         // should respect the blob retention period.
         let half_blob_retention_epoch_after_fulu = fulu_fork_epoch + (blob_retention_epochs / 2);
-        let expected_blob_retention_epoch = half_blob_retention_epoch_after_fulu - blob_retention_epochs;
+        let expected_blob_retention_epoch =
+            half_blob_retention_epoch_after_fulu - blob_retention_epochs;
         assert_eq!(
             Some(expected_blob_retention_epoch),
             spec.min_epoch_data_availability_boundary(half_blob_retention_epoch_after_fulu)
