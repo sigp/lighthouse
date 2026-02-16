@@ -823,18 +823,16 @@ impl ChainSpec {
     /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
     /// Never uses the `blob_retention_epoch` for networks that started with Fulu enabled.
     pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
-        let fork_epoch = self.deneb_fork_epoch?;
         let blob_retention_epoch =
             current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
-        match self.fulu_fork_epoch {
-            Some(fulu_fork_epoch)
-                if blob_retention_epoch > fulu_fork_epoch || fulu_fork_epoch == Epoch::new(0) =>
-            {
-                Some(
-                    current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests),
-                )
-            }
-            _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
+        if let Some(fulu_fork_epoch) = self.fulu_fork_epoch
+            && blob_retention_epoch >= fulu_fork_epoch
+        {
+            Some(current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests))
+        } else if let Some(deneb_fork_epoch) = self.deneb_fork_epoch {
+            Some(std::cmp::max(deneb_fork_epoch, blob_retention_epoch))
+        } else {
+            None
         }
     }
 
