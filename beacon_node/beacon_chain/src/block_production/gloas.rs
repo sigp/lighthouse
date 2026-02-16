@@ -21,9 +21,7 @@ use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
-use types::consts::gloas::{
-    BID_VALUE_SELF_BUILD, BUILDER_INDEX_SELF_BUILD, EXECUTION_PAYMENT_TRUSTLESS_BUILD,
-};
+use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
@@ -38,6 +36,9 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
     ProduceBlockVerification, graffiti_calculator::GraffitiSettings, metrics,
 };
+
+pub const BID_VALUE_SELF_BUILD: u64 = 0;
+pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
 type ConsensusBlockValue = u64;
 type BlockProductionResult<E> = (BeaconBlock<E, FullPayload<E>>, ConsensusBlockValue);
@@ -573,7 +574,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // TODO(gloas) add better error variant
-            // We skip state root verification here because the correct state root
+            // We skip state root verification here because the relevant state root
             // cant be calculated until after the new block has been constructed.
             process_execution_payload_envelope(
                 &mut state,
