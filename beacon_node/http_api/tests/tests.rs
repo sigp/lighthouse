@@ -3962,7 +3962,7 @@ impl ApiTester {
             };
 
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope)
+                .post_beacon_execution_payload_envelope_ssz(&signed_envelope)
                 .await
                 .unwrap();
 

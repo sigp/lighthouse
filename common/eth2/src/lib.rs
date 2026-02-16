@@ -2655,6 +2655,29 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST v1/beacon/execution_payload_envelope` in SSZ format
+    pub async fn post_beacon_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelope");
+
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            envelope.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            ForkName::Gloas,
+        )
+        .await?;
+
+        Ok(())
+    }
+
     /// `GET v2/validator/blocks/{slot}` in ssz format
     pub async fn get_validator_blocks_ssz<E: EthSpec>(
         &self,
