@@ -615,6 +615,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Cache the envelope for later retrieval by the validator for signing and publishing.
             let envelope_slot = payload_data.slot;
+            // TODO(gloas) might be safer to cache by root instead of by slot.
+            // We should revisit this once this code path + beacon api spec matures
             self.pending_payload_envelopes
                 .write()
                 .insert(envelope_slot, signed_envelope.message);
