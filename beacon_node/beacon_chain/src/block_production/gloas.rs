@@ -456,37 +456,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } = partial_beacon_block;
 
         let beacon_block = match &state {
-            BeaconState::Base(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Cannot construct a block pre-Gloas".to_owned(),
-                ));
-            }
-            BeaconState::Altair(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Cannot construct a block pre-Gloas".to_owned(),
-                ));
-            }
-            BeaconState::Bellatrix(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Cannot construct a block pre-Gloas".to_owned(),
-                ));
-            }
-            BeaconState::Capella(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Cannot construct a block pre-Gloas".to_owned(),
-                ));
-            }
-            BeaconState::Deneb(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Cannot construct a block pre-Gloas".to_owned(),
-                ));
-            }
-            BeaconState::Electra(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Cannot construct a block pre-Gloas".to_owned(),
-                ));
-            }
-            BeaconState::Fulu(_) => {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => {
                 return Err(BlockProductionError::InvalidBlockVariant(
                     "Cannot construct a block pre-Gloas".to_owned(),
                 ));
