@@ -646,15 +646,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     #[instrument(skip_all)]
     async fn fetch_sign_and_publish_payload_envelope(
         &self,
-        proposer_fallback: &ProposerFallback<T>,
+        _proposer_fallback: &ProposerFallback<T>,
         slot: Slot,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<(), BlockError> {
         info!(slot = slot.as_u64(), "Fetching execution payload envelope");
 
         // Fetch the envelope from the beacon node. Use builder_index=BUILDER_INDEX_SELF_BUILD for local building.
-        let envelope = proposer_fallback
-            .request_proposers_last(|beacon_node| async move {
+        // TODO(gloas): Use proposer_fallback once multi-BN is supported.
+        let envelope = self
+            .beacon_nodes
+            .first_success(|beacon_node| async move {
                 beacon_node
                     .get_validator_execution_payload_envelope::<S::E>(
                         slot,
@@ -695,8 +697,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         );
 
         // Publish the signed envelope
-        proposer_fallback
-            .request_proposers_first(|beacon_node| {
+        // TODO(gloas): Use proposer_fallback once multi-BN is supported.
+        self.beacon_nodes
+            .first_success(|beacon_node| {
                 let signed_envelope = signed_envelope.clone();
                 async move {
                     beacon_node
