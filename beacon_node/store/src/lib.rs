@@ -9,7 +9,6 @@
 //! tests for implementation examples.
 pub mod blob_sidecar_list_from_root;
 pub mod config;
-pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 pub mod hdiff;
@@ -27,7 +26,6 @@ pub mod iter;
 
 pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
-pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
@@ -234,12 +232,14 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
+    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope<E>>),
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
     DeleteDataColumns(Hash256, Vec<ColumnIndex>, ForkName),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeletePayloadEnvelope(Hash256),
     DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
@@ -310,6 +310,9 @@ pub enum DBColumn {
     /// Execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
+    /// Post-gloas execution payload envelopes.
+    #[strum(serialize = "pay")]
+    PayloadEnvelope,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -421,7 +424,8 @@ impl DBColumn {
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
             | Self::CustodyContext
-            | Self::OptimisticTransitionBlock => 32,
+            | Self::OptimisticTransitionBlock
+            | Self::PayloadEnvelope => 32,
             Self::BeaconBlockRoots
             | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked

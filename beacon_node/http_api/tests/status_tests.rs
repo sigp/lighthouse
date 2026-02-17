@@ -3,9 +3,9 @@ use beacon_chain::{
     BlockError,
     test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
 };
-use eth2::StatusCode;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
+use reqwest::StatusCode;
 use types::{EthSpec, ExecPayload, ForkName, MinimalEthSpec, Slot, Uint256};
 
 type E = MinimalEthSpec;

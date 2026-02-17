@@ -28,7 +28,6 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
 ) -> ResponseFilter {
     beacon_states_path
-        .clone()
         .and(warp::path("pending_consolidations"))
         .and(warp::path::end())
         .then(

@@ -279,27 +279,12 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     pub consensus_context: ConsensusContext<E>,
-}
-
-impl<E: EthSpec> BlockImportData<E> {
-    pub fn __new_for_test(
-        block_root: Hash256,
-        state: BeaconState<E>,
-        parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    ) -> Self {
-        Self {
-            block_root,
-            state,
-            parent_block,
-            consensus_context: ConsensusContext::new(Slot::new(0)),
-        }
-    }
 }
 
 /// Trait for common block operations.

@@ -119,7 +119,7 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -285,7 +285,7 @@ fn update_data_column_signed_header<E: EthSpec>(
         let new_column_sidecar = Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: *old_column_sidecar.index(),
             column: old_column_sidecar.column().clone(),
-            kzg_commitments: old_column_sidecar.kzg_commitments().clone(),
+            kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
             kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
             signed_block_header: signed_block.signed_block_header(),
             kzg_commitments_inclusion_proof: signed_block

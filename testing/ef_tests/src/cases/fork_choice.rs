@@ -448,7 +448,7 @@ impl<E: EthSpec> Tester<E> {
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {
-                reconstruct_historic_states: true,
+                archive: true,
                 ..ChainConfig::default()
             })
             .genesis_state_ephemeral_store(case.anchor_state.clone())

@@ -549,7 +549,9 @@ impl ChainSpec {
     // This should be updated to include the current fork and the genesis validators root, but discussion is ongoing:
     //
     // https://github.com/ethereum/builder-specs/issues/14
-    pub fn get_builder_domain(&self) -> Hash256 {
+    //
+    // NOTE: This domain is only used for out-of-protocol block building, DO NOT use it for Gloas/ePBS.
+    pub fn get_builder_application_domain(&self) -> Hash256 {
         self.compute_domain(
             Domain::ApplicationMask(ApplicationDomain::Builder),
             self.genesis_fork_version,

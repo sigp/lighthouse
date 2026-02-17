@@ -1798,10 +1798,12 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 ) -> Result<Hash256, BlockError> {
     let block = signed_block.message();
 
+    let present_slot = chain.slot()?;
+
     // Do not process blocks from the future.
-    if block.slot() > chain.slot()? {
+    if block.slot() > present_slot {
         return Err(BlockError::FutureSlot {
-            present_slot: chain.slot()?,
+            present_slot,
             block_slot: block.slot(),
         });
     }
@@ -2148,11 +2150,13 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
-    let head_fork = chain.canonical_head.cached_head().head_fork();
+    let fork = chain
+        .spec
+        .fork_at_epoch(header.message.slot.epoch(T::EthSpec::slots_per_epoch()));
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
-        &head_fork,
+        &fork,
         chain.genesis_validators_root,
         &chain.spec,
     ) {
