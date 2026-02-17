@@ -876,7 +876,7 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
     signature: SignatureBytes,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
+) -> Result<(), BeaconStateError> {
     match builder_index_opt {
         None => {
             // Verify the deposit signature (proof of possession) which is not checked by the deposit contract
