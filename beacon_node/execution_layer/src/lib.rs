@@ -914,6 +914,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_payload_gloas(
         &self,
         payload_parameters: PayloadParameters<'_>,
