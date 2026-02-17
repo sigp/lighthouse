@@ -59,7 +59,7 @@ pub struct PartialBeaconBlock<E: EthSpec> {
     payload_attestations: Vec<PayloadAttestation<E>>,
     deposits: Vec<Deposit>,
     voluntary_exits: Vec<SignedVoluntaryExit>,
-    sync_aggregate: Option<SyncAggregate<E>>,
+    sync_aggregate: SyncAggregate<E>,
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
@@ -364,13 +364,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             err = ?e,
                             block_slot = %state.slot(),
                             ?exit,
-                            "Attempted to include an invalid proposer slashing"
+                            "Attempted to include an invalid voluntary exit"
                         );
                     })
                     .is_ok()
             });
 
-            // TODO(gloas) verifiy payload attestation signature here as well
+            // TODO(gloas) verify payload attestation signature here as well
         }
 
         let attester_slashings = attester_slashings
@@ -391,22 +391,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let slot = state.slot();
 
-        let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
-            None
-        } else {
-            let sync_aggregate = self
-                .op_pool
-                .get_sync_aggregate(&state)
-                .map_err(BlockProductionError::OpPoolError)?
-                .unwrap_or_else(|| {
-                    warn!(
-                        slot = %state.slot(),
-                        "Producing block with no sync contributions"
-                    );
-                    SyncAggregate::new()
-                });
-            Some(sync_aggregate)
-        };
+        let sync_aggregate = self
+            .op_pool
+            .get_sync_aggregate(&state)
+            .map_err(BlockProductionError::OpPoolError)?
+            .unwrap_or_else(|| {
+                warn!(
+                    slot = %state.slot(),
+                    "Producing block with no sync contributions"
+                );
+                SyncAggregate::new()
+            });
 
         Ok((
             PartialBeaconBlock {
@@ -492,8 +487,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits
                         .try_into()
                         .map_err(BlockProductionError::SszTypesError)?,
-                    sync_aggregate: sync_aggregate
-                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                    sync_aggregate,
                     bls_to_execution_changes: bls_to_execution_changes
                         .try_into()
                         .map_err(BlockProductionError::SszTypesError)?,
@@ -573,7 +567,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 signature: Signature::empty(),
             };
 
-            // TODO(gloas) add better error variant
             // We skip state root verification here because the relevant state root
             // cant be calculated until after the new block has been constructed.
             process_execution_payload_envelope(
@@ -584,11 +577,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 VerifyStateRoot::False,
                 &self.spec,
             )
-            .map_err(|_| {
-                BlockProductionError::GloasNotImplemented(
-                    "process_execution_payload_envelope failed".to_owned(),
-                )
-            })?;
+            .map_err(BlockProductionError::EnvelopeProcessingError)?;
 
             signed_envelope.message.state_root = state.update_tree_hash_cache()?;
 
@@ -731,12 +720,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((
             SignedExecutionPayloadBid {
                 message: bid,
-                // TODO(gloas) return better error variant here
-                signature: Signature::infinity().map_err(|_| {
-                    BlockProductionError::GloasNotImplemented(
-                        "Failed to generate infinity signature".to_owned(),
-                    )
-                })?,
+                signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
             },
             state,
             // Local building always returns payload data.
@@ -752,12 +736,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 ///
 /// Will return an error when using a pre-Gloas `state`. Ensure to only run this function
 /// after the Gloas fork.
-///
-/// ## Specification
-///
-/// Equivalent to the `get_execution_payload` function in the Validator Guide:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 fn get_execution_payload_gloas<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
@@ -813,12 +791,6 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
 ///
 /// Will return an error when using a pre-Gloas fork `state`. Ensure to only run this function
 /// after the Gloas fork.
-///
-/// ## Specification
-///
-/// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 #[allow(clippy::too_many_arguments)]
 async fn prepare_execution_payload<T>(
     chain: &Arc<BeaconChain<T>>,
