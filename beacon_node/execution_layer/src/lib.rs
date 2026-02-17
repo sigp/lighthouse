@@ -48,7 +48,6 @@ use tree_hash::TreeHash;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
-use types::new_non_zero_usize;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
     SignedBlindedBeaconBlock,
@@ -58,6 +57,7 @@ use types::{
     ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
     ProposerPreparationData, Slot,
 };
+use types::{ExecutionPayloadGloas, new_non_zero_usize};
 
 mod block_hash;
 mod engine_api;
@@ -168,6 +168,7 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
     VerifyingVersionedHashes(versioned_hashes::Error),
+    Unexpected(String),
 }
 
 impl From<ssz_types::Error> for Error {
@@ -202,6 +203,26 @@ impl From<EngineError> for Error {
 pub enum BlockProposalContentsType<E: EthSpec> {
     Full(BlockProposalContents<E, FullPayload<E>>),
     Blinded(BlockProposalContents<E, BlindedPayload<E>>),
+}
+
+pub struct BlockProposalContentsGloas<E: EthSpec> {
+    pub payload: ExecutionPayloadGloas<E>,
+    pub payload_value: Uint256,
+    pub blob_kzg_commitments: KzgCommitments<E>,
+    pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
+    pub execution_requests: ExecutionRequests<E>,
+}
+
+impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
+    fn from(response: GetPayloadResponseGloas<E>) -> Self {
+        Self {
+            payload: response.execution_payload,
+            payload_value: response.block_value,
+            blob_kzg_commitments: response.blobs_bundle.commitments,
+            blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
+            execution_requests: response.requests,
+        }
+    }
 }
 
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
@@ -882,6 +903,43 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await
             .get(&proposer_index)
             .and_then(|entry| entry.gas_limit)
+    }
+
+    /// Maps to the `engine_getPayload` JSON-RPC call for post-Gloas payload construction.
+    ///
+    /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
+    /// payload id for the given parameters.
+    ///
+    /// ## Fallback Behavior
+    ///
+    /// The result will be returned from the first node that returns successfully. No more nodes
+    /// will be contacted.
+    pub async fn get_payload_gloas(
+        &self,
+        payload_parameters: PayloadParameters<'_>,
+    ) -> Result<BlockProposalContentsGloas<E>, Error> {
+        let payload_response_type = self.get_full_payload_caching(payload_parameters).await?;
+        let GetPayloadResponseType::Full(payload_response) = payload_response_type else {
+            return Err(Error::Unexpected(
+                "get_payload_gloas should never return a blinded payload".to_owned(),
+            ));
+        };
+        let GetPayloadResponse::Gloas(payload_response) = payload_response else {
+            return Err(Error::Unexpected(
+                "get_payload_gloas should always return a gloas `GetPayloadResponse` variant"
+                    .to_owned(),
+            ));
+        };
+        metrics::inc_counter_vec(
+            &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+            &[metrics::SUCCESS],
+        );
+        metrics::inc_counter_vec(
+            &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
+            &[metrics::LOCAL],
+        );
+
+        Ok(payload_response.into())
     }
 
     /// Maps to the `engine_getPayload` JSON-RPC call.

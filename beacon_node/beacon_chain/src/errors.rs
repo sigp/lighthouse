@@ -319,7 +319,7 @@ pub enum BlockProductionError {
     MissingExecutionRequests,
     SszTypesError(ssz_types::Error),
     // TODO(gloas): Remove this once Gloas is implemented
-    GloasNotImplemented,
+    GloasNotImplemented(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

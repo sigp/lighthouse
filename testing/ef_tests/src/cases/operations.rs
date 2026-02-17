@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::envelope_processing::VerifyStateRoot;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::process_operations::{
     process_consolidation_requests, process_deposit_requests_post_gloas,
@@ -458,7 +459,14 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
             .as_ref()
             .is_some_and(|e| e.execution_valid);
         if valid {
-            process_execution_payload_envelope(state, None, self, VerifySignatures::True, spec)
+            process_execution_payload_envelope(
+                state,
+                None,
+                self,
+                VerifySignatures::True,
+                VerifyStateRoot::True,
+                spec,
+            )
         } else {
             Err(EnvelopeProcessingError::ExecutionInvalid)
         }

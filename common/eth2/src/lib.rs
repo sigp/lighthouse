@@ -42,7 +42,7 @@ use reqwest::{
 #[cfg(feature = "events")]
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use serde::{Serialize, de::DeserializeOwned};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
@@ -50,6 +50,7 @@ use std::time::Duration;
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
 pub const V3: EndpointVersion = EndpointVersion(3);
+pub const V4: EndpointVersion = EndpointVersion(4);
 
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinded";
@@ -2404,6 +2405,277 @@ impl BeaconNodeHttpClient {
         // Generic handler is optional but this route should never 404 unless unimplemented, so
         // treat that as an error.
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
+    /// returns `GET v4/validator/blocks/{slot}` URL path
+    pub async fn get_validator_blocks_v4_path(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<Url, Error> {
+        let mut path = self.eth_path(V4)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blocks")
+            .push(&slot.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if skip_randao_verification == SkipRandaoVerification::Yes {
+            path.query_pairs_mut()
+                .append_pair("skip_randao_verification", "");
+        }
+
+        if let Some(builder_booster_factor) = builder_booster_factor {
+            path.query_pairs_mut()
+                .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
+        }
+
+        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+            path.query_pairs_mut()
+                .append_pair("graffiti_policy", "AppendClientVersions");
+        }
+
+        Ok(path)
+    }
+
+    /// `GET v4/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v4<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<
+        (
+            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
+            ProduceBlockV4Metadata,
+        ),
+        Error,
+    > {
+        self.get_validator_blocks_v4_modular(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+            builder_booster_factor,
+            graffiti_policy,
+        )
+        .await
+    }
+
+    /// `GET v4/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v4_modular<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<
+        (
+            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
+            ProduceBlockV4Metadata,
+        ),
+        Error,
+    > {
+        let path = self
+            .get_validator_blocks_v4_path(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+                builder_booster_factor,
+                graffiti_policy,
+            )
+            .await?;
+
+        let opt_result = self
+            .get_response_with_response_headers(
+                path,
+                Accept::Json,
+                self.timeouts.get_validator_block,
+                |response, headers| async move {
+                    let header_metadata = ProduceBlockV4Metadata::try_from(&headers)
+                        .map_err(Error::InvalidHeaders)?;
+                    let block_response = response
+                        .json::<ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>>()
+                        .await?;
+                    Ok((block_response, header_metadata))
+                },
+            )
+            .await?;
+
+        opt_result.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
+    /// `GET v4/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_v4_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
+        self.get_validator_blocks_v4_modular_ssz::<E>(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+            builder_booster_factor,
+            graffiti_policy,
+        )
+        .await
+    }
+
+    /// `GET v4/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_v4_modular_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
+        let path = self
+            .get_validator_blocks_v4_path(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+                builder_booster_factor,
+                graffiti_policy,
+            )
+            .await?;
+
+        let opt_response = self
+            .get_response_with_response_headers(
+                path,
+                Accept::Ssz,
+                self.timeouts.get_validator_block,
+                |response, headers| async move {
+                    let metadata = ProduceBlockV4Metadata::try_from(&headers)
+                        .map_err(Error::InvalidHeaders)?;
+                    let response_bytes = response.bytes().await?;
+
+                    let block = BeaconBlock::from_ssz_bytes_for_fork(
+                        &response_bytes,
+                        metadata.consensus_version,
+                    )
+                    .map_err(Error::InvalidSsz)?;
+
+                    Ok((block, metadata))
+                },
+            )
+            .await?;
+
+        opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
+    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}`
+    pub async fn get_validator_execution_payload_envelope<E: EthSpec>(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+    ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_envelope")
+            .push(&slot.to_string())
+            .push(&builder_index.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}` in SSZ format
+    pub async fn get_validator_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+    ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_envelope")
+            .push(&slot.to_string())
+            .push(&builder_index.to_string());
+
+        let opt_response = self
+            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
+            .await?;
+
+        let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
+
+        ExecutionPayloadEnvelope::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+    }
+
+    /// `POST v1/beacon/execution_payload_envelope`
+    pub async fn post_beacon_execution_payload_envelope<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelope");
+
+        self.post_generic_with_consensus_version(
+            path,
+            envelope,
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_envelope` in SSZ format
+    pub async fn post_beacon_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelope");
+
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            envelope.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format
