@@ -621,11 +621,6 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
     fn handler_name(&self) -> String {
         "fork".into()
     }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): remove once onboard_builders_from_pending_deposits is implemented
-        vec![ForkName::Gloas]
-    }
 }
 
 #[derive(Educe)]

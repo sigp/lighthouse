@@ -48,7 +48,6 @@ excluded_paths = [
     "tests/.*/eip7732",
     "tests/.*/eip7805",
     # TODO(gloas): remove these ignores as Gloas consensus is implemented
-    "tests/.*/gloas/fork/.*",
     "tests/.*/gloas/fork_choice/.*",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
