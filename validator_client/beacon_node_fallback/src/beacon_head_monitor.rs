@@ -161,7 +161,10 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
 
     loop {
         tokio::select! {
-            maybe_event = combined_stream.next() => {
+            // Only poll streams when SelectAll is non-empty. An empty SelectAll
+            // returns Poll::Ready(None) immediately, which would cause a busy-loop
+            // until the retry timer fires.
+            maybe_event = combined_stream.next(), if !combined_stream.is_empty() => {
                 match maybe_event {
                     Some(StreamEvent::Event(candidate_index, result)) => {
                         match *result {
@@ -240,14 +243,16 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                 let mut reconnected = Vec::new();
 
                 for &idx in &failed_indices {
-                    if let Some(candidate) = candidates.iter().find(|c| c.index == idx)
-                        && let Some(stream) = create_candidate_stream::<E>(candidate).await
-                    {
-                        info!(node_index = idx, "Reconnected head event stream");
-                        combined_stream.push(stream);
+                    if let Some(candidate) = candidates.iter().find(|c| c.index == idx) {
+                        if let Some(stream) = create_candidate_stream::<E>(candidate).await {
+                            info!(node_index = idx, "Reconnected head event stream");
+                            combined_stream.push(stream);
+                            reconnected.push(idx);
+                        }
+                    } else {
+                        // Candidate removed from list, clean up stale index
                         reconnected.push(idx);
                     }
-                    // If candidate no longer in list, drop silently
                 }
 
                 for idx in reconnected {
