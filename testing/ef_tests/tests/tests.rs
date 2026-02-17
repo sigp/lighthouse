@@ -100,6 +100,12 @@ fn operations_execution_payload_bid() {
 }
 
 #[test]
+fn operations_payload_attestation() {
+    OperationsHandler::<MinimalEthSpec, PayloadAttestation<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, PayloadAttestation<_>>::default().run();
+}
+
+#[test]
 fn operations_withdrawals() {
     OperationsHandler::<MinimalEthSpec, WithdrawalsPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalsPayload<_>>::default().run();
@@ -1113,7 +1119,7 @@ fn kzg_inclusion_merkle_proof_validity() {
 
 #[test]
 fn rewards() {
-    for handler in &["basic", "leak", "random"] {
+    for handler in &["basic", "leak", "random", "inactivity_scores"] {
         RewardsHandler::<MinimalEthSpec>::new(handler).run();
         RewardsHandler::<MainnetEthSpec>::new(handler).run();
     }

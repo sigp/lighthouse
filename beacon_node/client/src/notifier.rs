@@ -431,6 +431,16 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
 ) {
+    // There is no execution payload in gloas blocks, so this will trigger
+    // bellatrix readiness logging in gloas if we dont skip the check below
+    if beacon_chain
+        .spec
+        .fork_name_at_slot::<T::EthSpec>(current_slot)
+        .gloas_enabled()
+    {
+        return;
+    }
+
     let merge_completed = beacon_chain
         .canonical_head
         .cached_head()

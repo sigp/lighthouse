@@ -592,6 +592,15 @@ impl<E: EthSpec + TypeName> Handler for RewardsHandler<E> {
     fn handler_name(&self) -> String {
         self.handler_name.to_string()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        if self.handler_name == "inactivity_scores" {
+            // These tests were added in v1.7.0-alpha.2 and are available for Altair and later.
+            fork_name.altair_enabled()
+        } else {
+            true
+        }
+    }
 }
 
 #[derive(Educe)]
@@ -611,11 +620,6 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
 
     fn handler_name(&self) -> String {
         "fork".into()
-    }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): remove once onboard_builders_from_pending_deposits is implemented
-        vec![ForkName::Gloas]
     }
 }
 
@@ -1167,25 +1171,6 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
 
     fn handler_name(&self) -> String {
         O::handler_name()
-    }
-
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        Self::Case::is_enabled_for_fork(fork_name)
-            && (!fork_name.gloas_enabled()
-                || self.handler_name() == "attestation"
-                || self.handler_name() == "attester_slashing"
-                || self.handler_name() == "block_header"
-                || self.handler_name() == "bls_to_execution_change"
-                || self.handler_name() == "consolidation_request"
-                || self.handler_name() == "deposit_request"
-                || self.handler_name() == "deposit"
-                || self.handler_name() == "execution_payload"
-                || self.handler_name() == "execution_payload_bid"
-                || self.handler_name() == "proposer_slashing"
-                || self.handler_name() == "sync_aggregate"
-                || self.handler_name() == "withdrawal_request"
-                || self.handler_name() == "withdrawals"
-                || self.handler_name() == "voluntary_exit")
     }
 }
 
