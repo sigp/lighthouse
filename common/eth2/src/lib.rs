@@ -2636,6 +2636,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_execution_payload_envelope<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2648,7 +2649,7 @@ impl BeaconNodeHttpClient {
             path,
             envelope,
             Some(self.timeouts.proposal),
-            ForkName::Gloas,
+            fork_name,
         )
         .await?;
 
@@ -2659,6 +2660,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_execution_payload_envelope_ssz<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2671,7 +2673,7 @@ impl BeaconNodeHttpClient {
             path,
             envelope.as_ssz_bytes(),
             Some(self.timeouts.proposal),
-            ForkName::Gloas,
+            fork_name,
         )
         .await?;
 

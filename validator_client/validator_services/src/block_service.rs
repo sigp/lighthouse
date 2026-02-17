@@ -694,6 +694,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             "Signed execution payload envelope, publishing"
         );
 
+        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
+
         // Publish the signed envelope
         // TODO(gloas): Use proposer_fallback once multi-BN is supported.
         self.beacon_nodes
@@ -701,7 +703,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 let signed_envelope = signed_envelope.clone();
                 async move {
                     beacon_node
-                        .post_beacon_execution_payload_envelope_ssz(&signed_envelope)
+                        .post_beacon_execution_payload_envelope_ssz(&signed_envelope, fork_name)
                         .await
                         .map_err(|e| {
                             BlockError::Recoverable(format!(

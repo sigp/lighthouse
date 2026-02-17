@@ -3839,8 +3839,9 @@ impl ApiTester {
         for _ in 0..E::slots_per_epoch() * 3 {
             let slot = self.chain.slot().unwrap();
             let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
-            if !self.chain.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            if !fork_name.gloas_enabled() {
                 self.chain.slot_clock.set_slot(slot.as_u64() + 1);
                 continue;
             }
@@ -3879,7 +3880,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope)
+                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -3901,8 +3902,9 @@ impl ApiTester {
         for _ in 0..E::slots_per_epoch() * 3 {
             let slot = self.chain.slot().unwrap();
             let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
-            if !self.chain.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            if !fork_name.gloas_enabled() {
                 self.chain.slot_clock.set_slot(slot.as_u64() + 1);
                 continue;
             }
@@ -3939,7 +3941,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope_ssz(&signed_envelope)
+                .post_beacon_execution_payload_envelope_ssz(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
