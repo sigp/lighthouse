@@ -3306,6 +3306,39 @@ mod yaml_tests {
     }
 
     #[test]
+    fn min_epochs_for_data_sidecar_requests_fulu_genesis() {
+        type E = MainnetEthSpec;
+        let spec = {
+            // fulu active at genesis
+            let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+            // set a different value for testing purpose, 4096 / 2 = 2048
+            spec.min_epochs_for_data_column_sidecars_requests =
+                spec.min_epochs_for_blob_sidecars_requests / 2;
+            Arc::new(spec)
+        };
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+        let data_column_retention_epochs = spec.min_epochs_for_data_column_sidecars_requests;
+
+        // If Fulu is activated at genesis, the column retention period should always be used.
+        let assert_correct_boundary = |epoch| {
+            let epoch = Epoch::new(epoch);
+            assert_eq!(
+                Some(epoch.saturating_sub(data_column_retention_epochs)),
+                spec.min_epoch_data_availability_boundary(epoch)
+            )
+        };
+
+        assert_correct_boundary(0);
+        assert_correct_boundary(1);
+        assert_correct_boundary(blob_retention_epochs - 1);
+        assert_correct_boundary(blob_retention_epochs);
+        assert_correct_boundary(blob_retention_epochs + 1);
+        assert_correct_boundary(data_column_retention_epochs - 1);
+        assert_correct_boundary(data_column_retention_epochs);
+        assert_correct_boundary(data_column_retention_epochs + 1);
+    }
+
+    #[test]
     fn proposer_shuffling_decision_root_around_epoch_boundary() {
         type E = MainnetEthSpec;
         let fulu_fork_epoch = 5;
