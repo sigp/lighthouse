@@ -79,11 +79,18 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
 /// Publishes a signed execution payload envelope to the network.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
-    _chain: Arc<BeaconChain<T>>,
+    chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let slot = envelope.message.slot;
     let beacon_block_root = envelope.message.beacon_block_root;
+
+    // TODO(gloas): Replace this check once we have gossip validation.
+    if !chain.spec.is_gloas_scheduled() {
+        return Err(warp_utils::reject::custom_bad_request(
+            "Execution payload envelopes are not supported before the Gloas fork".into(),
+        ));
+    }
 
     // TODO(gloas): We should probably add validation here i.e. BroadcastValidation::Gossip
     info!(

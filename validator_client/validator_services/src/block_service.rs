@@ -144,7 +144,6 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
 
 // Combines a set of non-block-proposing `beacon_nodes` and only-block-proposing
 // `proposer_nodes`.
-#[derive(Clone)]
 pub struct ProposerFallback<T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,

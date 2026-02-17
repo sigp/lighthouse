@@ -954,7 +954,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
-        let domain_hash = self.spec.get_builder_domain();
+        let domain_hash = self.spec.get_builder_application_domain();
         let signing_root = validator_registration_data.signing_root(domain_hash);
 
         let signing_method =
