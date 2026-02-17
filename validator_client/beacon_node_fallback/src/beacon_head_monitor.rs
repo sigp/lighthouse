@@ -213,7 +213,7 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                                 consecutive_all_failed = 0;
                             }
                             Ok(event) => {
-                                warn!(event_kind = event.topic_name(), "Unexpected event from BN");
+                                warn!(event_kind = event.topic_name(), candidate_index, "Unexpected event from BN");
                             }
                             Err(e) => {
                                 warn!(error = ?e, node_index = candidate_index, "Head event stream error");
