@@ -1,15 +1,14 @@
 use crate::per_block_processing::{
     is_valid_deposit_signature, process_operations::apply_deposit_for_builder,
 };
-use bls::PublicKeyBytes;
 use milhouse::{List, Vector};
 use ssz_types::BitVector;
+use std::collections::HashSet;
 use std::mem;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    DepositData, EthSpec, ExecutionPayloadBid, Fork, PendingDeposit,
-    is_builder_withdrawal_credential,
+    DepositData, EthSpec, ExecutionPayloadBid, Fork, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -126,29 +125,26 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
 }
 
 /// Applies any pending deposit for builders, effectively onboarding builders at the fork.
-///
-/// Deposits for existing validators stay in the pending queue. Deposits for existing builders
-/// or deposits with builder withdrawal credentials are applied immediately. Deposits for new
-/// validators with valid signatures stay pending (their pubkeys are tracked so subsequent
-/// builder deposits for the same pubkey also stay pending). Deposits with invalid signatures
-/// that don't match any of the above are silently dropped.
 fn onboard_builders_from_pending_deposits<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let mut validator_pubkeys: Vec<PublicKeyBytes> =
-        state.validators().iter().map(|v| v.pubkey).collect();
+    // Rather than tracking all `validator_pubkeys` in one place as the spec does, we keep a
+    // hashset for *just* the new validator pubkeys, and use the state's efficient
+    // `get_validator_index` function instead of an O(n) iteration over the full validator list.
+    let mut new_validator_pubkeys = HashSet::new();
 
     // Clone pending deposits to avoid borrow conflicts when mutating state.
-    let current_pending_deposits: Vec<PendingDeposit> =
-        state.pending_deposits()?.iter().cloned().collect();
+    let current_pending_deposits = state.pending_deposits()?.clone();
 
-    let mut pending_deposits: Vec<PendingDeposit> = Vec::new();
+    let mut pending_deposits = List::empty();
 
     for deposit in &current_pending_deposits {
         // Deposits for existing validators stay in the pending queue.
-        if validator_pubkeys.contains(&deposit.pubkey) {
-            pending_deposits.push(deposit.clone());
+        if new_validator_pubkeys.contains(&deposit.pubkey)
+            || state.get_validator_index(&deposit.pubkey)?.is_some()
+        {
+            pending_deposits.push(deposit.clone())?;
             continue;
         }
 
@@ -191,12 +187,12 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             signature: deposit.signature.clone(),
         };
         if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-            validator_pubkeys.push(deposit.pubkey);
-            pending_deposits.push(deposit.clone());
+            new_validator_pubkeys.insert(deposit.pubkey);
+            pending_deposits.push(deposit.clone())?;
         }
     }
 
-    *state.pending_deposits_mut()? = List::new(pending_deposits)?;
+    *state.pending_deposits_mut()? = pending_deposits;
 
     Ok(())
 }
