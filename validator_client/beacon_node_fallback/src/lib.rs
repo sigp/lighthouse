@@ -26,7 +26,7 @@ use std::vec::Vec;
 use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{
-    sync::{RwLock, mpsc},
+    sync::{Notify, RwLock, mpsc},
     time::sleep,
 };
 use tracing::{debug, error, warn};
@@ -81,17 +81,22 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     if beacon_nodes_ref.head_monitor_send.is_some() {
         let head_monitor_future = async move {
             loop {
-                if let Err(error) =
-                    poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await
-                {
-                    warn!(error, "Head service failed retrying starting next slot");
+                match poll_head_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone()).await {
+                    Ok(()) => {
+                        // Clean restart (e.g., candidate list updated). Brief delay to
+                        // prevent tight loops if update_candidates_list is called rapidly.
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                    Err(error) => {
+                        warn!(error, "Head service failed, retrying next slot");
 
-                    let sleep_time = beacon_nodes_ref
-                        .slot_clock
-                        .as_ref()
-                        .and_then(|slot_clock| slot_clock.duration_to_next_slot())
-                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
-                    sleep(sleep_time).await
+                        let sleep_time = beacon_nodes_ref
+                            .slot_clock
+                            .as_ref()
+                            .and_then(|slot_clock| slot_clock.duration_to_next_slot())
+                            .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                        sleep(sleep_time).await;
+                    }
                 }
             }
         };
@@ -416,6 +421,7 @@ pub struct BeaconNodeFallback<T> {
     slot_clock: Option<T>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
     head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
+    head_monitor_restart_notify: Option<Arc<Notify>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
 }
@@ -434,6 +440,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             slot_clock: None,
             beacon_head_cache: None,
             head_monitor_send: None,
+            head_monitor_restart_notify: None,
             broadcast_topics,
             spec,
         }
@@ -455,6 +462,11 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
         self.head_monitor_send = Some(head_monitor_send);
         self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
+        self.head_monitor_restart_notify = Some(Arc::new(Notify::new()));
+    }
+
+    pub fn head_monitor_restart_notify(&self) -> Option<&Arc<Notify>> {
+        self.head_monitor_restart_notify.as_ref()
     }
 
     /// The count of candidates, regardless of their state.
@@ -542,6 +554,10 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
 
         if let Some(cache) = &self.beacon_head_cache {
             cache.purge_cache().await;
+        }
+
+        if let Some(notify) = &self.head_monitor_restart_notify {
+            notify.notify_one();
         }
 
         Ok(new_list)
@@ -1205,5 +1221,68 @@ mod tests {
 
         // Should fail.
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn update_candidates_list_triggers_restart_notify() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let (_, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
+
+        let mut fallback = create_beacon_node_fallback(vec![beacon_node_1], vec![], spec.clone());
+
+        let (tx, _rx) = mpsc::channel(1);
+        fallback.set_head_send(Arc::new(tx));
+
+        let notify = fallback.head_monitor_restart_notify().cloned().unwrap();
+        let notified = notify.notified();
+
+        let new_url = SensitiveUrl::parse("http://localhost:9999").unwrap();
+        fallback
+            .update_candidates_list(vec![new_url], false)
+            .await
+            .unwrap();
+
+        // The notify should fire within a short timeout
+        tokio::select! {
+            _ = notified => { /* expected */ }
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                panic!("Notify was not triggered by update_candidates_list");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn update_candidates_list_purges_cache() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let (_, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
+
+        let mut fallback = create_beacon_node_fallback(vec![beacon_node_1], vec![], spec.clone());
+
+        let (tx, _rx) = mpsc::channel(1);
+        fallback.set_head_send(Arc::new(tx));
+
+        let cache = fallback.beacon_head_cache.as_ref().unwrap().clone();
+
+        // Insert a head into the cache
+        let head = eth2::types::SseHead {
+            slot: Slot::new(1),
+            block: types::Hash256::ZERO,
+            state: types::Hash256::ZERO,
+            epoch_transition: false,
+            previous_duty_dependent_root: types::Hash256::ZERO,
+            current_duty_dependent_root: types::Hash256::ZERO,
+            execution_optimistic: false,
+        };
+        cache.insert(0, head).await;
+        assert!(cache.get(0).await.is_some());
+
+        let new_url = SensitiveUrl::parse("http://localhost:9999").unwrap();
+        fallback
+            .update_candidates_list(vec![new_url], false)
+            .await
+            .unwrap();
+
+        // Cache should be purged
+        assert!(cache.get(0).await.is_none());
     }
 }

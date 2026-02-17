@@ -1,8 +1,9 @@
-use crate::BeaconNodeFallback;
+use crate::{BeaconNodeFallback, CandidateBeaconNode};
 use eth2::types::{EventKind, EventTopic, Hash256, SseHead};
 use futures::StreamExt;
+use futures::stream::BoxStream;
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -68,16 +69,45 @@ impl Default for BeaconHeadCache {
     }
 }
 
-// Runs a non-terminating loop to update the `BeaconHeadCache` with the latest head received
-// from the candidate beacon_nodes. This is an attempt to stream events to beacon nodes and
-// potential start attestation duties earlier as soon as latest head is receive from any of the
-// beacon node in contrast to attest at the 1/3rd mark in the slot.
-//
-//
-// The cache and the candidate BNs list are refresh/purged to avoid dangling reference conditions
-// that arise due to `update_candidates_list`.
-//
-// Starts the service to perpetually stream head events from connected beacon_nodes
+enum StreamEvent<E: EthSpec> {
+    Event(usize, Box<Result<EventKind<E>, eth2::Error>>),
+    StreamEnded(usize),
+}
+
+/// Attempt to establish a head event stream for a single candidate beacon node.
+/// Returns a boxed stream that yields `StreamEvent`s tagged with the candidate index,
+/// followed by a `StreamEnded` sentinel when the SSE connection terminates.
+/// Returns `None` if the initial connection fails.
+async fn create_candidate_stream<E: EthSpec>(
+    candidate: &CandidateBeaconNode,
+) -> Option<BoxStream<'static, StreamEvent<E>>> {
+    let idx = candidate.index;
+    match candidate
+        .beacon_node
+        .get_events::<E>(&[EventTopic::Head])
+        .await
+    {
+        Ok(stream) => {
+            let wrapped = stream
+                .map(move |event| StreamEvent::Event(idx, Box::new(event)))
+                .chain(futures::stream::once(async move {
+                    StreamEvent::StreamEnded(idx)
+                }));
+            Some(wrapped.boxed())
+        }
+        Err(e) => {
+            warn!(error = ?e, node_index = idx, "Failed to establish head event stream");
+            None
+        }
+    }
+}
+
+/// Streams head events from all candidate beacon nodes with per-stream resilience.
+///
+/// Unlike the previous implementation, a single stream error or disconnection does not
+/// tear down all streams. Failed streams are retried periodically (once per slot).
+/// Returns `Ok(())` when the candidate list is updated (signalled via `Notify`),
+/// allowing the outer loop to restart with fresh candidates.
 pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'static>(
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), String> {
@@ -90,112 +120,168 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
         .clone()
         .ok_or("Unable to start head monitor without head_monitor_send")?;
 
-    info!("Starting head monitoring service");
-    let candidates = {
-        let candidates_guard = beacon_nodes.candidates.read().await;
-        candidates_guard.clone()
+    // Create restart future FIRST — must exist before any notify_one() calls so
+    // notifications aren't lost per tokio::sync::Notify semantics.
+    let restart_notify = beacon_nodes.head_monitor_restart_notify().cloned();
+    let restart_fut = async {
+        match &restart_notify {
+            Some(notify) => notify.notified().await,
+            None => std::future::pending().await,
+        }
     };
+    tokio::pin!(restart_fut);
 
-    // Clear the cache in case it contains stale data from a previous run. This function gets
-    // restarted if it fails (see monitoring in `start_fallback_updater_service`).
+    info!("Starting head monitoring service");
+    let candidates = beacon_nodes.candidates.read().await.clone();
+
+    // Clear the cache in case it contains stale data from a previous run.
     head_cache.purge_cache().await;
 
-    // Create Vec of streams, which we will select over.
-    let mut streams = vec![];
+    // Build initial streams
+    let mut combined_stream = futures::stream::SelectAll::new();
+    let mut failed_indices: HashSet<usize> = HashSet::new();
 
     for candidate in &candidates {
-        let head_event_stream = candidate
-            .beacon_node
-            .get_events::<E>(&[EventTopic::Head])
-            .await;
-
-        let head_event_stream = match head_event_stream {
-            Ok(stream) => stream,
-            Err(e) => {
-                warn!(error = ?e, node_index = candidate.index, "Failed to get head event stream");
-                continue;
-            }
-        };
-
-        streams.push(head_event_stream.map(|event| (candidate.index, event)));
-    }
-
-    if streams.is_empty() {
-        return Err("No beacon nodes available for head event streaming".to_string());
-    }
-
-    // Combine streams into a single stream and poll events from any of them.
-    let mut combined_stream = futures::stream::select_all(streams);
-
-    while let Some((candidate_index, event_result)) = combined_stream.next().await {
-        match event_result {
-            Ok(EventKind::Head(head)) => {
-                debug!(
-                    candidate_index,
-                    block_root = ?head.block,
-                    slot = %head.slot,
-                    "New head from beacon node"
-                );
-
-                // Skip optimistic heads - the beacon node can't produce valid
-                // attestation data when its execution layer is not verified
-                if head.execution_optimistic {
-                    debug!(
-                        candidate_index,
-                        block_root = ?head.block,
-                        slot = %head.slot,
-                        "Skipping optimistic head"
-                    );
-                    continue;
-                }
-
-                head_cache.insert(candidate_index, head.clone()).await;
-
-                if !head_cache.is_latest(&head).await {
-                    debug!(
-                        candidate_index,
-                        block_root = ?head.block,
-                        slot = %head.slot,
-                        "Skipping stale head"
-                    );
-                    continue;
-                }
-
-                if head_monitor_send
-                    .send(HeadEvent {
-                        beacon_node_index: candidate_index,
-                        slot: head.slot,
-                        beacon_block_root: head.block,
-                    })
-                    .await
-                    .is_err()
-                {
-                    return Err("Head monitoring service channel closed".into());
-                }
-            }
-            Ok(event) => {
-                warn!(
-                    event_kind = event.topic_name(),
-                    candidate_index, "Received unexpected event from BN"
-                );
-                continue;
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Head monitoring stream error, node: {candidate_index}, error: {e:?}"
-                ));
+        match create_candidate_stream::<E>(candidate).await {
+            Some(stream) => combined_stream.push(stream),
+            None => {
+                failed_indices.insert(candidate.index);
             }
         }
     }
 
-    Err("Stream ended unexpectedly".into())
+    // Retry timer and failure tracking
+    let slot_duration = beacon_nodes.spec.get_slot_duration();
+    let mut retry_timer = tokio::time::interval(slot_duration);
+    retry_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    retry_timer.tick().await; // skip first immediate tick
+
+    let mut consecutive_all_failed: usize = 0;
+    const MAX_CONSECUTIVE_ALL_FAILED: usize = 5;
+
+    loop {
+        tokio::select! {
+            maybe_event = combined_stream.next() => {
+                match maybe_event {
+                    Some(StreamEvent::Event(candidate_index, result)) => {
+                        match *result {
+                            Ok(EventKind::Head(head)) => {
+                                debug!(
+                                    candidate_index,
+                                    block_root = ?head.block,
+                                    slot = %head.slot,
+                                    "New head from beacon node"
+                                );
+
+                                if head.execution_optimistic {
+                                    debug!(
+                                        candidate_index,
+                                        block_root = ?head.block,
+                                        slot = %head.slot,
+                                        "Skipping optimistic head"
+                                    );
+                                    continue;
+                                }
+
+                                head_cache.insert(candidate_index, head.clone()).await;
+
+                                if !head_cache.is_latest(&head).await {
+                                    debug!(
+                                        candidate_index,
+                                        block_root = ?head.block,
+                                        slot = %head.slot,
+                                        "Skipping stale head"
+                                    );
+                                    continue;
+                                }
+
+                                if head_monitor_send
+                                    .send(HeadEvent {
+                                        beacon_node_index: candidate_index,
+                                        slot: head.slot,
+                                        beacon_block_root: head.block,
+                                    })
+                                    .await
+                                    .is_err()
+                                {
+                                    return Err("Head monitoring service channel closed".into());
+                                }
+
+                                consecutive_all_failed = 0;
+                            }
+                            Ok(event) => {
+                                warn!(event_kind = event.topic_name(), "Unexpected event from BN");
+                            }
+                            Err(e) => {
+                                warn!(error = ?e, node_index = candidate_index, "Head event stream error");
+                            }
+                        }
+                    }
+                    Some(StreamEvent::StreamEnded(idx)) => {
+                        warn!(node_index = idx, "Head event stream ended, will retry");
+                        failed_indices.insert(idx);
+                    }
+                    None => {
+                        // SelectAll is empty — all streams have terminated.
+                        if failed_indices.is_empty() {
+                            return Err("All head event streams ended".into());
+                        }
+                    }
+                }
+            }
+
+            // Retry failed streams periodically
+            _ = retry_timer.tick() => {
+                if failed_indices.is_empty() {
+                    continue;
+                }
+
+                let candidates = beacon_nodes.candidates.read().await.clone();
+                let mut reconnected = Vec::new();
+
+                for &idx in &failed_indices {
+                    if let Some(candidate) = candidates.iter().find(|c| c.index == idx)
+                        && let Some(stream) = create_candidate_stream::<E>(candidate).await
+                    {
+                        info!(node_index = idx, "Reconnected head event stream");
+                        combined_stream.push(stream);
+                        reconnected.push(idx);
+                    }
+                    // If candidate no longer in list, drop silently
+                }
+
+                for idx in reconnected {
+                    failed_indices.remove(&idx);
+                }
+
+                if combined_stream.is_empty() && !failed_indices.is_empty() {
+                    consecutive_all_failed += 1;
+                    if consecutive_all_failed >= MAX_CONSECUTIVE_ALL_FAILED {
+                        return Err(format!(
+                            "All beacon nodes unreachable for {} consecutive retries",
+                            consecutive_all_failed
+                        ));
+                    }
+                } else {
+                    consecutive_all_failed = 0;
+                }
+            }
+
+            // Restart signal from candidate list update
+            _ = &mut restart_fut => {
+                info!("Candidate list updated, restarting head monitor");
+                head_cache.purge_cache().await;
+                return Ok(());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bls::FixedBytesExtended;
-    use types::{Hash256, Slot};
+    use types::{Hash256, MainnetEthSpec, Slot};
 
     fn create_sse_head(slot: u64, block_root: u8) -> SseHead {
         SseHead {
@@ -419,5 +505,112 @@ mod tests {
         // But heads with slot 4 should not be latest
         let head_slot_4 = create_sse_head(4, 4);
         assert!(!cache.is_latest(&head_slot_4).await);
+    }
+
+    type E = MainnetEthSpec;
+
+    /// Create a boxed stream from a futures mpsc channel, tagged with a candidate index.
+    /// The stream yields `StreamEvent::Event` for each item and `StreamEvent::StreamEnded`
+    /// when the channel is closed.
+    fn channel_to_stream(
+        idx: usize,
+        rx: futures::channel::mpsc::Receiver<Result<eth2::types::EventKind<E>, eth2::Error>>,
+    ) -> futures::stream::BoxStream<'static, StreamEvent<E>> {
+        rx.map(move |event| StreamEvent::Event(idx, Box::new(event)))
+            .chain(futures::stream::once(async move {
+                StreamEvent::StreamEnded(idx)
+            }))
+            .boxed()
+    }
+
+    /// Tests that when one stream in a SelectAll disconnects (channel drops),
+    /// events from the remaining streams continue to be received.
+    #[tokio::test]
+    async fn test_stream_disconnect_does_not_affect_other_streams() {
+        let (mut tx0, rx0) = futures::channel::mpsc::channel(16);
+        let (mut tx1, rx1) = futures::channel::mpsc::channel(16);
+
+        let mut combined = futures::stream::SelectAll::new();
+        combined.push(channel_to_stream(0, rx0));
+        combined.push(channel_to_stream(1, rx1));
+
+        let head = create_sse_head(1, 1);
+        let event = eth2::types::EventKind::<E>::Head(head.clone());
+
+        // Send an event from stream 0
+        tx0.try_send(Ok(event)).unwrap();
+
+        // Drop stream 0's sender to simulate disconnection
+        drop(tx0);
+
+        // Collect events: should get the Event from idx=0, then StreamEnded(0)
+        let mut got_event = false;
+
+        // Drain events from the disconnected stream
+        loop {
+            let item = combined.next().await.unwrap();
+            match item {
+                StreamEvent::Event(0, result)
+                    if matches!(&*result, Ok(eth2::types::EventKind::Head(_))) =>
+                {
+                    got_event = true;
+                }
+                StreamEvent::StreamEnded(0) => break,
+                _ => {}
+            }
+        }
+        assert!(
+            got_event,
+            "Should have received the head event from stream 0"
+        );
+
+        // Stream 1 should still work
+        let head2 = create_sse_head(2, 2);
+        let event2 = eth2::types::EventKind::<E>::Head(head2.clone());
+        tx1.try_send(Ok(event2)).unwrap();
+
+        match combined.next().await.unwrap() {
+            StreamEvent::Event(1, result) => match *result {
+                Ok(eth2::types::EventKind::Head(h)) => {
+                    assert_eq!(h.slot, Slot::new(2));
+                }
+                other => panic!("Expected head event from stream 1, got: {other:?}"),
+            },
+            other => panic!(
+                "Expected Event from stream 1, got: {:?}",
+                match other {
+                    StreamEvent::Event(idx, _) => format!("Event from {idx}"),
+                    StreamEvent::StreamEnded(idx) => format!("StreamEnded({idx})"),
+                }
+            ),
+        }
+    }
+
+    /// Tests that the sentinel `StreamEnded` event is emitted exactly once when a
+    /// stream's channel is closed, allowing the consumer to track which stream failed.
+    #[tokio::test]
+    async fn test_stream_ended_sentinel() {
+        let (tx, rx) =
+            futures::channel::mpsc::channel::<Result<eth2::types::EventKind<E>, eth2::Error>>(16);
+        let mut combined = futures::stream::SelectAll::new();
+        combined.push(channel_to_stream(42, rx));
+
+        // Close the channel immediately
+        drop(tx);
+
+        // Should get StreamEnded(42) and then SelectAll returns None
+        match combined.next().await {
+            Some(StreamEvent::StreamEnded(42)) => { /* expected */ }
+            other => panic!(
+                "Expected StreamEnded(42), got: {:?}",
+                other.map(|e| match e {
+                    StreamEvent::Event(idx, _) => format!("Event from {idx}"),
+                    StreamEvent::StreamEnded(idx) => format!("StreamEnded({idx})"),
+                })
+            ),
+        }
+
+        // SelectAll should now be empty
+        assert!(combined.next().await.is_none());
     }
 }
