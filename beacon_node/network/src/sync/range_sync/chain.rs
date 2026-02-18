@@ -234,6 +234,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .sum()
     }
 
+    /// Returns the count of batches grouped by state metrics label.
+    pub fn batch_state_counts(&self) -> BTreeMap<&'static str, usize> {
+        let mut counts = BTreeMap::new();
+        for batch in self.batches.values() {
+            if let Some(label) = batch.state().metrics_label() {
+                *counts.entry(label).or_default() += 1;
+            }
+        }
+        counts
+    }
+
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
     pub fn remove_peer(&mut self, peer_id: &PeerId) -> ProcessingResult {

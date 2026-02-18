@@ -142,6 +142,18 @@ impl<D: Hash> BatchState<D> {
     pub fn poison(&mut self) -> BatchState<D> {
         std::mem::replace(self, BatchState::Poisoned)
     }
+
+    /// Returns the metrics label for this state, or `None` for transient/terminal states.
+    pub fn metrics_label(&self) -> Option<&'static str> {
+        match self {
+            BatchState::AwaitingDownload => Some("awaiting_download"),
+            BatchState::Downloading(_) => Some("downloading"),
+            BatchState::AwaitingProcessing(..) => Some("awaiting_processing"),
+            BatchState::Processing(_) => Some("processing"),
+            BatchState::AwaitingValidation(_) => Some("awaiting_validation"),
+            BatchState::Poisoned | BatchState::Failed => None,
+        }
+    }
 }
 
 impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {

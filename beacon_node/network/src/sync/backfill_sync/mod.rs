@@ -8,6 +8,7 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
+use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::batch::{
     BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
@@ -1179,6 +1180,22 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .beacon_chain
                 .genesis_backfill_slot
                 .epoch(T::EthSpec::slots_per_epoch())
+    }
+
+    pub fn register_metrics(&self) {
+        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+        for batch in self.batches.values() {
+            if let Some(label) = batch.state().metrics_label() {
+                *counts.entry(label).or_default() += 1;
+            }
+        }
+        for (label, count) in &counts {
+            metrics::set_gauge_vec(
+                &metrics::SYNCING_CHAIN_BATCHES,
+                &["backfill", label],
+                *count as i64,
+            );
+        }
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.

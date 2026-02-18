@@ -15,6 +15,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use tracing::{debug, error, info, info_span, warn};
 use types::{DataColumnSidecarList, Epoch, EthSpec};
 
+use crate::metrics;
 use crate::sync::{
     backfill_sync::{BACKFILL_EPOCHS_PER_BATCH, ProcessResult, SyncStart},
     batch::{
@@ -1112,6 +1113,22 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// Updates the global network state indicating the current state of a backfill sync.
     pub fn set_state(&self, state: CustodyBackFillState) {
         *self.network_globals.custody_sync_state.write() = state;
+    }
+
+    pub fn register_metrics(&self) {
+        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+        for batch in self.batches.values() {
+            if let Some(label) = batch.state().metrics_label() {
+                *counts.entry(label).or_default() += 1;
+            }
+        }
+        for (label, count) in &counts {
+            metrics::set_gauge_vec(
+                &metrics::SYNCING_CHAIN_BATCHES,
+                &["custody_backfill", label],
+                *count as i64,
+            );
+        }
     }
 
     /// A fully synced peer has joined us.

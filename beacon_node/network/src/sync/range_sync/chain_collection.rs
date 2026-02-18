@@ -14,8 +14,8 @@ use lighthouse_network::SyncInfo;
 use lighthouse_network::service::api_types::Id;
 use logging::crit;
 use smallvec::SmallVec;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tracing::{debug, error};
 use types::EthSpec;
@@ -511,6 +511,28 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 collection.insert(id, new_chain);
                 metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_ADDED, &[sync_type.as_str()]);
                 self.update_metrics();
+            }
+        }
+    }
+
+    pub fn register_metrics(&self) {
+        for (sync_type, chains) in [
+            ("range_finalized", &self.finalized_chains),
+            ("range_head", &self.head_chains),
+        ] {
+            let mut totals: BTreeMap<&'static str, usize> = BTreeMap::new();
+            for chain in chains.values() {
+                for (label, count) in chain.batch_state_counts() {
+                    *totals.entry(label).or_default() += count;
+                }
+            }
+
+            for (label, count) in &totals {
+                metrics::set_gauge_vec(
+                    &metrics::SYNCING_CHAIN_BATCHES,
+                    &[sync_type, label],
+                    *count as i64,
+                );
             }
         }
     }
