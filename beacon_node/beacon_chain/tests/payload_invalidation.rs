@@ -214,7 +214,7 @@ impl InvalidPayloadRig {
         let head = self.harness.chain.head_snapshot();
         let state = head.beacon_state.clone();
         let slot = slot_override.unwrap_or(state.slot() + 1);
-        let ((block, blobs), post_state) = self.harness.make_block(state, slot).await;
+        let ((block, blobs), post_state, _) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
 
         let set_new_payload = |payload: Payload| match payload {
@@ -680,7 +680,7 @@ async fn invalidates_all_descendants() {
         .state_at_slot(fork_parent_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
-    let ((fork_block, _), _fork_post_state) =
+    let ((fork_block, _), _fork_post_state, _) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_rpc_block = RpcBlock::new(
         fork_block.clone(),
@@ -787,7 +787,7 @@ async fn switches_heads() {
         .state_at_slot(fork_parent_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
-    let ((fork_block, _), _fork_post_state) =
+    let ((fork_block, _), _fork_post_state, _) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
     let fork_rpc_block = RpcBlock::new(
@@ -1052,7 +1052,7 @@ async fn invalid_parent() {
     // Produce another block atop the parent, but don't import yet.
     let slot = parent_block.slot() + 1;
     rig.harness.set_current_slot(slot);
-    let ((block, _), state) = rig.harness.make_block(parent_state, slot).await;
+    let ((block, _), state, _) = rig.harness.make_block(parent_state, slot).await;
     let block_root = block.canonical_root();
     assert_eq!(block.parent_root(), parent_root);
 
@@ -1346,7 +1346,7 @@ impl InvalidHeadSetup {
             .chain
             .state_at_slot(parent_slot, StateSkipConfig::WithStateRoots)
             .unwrap();
-        let (fork_block_tuple, _) = rig.harness.make_block(parent_state, fork_block_slot).await;
+        let (fork_block_tuple, _, _) = rig.harness.make_block(parent_state, fork_block_slot).await;
         let fork_block = fork_block_tuple.0;
 
         let invalid_head = rig.cached_head();

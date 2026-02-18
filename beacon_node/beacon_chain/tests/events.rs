@@ -136,7 +136,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
 
     let head_state = harness.get_current_state();
     let slot = head_state.slot() + 1;
-    let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
+    let ((signed_block, opt_blobs), _, _) = harness.make_block(head_state, slot).await;
     let (kzg_proofs, blobs) = opt_blobs.unwrap();
     assert_eq!(blobs.len(), 2);
 
@@ -191,7 +191,7 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
 
     let head_state = harness.get_current_state();
     let slot = head_state.slot() + 1;
-    let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
+    let ((signed_block, opt_blobs), _, _) = harness.make_block(head_state, slot).await;
     let (_, blobs) = opt_blobs.unwrap();
     assert!(!blobs.is_empty());
 
@@ -233,7 +233,7 @@ async fn head_event_on_block_import() {
     let head_state = harness.get_current_state();
     let target_slot = head_state.slot() + 1;
     harness.advance_slot();
-    let ((signed_block, blobs), _) = harness.make_block(head_state, target_slot).await;
+    let ((signed_block, blobs), _, _) = harness.make_block(head_state, target_slot).await;
 
     let block_root = signed_block.canonical_root();
     let state_root = signed_block.message().state_root();

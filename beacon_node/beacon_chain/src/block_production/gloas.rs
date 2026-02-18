@@ -41,7 +41,12 @@ pub const BID_VALUE_SELF_BUILD: u64 = 0;
 pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
 type ConsensusBlockValue = u64;
-type BlockProductionResult<E> = (BeaconBlock<E, FullPayload<E>>, ConsensusBlockValue);
+type BlockProductionResult<E> = (
+    BeaconBlock<E, FullPayload<E>>,
+    ConsensusBlockValue,
+    BeaconState<E>,
+    Option<ExecutionPayloadEnvelope<E>>,
+);
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
 pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
@@ -59,7 +64,7 @@ pub struct PartialBeaconBlock<E: EthSpec> {
     payload_attestations: Vec<PayloadAttestation<E>>,
     deposits: Vec<Deposit>,
     voluntary_exits: Vec<SignedVoluntaryExit>,
-    sync_aggregate: Option<SyncAggregate<E>>,
+    sync_aggregate: SyncAggregate<E>,
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
@@ -364,13 +369,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             err = ?e,
                             block_slot = %state.slot(),
                             ?exit,
-                            "Attempted to include an invalid proposer slashing"
+                            "Attempted to include an invalid voluntary exit"
                         );
                     })
                     .is_ok()
             });
 
-            // TODO(gloas) verifiy payload attestation signature here as well
+            // TODO(gloas) verify payload attestation signature here as well
         }
 
         let attester_slashings = attester_slashings
@@ -391,22 +396,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let slot = state.slot();
 
-        let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
-            None
-        } else {
-            let sync_aggregate = self
-                .op_pool
-                .get_sync_aggregate(&state)
-                .map_err(BlockProductionError::OpPoolError)?
-                .unwrap_or_else(|| {
-                    warn!(
-                        slot = %state.slot(),
-                        "Producing block with no sync contributions"
-                    );
-                    SyncAggregate::new()
-                });
-            Some(sync_aggregate)
-        };
+        let sync_aggregate = self
+            .op_pool
+            .get_sync_aggregate(&state)
+            .map_err(BlockProductionError::OpPoolError)?
+            .unwrap_or_else(|| {
+                warn!(
+                    slot = %state.slot(),
+                    "Producing block with no sync contributions"
+                );
+                SyncAggregate::new()
+            });
 
         Ok((
             PartialBeaconBlock {
@@ -438,7 +438,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
-    ) -> Result<(BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, u64), BlockProductionError> {
+    ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         let PartialBeaconBlock {
             slot,
             proposer_index,
@@ -492,8 +492,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits
                         .try_into()
                         .map_err(BlockProductionError::SszTypesError)?,
-                    sync_aggregate: sync_aggregate
-                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                    sync_aggregate,
                     bls_to_execution_changes: bls_to_execution_changes
                         .try_into()
                         .map_err(BlockProductionError::SszTypesError)?,
@@ -557,7 +556,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Construct and cache the ExecutionPayloadEnvelope if we have payload data.
         // For local building, we always have payload data.
         // For trustless building, the builder will provide the envelope separately.
-        if let Some(payload_data) = payload_data {
+        let envelope = if let Some(payload_data) = payload_data {
             let beacon_block_root = block.tree_hash_root();
             let execution_payload_envelope = ExecutionPayloadEnvelope {
                 payload: payload_data.payload,
@@ -573,7 +572,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 signature: Signature::empty(),
             };
 
-            // TODO(gloas) add better error variant
             // We skip state root verification here because the relevant state root
             // cant be calculated until after the new block has been constructed.
             process_execution_payload_envelope(
@@ -584,13 +582,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 VerifyStateRoot::False,
                 &self.spec,
             )
-            .map_err(|_| {
-                BlockProductionError::GloasNotImplemented(
-                    "process_execution_payload_envelope failed".to_owned(),
-                )
-            })?;
+            .map_err(BlockProductionError::EnvelopeProcessingError)?;
 
             signed_envelope.message.state_root = state.update_tree_hash_cache()?;
+
+            let envelope = signed_envelope.message.clone();
 
             // Cache the envelope for later retrieval by the validator for signing and publishing.
             let envelope_slot = payload_data.slot;
@@ -605,7 +601,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot = %envelope_slot,
                 "Cached pending execution payload envelope"
             );
-        }
+
+            Some(envelope)
+        } else {
+            None
+        };
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
@@ -616,7 +616,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Produced beacon block"
         );
 
-        Ok((block, consensus_block_value))
+        Ok((block, consensus_block_value, state, envelope))
     }
 
     // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
@@ -731,12 +731,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((
             SignedExecutionPayloadBid {
                 message: bid,
-                // TODO(gloas) return better error variant here
-                signature: Signature::infinity().map_err(|_| {
-                    BlockProductionError::GloasNotImplemented(
-                        "Failed to generate infinity signature".to_owned(),
-                    )
-                })?,
+                signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
             },
             state,
             // Local building always returns payload data.
@@ -752,12 +747,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 ///
 /// Will return an error when using a pre-Gloas `state`. Ensure to only run this function
 /// after the Gloas fork.
-///
-/// ## Specification
-///
-/// Equivalent to the `get_execution_payload` function in the Validator Guide:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 fn get_execution_payload_gloas<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
@@ -813,12 +802,6 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
 ///
 /// Will return an error when using a pre-Gloas fork `state`. Ensure to only run this function
 /// after the Gloas fork.
-///
-/// ## Specification
-///
-/// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 #[allow(clippy::too_many_arguments)]
 async fn prepare_execution_payload<T>(
     chain: &Arc<BeaconChain<T>>,

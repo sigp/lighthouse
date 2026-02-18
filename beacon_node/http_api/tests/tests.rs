@@ -185,13 +185,13 @@ impl ApiTester {
         // Set a min blob count for the next block for get_blobs testing
         harness.execution_block_generator().set_min_blob_count(2);
 
-        let (next_block, _next_state) = harness
+        let (next_block, _next_state, _) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
         let next_block = PublishBlockRequest::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) = harness
+        let (reorg_block, _reorg_state, _) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap() + 1)
             .await;
         let reorg_block = PublishBlockRequest::from(reorg_block);
@@ -364,13 +364,13 @@ impl ApiTester {
 
         let head = harness.chain.head_snapshot();
 
-        let (next_block, _next_state) = harness
+        let (next_block, _next_state, _) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
         let next_block = PublishBlockRequest::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) = harness
+        let (reorg_block, _reorg_state, _) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
         let reorg_block = PublishBlockRequest::from(reorg_block);

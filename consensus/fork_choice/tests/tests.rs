@@ -192,7 +192,7 @@ impl ForkChoiceTest {
                 continue;
             }
 
-            let (block_contents, state_) = self.harness.make_block(state, slot).await;
+            let (block_contents, state_, _) = self.harness.make_block(state, slot).await;
             state = state_;
             if !predicate(block_contents.0.message(), &state) {
                 break;
@@ -296,7 +296,7 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let ((block_arc, _block_blobs), mut state) = self.harness.make_block(state, slot).await;
+        let ((block_arc, _block_blobs), mut state, _) = self.harness.make_block(state, slot).await;
         let mut block = (*block_arc).clone();
         func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();
@@ -338,7 +338,7 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let ((block_arc, _block_blobs), mut state) = self.harness.make_block(state, slot).await;
+        let ((block_arc, _block_blobs), mut state, _) = self.harness.make_block(state, slot).await;
         let mut block = (*block_arc).clone();
         mutation_func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();

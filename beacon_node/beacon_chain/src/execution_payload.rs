@@ -63,39 +63,46 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError> {
         let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
-            // Perform the initial stages of payload verification.
-            //
-            // We will duplicate these checks again during `per_block_processing`, however these
-            // checks are cheap and doing them here ensures we have verified them before marking
-            // the block as optimistically imported. This is particularly relevant in the case
-            // where we do not send the block to the EL at all.
-            let block_message = block.message();
-            partially_verify_execution_payload::<_, FullPayload<_>>(
-                state,
-                block.slot(),
-                block_message.body(),
-                &chain.spec,
-            )
-            .map_err(BlockError::PerBlockProcessingError)?;
+            // Gloas blocks don't carry an execution payload in the block body (they use
+            // execution payload bids + envelopes instead), so the pre-merge payload
+            // verification and EL notification paths don't apply.
+            if block.message().body().fork_name().gloas_enabled() {
+                Some(PayloadVerificationStatus::Irrelevant)
+            } else {
+                // Perform the initial stages of payload verification.
+                //
+                // We will duplicate these checks again during `per_block_processing`, however these
+                // checks are cheap and doing them here ensures we have verified them before marking
+                // the block as optimistically imported. This is particularly relevant in the case
+                // where we do not send the block to the EL at all.
+                let block_message = block.message();
+                partially_verify_execution_payload::<_, FullPayload<_>>(
+                    state,
+                    block.slot(),
+                    block_message.body(),
+                    &chain.spec,
+                )
+                .map_err(BlockError::PerBlockProcessingError)?;
 
-            match notify_execution_layer {
-                NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    // Create a NewPayloadRequest (no clones required) and check optimistic sync verifications
-                    let new_payload_request: NewPayloadRequest<T::EthSpec> =
-                        block_message.try_into()?;
-                    if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
-                        warn!(
-                            block_number = ?block_message.execution_payload().map(|payload| payload.block_number()),
-                            info = "you can silence this warning with --disable-optimistic-finalized-sync",
-                            error = ?e,
-                            "Falling back to slow block hash verification"
-                        );
-                        None
-                    } else {
-                        Some(PayloadVerificationStatus::Optimistic)
+                match notify_execution_layer {
+                    NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
+                        // Create a NewPayloadRequest (no clones required) and check optimistic sync verifications
+                        let new_payload_request: NewPayloadRequest<T::EthSpec> =
+                            block_message.try_into()?;
+                        if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
+                            warn!(
+                                block_number = ?block_message.execution_payload().map(|payload| payload.block_number()),
+                                info = "you can silence this warning with --disable-optimistic-finalized-sync",
+                                error = ?e,
+                                "Falling back to slow block hash verification"
+                            );
+                            None
+                        } else {
+                            Some(PayloadVerificationStatus::Optimistic)
+                        }
                     }
+                    _ => None,
                 }
-                _ => None,
             }
         } else {
             Some(PayloadVerificationStatus::Irrelevant)

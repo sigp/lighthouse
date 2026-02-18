@@ -575,7 +575,7 @@ pub async fn proposer_boost_re_org_test(
         .collect::<Vec<_>>();
 
     // Produce block B and process it halfway through the slot.
-    let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
+    let (block_b, mut state_b, _) = harness.make_block(state_a.clone(), slot_b).await;
     let state_b_root = state_b.canonical_root().unwrap();
     let block_b_root = block_b.0.canonical_root();
 
@@ -801,7 +801,7 @@ pub async fn fork_choice_before_proposal() {
     let slot_d = slot_a + 3;
 
     let state_a = harness.get_current_state();
-    let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
+    let (block_b, mut state_b, _) = harness.make_block(state_a.clone(), slot_b).await;
     let block_root_b = harness
         .process_block(slot_b, block_b.0.canonical_root(), block_b)
         .await
@@ -817,7 +817,7 @@ pub async fn fork_choice_before_proposal() {
         slot_b,
     );
 
-    let (block_c, mut state_c) = harness.make_block(state_a, slot_c).await;
+    let (block_c, mut state_c, _) = harness.make_block(state_a, slot_c).await;
     let block_root_c = harness
         .process_block(slot_c, block_c.0.canonical_root(), block_c.clone())
         .await
@@ -903,7 +903,7 @@ async fn queue_attestations_from_http() {
 
     // Make the attested-to block without applying it.
     let pre_state = harness.get_current_state();
-    let (block, post_state) = harness.make_block(pre_state, attestation_slot).await;
+    let (block, post_state, _) = harness.make_block(pre_state, attestation_slot).await;
     let block_root = block.0.canonical_root();
     let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
 

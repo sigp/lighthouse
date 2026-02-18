@@ -684,14 +684,16 @@ impl From<Error> for BeaconChainError {
 #[cfg(test)]
 mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use crate::test_utils::{
+        BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec,
+    };
     use bls::Keypair;
     use execution_layer::test_utils::Block;
     use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
+    use types::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, Slot};
 
     const VALIDATOR_COUNT: usize = 48;
 
@@ -715,16 +717,23 @@ mod tests {
         harness
     }
 
-    // TODO(EIP-7732) Extend this test for gloas
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_fulu() {
+    async fn check_all_blocks_from_altair_to_gloas() {
+        // This test only need to run once to cover all forks (when FORK_NAME == latest)
+        if let Some(fork_name) = fork_name_from_env()
+            && fork_name != ForkName::latest()
+        {
+            return;
+        }
+
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 12;
+        let num_epochs = 14;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
         let electra_fork_epoch = 8usize;
         let fulu_fork_epoch = 10usize;
+        let gloas_fork_epoch = 12usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
@@ -734,6 +743,7 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
+        spec.gloas_fork_epoch = Some(Epoch::new(gloas_fork_epoch as u64));
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());

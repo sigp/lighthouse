@@ -1027,11 +1027,28 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
+    ) -> (
+        SignedBlockContentsTuple<E>,
+        BeaconState<E>,
+        Option<ExecutionPayloadEnvelope<E>>,
+    ) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        complete_state_advance(&mut state, None, slot, &self.spec)
+        // For gloas post-states that have had envelope processing, the state's tree hash
+        // root reflects the envelope state root, but the chain's import path uses the
+        // block's state root when setting state_roots[slot] during per_slot_processing.
+        // To keep production and import consistent, pass the block state root explicitly.
+        // The block state root is stored in latest_block_header.state_root by
+        // process_execution_payload_envelope.
+        let state_root_opt = if state.fork_name_unchecked().gloas_enabled()
+            && state.latest_block_header().state_root != Hash256::zero()
+        {
+            Some(state.latest_block_header().state_root)
+        } else {
+            None
+        };
+        complete_state_advance(&mut state, state_root_opt, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
         state.build_caches(&self.spec).expect("should build caches");
@@ -1046,6 +1063,30 @@ where
             GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
+
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block, _consensus_value, post_state, envelope) = self
+                .chain
+                .produce_block_on_state_gloas(
+                    state,
+                    None,
+                    slot,
+                    randao_reveal,
+                    graffiti_settings,
+                    ProduceBlockVerification::VerifyRandao,
+                )
+                .await
+                .unwrap();
+
+            let signed_block = Arc::new(block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &post_state.fork(),
+                post_state.genesis_validators_root(),
+                &self.spec,
+            ));
+
+            return ((signed_block, None), post_state, envelope);
+        }
 
         let BeaconBlockResponseWrapper::Full(block_response) = self
             .chain
@@ -1079,7 +1120,7 @@ where
                 (signed_block, None)
             };
 
-        (block_contents, block_response.state)
+        (block_contents, block_response.state, None)
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -2714,15 +2755,60 @@ where
         BlockError,
     > {
         self.set_current_slot(slot);
-        let (block_contents, new_state) = self.make_block(state, slot).await;
+        let (block_contents, new_state, envelope) = self.make_block(state, slot).await;
 
+        let block_root = block_contents.0.canonical_root();
         let block_hash = self
-            .process_block(
-                slot,
-                block_contents.0.canonical_root(),
-                block_contents.clone(),
-            )
+            .process_block(slot, block_root, block_contents.clone())
             .await?;
+
+        // For gloas blocks, we need to:
+        // 1. Notify the mock EL about the execution payload from the envelope
+        // 2. Replace the chain's cached state with the production state (which has
+        //    envelope processing already applied). The chain's block import only applies
+        //    per_block_processing, but gloas also needs process_execution_payload_envelope
+        //    to update latest_block_hash and other fields for subsequent block imports.
+        if let Some(envelope) = envelope {
+            // Notify the mock EL about the gloas execution payload so it knows
+            // about the block hash for future forkchoice_updated calls.
+            if self.mock_execution_layer.is_some() {
+                self.execution_block_generator()
+                    .new_payload(ExecutionPayload::Gloas(envelope.payload.clone()));
+            }
+
+            let signed_envelope = SignedExecutionPayloadEnvelope {
+                message: envelope,
+                signature: Signature::empty(),
+            };
+
+            // Replace the chain's cached state with the production post-state.
+            // The production state (new_state) has both per_block_processing AND
+            // process_execution_payload_envelope applied in the correct order with
+            // consistent tree hash caching. Applying envelope processing post-hoc
+            // to the chain's cached state creates subtle differences, so we use the
+            // production state directly.
+            //
+            // We store it under the block's state_root (not the envelope's state_root)
+            // because block_verification's sanity check compares the cached state root
+            // key against parent_block.state_root().
+            {
+                let block_state_root = block_contents.0.message().state_root();
+                let mut state_cache = self.chain.store.state_cache.lock();
+                if let Some((cached_root, _)) = state_cache.get_by_block_root(block_root, slot) {
+                    state_cache.delete_state(&cached_root);
+                }
+                state_cache
+                    .put_state(block_state_root, block_root, &new_state)
+                    .expect("should insert production post-state into cache");
+            }
+
+            self.chain
+                .store
+                .put_payload_envelope(&block_root, signed_envelope)
+                .expect("should store payload envelope");
+
+        }
+
         Ok((block_hash, block_contents, new_state))
     }
 

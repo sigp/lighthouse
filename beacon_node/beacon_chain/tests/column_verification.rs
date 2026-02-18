@@ -73,7 +73,7 @@ async fn rpc_columns_with_invalid_header_signature() {
     harness.execution_block_generator().set_min_blob_count(1);
     let head_state = harness.get_current_state();
     let slot = head_state.slot() + 1;
-    let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
+    let ((signed_block, opt_blobs), _, _) = harness.make_block(head_state, slot).await;
     let (_, blobs) = opt_blobs.unwrap();
     assert!(!blobs.is_empty());
     let block_root = signed_block.canonical_root();
@@ -159,7 +159,7 @@ async fn verify_header_signature_fork_block_bug() {
     // Now produce a block at the first slot of epoch 1 (Fulu fork).
     // make_block will advance the state which will trigger the Electra->Fulu upgrade.
     let fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
-    let ((signed_block, opt_blobs), _state_root) =
+    let ((signed_block, opt_blobs), _state_root, _) =
         harness.make_block(pre_fork_state.clone(), fork_slot).await;
     let (_, blobs) = opt_blobs.expect("Blobs should be present");
     assert!(!blobs.is_empty(), "Block should have blobs");

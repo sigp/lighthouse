@@ -69,7 +69,7 @@ async fn rpc_blobs_with_invalid_header_signature() {
     harness.execution_block_generator().set_min_blob_count(1);
     let head_state = harness.get_current_state();
     let slot = head_state.slot() + 1;
-    let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
+    let ((signed_block, opt_blobs), _, _) = harness.make_block(head_state, slot).await;
     let (kzg_proofs, blobs) = opt_blobs.unwrap();
     assert!(!blobs.is_empty());
     let block_root = signed_block.canonical_root();

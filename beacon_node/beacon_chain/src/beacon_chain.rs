@@ -5262,7 +5262,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             err = ?e,
                             block_slot = %state.slot(),
                             ?exit,
-                            "Attempted to include an invalid proposer slashing"
+                            "Attempted to include an invalid voluntary exit"
                         );
                     })
                     .is_ok()
@@ -5672,7 +5672,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             BeaconState::Gloas(_) => {
                 return Err(BlockProductionError::GloasNotImplemented(
-                    "Attempting to produce gloas beacn block via non gloas code path".to_owned(),
+                    "Attempting to produce gloas beacon block via non gloas code path".to_owned(),
                 ));
             }
         };

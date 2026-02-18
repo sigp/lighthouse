@@ -207,8 +207,7 @@ run-ef-tests:
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
-# TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
-test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain

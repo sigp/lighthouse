@@ -169,7 +169,7 @@ pub async fn gossip_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<Response, eth2::Error> = tester
         .client
@@ -219,7 +219,7 @@ pub async fn gossip_full_pass_ssz() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_contents_tuple, _) = tester.harness.make_block(state_a, slot_b).await;
+    let (block_contents_tuple, _, _) = tester.harness.make_block(state_a, slot_b).await;
     let block_contents = block_contents_tuple.into();
 
     let response: Result<Response, eth2::Error> = tester
@@ -381,9 +381,9 @@ pub async fn consensus_partial_pass_only_consensus() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, _), mut state_after_a) =
+    let ((block_a, _), mut state_after_a, _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b, _) = tester.harness.make_block(state_a, slot_b).await;
     let block_b_root = block_b.canonical_root();
 
     /* check for `make_block` curios */
@@ -452,7 +452,7 @@ pub async fn consensus_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<Response, eth2::Error> = tester
         .client
@@ -562,9 +562,9 @@ pub async fn equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), mut state_after_a) =
+    let ((block_a, blobs_a), mut state_after_a, _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b, _) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
     assert_eq!(
@@ -701,9 +701,9 @@ pub async fn equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, _blobs_a), mut state_after_a) =
+    let ((block_a, _blobs_a), mut state_after_a, _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b, _) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
     assert_eq!(
@@ -775,7 +775,7 @@ pub async fn equivocation_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<Response, eth2::Error> = tester
         .client
@@ -1589,7 +1589,7 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
     let blobs = blobs.expect("should have some blobs");
     assert_ne!(blobs.0.len(), 0);
 
@@ -1663,7 +1663,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
     let blobs = blobs.expect("should have some blobs");
     assert!(
         blobs.0.len() >= 2,
@@ -1752,7 +1752,7 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
     let (kzg_proofs, blobs) = blobs.expect("should have some blobs");
 
     // Simulate the blobs being seen on gossip.
@@ -1826,7 +1826,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
     let (kzg_proofs, blobs) = blobs.expect("should have some blobs");
     assert!(!blobs.is_empty());
 
@@ -1903,8 +1903,8 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), _) = tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_a, blobs_a), _, _) = tester.harness.make_block(state_a.clone(), slot_b).await;
+    let ((block_b, blobs_b), _, _) = tester.harness.make_block(state_a, slot_b).await;
     let (kzg_proofs_a, blobs_a) = blobs_a.expect("should have some blobs");
     let (kzg_proofs_b, blobs_b) = blobs_b.expect("should have some blobs");
 
@@ -1987,7 +1987,7 @@ pub async fn duplicate_block_status_code() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _, _) = tester.harness.make_block(state_a, slot_b).await;
     let (kzg_proofs, blobs) = blobs.expect("should have some blobs");
 
     // Post the block blobs to the HTTP API once.

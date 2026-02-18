@@ -1429,8 +1429,8 @@ async fn verify_block_for_gossip_slashing_detection() {
     harness.advance_slot();
 
     let state = harness.get_current_state();
-    let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
-    let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
+    let ((block1, blobs1), _, _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let ((block2, _blobs2), _, _) = harness.make_block(state, Slot::new(1)).await;
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
@@ -1472,7 +1472,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
 
     let state = harness.get_current_state();
-    let ((block, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let ((block, _), _, _) = harness.make_block(state.clone(), Slot::new(1)).await;
     let attestations = block
         .message()
         .body()
@@ -1576,7 +1576,7 @@ async fn add_base_block_to_altair_chain() {
     // Produce an Altair block.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let ((altair_signed_block, _), _) = harness.make_block(state.clone(), slot).await;
+    let ((altair_signed_block, _), _, _) = harness.make_block(state.clone(), slot).await;
     let altair_block = &altair_signed_block
         .as_altair()
         .expect("test expects an altair block")
@@ -1726,7 +1726,7 @@ async fn add_altair_block_to_base_chain() {
     // Produce an altair block.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let ((base_signed_block, _), _) = harness.make_block(state.clone(), slot).await;
+    let ((base_signed_block, _), _, _) = harness.make_block(state.clone(), slot).await;
     let base_block = &base_signed_block
         .as_base()
         .expect("test expects a base block")
@@ -1887,7 +1887,7 @@ async fn import_duplicate_block_unrealized_justification() {
     // Produce a block to justify epoch 2.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let (block_contents, _) = harness.make_block(state.clone(), slot).await;
+    let (block_contents, _, _) = harness.make_block(state.clone(), slot).await;
     let (block, _) = block_contents;
     let block_root = block.canonical_root();
 

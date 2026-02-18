@@ -166,7 +166,7 @@ impl TestRig {
             .server
             .execution_block_generator()
             .set_min_blob_count(1);
-        let (next_block_tuple, next_state) = harness
+        let (next_block_tuple, next_state, _) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
 
