@@ -190,6 +190,14 @@ we typically try to avoid runtime panics outside of startup."
 - Edge cases handled?
 - Context provided with errors?
 
+## Large PR Strategy
+
+Large PRs (10+ files) make it easy to miss subtle bugs in individual files.
+
+- **Group files by subsystem** (networking, store, types, etc.) and review each group, but pay extra attention to changes that cross subsystem boundaries.
+- **Review shared type/interface changes first** — changes to function signatures, return types, or struct definitions ripple through all callers. When reviewing a large PR, identify these first and trace their impact across the codebase. Downstream code may silently change behavior even if it looks untouched.
+- **Flag missing test coverage for changed behavior** — if a code path's semantics change (even subtly), check that tests exercise it. If not, flag the gap.
+
 ## Deep Review Techniques
 
 ### Verify Against Specifications
@@ -275,3 +283,4 @@ Group related state and behavior together. If two fields are always set together
 - [ ] Tests present: Non-trivial changes have tests
 - [ ] Lock safety: Lock ordering is safe and documented
 - [ ] No blocking: Async code doesn't block runtime
+
