@@ -190,6 +190,14 @@ we typically try to avoid runtime panics outside of startup."
 - Edge cases handled?
 - Context provided with errors?
 
+## Large PR Strategy
+
+Large PRs (10+ files) make it easy to miss subtle bugs in individual files. When reviewing a large PR:
+
+- **Break the review into focused areas** — group files by subsystem (e.g., networking, store, types) and review each group independently. Consider spawning separate agents for large or critical files to give them focused attention.
+- **Pay extra attention to type signature changes** — when a function's return type changes (e.g., `Vec<T>` to `Vec<(T, U)>`), trace all callers and verify that trait-dependent operations (`.unique()`, `.dedup()`, `.contains()`, `HashSet` usage) still have the intended semantics on the new type.
+- **Check test coverage for changed behavior paths** — if a code path's behavior changes (even subtly), verify tests exist that exercise it. If not, flag the gap.
+
 ## Deep Review Techniques
 
 ### Verify Against Specifications
@@ -275,3 +283,11 @@ Group related state and behavior together. If two fields are always set together
 - [ ] Tests present: Non-trivial changes have tests
 - [ ] Lock safety: Lock ordering is safe and documented
 - [ ] No blocking: Async code doesn't block runtime
+
+## Lessons
+
+### Lesson: Type changes silently break trait-dependent operations
+
+**Context:** Reviewing #8682 (Gloas data column support, 44 files).
+**Issue:** `get_block_roots_from_store` changed from returning `Vec<Hash256>` to `Vec<(Hash256, Slot)>`. The `.unique()` call was kept but now operated on tuples instead of hashes. Skip slots share the same block root but have different slots, so `.unique()` on `(Hash256, Slot)` stopped deduplicating. This caused duplicate data columns in `DataColumnsByRange` responses and peer downscoring (#8842).
+**Learning:** When a collection's element type changes, every operation that depends on `Eq`, `Hash`, or `Ord` (`.unique()`, `.dedup()`, `.contains()`, `HashSet`, `BTreeSet`) changes behavior silently. Always trace these downstream when reviewing type changes. In large PRs, give critical files focused individual attention rather than scanning the full diff in one pass.
