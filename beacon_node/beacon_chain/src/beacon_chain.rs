@@ -58,7 +58,8 @@ use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::payload_envelope_verification::{
-    EnvelopeError, ExecutedEnvelope, ExecutionPendingEnvelope,
+    AvailableEnvelope, EnvelopeError, ExecutedEnvelope, ExecutionPendingEnvelope,
+    MaybeAvailableEnvelope,
 };
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -3584,6 +3585,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
+
+        // TODO(gloas): implement data column availability checking.
+        // For now, treat all envelopes as available after EL verification with empty columns.
+        let signed_envelope = match signed_envelope {
+            available @ MaybeAvailableEnvelope::Available(_) => available,
+            MaybeAvailableEnvelope::AvailabilityPending { block_hash, envelope } => {
+                MaybeAvailableEnvelope::Available(AvailableEnvelope::new(
+                    block_hash,
+                    envelope,
+                    vec![],
+                    None,
+                    self.spec.clone(),
+                ))
+            }
+        };
 
         Ok(ExecutedEnvelope::new(
             signed_envelope,
