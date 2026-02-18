@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::block_verification_types::RangeSyncBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
@@ -3175,20 +3175,16 @@ async fn weak_subjectivity_sync_test(
                 .expect("should get block")
                 .expect("should get block");
 
-            let rpc_block =
+            let range_sync_block =
                 harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block));
 
-            match rpc_block {
-                RangeSyncBlock::FullyAvailable(available_block) => {
-                    harness
-                        .chain
-                        .data_availability_checker
-                        .verify_kzg_for_available_block(&available_block)
-                        .expect("should verify kzg");
-                    available_blocks.push(available_block);
-                }
-                RangeSyncBlock::BlockOnly { .. } => panic!("Should be an available block"),
-            }
+            let fully_available_block = range_sync_block.into_available_block();
+            harness
+                .chain
+                .data_availability_checker
+                .verify_kzg_for_available_block(&fully_available_block)
+                .expect("should verify kzg");
+            available_blocks.push(fully_available_block);
         }
 
         // Corrupt the signature on the 1st block to ensure that the backfill processor is checking

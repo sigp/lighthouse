@@ -5,7 +5,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, ChainConfig, InvalidSignature, NotifyExecutionLayer,
-    block_verification_types::AsBlock,
+    block_verification_types::{AsBlock, LookupBlock},
 };
 use bls::{Keypair, Signature};
 use logging::create_test_tracing_subscriber;

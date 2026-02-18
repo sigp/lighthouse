@@ -1,6 +1,6 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RangeSyncBlock};
+use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, LookupBlock, RangeSyncBlock};
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::{
@@ -13,7 +13,7 @@ use beacon_chain::{
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
-    InvalidSignature, NotifyExecutionLayer, signature_verify_chain_segment,
+    InvalidSignature, NotifyExecutionLayer,
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
@@ -416,7 +416,7 @@ async fn chain_segment_non_linear_parent_roots() {
 
     blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().cloned().unwrap(),
+        blocks[3].block_data().clone(),
         &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
@@ -456,7 +456,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = Slot::new(0);
     blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().cloned().unwrap(),
+        blocks[3].block_data().clone(),
         &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
@@ -486,7 +486,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = blocks[2].slot();
     blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().cloned().unwrap(),
+        blocks[3].block_data().clone(),
         &harness.chain.data_availability_checker,
         harness.chain.spec.clone(),
     )
@@ -631,11 +631,12 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
+        let lookup_block = LookupBlock::new(Arc::new(signed_block));
         let process_res = harness
             .chain
             .process_block(
-                rpc_block.block_root(),
-                LookupBlock::new(Arc::new(signed_block)),
+                lookup_block.block_root(),
+                lookup_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),

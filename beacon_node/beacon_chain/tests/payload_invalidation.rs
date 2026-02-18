@@ -1,6 +1,6 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::block_verification_types::RangeSyncBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::{
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
