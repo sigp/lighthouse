@@ -146,12 +146,12 @@ where
         .zip(chain_segment_sidecars.iter())
         .map(|(snapshot, data_sidecars)| {
             let block = snapshot.beacon_block.clone();
-            build_rpc_block(block, data_sidecars, chain.clone())
+            build_range_sync_block(block, data_sidecars, chain.clone())
         })
         .collect()
 }
 
-fn build_rpc_block<T>(
+fn build_range_sync_block<T>(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
     chain: Arc<BeaconChain<T>>,
@@ -517,7 +517,7 @@ async fn assert_invalid_signature(
         .iter()
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
+            build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
         })
         .collect();
 
@@ -544,7 +544,7 @@ async fn assert_invalid_signature(
         .take(block_index)
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
+            build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
         })
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
@@ -559,7 +559,7 @@ async fn assert_invalid_signature(
         .chain
         .process_block(
             snapshots[block_index].beacon_block.canonical_root(),
-            build_rpc_block(
+            build_range_sync_block(
                 snapshots[block_index].beacon_block.clone(),
                 &chain_segment_blobs[block_index],
                 harness.chain.clone(),
@@ -621,7 +621,7 @@ async fn invalid_signature_gossip_block() {
             .take(block_index)
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
+                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
         harness
@@ -674,7 +674,7 @@ async fn invalid_signature_block_proposal() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
+                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
@@ -993,7 +993,7 @@ async fn invalid_signature_deposit() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
+                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
         assert!(
@@ -1636,7 +1636,7 @@ async fn add_base_block_to_altair_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let base_rpc_block = RangeSyncBlock::new(
+    let base_range_sync_block = RangeSyncBlock::new(
         Arc::new(base_block.clone()),
         AvailableBlockData::NoData,
         &harness.chain.data_availability_checker,
@@ -1647,8 +1647,8 @@ async fn add_base_block_to_altair_chain() {
         harness
             .chain
             .process_block(
-                base_rpc_block.block_root(),
-                base_rpc_block,
+                base_range_sync_block.block_root(),
+                base_range_sync_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1882,18 +1882,18 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let rpc_block = RangeSyncBlock::new(
+    let range_sync_block = RangeSyncBlock::new(
         block.clone(),
         AvailableBlockData::NoData,
         &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
     .unwrap();
-    let verified_block1 = rpc_block
+    let verified_block1 = range_sync_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
-    let verified_block2 = rpc_block
+    let verified_block2 = range_sync_block
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
 
@@ -1965,7 +1965,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
 
 // Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
 #[tokio::test]
-async fn rpc_block_construction_fails_with_wrong_blob_count() {
+async fn range_sync_block_construction_fails_with_wrong_blob_count() {
     let spec = test_spec::<E>();
 
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).deneb_enabled()
@@ -2038,7 +2038,7 @@ async fn rpc_block_construction_fails_with_wrong_blob_count() {
 
 // Test that RpcBlock::new() rejects blocks when custody columns are incomplete.
 #[tokio::test]
-async fn rpc_block_rejects_missing_custody_columns() {
+async fn range_sync_block_rejects_missing_custody_columns() {
     let spec = test_spec::<E>();
 
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled() {

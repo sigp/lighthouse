@@ -388,12 +388,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         // Now iterate all blocks ensuring that the block roots of each block and data column match,
         // plus we have columns for our custody requirements
-        let mut rpc_blocks = Vec::with_capacity(blocks.len());
+        let mut range_sync_blocks = Vec::with_capacity(blocks.len());
 
         let exceeded_retries = attempt >= MAX_COLUMN_RETRIES;
         for block in blocks {
             let block_root = get_block_root(&block);
-            rpc_blocks.push(if block.num_expected_blobs() > 0 {
+            range_sync_blocks.push(if block.num_expected_blobs() > 0 {
                 let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
                 else {
                     let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
@@ -458,7 +458,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             debug!(?remaining_roots, "Not all columns consumed for block");
         }
 
-        Ok(rpc_blocks)
+        Ok(range_sync_blocks)
     }
 }
 
@@ -981,10 +981,10 @@ mod tests {
         // WHEN: Attempting to get responses again
         let result = info.responses(da_checker, spec).unwrap();
 
-        // THEN: Should succeed with complete RPC blocks
+        // THEN: Should succeed with complete RangeSync blocks
         assert!(result.is_ok());
-        let rpc_blocks = result.unwrap();
-        assert_eq!(rpc_blocks.len(), 2);
+        let range_sync_blocks = result.unwrap();
+        assert_eq!(range_sync_blocks.len(), 2);
     }
 
     #[test]

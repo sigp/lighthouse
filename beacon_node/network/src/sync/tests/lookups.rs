@@ -787,10 +787,10 @@ impl TestRig {
     }
 
     fn corrupt_last_block_signature(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let mut block = (*rpc_block.block_cloned()).clone();
-        let blobs = rpc_block.block_data().blobs();
-        let columns = rpc_block.block_data().data_columns();
+        let range_sync_block = self.get_last_block().clone();
+        let mut block = (*range_sync_block.block_cloned()).clone();
+        let blobs = range_sync_block.block_data().blobs();
+        let columns = range_sync_block.block_data().data_columns();
         *block.signature_mut() = self.valid_signature();
         self.re_insert_block(Arc::new(block), blobs, columns);
     }
@@ -802,15 +802,15 @@ impl TestRig {
     }
 
     fn corrupt_last_blob_proposer_signature(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let mut blobs = rpc_block
+        let range_sync_block = self.get_last_block().clone();
+        let block = range_sync_block.block_cloned();
+        let mut blobs = range_sync_block
             .block_data()
             .blobs()
             .expect("no blobs")
             .into_iter()
             .collect::<Vec<_>>();
-        let columns = rpc_block.block_data().data_columns();
+        let columns = range_sync_block.block_data().data_columns();
         let first = blobs.first_mut().expect("empty blobs");
         Arc::make_mut(first).signed_block_header.signature = self.valid_signature();
         let max_blobs =
@@ -823,15 +823,15 @@ impl TestRig {
     }
 
     fn corrupt_last_blob_kzg_proof(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let mut blobs = rpc_block
+        let range_sync_block = self.get_last_block().clone();
+        let block = range_sync_block.block_cloned();
+        let mut blobs = range_sync_block
             .block_data()
             .blobs()
             .expect("no blobs")
             .into_iter()
             .collect::<Vec<_>>();
-        let columns = rpc_block.block_data().data_columns();
+        let columns = range_sync_block.block_data().data_columns();
         let first = blobs.first_mut().expect("empty blobs");
         Arc::make_mut(first).kzg_proof = kzg::KzgProof::empty();
         let max_blobs =
@@ -844,10 +844,13 @@ impl TestRig {
     }
 
     fn corrupt_last_column_proposer_signature(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let blobs = rpc_block.block_data().blobs();
-        let mut columns = rpc_block.block_data().data_columns().expect("no columns");
+        let range_sync_block = self.get_last_block().clone();
+        let block = range_sync_block.block_cloned();
+        let blobs = range_sync_block.block_data().blobs();
+        let mut columns = range_sync_block
+            .block_data()
+            .data_columns()
+            .expect("no columns");
         let first = columns.first_mut().expect("empty columns");
         Arc::make_mut(first)
             .signed_block_header_mut()
@@ -857,10 +860,13 @@ impl TestRig {
     }
 
     fn corrupt_last_column_kzg_proof(&mut self) {
-        let rpc_block = self.get_last_block().clone();
-        let block = rpc_block.block_cloned();
-        let blobs = rpc_block.block_data().blobs();
-        let mut columns = rpc_block.block_data().data_columns().expect("no columns");
+        let range_sync_block = self.get_last_block().clone();
+        let block = range_sync_block.block_cloned();
+        let blobs = range_sync_block.block_data().blobs();
+        let mut columns = range_sync_block
+            .block_data()
+            .data_columns()
+            .expect("no columns");
         let first = columns.first_mut().expect("empty columns");
         let column = Arc::make_mut(first);
         let proof = column.kzg_proofs_mut().first_mut().expect("no kzg proofs");
@@ -894,7 +900,7 @@ impl TestRig {
         } else {
             AvailableBlockData::NoData
         };
-        let rpc_block = RangeSyncBlock::new(
+        let range_sync_block = RangeSyncBlock::new(
             block,
             block_data,
             &self.harness.chain.data_availability_checker,
@@ -902,8 +908,9 @@ impl TestRig {
         )
         .unwrap();
         self.network_blocks_by_slot
-            .insert(block_slot, rpc_block.clone());
-        self.network_blocks_by_root.insert(block_root, rpc_block);
+            .insert(block_slot, range_sync_block.clone());
+        self.network_blocks_by_root
+            .insert(block_root, range_sync_block);
     }
 
     /// Trigger a lookup with the last created block
@@ -942,7 +949,7 @@ impl TestRig {
 
     /// Import a block directly into the chain without going through lookup sync
     async fn import_block_by_root(&mut self, block_root: Hash256) {
-        let rpc_block = self
+        let range_sync_block = self
             .network_blocks_by_root
             .get(&block_root)
             .unwrap_or_else(|| panic!("No block for root {block_root}"))
@@ -952,9 +959,9 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                rpc_block,
+                range_sync_block,
                 NotifyExecutionLayer::Yes,
-                BlockImportSource::Gossip,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await

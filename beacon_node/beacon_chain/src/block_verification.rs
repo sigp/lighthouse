@@ -1285,7 +1285,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::Eth
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
     #[instrument(
-        name = "rpc_block_into_execution_pending_block_slashable",
+        name = "range_sync_block_into_execution_pending_block_slashable",
         level = "debug"
         skip_all,
     )]

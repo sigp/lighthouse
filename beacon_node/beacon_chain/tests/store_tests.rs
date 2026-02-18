@@ -3105,7 +3105,10 @@ async fn weak_subjectivity_sync_test(
         beacon_chain
             .process_block(
                 full_block_root,
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+                harness.build_range_sync_block_from_store_blobs(
+                    Some(block_root),
+                    Arc::new(full_block),
+                ),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -3175,8 +3178,8 @@ async fn weak_subjectivity_sync_test(
                 .expect("should get block")
                 .expect("should get block");
 
-            let range_sync_block =
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block));
+            let range_sync_block = harness
+                .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
 
             let fully_available_block = range_sync_block.into_available_block();
             harness

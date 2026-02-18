@@ -1085,7 +1085,7 @@ mod test {
 
     /// Regression test for KZG verification truncation bug (https://github.com/sigp/lighthouse/pull/7927)
     #[test]
-    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns_fulu() {
+    fn verify_kzg_for_range_sync_blocks_should_not_truncate_data_columns_fulu() {
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let da_checker = new_da_checker(spec.clone());

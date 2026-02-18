@@ -814,7 +814,7 @@ where
     pub fn get_head_block(&self) -> RangeSyncBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
-        self.build_rpc_block_from_store_blobs(Some(block_root), block)
+        self.build_range_sync_block_from_store_blobs(Some(block_root), block)
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> RangeSyncBlock<E> {
@@ -824,7 +824,7 @@ where
             .unwrap()
             .unwrap_or_else(|| panic!("block root does not exist in harness {block_root:?}"));
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        self.build_rpc_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
+        self.build_range_sync_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -2440,11 +2440,11 @@ where
                 .try_into()
                 .expect("block blobs are available")
         } else {
-            let rpc_block = self.build_rpc_block_from_blobs(block, blob_items)?;
+            let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
             self.chain
                 .process_block(
                     block_root,
-                    rpc_block,
+                    range_sync_block,
                     NotifyExecutionLayer::Yes,
                     BlockImportSource::RangeSync,
                     || Ok(()),
@@ -2474,11 +2474,11 @@ where
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
         let block_hash: SignedBeaconBlockHash = if is_available {
-            let rpc_block = self.build_rpc_block_from_blobs(block, blob_items)?;
+            let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
             self.chain
                 .process_block(
                     block_root,
-                    rpc_block,
+                    range_sync_block,
                     NotifyExecutionLayer::Yes,
                     BlockImportSource::RangeSync,
                     || Ok(()),
@@ -2504,9 +2504,9 @@ where
         Ok(block_hash)
     }
 
-    /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from
+    /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
     /// the database.
-    pub fn build_rpc_block_from_store_blobs(
+    pub fn build_range_sync_block_from_store_blobs(
         &self,
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
@@ -2562,8 +2562,8 @@ where
         }
     }
 
-    /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
-    pub fn build_rpc_block_from_blobs(
+    /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and `BlobsList`.
+    pub fn build_range_sync_block_from_blobs(
         &self,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,

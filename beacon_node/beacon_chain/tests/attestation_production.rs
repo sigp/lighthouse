@@ -222,8 +222,8 @@ async fn produces_attestations() {
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
 
-            let range_sync_block =
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
+            let range_sync_block = harness
+                .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
             let available_block = range_sync_block.into_available_block();
 
             let early_attestation = {
@@ -282,7 +282,10 @@ async fn early_attester_cache_old_request() {
         .unwrap();
 
     let available_block = harness
-        .build_rpc_block_from_store_blobs(Some(head.beacon_block_root), head.beacon_block.clone())
+        .build_range_sync_block_from_store_blobs(
+            Some(head.beacon_block_root),
+            head.beacon_block.clone(),
+        )
         .into_available_block();
 
     harness

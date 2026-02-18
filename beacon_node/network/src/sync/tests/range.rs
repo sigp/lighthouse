@@ -430,7 +430,7 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                build_rpc_block(block.into(), &data_sidecars, self.harness.chain.clone()),
+                build_range_sync_block(block.into(), &data_sidecars, self.harness.chain.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -443,7 +443,7 @@ impl TestRig {
     }
 }
 
-fn build_rpc_block(
+fn build_range_sync_block(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
     chain: Arc<BeaconChain<T>>,
