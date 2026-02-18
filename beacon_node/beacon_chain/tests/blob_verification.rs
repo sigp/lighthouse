@@ -76,14 +76,11 @@ async fn rpc_blobs_with_invalid_header_signature() {
 
     // Process the block without blobs so that it doesn't become available.
     harness.advance_slot();
-    let rpc_block = harness
-        .build_rpc_block_from_blobs(signed_block.clone(), None, false)
-        .unwrap();
     let availability = harness
         .chain
         .process_block(
             block_root,
-            rpc_block,
+            LookupBlock::new(signed_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

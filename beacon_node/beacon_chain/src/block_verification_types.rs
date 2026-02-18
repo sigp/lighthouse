@@ -116,22 +116,16 @@ impl<E: EthSpec> RpcBlock<E> {
     /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete.
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
-        block_data: Option<AvailableBlockData<E>>,
+        block_data: AvailableBlockData<E>,
         da_checker: &DataAvailabilityChecker<T>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        match block_data {
-            Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
-                block, block_data, da_checker, spec,
-            )?)),
-            None => Ok(RpcBlock::BlockOnly {
-                block_root: block.canonical_root(),
-                block,
-            }),
-        }
+        Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
+            block, block_data, da_checker, spec,
+        )?))
     }
 
     #[allow(clippy::type_complexity)]

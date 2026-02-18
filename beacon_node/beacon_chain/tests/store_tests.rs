@@ -3749,19 +3749,13 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
-    let invalid_fork_rpc_block = RpcBlock::new(
-        invalid_fork_block.clone(),
-        None,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let invalid_fork_lookup_block = LookupBlock::new(invalid_fork_block.clone());
     // Applying the invalid block should fail.
     let err = harness
         .chain
         .process_block(
-            invalid_fork_rpc_block.block_root(),
-            invalid_fork_rpc_block,
+            invalid_fork_lookup_block.block_root(),
+            invalid_fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -3771,18 +3765,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
-    let valid_fork_rpc_block = RpcBlock::new(
-        valid_fork_block.clone(),
-        None,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let valid_fork_lookup_block = LookupBlock::new(valid_fork_block.clone());
     harness
         .chain
         .process_block(
-            valid_fork_rpc_block.block_root(),
-            valid_fork_rpc_block,
+            valid_fork_lookup_block.block_root(),
+            valid_fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

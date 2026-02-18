@@ -1128,7 +1128,7 @@ mod test {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
                 let da_checker = Arc::new(new_da_checker(spec.clone()));
-                RpcBlock::new(Arc::new(block), Some(block_data), &da_checker, spec.clone())
+                RpcBlock::new(Arc::new(block), block_data, &da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();

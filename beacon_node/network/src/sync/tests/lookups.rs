@@ -893,11 +893,11 @@ impl TestRig {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
         let block_data = if let Some(columns) = columns {
-            Some(AvailableBlockData::new_with_data_columns(columns))
+            AvailableBlockData::new_with_data_columns(columns)
         } else if let Some(blobs) = blobs {
-            Some(AvailableBlockData::new_with_blobs(blobs))
+            AvailableBlockData::new_with_blobs(blobs)
         } else {
-            Some(AvailableBlockData::NoData)
+            AvailableBlockData::NoData
         };
         let rpc_block = RpcBlock::new(
             block,

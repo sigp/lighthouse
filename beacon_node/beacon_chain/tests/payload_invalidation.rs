@@ -682,19 +682,13 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -790,19 +784,13 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1068,15 +1056,9 @@ async fn invalid_parent() {
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
-    let rpc_block = RpcBlock::new(
-        block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let lookup_block = LookupBlock::new(block.clone());
     assert!(matches!(
-        rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
+        rig.harness.chain.process_block(lookup_block.block_root(), lookup_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1399,18 +1381,12 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     rig.harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

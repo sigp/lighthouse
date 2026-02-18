@@ -164,7 +164,7 @@ where
             let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
             RpcBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &chain.data_availability_checker,
                 chain.spec.clone(),
             )
@@ -179,7 +179,7 @@ where
             );
             RpcBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &chain.data_availability_checker,
                 chain.spec.clone(),
             )
@@ -187,7 +187,7 @@ where
         }
         None => RpcBlock::new(
             block,
-            Some(AvailableBlockData::NoData),
+            AvailableBlockData::NoData,
             &chain.data_availability_checker,
             chain.spec.clone(),
         )
@@ -416,7 +416,7 @@ async fn chain_segment_non_linear_parent_roots() {
 
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().cloned(),
+        blocks[3].block_data().cloned().unwrap(),
         &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
@@ -456,7 +456,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = Slot::new(0);
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().cloned(),
+        blocks[3].block_data().cloned().unwrap(),
         &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
@@ -486,7 +486,7 @@ async fn chain_segment_non_linear_slots() {
     *block.slot_mut() = blocks[2].slot();
     blocks[3] = RpcBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().cloned(),
+        blocks[3].block_data().cloned().unwrap(),
         &harness.chain.data_availability_checker,
         harness.chain.spec.clone(),
     )
@@ -631,18 +631,11 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
-        let rpc_block = RpcBlock::new(
-            Arc::new(signed_block),
-            None,
-            &harness.chain.data_availability_checker,
-            harness.spec.clone(),
-        )
-        .unwrap();
         let process_res = harness
             .chain
             .process_block(
                 rpc_block.block_root(),
-                rpc_block,
+                LookupBlock::new(Arc::new(signed_block)),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1644,7 +1637,7 @@ async fn add_base_block_to_altair_chain() {
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
     let base_rpc_block = RpcBlock::new(
         Arc::new(base_block.clone()),
-        None,
+        AvailableBlockData::NoData,
         &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
@@ -1675,7 +1668,7 @@ async fn add_base_block_to_altair_chain() {
                 vec![
                     RpcBlock::new(
                         Arc::new(base_block),
-                        None,
+                        AvailableBlockData::NoData,
                         &harness.chain.data_availability_checker,
                         harness.spec.clone()
                     )
@@ -1793,19 +1786,13 @@ async fn add_altair_block_to_base_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let altair_rpc_block = RpcBlock::new(
-        Arc::new(altair_block.clone()),
-        None,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let altair_lookup_block = LookupBlock::new(Arc::new(altair_block.clone()));
     assert!(matches!(
         harness
             .chain
             .process_block(
-                altair_rpc_block.block_root(),
-                altair_rpc_block,
+                altair_lookup_block.block_root(),
+                altair_lookup_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1826,7 +1813,7 @@ async fn add_altair_block_to_base_chain() {
                 vec![
                     RpcBlock::new(
                         Arc::new(altair_block),
-                        None,
+                        AvailableBlockData::NoData,
                         &harness.chain.data_availability_checker,
                         harness.spec.clone()
                     )
@@ -1896,7 +1883,7 @@ async fn import_duplicate_block_unrealized_justification() {
     let notify_execution_layer = NotifyExecutionLayer::Yes;
     let rpc_block = RpcBlock::new(
         block.clone(),
-        Some(AvailableBlockData::NoData),
+        AvailableBlockData::NoData,
         &harness.chain.data_availability_checker,
         harness.spec.clone(),
     )
@@ -1975,45 +1962,6 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
     }
 }
 
-// Test that `signature_verify_chain_segment` errors with a chain segment of mixed `FullyAvailable`
-// and `BlockOnly` RpcBlocks. This situation should never happen in production.
-#[tokio::test]
-async fn signature_verify_mixed_rpc_block_variants() {
-    let (snapshots, data_sidecars) = get_chain_segment().await;
-    let snapshots: Vec<_> = snapshots.into_iter().take(10).collect();
-    let data_sidecars: Vec<_> = data_sidecars.into_iter().take(10).collect();
-
-    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
-
-    let mut chain_segment = Vec::new();
-
-    for (i, (snapshot, blobs)) in snapshots.iter().zip(data_sidecars.iter()).enumerate() {
-        let block = snapshot.beacon_block.clone();
-        let block_root = snapshot.beacon_block_root;
-
-        // Alternate between FullyAvailable and BlockOnly
-        let rpc_block = if i % 2 == 0 {
-            // FullyAvailable - with blobs/columns if needed
-            build_rpc_block(block, blobs, harness.chain.clone())
-        } else {
-            // BlockOnly - no data
-            RpcBlock::new(
-                block,
-                None,
-                &harness.chain.data_availability_checker,
-                harness.chain.spec.clone(),
-            )
-            .unwrap()
-        };
-
-        chain_segment.push((block_root, rpc_block));
-    }
-
-    // This should error because `signature_verify_chain_segment` expects a list
-    // of `RpcBlock::FullyAvailable`.
-    assert!(signature_verify_chain_segment(chain_segment.clone(), &harness.chain).is_err());
-}
-
 // Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
 #[tokio::test]
 async fn rpc_block_construction_fails_with_wrong_blob_count() {
@@ -2069,7 +2017,7 @@ async fn rpc_block_construction_fails_with_wrong_blob_count() {
             // Try to create RpcBlock with wrong blob count
             let result = RpcBlock::new(
                 Arc::new(block),
-                Some(block_data),
+                block_data,
                 &harness.chain.data_availability_checker,
                 harness.chain.spec.clone(),
             );
@@ -2144,7 +2092,7 @@ async fn rpc_block_rejects_missing_custody_columns() {
                 // Try to create RpcBlock with incomplete custody columns
                 let result = RpcBlock::new(
                     Arc::new(block),
-                    Some(block_data),
+                    block_data,
                     &harness.chain.data_availability_checker,
                     harness.chain.spec.clone(),
                 );
@@ -2232,7 +2180,7 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             // This should succeed since columns are not expected for blocks past DA boundary
             let result = RpcBlock::new(
                 Arc::new(block),
-                Some(AvailableBlockData::NoData),
+                AvailableBlockData::NoData,
                 &harness.chain.data_availability_checker,
                 harness.chain.spec.clone(),
             );

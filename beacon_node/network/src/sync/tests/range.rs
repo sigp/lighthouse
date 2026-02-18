@@ -453,7 +453,7 @@ fn build_rpc_block(
             let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
             RpcBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &chain.data_availability_checker,
                 chain.spec.clone(),
             )
@@ -468,7 +468,7 @@ fn build_rpc_block(
             );
             RpcBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &chain.data_availability_checker,
                 chain.spec.clone(),
             )
@@ -477,7 +477,7 @@ fn build_rpc_block(
         // Block has no data, expects zero columns
         None => RpcBlock::new(
             block,
-            Some(AvailableBlockData::NoData),
+            AvailableBlockData::NoData,
             &chain.data_availability_checker,
             chain.spec.clone(),
         )

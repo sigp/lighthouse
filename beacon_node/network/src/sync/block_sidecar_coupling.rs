@@ -335,7 +335,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             })?;
             let block_data = AvailableBlockData::new_with_blobs(blobs);
             responses.push(
-                RpcBlock::new(block, Some(block_data), &da_checker, spec.clone())
+                RpcBlock::new(block, block_data, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
@@ -441,11 +441,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns.iter().map(|c| c.as_data_column().clone()).collect::<Vec<_>>());
 
-                RpcBlock::new(block, Some(block_data), &da_checker, spec.clone())
+                RpcBlock::new(block, block_data, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 // Block has no data, expects zero columns
-                RpcBlock::new(block, Some(AvailableBlockData::NoData), &da_checker, spec.clone())
+                RpcBlock::new(block, AvailableBlockData::NoData, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             });
         }
