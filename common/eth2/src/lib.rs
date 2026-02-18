@@ -2805,13 +2805,16 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
+        // Use a read_timeout but no ordinary timeout for the events stream. Using any regular
+        // timeout that is not really long will cause a timeout even when the stream is returning
+        // results.
         let client = reqwest::Client::builder()
             .read_timeout(self.timeouts.events)
             .build()?;
 
         let mut es = client
             .get(path)
-            .timeout(self.timeouts.events)
+            .timeout(Duration::MAX)
             .eventsource()
             .map_err(Error::SseEventSource)?;
         // If we don't await `Event::Open` here, then the consumer
