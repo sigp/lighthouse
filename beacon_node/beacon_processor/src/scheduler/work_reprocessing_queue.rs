@@ -60,6 +60,11 @@ pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue delayed column reconstruction.
 pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
 
+/// Minimum delay for column reconstruction even when past the deadline. This prevents a race
+/// where the first reconstruction fires (and removes the dedup entry) before all concurrent
+/// column processing events have been enqueued, causing duplicate reconstructions.
+const MINIMUM_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(50);
+
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
@@ -767,9 +772,12 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     && duration_from_current_slot >= reconstruction_deadline
                     && current_slot == request.slot
                 {
-                    // If we are at least `reconstruction_deadline` seconds into the current slot,
-                    // and the reconstruction request is for the current slot, process reconstruction immediately.
-                    reconstruction_delay = Duration::from_secs(0);
+                    // If we are at least `reconstruction_deadline` into the current slot,
+                    // and the reconstruction request is for the current slot, process
+                    // reconstruction with minimal delay. A small floor is needed to allow
+                    // concurrent column processing events to deduplicate before the
+                    // reconstruction fires and removes the entry from the map.
+                    reconstruction_delay = MINIMUM_RECONSTRUCTION_DELAY;
                 }
                 match self.queued_column_reconstructions.entry(request.block_root) {
                     Entry::Occupied(key) => {
@@ -1264,7 +1272,7 @@ mod tests {
 
         assert_eq!(queue.queued_column_reconstructions.len(), 1);
 
-        // Should be immediately ready (0 delay since we're past deadline)
+        // Should be ready with minimal delay since we're past deadline
         let ready_msg = queue.next().await.unwrap();
         assert!(matches!(
             ready_msg,
@@ -1283,7 +1291,7 @@ mod tests {
     /// on mainnet (12s slots).
     ///
     /// When a reconstruction for the current slot is queued after the reconstruction deadline
-    /// (1/4 of slot duration = 3s for mainnet), it should be processed immediately with 0 delay.
+    /// (1/4 of slot duration = 3s for mainnet), it should be processed with minimal delay.
     #[tokio::test]
     async fn column_reconstruction_immediate_processing_at_deadline_mainnet() {
         tokio::time::pause();
@@ -1294,7 +1302,7 @@ mod tests {
     /// on Gnosis (5s slots).
     ///
     /// When a reconstruction for the current slot is queued after the reconstruction deadline
-    /// (1/4 of slot duration = 1.25s for Gnosis), it should be processed immediately with 0 delay.
+    /// (1/4 of slot duration = 1.25s for Gnosis), it should be processed with minimal delay.
     #[tokio::test]
     async fn column_reconstruction_immediate_processing_at_deadline_gnosis() {
         tokio::time::pause();
