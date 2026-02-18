@@ -2806,6 +2806,12 @@ where
                 .store
                 .put_payload_envelope(&block_root, signed_envelope)
                 .expect("should store payload envelope");
+
+            // Recompute the head so the canonical head snapshot picks up the
+            // envelope-processed state from the cache we just replaced. The first
+            // recompute_head (inside process_block) ran before the cache replacement,
+            // so the head state still has the import-path state without envelope processing.
+            self.chain.recompute_head_at_current_slot().await;
         }
 
         Ok((block_hash, block_contents, new_state))
