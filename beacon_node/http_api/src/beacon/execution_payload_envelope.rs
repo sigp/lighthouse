@@ -5,7 +5,10 @@ use crate::version::{
     ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
 };
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{
+    BeaconChain, BeaconChainTypes, NotifyExecutionLayer,
+    payload_envelope_verification::EnvelopeError,
+};
 use bytes::Bytes;
 use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
@@ -15,7 +18,7 @@ use ssz::{Decode, Encode};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{info, warn};
-use types::SignedExecutionPayloadEnvelope;
+use types::{BlockImportSource, SignedExecutionPayloadEnvelope};
 use warp::{Filter, Rejection, Reply, reply::Response};
 
 // POST beacon/execution_payload_envelope (SSZ)
@@ -82,7 +85,9 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
         )
         .boxed()
 }
-/// Publishes a signed execution payload envelope to the network.
+/// Locally imports and publishes a signed execution payload envelope to the network.
+///
+/// TODO(gloas): Add gossip verification (BroadcastValidation::Gossip) before import.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
@@ -90,33 +95,55 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 ) -> Result<Response, Rejection> {
     let slot = envelope.message.slot;
     let beacon_block_root = envelope.message.beacon_block_root;
+    let builder_index = envelope.message.builder_index;
 
-    // TODO(gloas): Replace this check once we have gossip validation.
     if !chain.spec.is_gloas_scheduled() {
         return Err(warp_utils::reject::custom_bad_request(
             "Execution payload envelopes are not supported before the Gloas fork".into(),
         ));
     }
 
-    // TODO(gloas): We should probably add validation here i.e. BroadcastValidation::Gossip
-    info!(
-        %slot,
-        %beacon_block_root,
-        builder_index = envelope.message.builder_index,
-        "Publishing signed execution payload envelope to network"
-    );
+    let signed_envelope = Arc::new(envelope);
 
-    // Publish to the network
-    crate::utils::publish_pubsub_message(
-        network_tx,
-        PubsubMessage::ExecutionPayload(Box::new(envelope)),
-    )
-    .map_err(|_| {
-        warn!(%slot, "Failed to publish execution payload envelope to network");
-        warp_utils::reject::custom_server_error(
-            "Unable to publish execution payload envelope to network".into(),
+    // The publish_fn is called inside process_execution_payload_envelope after consensus
+    // verification but before the EL call.
+    let envelope_for_publish = signed_envelope.clone();
+    let sender = network_tx.clone();
+    let publish_fn = move || {
+        info!(
+            %slot,
+            %beacon_block_root,
+            builder_index,
+            "Publishing signed execution payload envelope to network"
+        );
+        crate::utils::publish_pubsub_message(
+            &sender,
+            PubsubMessage::ExecutionPayload(Box::new((*envelope_for_publish).clone())),
         )
-    })?;
+        .map_err(|_| {
+            warn!(%slot, "Failed to publish execution payload envelope to network");
+            EnvelopeError::InternalError(
+                "Unable to publish execution payload envelope to network".to_owned(),
+            )
+        })
+    };
+
+    // Import the envelope locally (runs state transition and notifies the EL).
+    chain
+        .process_execution_payload_envelope(
+            beacon_block_root,
+            signed_envelope,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::HttpApi,
+            publish_fn,
+        )
+        .await
+        .map_err(|e| {
+            warn!(%slot, %beacon_block_root, reason = ?e, "Execution payload envelope rejected");
+            warp_utils::reject::custom_bad_request(format!(
+                "execution payload envelope rejected: {e:?}"
+            ))
+        })?;
 
     Ok(warp::reply().into_response())
 }
