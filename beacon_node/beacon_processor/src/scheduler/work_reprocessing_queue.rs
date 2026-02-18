@@ -60,11 +60,6 @@ pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue delayed column reconstruction.
 pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
 
-/// Minimum delay for column reconstruction even when past the deadline. This prevents a race
-/// where the first reconstruction fires (and removes the dedup entry) before all concurrent
-/// column processing events have been enqueued, causing duplicate reconstructions.
-const MINIMUM_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(50);
-
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
@@ -263,6 +258,10 @@ struct ReprocessQueue<S> {
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Column reconstruction per block root.
     queued_column_reconstructions: HashMap<Hash256, DelayKey>,
+    /// Block roots for which column reconstruction has already fired. Prevents duplicate
+    /// reconstruction when late `DelayColumnReconstruction` messages arrive after the entry
+    /// has been removed from `queued_column_reconstructions`. Pruned on each new request.
+    fired_column_reconstructions: HashMap<Hash256, Slot>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
 
@@ -435,6 +434,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
+            fired_column_reconstructions: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
@@ -761,6 +761,19 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
+                // Prune fired entries from previous slots.
+                let request_slot = request.slot;
+                self.fired_column_reconstructions
+                    .retain(|_, slot| *slot >= request_slot);
+
+                // Skip if reconstruction already fired for this block root.
+                if self
+                    .fired_column_reconstructions
+                    .contains_key(&request.block_root)
+                {
+                    return;
+                }
+
                 let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
                 let slot_duration = self.slot_clock.slot_duration().as_millis() as u64;
                 let reconstruction_deadline_millis =
@@ -772,12 +785,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     && duration_from_current_slot >= reconstruction_deadline
                     && current_slot == request.slot
                 {
-                    // If we are at least `reconstruction_deadline` into the current slot,
-                    // and the reconstruction request is for the current slot, process
-                    // reconstruction with minimal delay. A small floor is needed to allow
-                    // concurrent column processing events to deduplicate before the
-                    // reconstruction fires and removes the entry from the map.
-                    reconstruction_delay = MINIMUM_RECONSTRUCTION_DELAY;
+                    // If we are at least `reconstruction_deadline` seconds into the current slot,
+                    // and the reconstruction request is for the current slot, process reconstruction immediately.
+                    reconstruction_delay = Duration::from_secs(0);
                 }
                 match self.queued_column_reconstructions.entry(request.block_root) {
                     Entry::Occupied(key) => {
@@ -929,8 +939,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
-                self.queued_column_reconstructions
-                    .remove(&column_reconstruction.block_root);
+                let block_root = column_reconstruction.block_root;
+                let slot = column_reconstruction.slot;
+                self.queued_column_reconstructions.remove(&block_root);
+                self.fired_column_reconstructions.insert(block_root, slot);
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::ColumnReconstruction(column_reconstruction))
@@ -1272,7 +1284,7 @@ mod tests {
 
         assert_eq!(queue.queued_column_reconstructions.len(), 1);
 
-        // Should be ready with minimal delay since we're past deadline
+        // Should be immediately ready (0 delay since we're past deadline)
         let ready_msg = queue.next().await.unwrap();
         assert!(matches!(
             ready_msg,
@@ -1285,13 +1297,31 @@ mod tests {
         }
 
         assert!(queue.queued_column_reconstructions.is_empty());
+        assert!(
+            queue.fired_column_reconstructions.contains_key(&block_root),
+            "block root should be in fired set after reconstruction"
+        );
+
+        // A late DelayColumnReconstruction for the same block root should be a no-op.
+        let late_request = QueuedColumnReconstruction {
+            block_root,
+            slot: current_slot,
+            process_fn: Box::pin(async {}),
+        };
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::DelayColumnReconstruction(late_request),
+        ));
+        assert!(
+            queue.queued_column_reconstructions.is_empty(),
+            "late request should not re-insert after reconstruction fired"
+        );
     }
 
     /// Tests that column reconstruction queued after the deadline is triggered immediately
     /// on mainnet (12s slots).
     ///
     /// When a reconstruction for the current slot is queued after the reconstruction deadline
-    /// (1/4 of slot duration = 3s for mainnet), it should be processed with minimal delay.
+    /// (1/4 of slot duration = 3s for mainnet), it should be processed immediately with 0 delay.
     #[tokio::test]
     async fn column_reconstruction_immediate_processing_at_deadline_mainnet() {
         tokio::time::pause();
@@ -1302,7 +1332,7 @@ mod tests {
     /// on Gnosis (5s slots).
     ///
     /// When a reconstruction for the current slot is queued after the reconstruction deadline
-    /// (1/4 of slot duration = 1.25s for Gnosis), it should be processed with minimal delay.
+    /// (1/4 of slot duration = 1.25s for Gnosis), it should be processed immediately with 0 delay.
     #[tokio::test]
     async fn column_reconstruction_immediate_processing_at_deadline_gnosis() {
         tokio::time::pause();
