@@ -6,6 +6,7 @@ use crate::sync::{
     ChainId,
     manager::{BlockProcessType, SyncMessage},
 };
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
@@ -51,16 +52,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// This separate function was required to prevent a cycle during compiler
     /// type checking.
-    pub fn generate_rpc_beacon_block_process_fn(
+    pub fn generate_lookup_beacon_block_process_fn(
         self: Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
             let duplicate_cache = self.duplicate_cache.clone();
-            self.process_rpc_block(
+            self.process_lookup_block(
                 block_root,
                 block,
                 seen_timestamp,
@@ -73,15 +74,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
-    pub fn generate_rpc_beacon_block_fns(
+    pub fn generate_lookup_beacon_block_fns(
         self: Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> (AsyncFn, BlockingFn) {
         // An async closure which will import the block.
-        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
             block_root,
             block,
             seen_timestamp,
@@ -107,10 +108,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         skip_all,
         fields(?block_root),
     )]
-    pub async fn process_rpc_block(
+    pub async fn process_lookup_block(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         duplicate_cache: DuplicateCache,
@@ -118,14 +119,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Check if the block is already being imported through another source
         let Some(handle) = duplicate_cache.check_and_insert(block_root) else {
             debug!(
-                action = "sending rpc block to reprocessing queue",
+                action = "sending lookup block to reprocessing queue",
                 %block_root,
                 ?process_type,
                 "Gossip block is being processed"
             );
 
             // Send message to work reprocess queue to retry the block
-            let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
+            let (process_fn, ignore_fn) = self.clone().generate_lookup_beacon_block_fns(
                 block_root,
                 block,
                 seen_timestamp,
@@ -160,7 +161,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             slot = %block.slot(),
             commitments_formatted,
             ?process_type,
-            "Processing RPC block"
+            "Processing Lookup block"
         );
 
         let signed_beacon_block = block.block_cloned();

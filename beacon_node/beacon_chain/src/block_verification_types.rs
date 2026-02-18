@@ -13,6 +13,30 @@ use types::{
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
+pub struct LookupBlock<E: EthSpec> {
+    block: Arc<SignedBeaconBlock<E>>,
+    block_root: Hash256,
+}
+
+impl<E: EthSpec> LookupBlock<E> {
+    pub fn new(block: Arc<SignedBeaconBlock<E>>) -> Self {
+        let block_root = block.canonical_root();
+        Self { block, block_root }
+    }
+
+    pub fn block(&self) -> &SignedBeaconBlock<E> {
+        &self.block
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
+    }
+
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        self.block.clone()
+    }
+}
+
 /// A block that has been received over RPC. It has 2 internal variants:
 ///
 /// 1. `FullyAvailable`: A fully available block. This can either be a pre-deneb block, a
@@ -451,5 +475,35 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
     }
     fn canonical_root(&self) -> Hash256 {
         self.as_block().canonical_root()
+    }
+}
+
+impl<E: EthSpec> AsBlock<E> for LookupBlock<E> {
+    fn slot(&self) -> Slot {
+        self.block().slot()
+    }
+    fn epoch(&self) -> Epoch {
+        self.block().epoch()
+    }
+    fn parent_root(&self) -> Hash256 {
+        self.block().parent_root()
+    }
+    fn state_root(&self) -> Hash256 {
+        self.block().state_root()
+    }
+    fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        self.block().signed_block_header()
+    }
+    fn message(&self) -> BeaconBlockRef<'_, E> {
+        self.block().message()
+    }
+    fn as_block(&self) -> &SignedBeaconBlock<E> {
+        self.block()
+    }
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        self.block_cloned()
+    }
+    fn canonical_root(&self) -> Hash256 {
+        self.block_root
     }
 }

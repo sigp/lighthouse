@@ -1,6 +1,7 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
 use beacon_chain::fetch_blobs::{
@@ -511,14 +512,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
-    pub fn send_rpc_beacon_block(
+    pub fn send_lookup_beacon_block(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
             block_root,
             block,
             seen_timestamp,

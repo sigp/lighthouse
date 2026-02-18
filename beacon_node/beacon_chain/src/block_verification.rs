@@ -50,6 +50,7 @@
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
+use crate::block_verification_types::LookupBlock;
 use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
@@ -1326,6 +1327,38 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
                 block_root: *block_root,
                 block: block.clone(),
             },
+        };
+
+        SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
+            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        self.as_block()
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block_cloned()
+    }
+}
+
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for LookupBlock<T::EthSpec> {
+    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
+    /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
+    #[instrument(
+        name = "lookup_block_into_execution_pending_block_slashable",
+        level = "debug"
+        skip_all,
+    )]
+    fn into_execution_pending_block_slashable(
+        self,
+        block_root: Hash256,
+        chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
+        let maybe_available_block = MaybeAvailableBlock::AvailabilityPending {
+            block_root: self.block_root(),
+            block: self.block_cloned(),
         };
 
         SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
