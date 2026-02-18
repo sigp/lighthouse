@@ -2675,8 +2675,10 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_execution_payload_envelope<E: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelope<E>>>, Error>
-    {
+    ) -> Result<
+        Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelope<E>>>,
+        Error,
+    > {
         let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
         self.get_opt(path)
             .await
@@ -2695,11 +2697,9 @@ impl BeaconNodeHttpClient {
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
             .await?;
         match opt_response {
-            Some(bytes) => {
-                SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
-                    .map(Some)
-                    .map_err(Error::InvalidSsz)
-            }
+            Some(bytes) => SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
+                .map(Some)
+                .map_err(Error::InvalidSsz),
             None => Ok(None),
         }
     }

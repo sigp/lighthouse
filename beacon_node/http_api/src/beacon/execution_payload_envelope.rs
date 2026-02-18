@@ -137,7 +137,11 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 // GET beacon/execution_payload_envelope/{block_id}
 pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
-    block_id_or_err: impl Filter<Extract = (BlockId,), Error = Rejection> + Clone + Send + Sync + 'static,
+    block_id_or_err: impl Filter<Extract = (BlockId,), Error = Rejection>
+    + Clone
+    + Send
+    + Sync
+    + 'static,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
 ) -> ResponseFilter {

@@ -1336,10 +1336,7 @@ impl<E: EthSpec> EventKind<E> {
             )?)),
             "execution_payload_bid" => Ok(EventKind::ExecutionPayloadBid(
                 serde_json::from_str(data).map_err(|e| {
-                    ServerError::InvalidServerSentEvent(format!(
-                        "Execution Payload Bid: {:?}",
-                        e
-                    ))
+                    ServerError::InvalidServerSentEvent(format!("Execution Payload Bid: {:?}", e))
                 })?,
             )),
             "execution_payload_available" => Ok(EventKind::ExecutionPayloadAvailable(

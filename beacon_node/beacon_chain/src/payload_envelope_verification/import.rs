@@ -149,7 +149,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             // The block failed verification.
             Err(other) => {
-                warn!(reason = other.to_string(), "Execution payload envelope rejected");
+                warn!(
+                    reason = other.to_string(),
+                    "Execution payload envelope rejected"
+                );
                 Err(other)
             }
         }
