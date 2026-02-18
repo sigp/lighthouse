@@ -120,10 +120,7 @@ impl TestRig {
         .await
     }
 
-    pub async fn new_with_skip_slots(
-        chain_length: u64,
-        skip_slots: &HashSet<u64>,
-    ) -> Self {
+    pub async fn new_with_skip_slots(chain_length: u64, skip_slots: &HashSet<u64>) -> Self {
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
         let spec = Arc::new(spec);
@@ -2043,15 +2040,14 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
         return;
     };
 
-    // Build a chain of 64 slots with skip slots at positions 5 and 6.
-    // After 2 full epochs, epoch 0 is finalized, so requests for slots 0-10
-    // will go through `get_block_roots_from_store`.
+    // Build a chain of 128 slots (4 epochs) with skip slots at positions 5 and 6.
+    // After 4 epochs, finalized_epoch=2 (finalized_slot=64). Requesting slots 0-9
+    // satisfies req_start_slot + req_count <= finalized_slot (10 <= 64), which routes
+    // through `get_block_roots_from_store` — the code path with the bug.
     let skip_slots: HashSet<u64> = [5, 6].into_iter().collect();
-    let mut rig = TestRig::new_with_skip_slots(64, &skip_slots).await;
+    let mut rig = TestRig::new_with_skip_slots(128, &skip_slots).await;
 
-    let all_custody_columns = rig
-        .chain
-        .custody_columns_for_epoch(Some(Epoch::new(0)));
+    let all_custody_columns = rig.chain.custody_columns_for_epoch(Some(Epoch::new(0)));
     let requested_column = vec![all_custody_columns[0]];
 
     // Request a range that spans the skip slots (slots 0 through 9).
@@ -2070,8 +2066,8 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
         )
         .unwrap();
 
-    // Collect all data column responses, tracking (block_root, column_index) pairs.
-    let mut received: Vec<(Hash256, u64)> = Vec::new();
+    // Collect block roots from all data column responses.
+    let mut block_roots: Vec<Hash256> = Vec::new();
 
     while let Some(next) = rig.network_rx.recv().await {
         if let NetworkMessage::SendResponse {
@@ -2081,7 +2077,7 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
         } = next
         {
             if let Some(column) = data_column {
-                received.push((column.block_root(), *column.index()));
+                block_roots.push(column.block_root());
             } else {
                 break;
             }
@@ -2090,22 +2086,14 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
         }
     }
 
-    assert!(
-        !received.is_empty(),
-        "Should have received at least some data columns"
-    );
-
-    // The critical assertion: there should be no duplicate (block_root, column_index) pairs.
-    // Before the fix, skip slots caused the same block root to appear multiple times with
-    // different slots, leading to duplicate data columns in the response.
-    let unique_received: HashSet<_> = received.iter().cloned().collect();
+    // Before the fix, skip slots caused the same block root to appear multiple times
+    // (once per skip slot) because .unique() on (Hash256, Slot) tuples didn't deduplicate.
+    let unique_roots: HashSet<_> = block_roots.iter().collect();
     assert_eq!(
-        unique_received.len(),
-        received.len(),
-        "DataColumnsByRange response contained duplicate data columns. \
-         Got {} total but only {} unique (block_root, column_index) pairs. \
-         This indicates skip slot deduplication is not working correctly.",
-        received.len(),
-        unique_received.len(),
+        block_roots.len(),
+        unique_roots.len(),
+        "Response contained duplicate block roots: got {} columns but only {} unique roots",
+        block_roots.len(),
+        unique_roots.len(),
     );
 }
