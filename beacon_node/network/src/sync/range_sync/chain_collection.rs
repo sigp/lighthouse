@@ -352,7 +352,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .map(|(id, chain)| (chain.available_peers(), !chain.is_syncing(), *id))
             .collect::<Vec<_>>();
         // Sort in descending order
-        preferred_ids.sort_unstable_by(|a,b| b.cmp(a));
+        preferred_ids.sort_unstable_by(|a, b| b.cmp(a));
 
         let mut syncing_chains = SmallVec::<[Id; PARALLEL_HEAD_CHAINS]>::new();
         for (_, _, id) in preferred_ids {
