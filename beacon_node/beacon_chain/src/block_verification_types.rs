@@ -47,12 +47,8 @@ impl<E: EthSpec> LookupBlock<E> {
 /// 2. `BlockOnly`: This is a post-deneb block that requires blobs to be considered fully available.
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
-pub enum RpcBlock<E: EthSpec> {
-    FullyAvailable(AvailableBlock<E>),
-    BlockOnly {
-        block: Arc<SignedBeaconBlock<E>>,
-        block_root: Hash256,
-    },
+pub struct RpcBlock<E: EthSpec> {
+    block: AvailableBlock<E>,
 }
 
 impl<E: EthSpec> Debug for RpcBlock<E> {
@@ -63,50 +59,24 @@ impl<E: EthSpec> Debug for RpcBlock<E> {
 
 impl<E: EthSpec> RpcBlock<E> {
     pub fn block_root(&self) -> Hash256 {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block_root(),
-            RpcBlock::BlockOnly { block_root, .. } => *block_root,
-        }
+        self.block.block_root()
     }
 
     pub fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block(),
-            RpcBlock::BlockOnly { block, .. } => block,
-        }
+        self.block.block()
     }
 
     pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block_cloned(),
-            RpcBlock::BlockOnly { block, .. } => block.clone(),
-        }
+        self.block.block_cloned()
     }
 
-    pub fn block_data(&self) -> Option<&AvailableBlockData<E>> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => Some(available_block.data()),
-            RpcBlock::BlockOnly { .. } => None,
-        }
+    pub fn block_data(&self) -> &AvailableBlockData<E> {
+        self.block.data()
     }
 }
 
 impl<E: EthSpec> RpcBlock<E> {
-    /// Constructs an `RpcBlock` from a block and optional availability data.
-    ///
-    /// This function creates an RpcBlock which can be in one of two states:
-    /// - `FullyAvailable`: When `block_data` is provided, the block contains all required
-    ///   data for verification.
-    /// - `BlockOnly`: When `block_data` is `None`, the block may still need additional
-    ///   data to be considered fully available (used during block lookups or when blobs
-    ///   will arrive separately).
-    ///
-    /// # Validation
-    ///
-    /// When `block_data` is provided, this function validates that:
-    /// - Block data is not provided when not required.
-    /// - Required blobs are present and match the expected count.
-    /// - Required custody columns are included based on the nodes custody requirements.
+    /// Constructs an `RpcBlock` from a block with availability data.
     ///
     /// # Errors
     ///
@@ -123,48 +93,33 @@ impl<E: EthSpec> RpcBlock<E> {
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
-            block, block_data, da_checker, spec,
-        )?))
+        let available_block = AvailableBlock::new(block, block_data, da_checker, spec)?;
+        Ok(Self {
+            block: available_block,
+        })
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Hash256,
-        Arc<SignedBeaconBlock<E>>,
-        Option<AvailableBlockData<E>>,
-    ) {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => {
-                let (block_root, block, block_data) = available_block.deconstruct();
-                (block_root, block, Some(block_data))
-            }
-            RpcBlock::BlockOnly { block, block_root } => (block_root, block, None),
-        }
+    pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
+        self.block.deconstruct()
     }
 
     pub fn n_blobs(&self) -> usize {
-        if let Some(block_data) = self.block_data() {
-            match block_data {
-                AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
-                AvailableBlockData::Blobs(blobs) => blobs.len(),
-            }
-        } else {
-            0
+        match self.block_data() {
+            AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
+            AvailableBlockData::Blobs(blobs) => blobs.len(),
         }
     }
 
     pub fn n_data_columns(&self) -> usize {
-        if let Some(block_data) = self.block_data() {
-            match block_data {
-                AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
-                AvailableBlockData::DataColumns(columns) => columns.len(),
-            }
-        } else {
-            0
+        match self.block_data() {
+            AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
+            AvailableBlockData::DataColumns(columns) => columns.len(),
         }
+    }
+
+    pub fn into_available_block(self) -> AvailableBlock<E> {
+        self.block
     }
 }
 
@@ -450,25 +405,13 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match self {
-            Self::BlockOnly {
-                block,
-                block_root: _,
-            } => block,
-            Self::FullyAvailable(available_block) => available_block.block(),
-        }
+        self.block.as_block()
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block_cloned(),
-            RpcBlock::BlockOnly {
-                block,
-                block_root: _,
-            } => block.clone(),
-        }
+        self.block.block_cloned()
     }
     fn canonical_root(&self) -> Hash256 {
-        self.as_block().canonical_root()
+        self.block.block_root()
     }
 }
 

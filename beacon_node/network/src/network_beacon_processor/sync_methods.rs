@@ -720,20 +720,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let mut available_blocks = vec![];
-
-        for downloaded_block in downloaded_blocks {
-            match downloaded_block {
-                RpcBlock::FullyAvailable(available_block) => available_blocks.push(available_block),
-                RpcBlock::BlockOnly { .. } => return (
-                    0,
-                    Err(ChainSegmentFailed {
-                        peer_action: None,
-                        message: "Invalid downloaded_blocks segment. All downloaded blocks must be fully available".to_string()
-                    })
-                ),
-            }
-        }
+        let available_blocks = downloaded_blocks
+            .into_iter()
+            .map(|block| block.into_available_block())
+            .collect::<Vec<_>>();
 
         match self
             .chain

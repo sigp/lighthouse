@@ -653,24 +653,14 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        match block {
-            RpcBlock::FullyAvailable(available_block) => {
-                available_blocks.push(available_block.clone());
-                signature_verified_blocks.push(SignatureVerifiedBlock {
-                    block: MaybeAvailableBlock::Available(available_block),
-                    block_root,
-                    parent: None,
-                    consensus_context,
-                });
-            }
-            RpcBlock::BlockOnly { .. } => {
-                // RangeSync and BackfillSync already ensure that the chain segment is fully available
-                // so this shouldn't be possible in practice.
-                return Err(BlockError::InternalError(
-                    "Chain segment is not fully available".to_string(),
-                ));
-            }
-        }
+        let available_block = block.into_available_block();
+        available_blocks.push(available_block.clone());
+        signature_verified_blocks.push(SignatureVerifiedBlock {
+            block: MaybeAvailableBlock::Available(available_block),
+            block_root,
+            parent: None,
+            consensus_context,
+        });
     }
 
     chain
@@ -1309,26 +1299,17 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
-        let maybe_available_block = match &self {
-            RpcBlock::FullyAvailable(available_block) => {
-                chain
-                    .data_availability_checker
-                    .verify_kzg_for_available_block(available_block)
-                    .map_err(|e| {
-                        BlockSlashInfo::SignatureNotChecked(
-                            self.signed_block_header(),
-                            BlockError::AvailabilityCheck(e),
-                        )
-                    })?;
-                MaybeAvailableBlock::Available(available_block.clone())
-            }
-            // No need to perform KZG verification unless we have a fully available block
-            RpcBlock::BlockOnly { block, block_root } => MaybeAvailableBlock::AvailabilityPending {
-                block_root: *block_root,
-                block: block.clone(),
-            },
-        };
-
+        let available_block = self.into_available_block();
+        chain
+            .data_availability_checker
+            .verify_kzg_for_available_block(&available_block)
+            .map_err(|e| {
+                BlockSlashInfo::SignatureNotChecked(
+                    available_block.as_block().signed_block_header(),
+                    BlockError::AvailabilityCheck(e),
+                )
+            })?;
+        let maybe_available_block = MaybeAvailableBlock::Available(available_block);
         SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }

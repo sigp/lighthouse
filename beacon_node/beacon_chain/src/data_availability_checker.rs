@@ -1134,11 +1134,8 @@ mod test {
             .collect::<Vec<_>>();
 
         let available_blocks = blocks_with_columns
-            .iter()
-            .filter_map(|block| match block {
-                RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
-                RpcBlock::BlockOnly { .. } => None,
-            })
+            .into_iter()
+            .map(|block| block.into_available_block())
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)
