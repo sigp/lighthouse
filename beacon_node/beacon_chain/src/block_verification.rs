@@ -1337,8 +1337,12 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for LookupBlock<T::EthSpe
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
+        // Perform an early check to prevent wasting time on irrelevant blocks.
+        let block_root = check_block_relevancy(self.as_block(), block_root, chain)
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+
         let maybe_available_block = MaybeAvailableBlock::AvailabilityPending {
-            block_root: self.block_root(),
+            block_root,
             block: self.block_cloned(),
         };
 
