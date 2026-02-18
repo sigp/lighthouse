@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '\n[Reminder] Run: cargo fmt --all && make lint-fix && cargo check'"
+            "command": "echo '\n[Reminder] Run: cargo fmt --all && make lint-fix'"
           }
         ]
       }
