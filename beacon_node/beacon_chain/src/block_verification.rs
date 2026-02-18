@@ -51,7 +51,7 @@
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::LookupBlock;
-use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
+use crate::block_verification_types::{AsBlock, BlockImportData, RangeSyncBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
@@ -622,7 +622,7 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// will be returned.
 #[instrument(skip_all)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
-    mut chain_segment: Vec<(Hash256, RpcBlock<T::EthSpec>)>,
+    mut chain_segment: Vec<(Hash256, RangeSyncBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
 ) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
     if chain_segment.is_empty() {
@@ -1281,7 +1281,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     }
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
     #[instrument(

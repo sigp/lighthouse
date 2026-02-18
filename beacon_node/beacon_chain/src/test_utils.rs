@@ -1,5 +1,5 @@
 use crate::blob_verification::GossipVerifiedBlob;
-use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RpcBlock};
+use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
@@ -811,13 +811,13 @@ where
         mock_builder_server
     }
 
-    pub fn get_head_block(&self) -> RpcBlock<E> {
+    pub fn get_head_block(&self) -> RangeSyncBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
         self.build_rpc_block_from_store_blobs(Some(block_root), block)
     }
 
-    pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
+    pub fn get_full_block(&self, block_root: &Hash256) -> RangeSyncBlock<E> {
         let block = self
             .chain
             .get_blinded_block(block_root)
@@ -2510,7 +2510,7 @@ where
         &self,
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
-    ) -> RpcBlock<E> {
+    ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
         let has_blobs = block
             .message()
@@ -2518,7 +2518,7 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new(
+            return RangeSyncBlock::new(
                 block,
                 AvailableBlockData::NoData,
                 &self.chain.data_availability_checker,
@@ -2537,7 +2537,7 @@ where
                 .unwrap();
             let custody_columns = columns.into_iter().collect::<Vec<_>>();
             let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
                 block_data,
                 &self.chain.data_availability_checker,
@@ -2552,7 +2552,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
                 block_data,
                 &self.chain.data_availability_checker,
@@ -2567,7 +2567,7 @@ where
         &self,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
-    ) -> Result<RpcBlock<E>, BlockError> {
+    ) -> Result<RangeSyncBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let epoch = block.slot().epoch(E::slots_per_epoch());
             let sampling_columns = self.chain.sampling_columns_for_epoch(epoch);
@@ -2581,14 +2581,14 @@ where
                     .filter(|d| sampling_columns.contains(d.index()))
                     .collect::<Vec<_>>();
                 let block_data = AvailableBlockData::new_with_data_columns(columns);
-                RpcBlock::new(
+                RangeSyncBlock::new(
                     block,
                     block_data,
                     &self.chain.data_availability_checker,
                     self.chain.spec.clone(),
                 )?
             } else {
-                RpcBlock::new(
+                RangeSyncBlock::new(
                     block,
                     AvailableBlockData::NoData,
                     &self.chain.data_availability_checker,
@@ -2608,7 +2608,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
                 block_data,
                 &self.chain.data_availability_checker,

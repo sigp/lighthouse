@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
@@ -227,14 +227,14 @@ async fn produces_attestations() {
                 harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
 
             let available_block = match rpc_block {
-                RpcBlock::FullyAvailable(available_block) => {
+                RangeSyncBlock::FullyAvailable(available_block) => {
                     chain
                         .data_availability_checker
                         .verify_kzg_for_available_block(&available_block)
                         .unwrap();
                     available_block
                 }
-                RpcBlock::BlockOnly { .. } => panic!("block should be available"),
+                RangeSyncBlock::BlockOnly { .. } => panic!("block should be available"),
             };
 
             let early_attestation = {
@@ -296,7 +296,7 @@ async fn early_attester_cache_old_request() {
         .build_rpc_block_from_store_blobs(Some(head.beacon_block_root), head.beacon_block.clone());
 
     let available_block = match rpc_block {
-        RpcBlock::FullyAvailable(available_block) => {
+        RangeSyncBlock::FullyAvailable(available_block) => {
             harness
                 .chain
                 .data_availability_checker
@@ -304,7 +304,7 @@ async fn early_attester_cache_old_request() {
                 .unwrap();
             available_block
         }
-        RpcBlock::BlockOnly { .. } => panic!("block should be available"),
+        RangeSyncBlock::BlockOnly { .. } => panic!("block should be available"),
     };
 
     harness

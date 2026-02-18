@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
@@ -3179,7 +3179,7 @@ async fn weak_subjectivity_sync_test(
                 harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block));
 
             match rpc_block {
-                RpcBlock::FullyAvailable(available_block) => {
+                RangeSyncBlock::FullyAvailable(available_block) => {
                     harness
                         .chain
                         .data_availability_checker
@@ -3187,7 +3187,7 @@ async fn weak_subjectivity_sync_test(
                         .expect("should verify kzg");
                     available_blocks.push(available_block);
                 }
-                RpcBlock::BlockOnly { .. } => panic!("Should be an available block"),
+                RangeSyncBlock::BlockOnly { .. } => panic!("Should be an available block"),
             }
         }
 

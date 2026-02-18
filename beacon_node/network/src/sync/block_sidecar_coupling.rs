@@ -1,6 +1,6 @@
 use beacon_chain::{
     BeaconChainTypes,
-    block_verification_types::{AvailableBlockData, RpcBlock},
+    block_verification_types::{AvailableBlockData, RangeSyncBlock},
     data_availability_checker::DataAvailabilityChecker,
     data_column_verification::CustodyDataColumn,
     get_block_root,
@@ -200,7 +200,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         &mut self,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
-    ) -> Option<Result<Vec<RpcBlock<E>>, CouplingError>>
+    ) -> Option<Result<Vec<RangeSyncBlock<E>>, CouplingError>>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
@@ -288,7 +288,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blobs: Vec<Arc<BlobSidecar<E>>>,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
-    ) -> Result<Vec<RpcBlock<E>>, CouplingError>
+    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
@@ -335,7 +335,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             })?;
             let block_data = AvailableBlockData::new_with_blobs(blobs);
             responses.push(
-                RpcBlock::new(block, block_data, &da_checker, spec.clone())
+                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
@@ -360,7 +360,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         attempt: usize,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
-    ) -> Result<Vec<RpcBlock<E>>, CouplingError>
+    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
@@ -441,11 +441,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns.iter().map(|c| c.as_data_column().clone()).collect::<Vec<_>>());
 
-                RpcBlock::new(block, block_data, &da_checker, spec.clone())
+                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 // Block has no data, expects zero columns
-                RpcBlock::new(block, AvailableBlockData::NoData, &da_checker, spec.clone())
+                RangeSyncBlock::new(block, AvailableBlockData::NoData, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             });
         }
@@ -947,7 +947,7 @@ mod tests {
         }
 
         let result: Result<
-            Vec<beacon_chain::block_verification_types::RpcBlock<E>>,
+            Vec<beacon_chain::block_verification_types::RangeSyncBlock<E>>,
             crate::sync::block_sidecar_coupling::CouplingError,
         > = info.responses(da_checker.clone(), spec.clone()).unwrap();
         assert!(result.is_err());

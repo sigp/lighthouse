@@ -7,7 +7,7 @@ use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
@@ -531,7 +531,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_chain_segment(
         &self,
         process_id: ChainSegmentProcessId,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) {
         let ChainSegmentProcessId::RangeBatchId(chain_id, epoch) = process_id else {
             // This is a request from range sync, this should _never_ happen
@@ -612,7 +612,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_chain_segment_backfill(
         &self,
         process_id: ChainSegmentProcessId,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) {
         let ChainSegmentProcessId::BackSyncBatchId(epoch) = process_id else {
             // this a request from RangeSync, this should _never_ happen
@@ -683,7 +683,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     #[instrument(skip_all)]
     async fn process_blocks<'a>(
         &self,
-        downloaded_blocks: impl Iterator<Item = &'a RpcBlock<T::EthSpec>>,
+        downloaded_blocks: impl Iterator<Item = &'a RangeSyncBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<_> = downloaded_blocks.cloned().collect();
@@ -717,7 +717,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     #[instrument(skip_all)]
     fn process_backfill_blocks(
         &self,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
         let available_blocks = downloaded_blocks

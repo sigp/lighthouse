@@ -2,7 +2,7 @@ use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
 use beacon_chain::fetch_blobs::{
     EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
@@ -605,7 +605,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
         let processor = self.clone();

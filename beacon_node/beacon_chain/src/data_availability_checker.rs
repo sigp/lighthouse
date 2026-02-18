@@ -891,7 +891,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 mod test {
     use super::*;
     use crate::CustodyContext;
-    use crate::block_verification_types::RpcBlock;
+    use crate::block_verification_types::RangeSyncBlock;
     use crate::custody_context::NodeCustodyType;
     use crate::data_column_verification::CustodyDataColumn;
     use crate::test_utils::{
@@ -1128,7 +1128,7 @@ mod test {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
                 let da_checker = Arc::new(new_da_checker(spec.clone()));
-                RpcBlock::new(Arc::new(block), block_data, &da_checker, spec.clone())
+                RangeSyncBlock::new(Arc::new(block), block_data, &da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();

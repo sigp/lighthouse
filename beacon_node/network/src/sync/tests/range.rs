@@ -10,7 +10,7 @@ use beacon_chain::block_verification_types::AvailableBlockData;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
-use beacon_chain::{EngineState, NotifyExecutionLayer, block_verification_types::RpcBlock};
+use beacon_chain::{EngineState, NotifyExecutionLayer, block_verification_types::RangeSyncBlock};
 use beacon_processor::WorkType;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::rpc::methods::{
@@ -447,11 +447,11 @@ fn build_rpc_block(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
     chain: Arc<BeaconChain<T>>,
-) -> RpcBlock<E> {
+) -> RangeSyncBlock<E> {
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
                 block_data,
                 &chain.data_availability_checker,
@@ -466,7 +466,7 @@ fn build_rpc_block(
                     .map(|c| c.as_data_column().clone())
                     .collect::<Vec<_>>(),
             );
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
                 block_data,
                 &chain.data_availability_checker,
@@ -475,7 +475,7 @@ fn build_rpc_block(
             .unwrap()
         }
         // Block has no data, expects zero columns
-        None => RpcBlock::new(
+        None => RangeSyncBlock::new(
             block,
             AvailableBlockData::NoData,
             &chain.data_availability_checker,

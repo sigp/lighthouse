@@ -37,27 +37,20 @@ impl<E: EthSpec> LookupBlock<E> {
     }
 }
 
-/// A block that has been received over RPC. It has 2 internal variants:
-///
-/// 1. `FullyAvailable`: A fully available block. This can either be a pre-deneb block, a
-///    post-Deneb block with blobs, a post-Fulu block with the columns the node is required to custody,
-///    or a post-Deneb block that doesn't require blobs/columns. Hence, it is fully self contained w.r.t
-///    verification. i.e. this block has all the required data to get verified and imported into fork choice.
-///
-/// 2. `BlockOnly`: This is a post-deneb block that requires blobs to be considered fully available.
+/// A fully available block that has been constructed by range sync.
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
-pub struct RpcBlock<E: EthSpec> {
+pub struct RangeSyncBlock<E: EthSpec> {
     block: AvailableBlock<E>,
 }
 
-impl<E: EthSpec> Debug for RpcBlock<E> {
+impl<E: EthSpec> Debug for RangeSyncBlock<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "RpcBlock({:?})", self.block_root())
     }
 }
 
-impl<E: EthSpec> RpcBlock<E> {
+impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn block_root(&self) -> Hash256 {
         self.block.block_root()
     }
@@ -75,8 +68,8 @@ impl<E: EthSpec> RpcBlock<E> {
     }
 }
 
-impl<E: EthSpec> RpcBlock<E> {
-    /// Constructs an `RpcBlock` from a block with availability data.
+impl<E: EthSpec> RangeSyncBlock<E> {
+    /// Constructs an `RangeSyncBlock` from a block and availability data.
     ///
     /// # Errors
     ///
@@ -385,7 +378,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
+impl<E: EthSpec> AsBlock<E> for RangeSyncBlock<E> {
     fn slot(&self) -> Slot {
         self.as_block().slot()
     }

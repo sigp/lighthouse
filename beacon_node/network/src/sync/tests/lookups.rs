@@ -868,7 +868,7 @@ impl TestRig {
         self.re_insert_block(block, blobs, Some(columns));
     }
 
-    fn get_last_block(&self) -> &RpcBlock<E> {
+    fn get_last_block(&self) -> &RangeSyncBlock<E> {
         let (_, last_block) = self
             .network_blocks_by_root
             .iter()
@@ -894,7 +894,7 @@ impl TestRig {
         } else {
             AvailableBlockData::NoData
         };
-        let rpc_block = RpcBlock::new(
+        let rpc_block = RangeSyncBlock::new(
             block,
             block_data,
             &self.harness.chain.data_availability_checker,

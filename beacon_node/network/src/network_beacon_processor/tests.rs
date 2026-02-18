@@ -8,7 +8,7 @@ use crate::{
     service::NetworkMessage,
     sync::{SyncMessage, manager::BlockProcessType},
 };
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;

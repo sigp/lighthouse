@@ -18,7 +18,7 @@ use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
 use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
@@ -736,7 +736,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: ComponentsByRangeRequestId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
-    ) -> Option<Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>> {
+    ) -> Option<Result<Vec<RangeSyncBlock<T::EthSpec>>, RpcResponseError>> {
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
             return None;
