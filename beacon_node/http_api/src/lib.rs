@@ -54,7 +54,6 @@ use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
 use directory::DEFAULT_ROOT_DIR;
-use eth2::StatusCode;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
@@ -73,6 +72,7 @@ use parking_lot::RwLock;
 pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -1499,20 +1499,20 @@ pub fn serve<T: BeaconChainTypes>(
         network_tx_filter.clone(),
     );
 
-    // POST beacon/execution_payload_envelope (SSZ)
-    let post_beacon_execution_payload_envelope_ssz = post_beacon_execution_payload_envelope_ssz(
-        eth_v1.clone(),
-        task_spawner_filter.clone(),
-        chain_filter.clone(),
-        network_tx_filter.clone(),
-    );
-
     // GET beacon/execution_payload_envelope/{block_id}
     let get_beacon_execution_payload_envelope = get_beacon_execution_payload_envelope(
         eth_v1.clone(),
         block_id_or_err,
         task_spawner_filter.clone(),
         chain_filter.clone(),
+    );
+
+    // POST beacon/execution_payload_envelope (SSZ)
+    let post_beacon_execution_payload_envelope_ssz = post_beacon_execution_payload_envelope_ssz(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
     );
 
     let beacon_rewards_path = eth_v1
@@ -2473,7 +2473,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/duties/proposer/{epoch}
     let get_validator_duties_proposer = get_validator_duties_proposer(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2481,7 +2481,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blocks/{slot}
     let get_validator_blocks = get_validator_blocks(
-        any_version.clone().clone(),
+        any_version.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2489,7 +2489,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blinded_blocks/{slot}
     let get_validator_blinded_blocks = get_validator_blinded_blocks(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2497,7 +2497,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/execution_payload_envelope/{slot}/{builder_index}
     let get_validator_execution_payload_envelope = get_validator_execution_payload_envelope(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2505,7 +2505,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/attestation_data?slot,committee_index
     let get_validator_attestation_data = get_validator_attestation_data(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2513,7 +2513,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = get_validator_aggregate_attestation(
-        any_version.clone().clone(),
+        any_version.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2521,7 +2521,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/attester/{epoch}
     let post_validator_duties_attester = post_validator_duties_attester(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2529,7 +2529,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/sync/{epoch}
     let post_validator_duties_sync = post_validator_duties_sync(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2537,7 +2537,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/sync_committee_contribution
     let get_validator_sync_committee_contribution = get_validator_sync_committee_contribution(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2545,7 +2545,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/aggregate_and_proofs
     let post_validator_aggregate_and_proofs = post_validator_aggregate_and_proofs(
-        any_version.clone().clone(),
+        any_version.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2553,7 +2553,7 @@ pub fn serve<T: BeaconChainTypes>(
     );
 
     let post_validator_contribution_and_proofs = post_validator_contribution_and_proofs(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2563,7 +2563,7 @@ pub fn serve<T: BeaconChainTypes>(
     // POST validator/beacon_committee_subscriptions
     let post_validator_beacon_committee_subscriptions =
         post_validator_beacon_committee_subscriptions(
-            eth_v1.clone().clone(),
+            eth_v1.clone(),
             chain_filter.clone(),
             validator_subscription_tx_filter.clone(),
             task_spawner_filter.clone(),
@@ -2571,7 +2571,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/prepare_beacon_proposer
     let post_validator_prepare_beacon_proposer = post_validator_prepare_beacon_proposer(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2580,13 +2580,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/register_validator
     let post_validator_register_validator = post_validator_register_validator(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         task_spawner_filter.clone(),
     );
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = post_validator_sync_committee_subscriptions(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         validator_subscription_tx_filter.clone(),
         task_spawner_filter.clone(),
@@ -2594,7 +2594,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/liveness/{epoch}
     let post_validator_liveness_epoch = post_validator_liveness_epoch(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         task_spawner_filter.clone(),
     );

@@ -1,9 +1,10 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::PublicKeyBytes;
+use eth2::BeaconNodeHttpClient;
 use eth2::types::GraffitiPolicy;
-use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
+use reqwest::StatusCode;
 use slot_clock::SlotClock;
 use std::fmt::Debug;
 use std::future::Future;
@@ -335,7 +336,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
     async fn sign_and_publish_block(
         &self,
-        proposer_fallback: ProposerFallback<T>,
+        proposer_fallback: &ProposerFallback<T>,
         slot: Slot,
         graffiti: Option<Graffiti>,
         validator_pubkey: &PublicKeyBytes,
@@ -612,7 +613,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         self_ref
             .sign_and_publish_block(
-                proposer_fallback.clone(),
+                &proposer_fallback,
                 slot,
                 graffiti,
                 &validator_pubkey,
@@ -625,7 +626,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
         if fork_name.gloas_enabled() {
             self_ref
-                .fetch_sign_and_publish_payload_envelope(proposer_fallback, slot, &validator_pubkey)
+                .fetch_sign_and_publish_payload_envelope(
+                    &proposer_fallback,
+                    slot,
+                    &validator_pubkey,
+                )
                 .await?;
         }
 
@@ -642,22 +647,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     #[instrument(skip_all)]
     async fn fetch_sign_and_publish_payload_envelope(
         &self,
-        proposer_fallback: ProposerFallback<T>,
+        _proposer_fallback: &ProposerFallback<T>,
         slot: Slot,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<(), BlockError> {
         info!(slot = slot.as_u64(), "Fetching execution payload envelope");
 
         // Fetch the envelope from the beacon node. Use builder_index=BUILDER_INDEX_SELF_BUILD for local building.
-        let envelope = proposer_fallback
-            .request_proposers_last(|beacon_node| async move {
+        // TODO(gloas): Use proposer_fallback once multi-BN is supported.
+        let envelope = self
+            .beacon_nodes
+            .first_success(|beacon_node| async move {
                 beacon_node
-                    .get_validator_execution_payload_envelope::<S::E>(
+                    .get_validator_execution_payload_envelope_ssz::<S::E>(
                         slot,
                         BUILDER_INDEX_SELF_BUILD,
                     )
                     .await
-                    .map(|response| response.data)
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
                             "Error fetching execution payload envelope: {:?}",
@@ -690,13 +696,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             "Signed execution payload envelope, publishing"
         );
 
+        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
+
         // Publish the signed envelope
-        proposer_fallback
-            .request_proposers_first(|beacon_node| {
+        // TODO(gloas): Use proposer_fallback once multi-BN is supported.
+        self.beacon_nodes
+            .first_success(|beacon_node| {
                 let signed_envelope = signed_envelope.clone();
                 async move {
                     beacon_node
-                        .post_beacon_execution_payload_envelope(&signed_envelope)
+                        .post_beacon_execution_payload_envelope_ssz(&signed_envelope, fork_name)
                         .await
                         .map_err(|e| {
                             BlockError::Recoverable(format!(

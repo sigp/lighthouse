@@ -22,8 +22,6 @@ pub use beacon_response::{
 };
 
 pub use self::error::{Error, ok_or_error, success_or_error};
-pub use reqwest;
-pub use reqwest::{StatusCode, Url};
 pub use sensitive_url::SensitiveUrl;
 
 use self::mixin::{RequestAccept, ResponseOptional};
@@ -38,7 +36,7 @@ use futures_util::StreamExt;
 #[cfg(feature = "network")]
 use libp2p_identity::PeerId;
 use reqwest::{
-    Body, IntoUrl, RequestBuilder, Response,
+    Body, IntoUrl, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, HeaderValue},
 };
 #[cfg(feature = "events")]
@@ -2595,7 +2593,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Slot,
         builder_index: u64,
-    ) -> Result<GenericResponse<ExecutionPayloadEnvelope<E>>, Error> {
+    ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2636,6 +2634,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_execution_payload_envelope<E: EthSpec>(
         &self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2648,60 +2647,35 @@ impl BeaconNodeHttpClient {
             path,
             envelope,
             Some(self.timeouts.proposal),
-            ForkName::Gloas,
+            fork_name,
         )
         .await?;
 
         Ok(())
     }
 
-    /// Path for `v1/beacon/execution_payload_envelope/{block_id}`
-    pub fn get_beacon_execution_payload_envelope_path(
+    /// `POST v1/beacon/execution_payload_envelope` in SSZ format
+    pub async fn post_beacon_execution_payload_envelope_ssz<E: EthSpec>(
         &self,
-        block_id: BlockId,
-    ) -> Result<Url, Error> {
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
+
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
-            .push("execution_payload_envelope")
-            .push(&block_id.to_string());
-        Ok(path)
-    }
+            .push("execution_payload_envelope");
 
-    /// `GET v1/beacon/execution_payload_envelope/{block_id}`
-    ///
-    /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_beacon_execution_payload_envelope<E: EthSpec>(
-        &self,
-        block_id: BlockId,
-    ) -> Result<
-        Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelope<E>>>,
-        Error,
-    > {
-        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
-        self.get_opt(path)
-            .await
-            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
-    }
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            envelope.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
 
-    /// `GET v1/beacon/execution_payload_envelope/{block_id}` in SSZ format
-    ///
-    /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_beacon_execution_payload_envelope_ssz<E: EthSpec>(
-        &self,
-        block_id: BlockId,
-    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
-        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
-        let opt_response = self
-            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
-            .await?;
-        match opt_response {
-            Some(bytes) => SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
-                .map(Some)
-                .map_err(Error::InvalidSsz),
-            None => Ok(None),
-        }
+        Ok(())
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format

@@ -63,7 +63,6 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
     network_tx_filter: NetworkTxFilter<T>,
 ) -> ResponseFilter {
     eth_v1
-        .clone()
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelope"))
         .and(warp::path::end())
@@ -92,26 +91,14 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     let slot = envelope.message.slot;
     let beacon_block_root = envelope.message.beacon_block_root;
 
-    // Basic validation: check that the slot is reasonable
-    let current_slot = chain.slot().map_err(|_| {
-        warp_utils::reject::custom_server_error("Unable to get current slot".into())
-    })?;
-
-    // Don't accept envelopes too far in the future
-    if slot > current_slot + 1 {
-        return Err(warp_utils::reject::custom_bad_request(format!(
-            "Envelope slot {} is too far in the future (current slot: {})",
-            slot, current_slot
-        )));
+    // TODO(gloas): Replace this check once we have gossip validation.
+    if !chain.spec.is_gloas_scheduled() {
+        return Err(warp_utils::reject::custom_bad_request(
+            "Execution payload envelopes are not supported before the Gloas fork".into(),
+        ));
     }
 
-    // TODO(gloas): Do we want to add more validation like:
-    // - Verify the signature
-    // - Check builder_index is valid
-    // - Verify the envelope references a known block
-    //
-    // If we do, then we must post the signed execution payload envelope to the BN that originally produced it.
-
+    // TODO(gloas): We should probably add validation here i.e. BroadcastValidation::Gossip
     info!(
         %slot,
         %beacon_block_root,
@@ -138,10 +125,10 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     block_id_or_err: impl Filter<Extract = (BlockId,), Error = Rejection>
-    + Clone
-    + Send
-    + Sync
-    + 'static,
+        + Clone
+        + Send
+        + Sync
+        + 'static,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
 ) -> ResponseFilter {

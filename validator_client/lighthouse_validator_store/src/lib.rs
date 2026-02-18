@@ -954,7 +954,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
-        let domain_hash = self.spec.get_builder_domain();
+        let domain_hash = self.spec.get_builder_application_domain();
         let signing_root = validator_registration_data.signing_root(domain_hash);
 
         let signing_method =
@@ -1254,18 +1254,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             Domain::BeaconBuilder,
             envelope.slot.epoch(E::slots_per_epoch()),
         );
-        let domain_hash = signing_context.domain_hash(&self.spec);
-        let signing_root = envelope.signing_root(domain_hash);
 
         // Execution payload envelope signing is not slashable, bypass doppelganger protection.
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature_from_root::<E, FullPayload<E>>(
+            .get_signature::<E, FullPayload<E>>(
                 SignableMessage::ExecutionPayloadEnvelope(&envelope),
-                signing_root,
+                signing_context,
+                &self.spec,
                 &self.task_executor,
-                None,
             )
             .await
             .map_err(Error::SpecificError)?;

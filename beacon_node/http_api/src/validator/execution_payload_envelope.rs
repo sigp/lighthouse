@@ -3,7 +3,8 @@ use crate::utils::{
     ChainFilter, EthV1Filter, NotWhileSyncingFilter, ResponseFilter, TaskSpawnerFilter,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::types::{Accept, GenericResponse};
+use eth2::beacon_response::{EmptyMetadata, ForkVersionedResponse};
+use eth2::types::Accept;
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::debug;
@@ -77,7 +78,11 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
                                 ))
                             }),
                         _ => {
-                            let json_response = GenericResponse { data: envelope };
+                            let json_response = ForkVersionedResponse {
+                                version: fork_name,
+                                metadata: EmptyMetadata {},
+                                data: envelope,
+                            };
                             Response::builder()
                                 .status(200)
                                 .header("Content-Type", "application/json")

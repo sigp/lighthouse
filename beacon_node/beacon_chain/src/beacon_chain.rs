@@ -5320,7 +5320,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             err = ?e,
                             block_slot = %state.slot(),
                             ?exit,
-                            "Attempted to include an invalid proposer slashing"
+                            "Attempted to include an invalid voluntary exit"
                         );
                     })
                     .is_ok()
@@ -5728,7 +5728,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
-            BeaconState::Gloas(_) => return Err(BlockProductionError::GloasNotImplemented),
+            BeaconState::Gloas(_) => {
+                return Err(BlockProductionError::GloasNotImplemented(
+                    "Attempting to produce gloas beacon block via non gloas code path".to_owned(),
+                ));
+            }
         };
 
         let block = SignedBeaconBlock::from_block(
@@ -6066,21 +6070,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
+            && let Some(parent_block_number) = pre_payload_attributes.parent_block_number
         {
-            if let Some(parent_block_number) = pre_payload_attributes.parent_block_number {
-                event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
-                    data: SseExtendedPayloadAttributes {
-                        proposal_slot: prepare_slot,
-                        proposer_index: proposer,
-                        parent_block_root: head_root,
-                        parent_block_number,
-                        parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
-                        payload_attributes: payload_attributes.into(),
-                    },
-                    metadata: Default::default(),
-                    version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
-                }));
-            }
+            event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
+                data: SseExtendedPayloadAttributes {
+                    proposal_slot: prepare_slot,
+                    proposer_index: proposer,
+                    parent_block_root: head_root,
+                    parent_block_number,
+                    parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
+                    payload_attributes: payload_attributes.into(),
+                },
+                metadata: Default::default(),
+                version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
+            }));
         }
 
         let Some(till_prepare_slot) = self.slot_clock.duration_to_slot(prepare_slot) else {

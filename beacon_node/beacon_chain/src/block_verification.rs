@@ -971,14 +971,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             if let Some(beacon_root) = fork_choice_read_lock
                 .proto_array()
                 .execution_block_hash_to_beacon_block_root(&bid.message.parent_block_hash)
+                && let Some(parent_payload_block) = fork_choice_read_lock.get_block(&beacon_root)
+                && parent_payload_block.execution_status.is_invalid()
             {
-                if let Some(parent_payload_block) = fork_choice_read_lock.get_block(&beacon_root) {
-                    if parent_payload_block.execution_status.is_invalid() {
-                        return Err(BlockError::ParentExecutionPayloadInvalid {
-                            parent_root: beacon_root,
-                        });
-                    }
-                }
+                return Err(BlockError::ParentExecutionPayloadInvalid {
+                    parent_root: beacon_root,
+                });
             }
         }
 

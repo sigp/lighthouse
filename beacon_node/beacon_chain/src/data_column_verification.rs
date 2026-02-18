@@ -496,7 +496,6 @@ where
     Ok(())
 }
 
-// TODO(gloas) make sure the gloas variant uses the same span name
 #[instrument(
     skip_all,
     name = "validate_data_column_sidecar_for_gossip",
