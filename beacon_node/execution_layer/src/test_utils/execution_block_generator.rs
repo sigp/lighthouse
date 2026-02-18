@@ -427,6 +427,31 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         Ok(self.insert_block_without_checks(block))
     }
 
+    /// Build a minimal genesis execution payload with `block_hash == zero`.
+    /// Used when the beacon state starts at genesis with `latest_block_hash == zero`
+    /// (e.g. when all forks are at epoch 0).
+    fn build_genesis_payload(&self) -> ExecutionPayload<E> {
+        ExecutionPayload::Gloas(ExecutionPayloadGloas {
+            parent_hash: ExecutionBlockHash::zero(),
+            fee_recipient: Default::default(),
+            receipts_root: Default::default(),
+            state_root: Default::default(),
+            logs_bloom: Default::default(),
+            prev_randao: Default::default(),
+            block_number: 0,
+            gas_limit: DEFAULT_GAS_LIMIT,
+            gas_used: 0,
+            timestamp: 0,
+            extra_data: Default::default(),
+            base_fee_per_gas: Uint256::from(1u64),
+            block_hash: ExecutionBlockHash::zero(),
+            transactions: Default::default(),
+            withdrawals: Default::default(),
+            blob_gas_used: 0,
+            excess_blob_gas: 0,
+        })
+    }
+
     pub fn insert_block_without_checks(&mut self, block: Block<E>) -> ExecutionBlockHash {
         let block_hash = block.block_hash();
         self.block_hashes
@@ -521,6 +546,17 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             && genesis_pow_block.block_hash() == head_block_hash
         {
             self.terminal_block_hash = head_block_hash;
+        }
+
+        // For forks that start at genesis (e.g. FORK_NAME=gloas), the beacon state's
+        // latest_block_hash is zero because no execution payload has been processed yet.
+        // Insert a synthetic genesis PoS block so the mock EL can build upon it.
+        if head_block_hash == ExecutionBlockHash::zero()
+            && !self.blocks.contains_key(&head_block_hash)
+        {
+            let genesis_payload = self.build_genesis_payload();
+            self.insert_block(Block::PoS(genesis_payload))
+                .map_err(|e| format!("failed to insert genesis block: {e}"))?;
         }
 
         if let Some(payload) = self.pending_payloads.remove(&head_block_hash) {

@@ -89,7 +89,8 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         // Create a NewPayloadRequest (no clones required) and check optimistic sync verifications
                         let new_payload_request: NewPayloadRequest<T::EthSpec> =
                             block_message.try_into()?;
-                        if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
+                        if let Err(e) = new_payload_request.perform_optimistic_sync_verifications()
+                        {
                             warn!(
                                 block_number = ?block_message.execution_payload().map(|payload| payload.block_number()),
                                 info = "you can silence this warning with --disable-optimistic-finalized-sync",

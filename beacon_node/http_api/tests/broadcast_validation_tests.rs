@@ -383,7 +383,8 @@ pub async fn consensus_partial_pass_only_consensus() {
     let state_a = tester.harness.get_current_state();
     let ((block_a, _), mut state_after_a, _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), mut state_after_b, _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b, _) =
+        tester.harness.make_block(state_a, slot_b).await;
     let block_b_root = block_b.canonical_root();
 
     /* check for `make_block` curios */
@@ -564,7 +565,8 @@ pub async fn equivocation_consensus_early_equivocation() {
     let state_a = tester.harness.get_current_state();
     let ((block_a, blobs_a), mut state_after_a, _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), mut state_after_b, _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b, _) =
+        tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
     assert_eq!(
@@ -703,7 +705,8 @@ pub async fn equivocation_consensus_late_equivocation() {
     let state_a = tester.harness.get_current_state();
     let ((block_a, _blobs_a), mut state_after_a, _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), mut state_after_b, _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b, _) =
+        tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
     assert_eq!(

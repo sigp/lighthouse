@@ -2806,7 +2806,6 @@ where
                 .store
                 .put_payload_envelope(&block_root, signed_envelope)
                 .expect("should store payload envelope");
-
         }
 
         Ok((block_hash, block_contents, new_state))
