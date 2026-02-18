@@ -2086,6 +2086,11 @@ async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
         }
     }
 
+    assert!(
+        !block_roots.is_empty(),
+        "Should have received at least some data columns"
+    );
+
     // Before the fix, skip slots caused the same block root to appear multiple times
     // (once per skip slot) because .unique() on (Hash256, Slot) tuples didn't deduplicate.
     let unique_roots: HashSet<_> = block_roots.iter().collect();
