@@ -23,7 +23,8 @@ use beacon_chain::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{
-    Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource,
+    Client, GossipTopic, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage,
+    ReportSource,
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
@@ -191,6 +192,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             propagation_source,
             message_id,
             validation_result,
+        })
+    }
+
+    /// Send a message on `message_tx` that  `peer_id` should be propagated on
+    /// the gossip network.
+    pub(crate) fn propagate_partial_validation_failure(
+        &self,
+        propagation_source: PeerId,
+        gossip_topic: GossipTopic,
+    ) {
+        self.send_network_message(NetworkMessage::PartialValidationFailure {
+            propagation_source,
+            gossip_topic,
         })
     }
 
@@ -798,6 +812,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         mut column: PartialDataColumn<T::EthSpec>,
         seen_duration: Duration,
+        topic: GossipTopic,
     ) {
         let mut get_blobs = false;
         let header = if let Some(header) = column.sidecar.header.first() {
@@ -815,6 +830,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         err,
                         column.block_root,
                         column.index,
+                        topic,
                     );
                     return;
                 }
@@ -860,9 +876,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Successfully verified gossip partial data column sidecar"
                 );
 
-                // TODO(dknopik): wait for joao's validation result impl
-                //self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-
                 // Log metrics to keep track of propagation delay times.
                 if let Some(duration) = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -884,7 +897,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .await
             }
             Err(err) => {
-                self.handle_partial_verification_error(peer_id, err, block_root, index);
+                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
             }
         }
 
@@ -903,6 +916,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         err: GossipDataColumnError,
         block_root: Hash256,
         index: ColumnIndex,
+        topic: GossipTopic,
     ) {
         match err {
             GossipDataColumnError::InvalidVariant => {
@@ -917,14 +931,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %block_root,
                     %index,
-                    "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
+                    "Gossip data column already processed via the EL."
                 );
-                // TODO(dknopik): Joao
-                //self.propagate_validation_result(
-                //    message_id,
-                //    peer_id,
-                //    MessageAcceptance::Accept,
-                //);
             }
             // ParentUnknown can't really happen, so we treat it like an internal error
             GossipDataColumnError::ParentUnknown { .. }
@@ -960,12 +968,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::LowToleranceError,
                     "gossip_data_column_low",
                 );
-                // TODO(dknopik): Joao
-                //self.propagate_validation_result(
-                //    message_id,
-                //    peer_id,
-                //    MessageAcceptance::Reject,
-                //);
+                self.propagate_partial_validation_failure(peer_id, topic);
             }
             GossipDataColumnError::PriorKnown { .. } => {
                 // Data column is available via either the EL or reconstruction.
@@ -991,12 +994,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::HighToleranceError,
                     "gossip_data_column_high",
                 );
-                // TODO(dknopik): Joao
-                //self.propagate_validation_result(
-                //    message_id,
-                //    peer_id,
-                //    MessageAcceptance::Ignore,
-                //);
             }
             GossipDataColumnError::PartialHeaderMismatches
             | GossipDataColumnError::PartialHeaderIncorrectRoot { .. } => {

@@ -96,6 +96,13 @@ pub enum NetworkMessage<E: EthSpec> {
         /// The result of the validation
         validation_result: MessageAcceptance,
     },
+    /// Reports validation failure of a partial message.
+    PartialValidationFailure {
+        /// The peer that sent us the message.
+        propagation_source: PeerId,
+        /// The topic of the message.
+        gossip_topic: GossipTopic,
+    },
     /// Reports a peer to the peer manager for performing an action.
     ReportPeer {
         peer_id: PeerId,
@@ -564,8 +571,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
             }
-            NetworkEvent::PartialDataColumnSidecar { source, column } => {
-                self.send_to_router(RouterMessage::PartialDataColumnSidecar(source, column));
+            NetworkEvent::PartialDataColumnSidecar {
+                source,
+                column,
+                topic,
+            } => {
+                self.send_to_router(RouterMessage::PartialDataColumnSidecar(
+                    source, column, topic,
+                ));
             }
             NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
@@ -646,6 +659,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     message_id,
                     validation_result,
                 );
+            }
+            NetworkMessage::PartialValidationFailure {
+                propagation_source,
+                gossip_topic,
+            } => {
+                self.libp2p
+                    .report_partial_message_validation_failure(propagation_source, gossip_topic);
             }
             NetworkMessage::Publish { messages } => {
                 let mut topic_kinds = Vec::new();

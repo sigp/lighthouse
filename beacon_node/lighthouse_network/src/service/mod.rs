@@ -110,6 +110,8 @@ pub enum NetworkEvent<E: EthSpec> {
         source: PeerId,
         /// The partial column data.
         column: PartialDataColumn<E>,
+        /// The topic that this message was sent on.
+        topic: GossipTopic,
     },
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
@@ -1006,6 +1008,16 @@ impl<E: EthSpec> Network<E> {
         );
     }
 
+    /// Informs the gossipsub about the failure of a partial message validation.
+    pub fn report_partial_message_validation_failure(
+        &mut self,
+        propagation_source: PeerId,
+        topic: GossipTopic,
+    ) {
+        self.gossipsub_mut()
+            .report_invalid_partial(propagation_source, &TopicHash::from(Topic::from(topic)));
+    }
+
     /// Updates the current gossipsub scoring parameters based on the validator count and current
     /// slot.
     pub fn update_gossipsub_parameters(
@@ -1415,12 +1427,8 @@ impl<E: EthSpec> Network<E> {
                                 "Could not decode gossipsub partial message"
                             );
                             //reject the message
-                            // TODO(dknopik): implement when ready in libp2p
-                            //self.gossipsub_mut().report_message_validation_result(
-                            //    &todo!(),
-                            //    &propagation_source,
-                            //    MessageAcceptance::Reject,
-                            //);
+                            self.gossipsub_mut()
+                                .report_invalid_partial(peer_id, &topic_hash);
                         }
                         Ok(column) => {
                             debug!(
@@ -1433,6 +1441,7 @@ impl<E: EthSpec> Network<E> {
                             return Some(NetworkEvent::PartialDataColumnSidecar {
                                 source: peer_id,
                                 column,
+                                topic,
                             });
                         }
                     }

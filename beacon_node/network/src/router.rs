@@ -14,7 +14,7 @@ use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
-    MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
+    GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
     service::api_types::{AppRequestId, SyncRequestId},
 };
 use logging::TimeLatch;
@@ -72,7 +72,7 @@ pub enum RouterMessage<E: EthSpec> {
     /// by the beacon chain after successful verification.
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
     /// A partial data column sidecar has been received via gossipsub partial protocol.
-    PartialDataColumnSidecar(PeerId, PartialDataColumn<E>),
+    PartialDataColumnSidecar(PeerId, PartialDataColumn<E>, GossipTopic),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
     /// The peer has an updated custody group count from METADATA.
@@ -184,10 +184,15 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
                 self.handle_gossip(id, peer_id, gossip, should_process);
             }
-            RouterMessage::PartialDataColumnSidecar(peer_id, column) => self
+            RouterMessage::PartialDataColumnSidecar(peer_id, column, topic) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor
-                        .send_gossip_partial_data_column_sidecar(peer_id, column, timestamp_now()),
+                        .send_gossip_partial_data_column_sidecar(
+                            peer_id,
+                            column,
+                            timestamp_now(),
+                            topic,
+                        ),
                 ),
         }
     }

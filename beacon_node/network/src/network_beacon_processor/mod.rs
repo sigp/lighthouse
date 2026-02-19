@@ -18,7 +18,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
-    Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
+    Client, GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
 use rand::prelude::SliceRandom;
@@ -255,11 +255,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         column_sidecar: PartialDataColumn<T::EthSpec>,
         seen_timestamp: Duration,
+        topic: GossipTopic,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .process_gossip_partial_data_column_sidecar(peer_id, column_sidecar, seen_timestamp)
+                .process_gossip_partial_data_column_sidecar(
+                    peer_id,
+                    column_sidecar,
+                    seen_timestamp,
+                    topic,
+                )
                 .await
         };
 
