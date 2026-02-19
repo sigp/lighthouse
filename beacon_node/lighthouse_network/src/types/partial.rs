@@ -77,22 +77,15 @@ enum MaybeKnownMetadata<E: EthSpec> {
     },
 }
 
-impl<E: EthSpec> Metadata for MaybeKnownMetadata<E> {
-    fn as_slice(&self) -> &[u8] {
-        match self {
-            MaybeKnownMetadata::Unknown => &[],
-            MaybeKnownMetadata::Known { encoded, .. } => encoded,
-        }
-    }
-
-    fn update(&mut self, data: &[u8]) -> Result<bool, PartialError> {
-        let received = PartialDataColumnPartsMetadata::from_ssz_bytes(data)
-            .map_err(|_| PartialError::InvalidFormat)?;
-
+impl<E: EthSpec> MaybeKnownMetadata<E> {
+    fn do_update(
+        &mut self,
+        received: PartialDataColumnPartsMetadata<E>,
+    ) -> Result<bool, PartialError> {
         let MaybeKnownMetadata::Known { metadata, encoded } = self else {
             *self = MaybeKnownMetadata::Known {
+                encoded: received.as_ssz_bytes(),
                 metadata: Box::new(received),
-                encoded: data.to_vec(),
             };
             return Ok(true);
         };
@@ -117,6 +110,37 @@ impl<E: EthSpec> Metadata for MaybeKnownMetadata<E> {
         metadata.request = new_request;
         *encoded = metadata.as_ssz_bytes();
         Ok(true)
+    }
+}
+
+impl<E: EthSpec> Metadata for MaybeKnownMetadata<E> {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            MaybeKnownMetadata::Unknown => &[],
+            MaybeKnownMetadata::Known { encoded, .. } => encoded,
+        }
+    }
+
+    fn update(&mut self, data: &[u8]) -> Result<bool, PartialError> {
+        let received = PartialDataColumnPartsMetadata::from_ssz_bytes(data)
+            .map_err(|_| PartialError::InvalidFormat)?;
+
+        self.do_update(received)
+    }
+
+    fn update_from_data(&mut self, data: &[u8]) -> Result<(), PartialError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        let sidecar = PartialDataColumnSidecar::<E>::from_ssz_bytes(data)
+            .map_err(|_| PartialError::InvalidFormat)?;
+
+        self.do_update(PartialDataColumnPartsMetadata {
+            available: sidecar.cells_present_bitmap.clone(),
+            request: sidecar.cells_present_bitmap,
+        })
+        .map(|_| ())
     }
 }
 
