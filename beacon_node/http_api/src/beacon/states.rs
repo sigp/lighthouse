@@ -92,7 +92,8 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
                             |state, execution_optimistic, finalized| {
                                 let Ok(lookahead) = state.proposer_lookahead() else {
                                     return Err(warp_utils::reject::custom_bad_request(
-                                        "Proposer lookahead not available".to_string(),
+                                        "Proposer lookahead is not available for pre-Fulu states"
+                                            .to_string(),
                                     ));
                                 };
 
