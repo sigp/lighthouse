@@ -17,7 +17,7 @@ ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
 fixed_bytes = { workspace = true }
 r2d2 = { workspace = true }
-r2d2_sqlite = "0.21.0"
+r2d2_sqlite = "0.32"
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
