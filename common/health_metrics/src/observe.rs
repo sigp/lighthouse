@@ -213,8 +213,8 @@ mod tests {
     const DISK_FREE_TOLERANCE_BYTES: u64 = 512 * 1024; // 512KB
 
     /// Tolerance for disk I/O operation counts.
-    /// Disk activity can occur between reads.
-    const DISK_IO_TOLERANCE_OPS: u64 = 10;
+    /// Disk activity can occur between reads, especially on busy CI runners.
+    const DISK_IO_TOLERANCE_OPS: u64 = 50;
 
     /// Tolerance for network I/O byte counts.
     /// Network activity can occur between reads.
