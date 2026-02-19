@@ -9,18 +9,16 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     IntoGossipVerifiedBlock, NotifyExecutionLayer, build_blob_data_column_sidecars,
 };
-use eth2::{
-    StatusCode,
-    types::{
-        BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs,
-        FullPayloadContents, PublishBlockRequest, SignedBlockContents,
-    },
+use eth2::types::{
+    BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
+    PublishBlockRequest, SignedBlockContents,
 };
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
+use reqwest::StatusCode;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
