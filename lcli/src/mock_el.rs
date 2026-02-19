@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use execution_layer::{
-    auth::JwtKey,
+    auth::{JwtKey, strip_prefix},
     test_utils::{
         Config, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, MockExecutionConfig, MockServer,
     },
@@ -30,7 +30,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let jwt_key = if let Some(secret_path) = jwt_secret_path {
         let hex_str = std::fs::read_to_string(&secret_path)
             .map_err(|e| format!("Failed to read JWT secret file: {}", e))?;
-        let secret_bytes = hex::decode(hex_str.trim().trim_start_matches("0x"))
+        let secret_bytes = hex::decode(strip_prefix(hex_str.trim()))
             .map_err(|e| format!("Invalid hex in JWT secret file: {}", e))?;
         JwtKey::from_slice(&secret_bytes)
             .map_err(|e| format!("Invalid JWT secret length (expected 32 bytes): {}", e))?
@@ -39,7 +39,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     };
 
     if let Some(jwt_path) = jwt_output_path {
-        std::fs::write(&jwt_path, hex::encode(jwt_key.as_bytes()))
+        std::fs::write(jwt_path, hex::encode(jwt_key.as_bytes()))
             .map_err(|e| format!("Failed to write JWT secret to output path: {}", e))?;
     }
 
