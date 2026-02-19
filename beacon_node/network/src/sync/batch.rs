@@ -10,9 +10,21 @@ use std::marker::PhantomData;
 use std::ops::Sub;
 use std::time::Duration;
 use std::time::Instant;
-use strum::Display;
+use strum::{Display, EnumIter, IntoStaticStr};
 use types::Slot;
 use types::{DataColumnSidecarList, Epoch, EthSpec};
+
+/// Batch states used as metrics labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum BatchMetricsState {
+    AwaitingDownload,
+    Downloading,
+    AwaitingProcessing,
+    Processing,
+    AwaitingValidation,
+    Failed,
+}
 
 pub type BatchId = Epoch;
 
@@ -143,15 +155,15 @@ impl<D: Hash> BatchState<D> {
         std::mem::replace(self, BatchState::Poisoned)
     }
 
-    /// Returns the metrics label for this state, or `None` for transient/terminal states.
-    pub fn metrics_label(&self) -> Option<&'static str> {
+    /// Returns the metrics state for this batch.
+    pub fn metrics_state(&self) -> BatchMetricsState {
         match self {
-            BatchState::AwaitingDownload => Some("awaiting_download"),
-            BatchState::Downloading(_) => Some("downloading"),
-            BatchState::AwaitingProcessing(..) => Some("awaiting_processing"),
-            BatchState::Processing(_) => Some("processing"),
-            BatchState::AwaitingValidation(_) => Some("awaiting_validation"),
-            BatchState::Poisoned | BatchState::Failed => None,
+            BatchState::AwaitingDownload => BatchMetricsState::AwaitingDownload,
+            BatchState::Downloading(_) => BatchMetricsState::Downloading,
+            BatchState::AwaitingProcessing(..) => BatchMetricsState::AwaitingProcessing,
+            BatchState::Processing(_) => BatchMetricsState::Processing,
+            BatchState::AwaitingValidation(_) => BatchMetricsState::AwaitingValidation,
+            BatchState::Poisoned | BatchState::Failed => BatchMetricsState::Failed,
         }
     }
 }

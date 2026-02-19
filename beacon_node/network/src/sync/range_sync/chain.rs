@@ -3,7 +3,8 @@ use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::batch::BatchId;
 use crate::sync::batch::{
-    BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    BatchConfig, BatchInfo, BatchMetricsState, BatchOperationOutcome, BatchProcessingResult,
+    BatchState,
 };
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
@@ -234,15 +235,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .sum()
     }
 
-    /// Returns the count of batches grouped by state metrics label.
-    pub fn batch_state_counts(&self) -> BTreeMap<&'static str, usize> {
-        let mut counts = BTreeMap::new();
-        for batch in self.batches.values() {
-            if let Some(label) = batch.state().metrics_label() {
-                *counts.entry(label).or_default() += 1;
-            }
-        }
-        counts
+    /// Returns the number of batches in the given metrics state.
+    pub fn count_batches_in_state(&self, state: BatchMetricsState) -> usize {
+        self.batches
+            .values()
+            .filter(|b| b.state().metrics_state() == state)
+            .count()
     }
 
     /// Removes a peer from the chain.

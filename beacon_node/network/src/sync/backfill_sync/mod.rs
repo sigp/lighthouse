@@ -11,7 +11,8 @@
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::batch::{
-    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    BatchConfig, BatchId, BatchInfo, BatchMetricsState, BatchOperationOutcome,
+    BatchProcessingResult, BatchState,
 };
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::manager::BatchProcessResult;
@@ -32,6 +33,7 @@ use std::collections::{
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 use tracing::{debug, error, info, warn};
 use types::{ColumnIndex, Epoch, EthSpec};
 
@@ -1183,17 +1185,16 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     pub fn register_metrics(&self) {
-        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
-        for batch in self.batches.values() {
-            if let Some(label) = batch.state().metrics_label() {
-                *counts.entry(label).or_default() += 1;
-            }
-        }
-        for (label, count) in &counts {
+        for state in BatchMetricsState::iter() {
+            let count = self
+                .batches
+                .values()
+                .filter(|b| b.state().metrics_state() == state)
+                .count();
             metrics::set_gauge_vec(
                 &metrics::SYNCING_CHAIN_BATCHES,
-                &["backfill", label],
-                *count as i64,
+                &["backfill", state.into()],
+                count as i64,
             );
         }
     }

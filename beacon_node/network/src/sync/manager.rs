@@ -40,7 +40,6 @@ use super::network_context::{
 };
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
-use crate::metrics;
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -785,11 +784,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();
-                    // Reset the shared batch gauge once, then let each sync type
-                    // set its own values.
-                    if let Ok(gauge) = &*metrics::SYNCING_CHAIN_BATCHES {
-                        gauge.reset();
-                    }
                     self.range_sync.register_metrics();
                     self.backfill_sync.register_metrics();
                     self.custody_backfill_sync.register_metrics();
