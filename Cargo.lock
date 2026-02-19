@@ -4028,6 +4028,7 @@ version = "0.1.0"
 dependencies = [
  "eth2",
  "metrics",
+ "nix 0.26.4",
  "procfs",
  "psutil",
 ]
