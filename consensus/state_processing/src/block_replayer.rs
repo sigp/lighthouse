@@ -263,6 +263,16 @@ where
             )
             .map_err(BlockReplayError::from)?;
 
+            // For gloas blocks, update latest_block_hash to simulate the effect of
+            // process_execution_payload_envelope (which is not available during replay).
+            // The bid's block_hash is the committed hash that the envelope's payload
+            // must match, so this is safe for verified blocks being replayed.
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+                if let Ok(latest_block_hash) = self.state.latest_block_hash_mut() {
+                    *latest_block_hash = bid.message.block_hash;
+                }
+            }
+
             if let Some(ref mut post_block_hook) = self.post_block_hook {
                 post_block_hook(&mut self.state, block)?;
             }

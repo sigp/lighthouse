@@ -2807,11 +2807,13 @@ where
                 .put_payload_envelope(&block_root, signed_envelope)
                 .expect("should store payload envelope");
 
-            // Recompute the head so the canonical head snapshot picks up the
-            // envelope-processed state from the cache we just replaced. The first
-            // recompute_head (inside process_block) ran before the cache replacement,
-            // so the head state still has the import-path state without envelope processing.
-            self.chain.recompute_head_at_current_slot().await;
+            // Replace the cached head state with the envelope-processed production
+            // state. recompute_head_at_current_slot() is a no-op here because the
+            // head block root hasn't changed (early exit at line 647), so we update
+            // the cached state directly.
+            self.chain
+                .canonical_head
+                .replace_cached_head_state(new_state.clone());
         }
 
         Ok((block_hash, block_contents, new_state))

@@ -404,6 +404,27 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.fork_choice.upgradable_read()
     }
 
+    /// Replace the beacon state in the cached head snapshot without re-running fork choice.
+    ///
+    /// This is useful for test scenarios (e.g. gloas envelope processing) where the head block
+    /// hasn't changed but the state needs updating. The normal `recompute_head_at_slot_internal`
+    /// exits early when the fork choice view is unchanged, so this method provides a way to
+    /// update the cached state directly.
+    pub(crate) fn replace_cached_head_state(
+        &self,
+        new_state: BeaconState<T::EthSpec>,
+    ) {
+        let _recompute_head_lock = self.recompute_head_lock.lock();
+        let mut cached_head = self.cached_head_write_lock();
+        let old_snapshot = &cached_head.snapshot;
+        let new_snapshot = Arc::new(BeaconSnapshot {
+            beacon_block_root: old_snapshot.beacon_block_root,
+            beacon_block: old_snapshot.beacon_block.clone(),
+            beacon_state: new_state,
+        });
+        cached_head.snapshot = new_snapshot;
+    }
+
     /// Access a write-lock for fork choice.
     #[instrument(skip_all)]
     pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<'_, BeaconForkChoice<T>> {
