@@ -1651,6 +1651,17 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             });
         }
 
+        // For gloas blocks, update latest_block_hash from the bid now that the state root
+        // has been verified. This simulates the effect of process_execution_payload_envelope
+        // on this field, ensuring the state is correct for processing subsequent blocks.
+        // The full envelope processing happens separately, but latest_block_hash must be
+        // current for the next block's bid verification.
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            if let Ok(latest_block_hash) = state.latest_block_hash_mut() {
+                *latest_block_hash = bid.message.block_hash;
+            }
+        }
+
         /*
          * Apply the block's attestations to fork choice.
          *

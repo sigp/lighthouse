@@ -410,10 +410,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// hasn't changed but the state needs updating. The normal `recompute_head_at_slot_internal`
     /// exits early when the fork choice view is unchanged, so this method provides a way to
     /// update the cached state directly.
-    pub(crate) fn replace_cached_head_state(
-        &self,
-        new_state: BeaconState<T::EthSpec>,
-    ) {
+    pub(crate) fn replace_cached_head_state(&self, new_state: BeaconState<T::EthSpec>) {
         let _recompute_head_lock = self.recompute_head_lock.lock();
         let mut cached_head = self.cached_head_write_lock();
         let old_snapshot = &cached_head.snapshot;
