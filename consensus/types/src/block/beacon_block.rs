@@ -15,26 +15,15 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    SignedExecutionPayloadBid,
-    attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
-    block::{
+    ExecPayload, ExecutionBlockHash, SignedExecutionPayloadBid, attestation::{AttestationBase, AttestationData, IndexedAttestationBase}, block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
         BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
         BeaconBlockBodyGloas, BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockHeader,
         SignedBeaconBlock, SignedBeaconBlockHeader,
-    },
-    core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
-    deposit::{Deposit, DepositData},
-    execution::{
+    }, core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot}, deposit::{Deposit, DepositData}, execution::{
         AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequests,
         FullPayload,
-    },
-    exit::{SignedVoluntaryExit, VoluntaryExit},
-    fork::{Fork, ForkName, InconsistentFork, map_fork_name},
-    slashing::{AttesterSlashingBase, ProposerSlashing},
-    state::BeaconStateError,
-    sync_committee::SyncAggregate,
-    test_utils::TestRandom,
+    }, exit::{SignedVoluntaryExit, VoluntaryExit}, fork::{Fork, ForkName, InconsistentFork, map_fork_name}, slashing::{AttesterSlashingBase, ProposerSlashing}, state::BeaconStateError, sync_committee::SyncAggregate, test_utils::TestRandom
 };
 
 /// A block of the `BeaconChain`.
@@ -308,6 +297,19 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
     /// is pre-merge.
     pub fn execution_payload(&self) -> Result<Payload::Ref<'a>, BeaconStateError> {
         self.body().execution_payload()
+    }
+
+    pub fn execution_block_hash(&self) -> Option<ExecutionBlockHash> {
+        match self {
+            BeaconBlockRef::Base(_) => None,
+            BeaconBlockRef::Altair(_) => None,
+            BeaconBlockRef::Bellatrix(block) => Some(block.body.execution_payload.block_hash()),
+            BeaconBlockRef::Capella(block) => Some(block.body.execution_payload.block_hash()),
+            BeaconBlockRef::Deneb(block) => Some(block.body.execution_payload.block_hash()),
+            BeaconBlockRef::Electra(block) => Some(block.body.execution_payload.block_hash()),
+            BeaconBlockRef::Fulu(block) => Some(block.body.execution_payload.block_hash()),
+            BeaconBlockRef::Gloas(block) => Some(block.body.signed_execution_payload_bid.message.block_hash),
+        }
     }
 }
 

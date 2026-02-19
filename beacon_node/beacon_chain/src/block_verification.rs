@@ -1038,8 +1038,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // Validate the block's execution_payload (if any).
-        validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
+        // Validate a pre-Gloas block's execution_payload (if any).
+        if !chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(block.slot())
+            .gloas_enabled()
+        {
+            validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
+        }
 
         // Beacon API block_gossip events
         if let Some(event_handler) = chain.event_handler.as_ref()
