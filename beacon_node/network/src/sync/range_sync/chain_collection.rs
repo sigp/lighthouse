@@ -6,6 +6,7 @@
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
+use crate::sync::batch::BatchMetricsState;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fnv::FnvHashMap;
@@ -17,6 +18,7 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 use tracing::{debug, error};
 use types::EthSpec;
 use types::{Epoch, Hash256, Slot};
@@ -512,6 +514,25 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 collection.insert(id, new_chain);
                 metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_ADDED, &[sync_type.as_str()]);
                 self.update_metrics();
+            }
+        }
+    }
+
+    pub fn register_metrics(&self) {
+        for (sync_type, chains) in [
+            ("range_finalized", &self.finalized_chains),
+            ("range_head", &self.head_chains),
+        ] {
+            for state in BatchMetricsState::iter() {
+                let count: usize = chains
+                    .values()
+                    .map(|chain| chain.count_batches_in_state(state))
+                    .sum();
+                metrics::set_gauge_vec(
+                    &metrics::SYNCING_CHAIN_BATCHES,
+                    &[sync_type, state.into()],
+                    count as i64,
+                );
             }
         }
     }

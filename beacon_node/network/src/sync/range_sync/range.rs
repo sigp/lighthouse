@@ -371,6 +371,10 @@ where
             .update(network, &local, &mut self.awaiting_head_peers);
     }
 
+    pub fn register_metrics(&self) {
+        self.chains.register_metrics();
+    }
+
     /// Kickstarts sync.
     pub fn resume(&mut self, network: &mut SyncNetworkContext<T>) {
         for (removed_chain, sync_type, remove_reason) in
