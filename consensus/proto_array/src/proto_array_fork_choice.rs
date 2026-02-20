@@ -159,6 +159,10 @@ pub struct Block {
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
+
+    /// post-Gloas fields
+    pub execution_payload_parent_hash: Option<ExecutionBlockHash>,
+    pub execution_payload_block_hash: Option<ExecutionBlockHash>,
 }
 
 impl Block {
@@ -422,6 +426,9 @@ impl ProtoArrayForkChoice {
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
+        execution_payload_parent_hash: Option<ExecutionBlockHash>,
+        execution_payload_block_hash: Option<ExecutionBlockHash>,
+
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -445,6 +452,9 @@ impl ProtoArrayForkChoice {
             execution_status,
             unrealized_justified_checkpoint: Some(justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
+            execution_payload_parent_hash,
+            execution_payload_block_hash,
+
         };
 
         proto_array
@@ -453,6 +463,7 @@ impl ProtoArrayForkChoice {
                 current_slot,
                 justified_checkpoint,
                 finalized_checkpoint,
+                spec,
             )
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
@@ -506,6 +517,7 @@ impl ProtoArrayForkChoice {
         current_slot: Slot,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        spec: &ChainSpec,
     ) -> Result<(), String> {
         if block.parent_root.is_none() {
             return Err("Missing parent root".to_string());
@@ -517,6 +529,7 @@ impl ProtoArrayForkChoice {
                 current_slot,
                 justified_checkpoint,
                 finalized_checkpoint,
+                spec,
             )
             .map_err(|e| format!("process_block_error: {:?}", e))
     }

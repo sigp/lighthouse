@@ -138,6 +138,10 @@ pub enum InvalidBlock {
         finalized_root: Hash256,
         block_ancestor: Option<Hash256>,
     },
+    MissingExecutionPayloadBid{
+        block_slot: Slot,
+        block_root: Hash256,
+    }
 }
 
 #[derive(Debug)]
@@ -241,6 +245,7 @@ pub struct QueuedAttestation {
     attesting_indices: Vec<u64>,
     block_root: Hash256,
     target_epoch: Epoch,
+    payload_present: bool,
 }
 
 impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
@@ -250,6 +255,7 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
             attesting_indices: a.attesting_indices_to_vec(),
             block_root: a.data().beacon_block_root,
             target_epoch: a.data().target.epoch,
+            payload_present: a.data().index == 1,
         }
     }
 }
@@ -882,6 +888,25 @@ where
             ExecutionStatus::irrelevant()
         };
 
+        let (execution_payload_parent_hash, execution_payload_block_hash) =
+        if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
+            (
+                Some(signed_bid.message.parent_block_hash),
+                Some(signed_bid.message.block_hash),
+            )
+        } else {
+            if spec.fork_name_at_slot::<E>(block.slot()).gloas_enabled() {
+                return Err(Error::InvalidBlock(
+                    InvalidBlock::MissingExecutionPayloadBid{
+                        block_slot: block.slot(),
+                        block_root,
+                    }
+
+                ))
+            }
+            (None, None)
+        };
+
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
         self.proto_array.process_block::<E>(
@@ -908,10 +933,14 @@ where
                 execution_status,
                 unrealized_justified_checkpoint: Some(unrealized_justified_checkpoint),
                 unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
+                execution_payload_parent_hash,
+                execution_payload_block_hash,
+
             },
             current_slot,
             self.justified_checkpoint(),
             self.finalized_checkpoint(),
+            spec,
         )?;
 
         Ok(())
@@ -1103,6 +1132,7 @@ where
 
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
+                let payload_present = attestation.data().index == 1;
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.data().beacon_block_root,

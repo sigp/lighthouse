@@ -54,6 +54,13 @@ pub enum Error {
     },
     InvalidEpochOffset(u64),
     Arith(ArithError),
+    GloasNotImplemented,
+    InvalidNodeVariant{
+        block_root: Hash256,
+    },
+    BrokenBlock{
+        block_root: Hash256,
+    },
 }
 
 impl From<ArithError> for Error {

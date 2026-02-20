@@ -9,7 +9,7 @@ pub use crate::justified_balances::JustifiedBalances;
 pub use crate::proto_array::{InvalidationOperation, calculate_committee_fraction};
 pub use crate::proto_array_fork_choice::{
     Block, DisallowedReOrgOffsets, DoNotReOrg, ExecutionStatus, ProposerHeadError,
-    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold, PayloadStatus,
 };
 pub use error::Error;
 
