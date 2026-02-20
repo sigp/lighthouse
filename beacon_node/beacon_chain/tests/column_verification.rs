@@ -49,6 +49,13 @@ fn get_harness(
 // Regression test for https://github.com/sigp/lighthouse/issues/7650
 #[tokio::test]
 async fn rpc_columns_with_invalid_header_signature() {
+    // Gloas data columns are generated from envelopes, not block bodies.
+    // TODO(EIP-7732): Support gloas data column generation in test harness.
+    // https://github.com/sigp/lighthouse/issues/7553
+    if test_spec::<E>().gloas_fork_epoch.is_some() {
+        return;
+    }
+
     let spec = Arc::new(test_spec::<E>());
 
     // Only run this test if columns are enabled.

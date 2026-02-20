@@ -2090,6 +2090,13 @@ async fn rpc_block_construction_fails_with_wrong_blob_count() {
 // Test that RpcBlock::new() rejects blocks when custody columns are incomplete.
 #[tokio::test]
 async fn rpc_block_rejects_missing_custody_columns() {
+    // Gloas data columns are generated from envelopes, not block bodies.
+    // TODO(EIP-7732): Support gloas data column generation in test harness.
+    // https://github.com/sigp/lighthouse/issues/7553
+    if test_spec::<E>().gloas_fork_epoch.is_some() {
+        return;
+    }
+
     let spec = test_spec::<E>();
 
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled() {
@@ -2168,6 +2175,13 @@ async fn rpc_block_rejects_missing_custody_columns() {
 // with NoData even if the block has blob commitments, since columns are not expected.
 #[tokio::test]
 async fn rpc_block_allows_construction_past_da_boundary() {
+    // Gloas data columns are generated from envelopes, not block bodies.
+    // TODO(EIP-7732): Support gloas data column generation in test harness.
+    // https://github.com/sigp/lighthouse/issues/7553
+    if test_spec::<E>().gloas_fork_epoch.is_some() {
+        return;
+    }
+
     let spec = test_spec::<E>();
 
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled() {

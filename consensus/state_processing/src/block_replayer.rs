@@ -3,6 +3,7 @@ use crate::{
     VerifyBlockRoot, per_block_processing, per_epoch_processing::EpochProcessingSummary,
     per_slot_processing,
 };
+use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use std::iter::Peekable;
 use std::marker::PhantomData;
@@ -263,13 +264,21 @@ where
             )
             .map_err(BlockReplayError::from)?;
 
-            // For gloas blocks, update latest_block_hash to simulate the effect of
-            // process_execution_payload_envelope (which is not available during replay).
-            // The bid's block_hash is the committed hash that the envelope's payload
-            // must match, so this is safe for verified blocks being replayed.
+            // For gloas blocks, simulate the minimal effects of
+            // process_execution_payload_envelope that are needed for subsequent block
+            // processing:
+            // 1. Set latest_block_hash from the bid so the next block's bid verification
+            //    passes.
+            // 2. Cache the block's state_root in latest_block_header so that
+            //    per_slot_processing's cache_state uses it (instead of recomputing from
+            //    tree hash, which would reflect the latest_block_hash change and produce
+            //    an incorrect state_roots entry).
             if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
                 if let Ok(latest_block_hash) = self.state.latest_block_hash_mut() {
                     *latest_block_hash = bid.message.block_hash;
+                }
+                if self.state.latest_block_header().state_root == Hash256::zero() {
+                    self.state.latest_block_header_mut().state_root = block.state_root();
                 }
             }
 

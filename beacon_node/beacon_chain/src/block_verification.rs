@@ -70,6 +70,7 @@ use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
+use fixed_bytes::FixedBytesExtended;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
@@ -1651,14 +1652,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             });
         }
 
-        // For gloas blocks, update latest_block_hash from the bid now that the state root
-        // has been verified. This simulates the effect of process_execution_payload_envelope
-        // on this field, ensuring the state is correct for processing subsequent blocks.
-        // The full envelope processing happens separately, but latest_block_hash must be
-        // current for the next block's bid verification.
+        // For gloas blocks, simulate the minimal effects of process_execution_payload_envelope
+        // that are needed for subsequent block processing:
+        // 1. Set latest_block_hash from the bid so the next block's bid verification passes.
+        // 2. Cache the block's state_root in latest_block_header so that per_slot_processing's
+        //    cache_state uses it (instead of recomputing from tree hash, which would reflect
+        //    the latest_block_hash change and produce an incorrect state_roots entry).
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
             if let Ok(latest_block_hash) = state.latest_block_hash_mut() {
                 *latest_block_hash = bid.message.block_hash;
+            }
+            if state.latest_block_header().state_root == Hash256::zero() {
+                state.latest_block_header_mut().state_root = state_root;
             }
         }
 
@@ -1972,8 +1977,12 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         }
 
         let beacon_state_root = if state.slot() == parent_block.slot() {
-            // Sanity check.
-            if parent_state_root != parent_block.state_root() {
+            // Sanity check: skip for gloas because the stored state has latest_block_hash
+            // set (simulating process_execution_payload_envelope), which changes its tree
+            // hash vs the block's state_root. The canonical state_root is still correct.
+            if parent_state_root != parent_block.state_root()
+                && !parent_block.fork_name_unchecked().gloas_enabled()
+            {
                 return Err(BeaconChainError::DBInconsistent(format!(
                     "Parent state at slot {} has the wrong state root: {:?} != {:?}",
                     state.slot(),

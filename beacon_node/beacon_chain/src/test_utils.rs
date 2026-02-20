@@ -2764,10 +2764,13 @@ where
 
         // For gloas blocks, we need to:
         // 1. Notify the mock EL about the execution payload from the envelope
-        // 2. Replace the chain's cached state with the production state (which has
-        //    envelope processing already applied). The chain's block import only applies
-        //    per_block_processing, but gloas also needs process_execution_payload_envelope
-        //    to update latest_block_hash and other fields for subsequent block imports.
+        // 2. Store the envelope
+        // 3. Use the import-path state (NOT the production envelope-processed state) for
+        //    subsequent block production. This ensures blocks are produced from states that
+        //    can be reproduced during chain segment reimport without envelopes. The import
+        //    path in block_verification.rs already updates latest_block_hash from the bid
+        //    after the state root check, so the import-path state has the correct value
+        //    for subsequent bid verification.
         if let Some(envelope) = envelope {
             // Notify the mock EL about the gloas execution payload so it knows
             // about the block hash for future forkchoice_updated calls.
@@ -2781,39 +2784,31 @@ where
                 signature: Signature::empty(),
             };
 
-            // Replace the chain's cached state with the production post-state.
-            // The production state (new_state) has both per_block_processing AND
-            // process_execution_payload_envelope applied in the correct order with
-            // consistent tree hash caching. Applying envelope processing post-hoc
-            // to the chain's cached state creates subtle differences, so we use the
-            // production state directly.
-            //
-            // We store it under the block's state_root (not the envelope's state_root)
-            // because block_verification's sanity check compares the cached state root
-            // key against parent_block.state_root().
-            {
-                let block_state_root = block_contents.0.message().state_root();
-                let mut state_cache = self.chain.store.state_cache.lock();
-                if let Some((cached_root, _)) = state_cache.get_by_block_root(block_root, slot) {
-                    state_cache.delete_state(&cached_root);
-                }
-                state_cache
-                    .put_state(block_state_root, block_root, &new_state)
-                    .expect("should insert production post-state into cache");
-            }
-
             self.chain
                 .store
                 .put_payload_envelope(&block_root, signed_envelope)
                 .expect("should store payload envelope");
 
-            // Replace the cached head state with the envelope-processed production
-            // state. recompute_head_at_current_slot() is a no-op here because the
-            // head block root hasn't changed (early exit at line 647), so we update
-            // the cached state directly.
+            // Read back the import-path state from the state cache. This state has
+            // per_block_processing applied plus latest_block_hash updated (from the
+            // block_verification.rs fix), but NOT full envelope processing. Using this
+            // state for subsequent block production means blocks will be valid when
+            // reimported without envelopes (e.g. in block_verification tests).
+            let import_state = {
+                let mut state_cache = self.chain.store.state_cache.lock();
+                state_cache
+                    .get_by_block_root(block_root, slot)
+                    .map(|(_, state)| state)
+                    .expect("import-path state should be in cache after process_block")
+            };
+
+            // Update the cached head state so get_current_state() returns the
+            // import-path state with latest_block_hash set.
             self.chain
                 .canonical_head
-                .replace_cached_head_state(new_state.clone());
+                .replace_cached_head_state(import_state.clone());
+
+            return Ok((block_hash, block_contents, import_state));
         }
 
         Ok((block_hash, block_contents, new_state))
@@ -3004,7 +2999,20 @@ where
             self.update_light_client_server_cache(&state, *slot, block_hash.into());
 
             block_hash_from_slot.insert(*slot, block_hash);
-            state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
+            // For gloas, the state's tree hash differs from block.state_root() because
+            // latest_block_hash is set after the state root check. Use block.state_root()
+            // so tests that look up states by hash find the correct entry.
+            let state_hash = if state.fork_name_unchecked().gloas_enabled() {
+                let block = self
+                    .chain
+                    .get_blinded_block(&block_hash.into())
+                    .unwrap()
+                    .unwrap();
+                block.message().state_root().into()
+            } else {
+                state.canonical_root().unwrap().into()
+            };
+            state_hash_from_slot.insert(*slot, state_hash);
             latest_block_hash = Some(block_hash);
         }
         (
@@ -3042,7 +3050,20 @@ where
             state = new_state;
 
             block_hash_from_slot.insert(*slot, block_hash);
-            state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
+            // For gloas, the state's tree hash differs from block.state_root() because
+            // latest_block_hash is set after the state root check. Use block.state_root()
+            // so tests that look up states by hash find the correct entry.
+            let state_hash = if state.fork_name_unchecked().gloas_enabled() {
+                let block = self
+                    .chain
+                    .get_blinded_block(&block_hash.into())
+                    .unwrap()
+                    .unwrap();
+                block.message().state_root().into()
+            } else {
+                state.canonical_root().unwrap().into()
+            };
+            state_hash_from_slot.insert(*slot, state_hash);
             latest_block_hash = Some(block_hash);
         }
         (

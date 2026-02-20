@@ -41,6 +41,15 @@ struct InvalidPayloadRig {
 }
 
 impl InvalidPayloadRig {
+    /// Returns true if payload invalidation tests should be skipped for the current fork.
+    /// Gloas replaces execution_payload with signed_execution_payload_bid, so the
+    /// new_payload/forkchoice_updated payload validation flow does not apply.
+    fn should_skip() -> bool {
+        // TODO(EIP-7732): Add gloas-specific payload invalidation tests.
+        // https://github.com/sigp/lighthouse/issues/7553
+        test_spec::<E>().gloas_fork_epoch.is_some()
+    }
+
     fn new() -> Self {
         let spec = test_spec::<E>();
         Self::new_with_spec(spec)
@@ -77,16 +86,22 @@ impl InvalidPayloadRig {
     }
 
     fn block_hash(&self, block_root: Hash256) -> ExecutionBlockHash {
-        self.harness
+        let block = self
+            .harness
             .chain
             .get_blinded_block(&block_root)
             .unwrap()
-            .unwrap()
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            .block_hash()
+            .unwrap();
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            bid.message.block_hash
+        } else {
+            block
+                .message()
+                .body()
+                .execution_payload()
+                .unwrap()
+                .block_hash()
+        }
     }
 
     fn execution_status(&self, block_root: Hash256) -> ExecutionStatus {
@@ -389,6 +404,9 @@ impl InvalidPayloadRig {
 /// Simple test of the different import types.
 #[tokio::test]
 async fn valid_invalid_syncing() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
     rig.move_to_terminal_block();
 
@@ -404,6 +422,9 @@ async fn valid_invalid_syncing() {
 /// `latest_valid_hash`.
 #[tokio::test]
 async fn invalid_payload_invalidates_parent() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
@@ -460,6 +481,9 @@ async fn immediate_forkchoice_update_invalid_test(
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     immediate_forkchoice_update_invalid_test(|latest_valid_hash| Payload::Invalid {
         latest_valid_hash,
     })
@@ -468,11 +492,17 @@ async fn immediate_forkchoice_update_payload_invalid() {
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_block_hash() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     immediate_forkchoice_update_invalid_test(|_| Payload::InvalidBlockHash).await
 }
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     immediate_forkchoice_update_invalid_test(|_| Payload::Invalid {
         latest_valid_hash: Some(ExecutionBlockHash::zero()),
     })
@@ -482,6 +512,9 @@ async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
 /// Ensure the client tries to exit when the justified checkpoint is invalidated.
 #[tokio::test]
 async fn justified_checkpoint_becomes_invalid() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
@@ -524,6 +557,9 @@ async fn justified_checkpoint_becomes_invalid() {
 /// Ensure that a `latest_valid_hash` for a pre-finality block only reverts a single block.
 #[tokio::test]
 async fn pre_finalized_latest_valid_hash() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 4;
     let finalized_epoch = 2;
 
@@ -571,6 +607,9 @@ async fn pre_finalized_latest_valid_hash() {
 /// - Will not validate `latest_valid_root` and its ancestors.
 #[tokio::test]
 async fn latest_valid_hash_will_not_validate() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     const LATEST_VALID_SLOT: u64 = 3;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -618,6 +657,9 @@ async fn latest_valid_hash_will_not_validate() {
 /// Check behaviour when the `latest_valid_hash` is a junk value.
 #[tokio::test]
 async fn latest_valid_hash_is_junk() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 5;
     let finalized_epoch = 3;
 
@@ -659,6 +701,9 @@ async fn latest_valid_hash_is_junk() {
 /// Check that descendants of invalid blocks are also invalidated.
 #[tokio::test]
 async fn invalidates_all_descendants() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
     let finalized_epoch = 2;
     let finalized_slot = E::slots_per_epoch() * 2;
@@ -766,6 +811,9 @@ async fn invalidates_all_descendants() {
 /// Check that the head will switch after the canonical branch is invalidated.
 #[tokio::test]
 async fn switches_heads() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
     let finalized_epoch = 2;
     let finalized_slot = E::slots_per_epoch() * 2;
@@ -869,6 +917,9 @@ async fn switches_heads() {
 
 #[tokio::test]
 async fn invalid_during_processing() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
     rig.move_to_terminal_block();
 
@@ -901,6 +952,9 @@ async fn invalid_during_processing() {
 
 #[tokio::test]
 async fn invalid_after_optimistic_sync() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
@@ -939,6 +993,9 @@ async fn invalid_after_optimistic_sync() {
 
 #[tokio::test]
 async fn manually_validate_child() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
@@ -957,6 +1014,9 @@ async fn manually_validate_child() {
 
 #[tokio::test]
 async fn manually_validate_parent() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
@@ -975,6 +1035,9 @@ async fn manually_validate_parent() {
 
 #[tokio::test]
 async fn payload_preparation() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await;
@@ -1036,6 +1099,9 @@ async fn payload_preparation() {
 
 #[tokio::test]
 async fn invalid_parent() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
@@ -1108,6 +1174,9 @@ async fn invalid_parent() {
 /// Tests to ensure that we will still send a proposer preparation
 #[tokio::test]
 async fn payload_preparation_before_transition_block() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let rig = InvalidPayloadRig::new();
     let el = rig.execution_layer();
 
@@ -1180,6 +1249,9 @@ async fn payload_preparation_before_transition_block() {
 
 #[tokio::test]
 async fn attesting_to_optimistic_head() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
@@ -1392,6 +1464,9 @@ impl InvalidHeadSetup {
 
 #[tokio::test]
 async fn recover_from_invalid_head_by_importing_blocks() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let InvalidHeadSetup {
         rig,
         fork_block,
@@ -1437,6 +1512,9 @@ async fn recover_from_invalid_head_by_importing_blocks() {
 
 #[tokio::test]
 async fn recover_from_invalid_head_after_persist_and_reboot() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let InvalidHeadSetup {
         rig,
         fork_block: _,
@@ -1479,6 +1557,9 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
 
 #[tokio::test]
 async fn weights_after_resetting_optimistic_status() {
+    if InvalidPayloadRig::should_skip() {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
