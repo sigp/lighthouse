@@ -1,7 +1,8 @@
 use crate::engine_api::{
     ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     json_structures::{
-        JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+        BlobAndProof, BlobAndProofV1, BlobAndProofV2, JsonForkchoiceUpdatedV1Response,
+        JsonPayloadStatusV1, JsonPayloadStatusV1Status,
     },
 };
 use crate::engines::ForkchoiceState;
@@ -15,6 +16,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_types::VariableList;
+use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -478,6 +480,46 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<E>> {
         self.blobs_bundles.get(id).cloned()
+    }
+
+    pub fn get_blob_and_proofs(&self, versioned_hashes: Vec<Hash256>) -> Vec<BlobAndProof<E>> {
+        self.blobs_bundles
+            .values()
+            // Assumes all versioned hashes are present in the same bundle; short-circuit if found.
+            .find_map(|blobs_bundle| {
+                let blobs_and_proofs: Vec<_> = blobs_bundle
+                    .commitments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, commitment)| {
+                        let hash = kzg_commitment_to_versioned_hash(commitment);
+                        versioned_hashes.contains(&hash)
+                    })
+                    .filter_map(|(blob_idx, _)| {
+                        let is_fulu_bundle = blobs_bundle.blobs.len() < blobs_bundle.proofs.len();
+                        let blob = blobs_bundle.blobs.get(blob_idx)?.clone();
+                        if is_fulu_bundle {
+                            let start = blob_idx * E::cells_per_ext_blob();
+                            let end = start + E::cells_per_ext_blob();
+                            let proofs = blobs_bundle
+                                .proofs
+                                .get(start..end)?
+                                .to_vec()
+                                .try_into()
+                                .ok()?;
+                            Some(BlobAndProof::V2(BlobAndProofV2 { blob, proofs }))
+                        } else {
+                            Some(BlobAndProof::V1(BlobAndProofV1 {
+                                blob,
+                                proof: *blobs_bundle.proofs.get(blob_idx)?,
+                            }))
+                        }
+                    })
+                    .collect();
+
+                (!blobs_and_proofs.is_empty()).then_some(blobs_and_proofs)
+            })
+            .unwrap_or_default()
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<E>) -> PayloadStatusV1 {
