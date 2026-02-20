@@ -187,6 +187,28 @@ pub static ENDPOINT_REQUESTS: LazyLock<Result<IntCounterVec>> = LazyLock::new(||
 });
 
 /*
+ * Head monitor metrics
+ */
+pub static HEAD_MONITOR_STREAM_DISCONNECTIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "vc_head_monitor_stream_disconnections_total",
+        "Count of SSE head event stream disconnections",
+    )
+});
+pub static HEAD_MONITOR_STREAM_RECONNECTIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "vc_head_monitor_stream_reconnections_total",
+        "Count of successful SSE head event stream reconnections",
+    )
+});
+pub static HEAD_MONITOR_RESTARTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "vc_head_monitor_restarts_total",
+        "Count of head monitor restarts due to candidate list updates",
+    )
+});
+
+/*
  * Beacon node availability metrics
  */
 pub static AVAILABLE_BEACON_NODES_COUNT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {

@@ -465,6 +465,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         self.head_monitor_restart_notify = Some(Arc::new(Notify::new()));
     }
 
+    /// Returns the `Notify` used to signal a head monitor restart when the candidate list changes.
     pub fn head_monitor_restart_notify(&self) -> Option<&Arc<Notify>> {
         self.head_monitor_restart_notify.as_ref()
     }

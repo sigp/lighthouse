@@ -8,6 +8,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use types::EthSpec;
+use validator_metrics::{
+    HEAD_MONITOR_RESTARTS, HEAD_MONITOR_STREAM_DISCONNECTIONS,
+    HEAD_MONITOR_STREAM_RECONNECTIONS, inc_counter,
+};
 
 type CacheHashMap = HashMap<usize, SseHead>;
 
@@ -54,6 +58,11 @@ impl BeaconHeadCache {
         cache
             .values()
             .all(|cache_head| head.slot >= cache_head.slot)
+    }
+
+    /// Removes the cached head for a specific beacon node.
+    pub async fn remove(&self, beacon_node_index: usize) {
+        self.cache.write().await.remove(&beacon_node_index);
     }
 
     /// Clears all cached heads, removing entries for all beacon nodes.
@@ -222,6 +231,8 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                     }
                     Some(StreamEvent::StreamEnded(idx)) => {
                         warn!(node_index = idx, "Head event stream ended, will retry");
+                        inc_counter(&HEAD_MONITOR_STREAM_DISCONNECTIONS);
+                        head_cache.remove(idx).await;
                         failed_indices.insert(idx);
                     }
                     None => {
@@ -246,6 +257,7 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                     if let Some(candidate) = candidates.iter().find(|c| c.index == idx) {
                         if let Some(stream) = create_candidate_stream::<E>(candidate).await {
                             info!(node_index = idx, "Reconnected head event stream");
+                            inc_counter(&HEAD_MONITOR_STREAM_RECONNECTIONS);
                             combined_stream.push(stream);
                             reconnected.push(idx);
                         }
@@ -275,6 +287,7 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
             // Restart signal from candidate list update
             _ = &mut restart_fut => {
                 info!("Candidate list updated, restarting head monitor");
+                inc_counter(&HEAD_MONITOR_RESTARTS);
                 head_cache.purge_cache().await;
                 return Ok(());
             }
