@@ -213,6 +213,9 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     /// After different operations over a batch, this could be in a state that allows it to
     /// continue, or in failed state. When the batch has failed, we check if it did mainly due to
     /// processing failures. In this case the batch is considered failed and faulty.
+    ///
+    /// When failure counts are equal, `blacklist` is `false` — we assume network issues over
+    /// peer fault when the evidence is ambiguous.
     pub fn outcome(&self) -> BatchOperationOutcome {
         match self.state {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
@@ -255,8 +258,10 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     /// Mark the batch as failed and return whether we can attempt a re-download.
     ///
     /// This can happen if a peer disconnects or some error occurred that was not the peers fault.
-    /// The `peer` parameter, when set to None, does not increment the failed attempts of
-    /// this batch and register the peer, rather attempts a re-download.
+    /// The `peer` parameter, when set to `None`, still counts toward
+    /// `max_batch_download_attempts` (to prevent infinite retries on persistent failures)
+    /// but does not register a peer in `failed_peers()`. Use
+    /// [`Self::downloading_to_awaiting_download`] to retry without counting a failed attempt.
     #[must_use = "Batch may have failed"]
     pub fn download_failed(
         &mut self,
@@ -272,7 +277,6 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
                 {
                     BatchState::Failed
                 } else {
-                    // drop the blocks
                     BatchState::AwaitingDownload
                 };
                 Ok(self.outcome())
@@ -522,5 +526,195 @@ impl<D: Hash> BatchState<D> {
             BatchState::AwaitingProcessing(..) => 'p',
             BatchState::Poisoned => 'X',
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+    use types::MinimalEthSpec;
+
+    struct TestBatchConfig;
+
+    impl BatchConfig for TestBatchConfig {
+        fn max_batch_download_attempts() -> u8 {
+            3
+        }
+        fn max_batch_processing_attempts() -> u8 {
+            2
+        }
+        fn batch_attempt_hash<D: Hash>(data: &D) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            data.hash(&mut hasher);
+            hasher.finish()
+        }
+    }
+
+    type TestBatch = BatchInfo<MinimalEthSpec, TestBatchConfig, Vec<u64>>;
+
+    fn new_batch() -> TestBatch {
+        BatchInfo::new(&Epoch::new(0), 1, ByRangeRequestType::Blocks)
+    }
+
+    fn peer() -> PeerId {
+        PeerId::random()
+    }
+
+    fn advance_to_processing(batch: &mut TestBatch, req_id: Id, peer_id: PeerId) {
+        batch.start_downloading(req_id).unwrap();
+        batch.download_completed(vec![1, 2, 3], peer_id).unwrap();
+        batch.start_processing().unwrap();
+    }
+
+    fn advance_to_awaiting_validation(batch: &mut TestBatch, req_id: Id, peer_id: PeerId) {
+        advance_to_processing(batch, req_id, peer_id);
+        batch
+            .processing_completed(BatchProcessingResult::Success)
+            .unwrap();
+    }
+
+    #[test]
+    fn happy_path_lifecycle() {
+        let mut batch = new_batch();
+        let p = peer();
+
+        assert!(matches!(batch.state(), BatchState::AwaitingDownload));
+
+        batch.start_downloading(1).unwrap();
+        assert!(matches!(batch.state(), BatchState::Downloading(1)));
+
+        batch.download_completed(vec![10, 20], p).unwrap();
+        assert!(matches!(batch.state(), BatchState::AwaitingProcessing(..)));
+
+        let (data, _duration) = batch.start_processing().unwrap();
+        assert_eq!(data, vec![10, 20]);
+        assert!(matches!(batch.state(), BatchState::Processing(..)));
+
+        let outcome = batch
+            .processing_completed(BatchProcessingResult::Success)
+            .unwrap();
+        assert!(matches!(outcome, BatchOperationOutcome::Continue));
+        assert!(matches!(batch.state(), BatchState::AwaitingValidation(..)));
+    }
+
+    #[test]
+    fn download_failures_count_toward_limit() {
+        let mut batch = new_batch();
+
+        // Failures 1 and 2 allow retry
+        for i in 1..=2 {
+            batch.start_downloading(i).unwrap();
+            let outcome = batch.download_failed(Some(peer())).unwrap();
+            assert!(matches!(outcome, BatchOperationOutcome::Continue));
+        }
+
+        // Failure 3 hits the limit
+        batch.start_downloading(3).unwrap();
+        let outcome = batch.download_failed(Some(peer())).unwrap();
+        assert!(matches!(
+            outcome,
+            BatchOperationOutcome::Failed { blacklist: false }
+        ));
+    }
+
+    #[test]
+    fn download_failed_none_counts_but_does_not_blame_peer() {
+        let mut batch = new_batch();
+
+        // None still counts toward the limit (prevents infinite retry on persistent
+        // network failures), but doesn't register a peer in failed_peers().
+        for i in 0..3 {
+            batch.start_downloading(i).unwrap();
+            batch.download_failed(None).unwrap();
+        }
+        assert!(matches!(batch.state(), BatchState::Failed));
+        assert!(batch.failed_peers().is_empty());
+    }
+
+    #[test]
+    fn faulty_processing_failures_count_toward_limit() {
+        let mut batch = new_batch();
+
+        // First faulty failure: retry allowed
+        advance_to_processing(&mut batch, 1, peer());
+        let outcome = batch
+            .processing_completed(BatchProcessingResult::FaultyFailure)
+            .unwrap();
+        assert!(matches!(outcome, BatchOperationOutcome::Continue));
+
+        // Second faulty failure: limit reached
+        advance_to_processing(&mut batch, 2, peer());
+        let outcome = batch
+            .processing_completed(BatchProcessingResult::FaultyFailure)
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            BatchOperationOutcome::Failed { blacklist: true }
+        ));
+    }
+
+    #[test]
+    fn non_faulty_processing_failures_never_exhaust_batch() {
+        let mut batch = new_batch();
+
+        for i in 0..10 {
+            advance_to_processing(&mut batch, i, peer());
+            let outcome = batch
+                .processing_completed(BatchProcessingResult::NonFaultyFailure)
+                .unwrap();
+            assert!(matches!(outcome, BatchOperationOutcome::Continue));
+        }
+        // Non-faulty failures also don't register peers as failed
+        assert!(batch.failed_peers().is_empty());
+    }
+
+    #[test]
+    fn validation_failures_count_toward_processing_limit() {
+        let mut batch = new_batch();
+
+        advance_to_awaiting_validation(&mut batch, 1, peer());
+        let outcome = batch.validation_failed().unwrap();
+        assert!(matches!(outcome, BatchOperationOutcome::Continue));
+
+        advance_to_awaiting_validation(&mut batch, 2, peer());
+        let outcome = batch.validation_failed().unwrap();
+        assert!(matches!(
+            outcome,
+            BatchOperationOutcome::Failed { blacklist: true }
+        ));
+    }
+
+    #[test]
+    fn mixed_failure_types_interact_correctly() {
+        let mut batch = new_batch();
+
+        // Download failure, then processing failure, then non-faulty, then download to limit
+        batch.start_downloading(1).unwrap();
+        batch.download_failed(Some(peer())).unwrap();
+
+        advance_to_processing(&mut batch, 2, peer());
+        batch
+            .processing_completed(BatchProcessingResult::FaultyFailure)
+            .unwrap();
+
+        advance_to_processing(&mut batch, 3, peer());
+        batch
+            .processing_completed(BatchProcessingResult::NonFaultyFailure)
+            .unwrap();
+        assert!(matches!(batch.state(), BatchState::AwaitingDownload));
+
+        // Two more download failures reach the limit (3 total)
+        batch.start_downloading(4).unwrap();
+        batch.download_failed(Some(peer())).unwrap();
+        batch.start_downloading(5).unwrap();
+        let outcome = batch.download_failed(Some(peer())).unwrap();
+
+        // 3 download > 1 processing → blacklist: false
+        assert!(matches!(
+            outcome,
+            BatchOperationOutcome::Failed { blacklist: false }
+        ));
     }
 }

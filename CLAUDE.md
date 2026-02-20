@@ -97,6 +97,13 @@ All `TODO` comments must link to a GitHub issue.
 
 Avoid ambiguous abbreviations (`bb`, `bl`). Use `beacon_block`, `blob`.
 
+### 8. Writing Useful Tests
+
+- **Test the public contract, not implementation details.** Don't exhaustively test every invalid-state permutation of a state machine — that's re-stating the `match` arms and creates maintenance burden with no real safety benefit.
+- **Bug-driven tests**: When you find a bug, write a test that fails against the current code first, then fix the code. The failing test proves the bug exists and prevents regressions. A test that passes against buggy code is worthless.
+- **Each test should earn its keep.** If a test would break when refactoring internals but the public behavior hasn't changed, it's testing the wrong thing. Ask: "would a caller care if this broke?"
+- **Prefer fewer, focused tests** that cover meaningful behavior (failure limits, retry logic, blacklist decisions) over many shallow tests that check trivial getters or obvious error returns.
+
 ## Branch & PR Guidelines
 
 - Branch from `unstable`, target `unstable` for PRs
