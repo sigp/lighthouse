@@ -160,7 +160,7 @@ fn get_states_descendant_of_block(
 }
 
 // TODO(EIP-7732): Extend to support gloas
-// https://github.com/sigp/lighthouse/issues/7553
+// https://github.com/sigp/lighthouse/issues/8590
 #[tokio::test]
 async fn light_client_bootstrap_test() {
     let spec = test_spec::<E>();
@@ -170,7 +170,7 @@ async fn light_client_bootstrap_test() {
     };
     // Light client support is not yet implemented for gloas.
     // TODO(EIP-7732): Remove this once gloas light client is implemented.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if spec.gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -231,7 +231,7 @@ async fn light_client_updates_test() {
     };
     // Light client support is not yet implemented for gloas.
     // TODO(EIP-7732): Remove this once gloas light client is implemented.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if spec.gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -777,7 +777,7 @@ async fn block_replayer_hooks() {
 async fn delete_blocks_and_states() {
     // Gloas fork choice dynamics cause chain dump inconsistencies after fork deletion.
     // TODO(EIP-7732): Investigate gloas fork choice interaction with block deletion.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if test_spec::<E>().gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -2839,7 +2839,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     // Gloas checkpoint sync requires envelope-aware block import.
     // TODO(EIP-7732): Support gloas checkpoint sync in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if spec.gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -3014,7 +3014,7 @@ async fn weak_subjectivity_sync_test(
     // Gloas checkpoint sync requires envelope-aware block import which is not yet
     // supported in the test harness.
     // TODO(EIP-7732): Support gloas checkpoint sync in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if test_spec::<E>().gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -3674,7 +3674,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 async fn test_import_historical_data_columns_batch_no_block_found() {
     // Gloas data columns are generated from envelopes, not block bodies.
     // TODO(EIP-7732): Support gloas data column generation in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if test_spec::<E>().gloas_fork_epoch.is_some() {
         return;
     }
@@ -3925,7 +3925,7 @@ async fn finalizes_after_resuming_from_db() {
     // Gloas block production requires mock EL state (payload IDs) that doesn't survive
     // DB resume, causing GetPayloadFailed(PayloadIdUnavailable).
     // TODO(EIP-7732): Support gloas mock EL state persistence across DB resume.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if test_spec::<E>().gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -4815,7 +4815,7 @@ async fn fulu_prune_data_columns_happy_case() {
     }
     // Gloas data columns are generated from envelopes, not block bodies.
     // TODO(EIP-7732): Support gloas data column storage in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if store.get_chain_spec().gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -4876,7 +4876,7 @@ async fn fulu_prune_data_columns_no_finalization() {
     }
     // Gloas data columns are generated from envelopes, not block bodies.
     // TODO(EIP-7732): Support gloas data column storage in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if store.get_chain_spec().gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -5101,7 +5101,7 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
     }
     // Gloas data columns are generated from envelopes, not block bodies.
     // TODO(EIP-7732): Support gloas data column storage in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if store.get_chain_spec().gloas_fork_epoch == Some(Epoch::new(0)) {
         return;
     }
@@ -5420,7 +5420,7 @@ async fn replay_from_split_state() {
 async fn test_custody_column_filtering_regular_node() {
     // Gloas data columns are generated from envelopes, not block bodies.
     // TODO(EIP-7732): Support gloas data column generation in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if test_spec::<E>().gloas_fork_epoch.is_some() {
         return;
     }
@@ -5471,7 +5471,7 @@ async fn test_custody_column_filtering_regular_node() {
 async fn test_custody_column_filtering_supernode() {
     // Gloas data columns are generated from envelopes, not block bodies.
     // TODO(EIP-7732): Support gloas data column generation in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if test_spec::<E>().gloas_fork_epoch.is_some() {
         return;
     }

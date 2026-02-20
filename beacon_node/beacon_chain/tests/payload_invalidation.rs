@@ -46,7 +46,7 @@ impl InvalidPayloadRig {
     /// new_payload/forkchoice_updated payload validation flow does not apply.
     fn should_skip() -> bool {
         // TODO(EIP-7732): Add gloas-specific payload invalidation tests.
-        // https://github.com/sigp/lighthouse/issues/7553
+        // https://github.com/sigp/lighthouse/issues/8590
         test_spec::<E>().gloas_fork_epoch.is_some()
     }
 

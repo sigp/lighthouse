@@ -172,7 +172,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
 async fn data_column_sidecar_event_on_process_rpc_columns() {
     // Gloas data columns are generated from envelopes, not block bodies.
     // TODO(EIP-7732): Support gloas data column generation in test harness.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if test_spec::<E>().gloas_fork_epoch.is_some() {
         return;
     }

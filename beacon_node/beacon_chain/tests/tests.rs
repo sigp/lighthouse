@@ -313,7 +313,7 @@ async fn chooses_fork() {
     // Gloas fork choice dynamics differ due to payload attestations, causing the
     // faulty chain to win. This test needs gloas-specific parameters.
     // TODO(EIP-7732): Adjust fork choice test for gloas payload attestation dynamics.
-    // https://github.com/sigp/lighthouse/issues/7553
+    // https://github.com/sigp/lighthouse/issues/8590
     if ForkName::from_str(&std::env::var("FORK_NAME").unwrap_or_default())
         .unwrap_or(ForkName::Base)
         .gloas_enabled()

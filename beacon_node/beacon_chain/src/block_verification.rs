@@ -1652,6 +1652,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             });
         }
 
+        // TODO(gloas): Replace with full process_execution_payload_envelope once available
+        // in the block import path. This workaround is needed because blocks can arrive before
+        // envelopes, and subsequent blocks need latest_block_hash set for bid verification.
+        // https://github.com/sigp/lighthouse/issues/8590
+        //
         // For gloas blocks, simulate the minimal effects of process_execution_payload_envelope
         // that are needed for subsequent block processing:
         // 1. Set latest_block_hash from the bid so the next block's bid verification passes.
@@ -1977,6 +1982,10 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         }
 
         let beacon_state_root = if state.slot() == parent_block.slot() {
+            // TODO(gloas): Revisit this bypass once envelope-processed states are stored
+            // with correct state roots.
+            // https://github.com/sigp/lighthouse/issues/8590
+            //
             // Sanity check: skip for gloas because the stored state has latest_block_hash
             // set (simulating process_execution_payload_envelope), which changes its tree
             // hash vs the block's state_root. The canonical state_root is still correct.

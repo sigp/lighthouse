@@ -264,6 +264,11 @@ where
             )
             .map_err(BlockReplayError::from)?;
 
+            // TODO(gloas): Replace with full process_execution_payload_envelope once
+            // available in the replay path. This workaround is needed because replay
+            // doesn't have access to envelopes, only blocks.
+            // https://github.com/sigp/lighthouse/issues/8590
+            //
             // For gloas blocks, simulate the minimal effects of
             // process_execution_payload_envelope that are needed for subsequent block
             // processing:
