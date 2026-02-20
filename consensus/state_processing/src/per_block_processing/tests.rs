@@ -1153,3 +1153,71 @@ async fn block_replayer_peeking_state_roots() {
         (dummy_state_root, dummy_slot)
     );
 }
+
+/// Regression test for https://github.com/sigp/lighthouse/issues/8869
+///
+/// When replaying blocks on a Gloas state, `per_block_processing` previously called
+/// `body.execution_payload()` which returns `Err(IncorrectStateVariant)` for Gloas blocks
+/// (they use `signed_execution_payload_bid` instead of an inline payload).
+///
+/// This test creates a minimal Gloas genesis state, advances it one slot, then applies an
+/// empty Gloas blinded block via `BlockReplayer::apply_blocks`.  Before the fix this
+/// returns `BlockProcessingError::BeaconStateError(IncorrectStateVariant)`; after
+/// the fix it must succeed.
+#[tokio::test]
+async fn gloas_block_replay_no_incorrect_state_variant() {
+    use beacon_chain::test_utils::InteropGenesisBuilder;
+
+    type E = MinimalEthSpec;
+
+    // Build a Gloas-at-genesis spec using the minimal preset.
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+
+    // Build a genesis state with a small set of interop validators.
+    let keypairs = &KEYPAIRS[0..8];
+    let genesis_time = 1_000_000_u64;
+    let genesis_state = InteropGenesisBuilder::<E>::new()
+        .build_genesis_state(
+            keypairs,
+            genesis_time,
+            Hash256::from_slice(&[0x42; 32]),
+            &spec,
+        )
+        .expect("should build Gloas genesis state");
+
+    // Sanity-check: the state must be a Gloas state.
+    assert_eq!(genesis_state.fork_name_unchecked(), ForkName::Gloas);
+
+    // Build a minimal blinded Gloas block at slot 1.
+    // We use the genesis state (slot 0) as input to BlockReplayer so that the block at slot 1
+    // is not mistakenly treated as a "state-root-only" sentinel (which happens when
+    // block.slot() <= state.slot()).
+    // However, we compute the expected parent_root from the state *after* slot processing,
+    // because per_slot_processing fills in latest_block_header.state_root.
+    let mut slot1_state = genesis_state.clone();
+    crate::per_slot_processing(&mut slot1_state, None, &spec)
+        .expect("slot processing should succeed");
+
+    let mut block = BeaconBlockGloas::<E, BlindedPayload<E>>::empty(&spec);
+    block.slot = Slot::new(1);
+    block.proposer_index = slot1_state
+        .get_beacon_proposer_index(block.slot, &spec)
+        .expect("should get proposer index") as u64;
+    // parent_root must equal state.latest_block_header().tree_hash_root() *after* slot processing.
+    block.parent_root = slot1_state.latest_block_header().canonical_root();
+
+    let signed_block = SignedBeaconBlock::from_block(BeaconBlock::Gloas(block), Signature::empty());
+
+    // Before the fix this returned Err(BlockProcessing(BeaconStateError(IncorrectStateVariant))).
+    // After the fix it must succeed (no-signature-verification mode skips the sig checks).
+    // Pass genesis_state (slot 0) so the block at slot 1 is not skipped by BlockReplayer.
+    let result = BlockReplayer::<E, BlockReplayError>::new(genesis_state, &spec)
+        .no_signature_verification()
+        .apply_blocks(vec![signed_block], None);
+
+    assert!(
+        result.is_ok(),
+        "Gloas block replay must succeed, got: {:?}",
+        result.err()
+    );
+}

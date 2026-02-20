@@ -38,7 +38,11 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
-    if state.fork_name_unchecked().electra_enabled() {
+    // For Gloas (EIP-7732) execution requests are carried in the ExecutionPayloadEnvelope,
+    // not in the beacon block body.  The envelope is processed separately via
+    // `process_execution_payload_envelope`, so we skip this block for Gloas.
+    if state.fork_name_unchecked().electra_enabled() && !state.fork_name_unchecked().gloas_enabled()
+    {
         state.update_pubkey_cache()?;
         process_deposit_requests(state, &block_body.execution_requests()?.deposits, spec)?;
         process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;

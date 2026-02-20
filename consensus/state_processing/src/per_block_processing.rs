@@ -170,7 +170,12 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     // The call to the `process_execution_payload` must happen before the call to the
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
     // previous block.
-    if is_execution_enabled(state, block.body()) {
+    //
+    // For Gloas (EIP-7732) the execution payload is decoupled from the beacon block: the block
+    // carries only a `signed_execution_payload_bid`, while the actual payload arrives via a
+    // separate `SignedExecutionPayloadEnvelope`.  The envelope is processed independently (see
+    // `process_execution_payload_envelope`), so we skip the pre-Gloas inline-payload path here.
+    if is_execution_enabled(state, block.body()) && !state.fork_name_unchecked().gloas_enabled() {
         let body = block.body();
         // TODO(EIP-7732): build out process_withdrawals variant for gloas
         process_withdrawals::<E, Payload>(state, body.execution_payload()?, spec)?;
@@ -457,6 +462,47 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
             }
         }
     }
+
+    Ok(())
+}
+
+/// Process a `SignedExecutionPayloadEnvelope` for a Gloas state.
+///
+/// In EIP-7732 (Gloas) the execution payload is decoupled from the beacon block and arrives
+/// separately as an `ExecutionPayloadEnvelope`.  This function validates the chain-continuity
+/// invariant (`envelope.payload.parent_hash == state.latest_block_hash`) and advances
+/// `state.latest_block_hash` to the delivered payload's `block_hash`.
+///
+/// The function must be called **between** block N and block N+1 when it has been determined
+/// (via the look-ahead described in `BlockReplayer`) that block N's payload was committed.
+///
+/// ## Errors
+///
+/// Returns `BlockProcessingError::ParentBlockHashMismatch` when the envelope does not extend
+/// the current execution chain tip recorded in the state.  Returns
+/// `BlockProcessingError::IncorrectStateType` if called on a non-Gloas state.
+pub fn process_execution_payload_envelope<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    envelope: &ExecutionPayloadEnvelope<E>,
+    _spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let BeaconState::Gloas(gloas_state) = state else {
+        return Err(BlockProcessingError::IncorrectStateType);
+    };
+
+    // Verify chain continuity: the envelope must extend the current execution tip.
+    if envelope.payload.parent_hash != gloas_state.latest_block_hash {
+        return Err(BlockProcessingError::ExecutionHashChainIncontiguous {
+            expected: gloas_state.latest_block_hash,
+            found: envelope.payload.parent_hash,
+        });
+    }
+
+    // Advance the execution chain tip.
+    gloas_state.latest_block_hash = envelope.payload.block_hash;
+
+    // TODO(EIP-7732): apply withdrawals, execution_requests, and other state changes
+    //                 from the envelope (process_withdrawals_gloas, deposit processing, etc.)
 
     Ok(())
 }

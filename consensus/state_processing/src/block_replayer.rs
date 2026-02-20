@@ -1,14 +1,15 @@
 use crate::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
     VerifyBlockRoot, per_block_processing, per_epoch_processing::EpochProcessingSummary,
-    per_slot_processing,
+    per_slot_processing, process_execution_payload_envelope,
 };
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::iter::Peekable;
 use std::marker::PhantomData;
 use types::{
-    BeaconState, BeaconStateError, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock,
-    Slot,
+    BeaconState, BeaconStateError, BlindedPayload, ChainSpec, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub type PreBlockHook<'a, E, Error> = Box<
@@ -43,6 +44,13 @@ pub struct BlockReplayer<
     post_slot_hook: Option<PostSlotHook<'a, Spec, Error>>,
     pub(crate) state_root_iter: Option<Peekable<StateRootIter>>,
     state_root_miss: bool,
+    /// Execution payload envelopes keyed by execution `block_hash` (the hash committed to in the
+    /// builder's bid for that slot).  When the look-ahead determines that block N's payload was
+    /// committed, the corresponding envelope is applied between block N and block N+1.
+    payload_envelopes: HashMap<ExecutionBlockHash, ExecutionPayloadEnvelope<Spec>>,
+    /// The first block *after* the replay range, used as the look-ahead for the last block in
+    /// `apply_blocks` so that its envelope can also be applied when appropriate.
+    lookahead_block: Option<SignedBeaconBlock<Spec, BlindedPayload<Spec>>>,
     _phantom: PhantomData<Error>,
 }
 
@@ -96,6 +104,8 @@ where
             post_slot_hook: None,
             state_root_iter: None,
             state_root_miss: false,
+            payload_envelopes: HashMap::new(),
+            lookahead_block: None,
             _phantom: PhantomData,
         }
     }
@@ -158,6 +168,29 @@ where
     /// slot (i.e. it will not have a block applied).
     pub fn post_slot_hook(mut self, hook: PostSlotHook<'a, E, Error>) -> Self {
         self.post_slot_hook = Some(hook);
+        self
+    }
+
+    /// Supply a map of execution payload envelopes (EIP-7732 / Gloas) to be applied during replay.
+    ///
+    /// Envelopes are keyed by the execution `block_hash` that the builder committed to in the
+    /// corresponding slot's `signed_execution_payload_bid`.  When the look-ahead logic determines
+    /// that block N's payload was included, the matching envelope is applied between block N and
+    /// block N+1 via `process_execution_payload_envelope`.
+    pub fn payload_envelopes(
+        mut self,
+        envelopes: HashMap<ExecutionBlockHash, ExecutionPayloadEnvelope<E>>,
+    ) -> Self {
+        self.payload_envelopes = envelopes;
+        self
+    }
+
+    /// Supply the first block *after* the replay range as a look-ahead sentinel.
+    ///
+    /// This allows the last block in `apply_blocks` to also have its execution payload envelope
+    /// applied when the next proposer built on it.
+    pub fn lookahead_block(mut self, block: SignedBeaconBlock<E, BlindedPayload<E>>) -> Self {
+        self.lookahead_block = Some(block);
         self
     }
 
@@ -265,6 +298,48 @@ where
 
             if let Some(ref mut post_block_hook) = self.post_block_hook {
                 post_block_hook(&mut self.state, block)?;
+            }
+
+            // EIP-7732 (Gloas) look-ahead: determine whether block N's execution payload
+            // envelope should be applied before we process block N+1.
+            //
+            // The decision rule: if the next block's builder bid says its *parent* execution
+            // hash is equal to the hash that the *current* block's builder promised to deliver,
+            // then the current block's payload was committed and we must apply the envelope now.
+            //
+            // We look at `blocks[i+1]` first; if this is the last block we fall back to
+            // `self.lookahead_block` (the first block after the replay range).
+            if self.state.fork_name_unchecked().gloas_enabled()
+                && !self.payload_envelopes.is_empty()
+            {
+                let next_idx = i.saturating_add(1);
+                let next_block = blocks.get(next_idx).or(self.lookahead_block.as_ref());
+
+                // Extract the next block's bid parent_block_hash, if it is a Gloas block.
+                let next_parent_block_hash = next_block.and_then(|nb| match nb.message().body() {
+                    types::BeaconBlockBodyRef::Gloas(body) => {
+                        Some(body.signed_execution_payload_bid.message.parent_block_hash)
+                    }
+                    _ => None,
+                });
+
+                // The hash that the current block's builder promised to deliver.
+                let current_bid_block_hash = if let types::BeaconState::Gloas(gs) = &self.state {
+                    Some(gs.latest_execution_payload_bid.block_hash)
+                } else {
+                    None
+                };
+
+                // If the next block builds on this slot's promised payload, apply the envelope.
+                if let (Some(next_parent), Some(bid_hash)) =
+                    (next_parent_block_hash, current_bid_block_hash)
+                    && next_parent == bid_hash
+                    && let Some(envelope) = self.payload_envelopes.get(&bid_hash)
+                {
+                    let envelope = envelope.clone();
+                    process_execution_payload_envelope(&mut self.state, &envelope, self.spec)
+                        .map_err(BlockReplayError::from)?;
+                }
             }
         }
 

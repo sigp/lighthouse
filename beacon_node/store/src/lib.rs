@@ -310,6 +310,12 @@ pub enum DBColumn {
     /// Execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
+    /// Execution payload envelopes for Gloas (EIP-7732) blocks in the hot database.
+    ///
+    /// - Key: 32-byte execution `block_hash` from the block's `signed_execution_payload_bid`.
+    /// - Value: SSZ-encoded `SignedExecutionPayloadEnvelope`.
+    #[strum(serialize = "ppe")]
+    ExecPayloadEnvelope,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -413,6 +419,7 @@ impl DBColumn {
             | Self::BeaconColdStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload
+            | Self::ExecPayloadEnvelope
             | Self::BeaconChain
             | Self::OpPool
             | Self::Eth1Cache

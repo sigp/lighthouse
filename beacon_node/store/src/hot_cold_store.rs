@@ -780,6 +780,42 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|payload| payload.is_some())
     }
 
+    /// Store a Gloas (EIP-7732) execution payload envelope in the hot database.
+    ///
+    /// The key is the execution `block_hash` committed to by the builder in the corresponding
+    /// `signed_execution_payload_bid`.  This allows efficient lookup during block replay using
+    /// only the information present in each block's bid header.
+    pub fn put_execution_payload_envelope(
+        &self,
+        exec_block_hash: &ExecutionBlockHash,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            DBColumn::ExecPayloadEnvelope,
+            exec_block_hash.as_ssz_bytes(),
+            envelope.as_ssz_bytes(),
+        ));
+    }
+
+    /// Load a Gloas (EIP-7732) execution payload envelope by the execution block hash.
+    ///
+    /// Returns `None` when no envelope has been stored for the given hash (e.g. the builder did
+    /// not deliver the payload for that slot, or envelope storage is not yet implemented for the
+    /// current database schema).
+    pub fn get_execution_payload_envelope(
+        &self,
+        exec_block_hash: &ExecutionBlockHash,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+        let key = exec_block_hash.as_ssz_bytes();
+        match self.hot_db.get_bytes(DBColumn::ExecPayloadEnvelope, &key)? {
+            Some(bytes) => Ok(Some(SignedExecutionPayloadEnvelope::from_ssz_bytes(
+                &bytes,
+            )?)),
+            None => Ok(None),
+        }
+    }
+
     /// Get the sync committee branch for the given block root
     /// Note: we only persist sync committee branches for checkpoint slots
     pub fn get_sync_committee_branch(
@@ -2474,6 +2510,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if let Some(pre_slot_hook) = pre_slot_hook {
             block_replayer = block_replayer.pre_slot_hook(pre_slot_hook);
+        }
+
+        // For Gloas (EIP-7732) replay: attempt to load the execution payload envelope for each
+        // block from the hot DB, keyed by the execution block hash that the builder committed to.
+        // If any block is a Gloas block, we build the envelope map and wire it into BlockReplayer
+        // so the look-ahead logic can apply envelopes between consecutive blocks.
+        let any_gloas = blocks
+            .iter()
+            .any(|b| b.fork_name(&self.spec).is_ok_and(|f| f.gloas_enabled()));
+        if any_gloas {
+            let mut envelopes = HashMap::new();
+            for block in &blocks {
+                if let Ok(ForkName::Gloas) = block.fork_name(&self.spec)
+                    && let BeaconBlockBodyRef::Gloas(body) = block.message().body()
+                {
+                    let bid_hash = body.signed_execution_payload_bid.message.block_hash;
+                    if let Some(envelope) = self.get_execution_payload_envelope(&bid_hash)? {
+                        envelopes.insert(bid_hash, envelope.message);
+                    }
+                }
+            }
+            block_replayer = block_replayer.payload_envelopes(envelopes);
         }
 
         block_replayer

@@ -38,7 +38,8 @@ pub use genesis::{
 };
 pub use per_block_processing::{
     BlockSignatureStrategy, BlockSignatureVerifier, VerifyBlockRoot, VerifySignatures,
-    block_signature_verifier, errors::BlockProcessingError, per_block_processing, signature_sets,
+    block_signature_verifier, errors::BlockProcessingError, per_block_processing,
+    process_execution_payload_envelope, signature_sets,
 };
 pub use per_epoch_processing::{
     errors::EpochProcessingError, process_epoch as per_epoch_processing,
