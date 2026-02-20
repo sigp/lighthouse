@@ -361,3 +361,9 @@ clean:
 	cargo clean
 	make -C $(EF_TESTS) clean
 	make -C $(STATE_TRANSITION_VECTORS) clean
+
+# Installs git hooks from .githooks/ directory
+install-hooks:
+	@ln -sf ../../.githooks/pre-commit .git/hooks/pre-commit
+	@chmod +x .githooks/pre-commit
+	@echo "Git hooks installed. Pre-commit hook runs 'cargo fmt --check'."

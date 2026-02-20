@@ -1,7 +1,9 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use super::signature_sets::{Error as SignatureSetError, *};
-use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
+use crate::per_block_processing::errors::{
+    AttestationInvalid, BlockOperationError, PayloadAttestationInvalid,
+};
 use crate::{ConsensusContext, ContextError};
 use bls::{PublicKey, PublicKeyBytes, SignatureSet, verify_signature_sets};
 use std::borrow::Cow;
@@ -18,6 +20,8 @@ pub enum Error {
     SignatureInvalid,
     /// An attestation in the block was invalid. The block is invalid.
     AttestationValidationError(BlockOperationError<AttestationInvalid>),
+    /// A payload attestation in the block was invalid. The block is invalid.
+    PayloadAttestationValidationError(BlockOperationError<PayloadAttestationInvalid>),
     /// There was an error attempting to read from a `BeaconState`. Block
     /// validity was not determined.
     BeaconStateError(BeaconStateError),
@@ -63,6 +67,12 @@ impl From<SignatureSetError> for Error {
 impl From<BlockOperationError<AttestationInvalid>> for Error {
     fn from(e: BlockOperationError<AttestationInvalid>) -> Error {
         Error::AttestationValidationError(e)
+    }
+}
+
+impl From<BlockOperationError<PayloadAttestationInvalid>> for Error {
+    fn from(e: BlockOperationError<PayloadAttestationInvalid>) -> Error {
+        Error::PayloadAttestationValidationError(e)
     }
 }
 
@@ -171,6 +181,7 @@ where
         self.include_sync_aggregate(block)?;
         self.include_bls_to_execution_changes(block)?;
         self.include_execution_payload_bid(block)?;
+        self.include_payload_attestations(block, ctxt)?;
 
         Ok(())
     }
@@ -290,6 +301,39 @@ where
                     self.get_pubkey.clone(),
                     attestation.signature(),
                     indexed_attestation,
+                    self.spec,
+                )?);
+                Ok(())
+            })
+    }
+
+    /// Includes all signatures in `self.block.body.payload_attestations` for verification.
+    pub fn include_payload_attestations<Payload: AbstractExecPayload<E>>(
+        &mut self,
+        block: &'a SignedBeaconBlock<E, Payload>,
+        ctxt: &mut ConsensusContext<E>,
+    ) -> Result<()> {
+        let Ok(payload_attestations) = block.message().body().payload_attestations() else {
+            // Nothing to do pre-Gloas.
+            return Ok(());
+        };
+
+        self.sets.sets.reserve(payload_attestations.len());
+
+        payload_attestations
+            .iter()
+            .try_for_each(|payload_attestation| {
+                let indexed_payload_attestation = ctxt.get_indexed_payload_attestation(
+                    self.state,
+                    payload_attestation,
+                    self.spec,
+                )?;
+
+                self.sets.push(indexed_payload_attestation_signature_set(
+                    self.state,
+                    self.get_pubkey.clone(),
+                    &payload_attestation.signature,
+                    indexed_payload_attestation,
                     self.spec,
                 )?);
                 Ok(())
