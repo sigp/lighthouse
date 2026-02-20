@@ -15,15 +15,26 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    ExecPayload, ExecutionBlockHash, SignedExecutionPayloadBid, attestation::{AttestationBase, AttestationData, IndexedAttestationBase}, block::{
+    ExecPayload, ExecutionBlockHash, SignedExecutionPayloadBid,
+    attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
+    block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
         BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
         BeaconBlockBodyGloas, BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockHeader,
         SignedBeaconBlock, SignedBeaconBlockHeader,
-    }, core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot}, deposit::{Deposit, DepositData}, execution::{
+    },
+    core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
+    deposit::{Deposit, DepositData},
+    execution::{
         AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequests,
         FullPayload,
-    }, exit::{SignedVoluntaryExit, VoluntaryExit}, fork::{Fork, ForkName, InconsistentFork, map_fork_name}, slashing::{AttesterSlashingBase, ProposerSlashing}, state::BeaconStateError, sync_committee::SyncAggregate, test_utils::TestRandom
+    },
+    exit::{SignedVoluntaryExit, VoluntaryExit},
+    fork::{Fork, ForkName, InconsistentFork, map_fork_name},
+    slashing::{AttesterSlashingBase, ProposerSlashing},
+    state::BeaconStateError,
+    sync_committee::SyncAggregate,
+    test_utils::TestRandom,
 };
 
 /// A block of the `BeaconChain`.
@@ -299,6 +310,26 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
         self.body().execution_payload()
     }
 
+    pub fn blob_kzg_commitments_len(&self) -> Option<usize> {
+        match self {
+            BeaconBlockRef::Base(_) => None,
+            BeaconBlockRef::Altair(_) => None,
+            BeaconBlockRef::Bellatrix(_) => None,
+            BeaconBlockRef::Capella(_) => None,
+            BeaconBlockRef::Deneb(block) => Some(block.body.blob_kzg_commitments.len()),
+            BeaconBlockRef::Electra(block) => Some(block.body.blob_kzg_commitments.len()),
+            BeaconBlockRef::Fulu(block) => Some(block.body.blob_kzg_commitments.len()),
+            BeaconBlockRef::Gloas(block) => Some(
+                block
+                    .body
+                    .signed_execution_payload_bid
+                    .message
+                    .blob_kzg_commitments
+                    .len(),
+            ),
+        }
+    }
+
     pub fn execution_block_hash(&self) -> Option<ExecutionBlockHash> {
         match self {
             BeaconBlockRef::Base(_) => None,
@@ -308,7 +339,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             BeaconBlockRef::Deneb(block) => Some(block.body.execution_payload.block_hash()),
             BeaconBlockRef::Electra(block) => Some(block.body.execution_payload.block_hash()),
             BeaconBlockRef::Fulu(block) => Some(block.body.execution_payload.block_hash()),
-            BeaconBlockRef::Gloas(block) => Some(block.body.signed_execution_payload_bid.message.block_hash),
+            BeaconBlockRef::Gloas(block) => {
+                Some(block.body.signed_execution_payload_bid.message.block_hash)
+            }
         }
     }
 }
