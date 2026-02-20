@@ -482,44 +482,33 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.blobs_bundles.get(id).cloned()
     }
 
-    pub fn get_blob_and_proofs(&self, versioned_hashes: Vec<Hash256>) -> Vec<BlobAndProof<E>> {
-        self.blobs_bundles
-            .values()
-            // Assumes all versioned hashes are present in the same bundle; short-circuit if found.
-            .find_map(|blobs_bundle| {
-                let blobs_and_proofs: Vec<_> = blobs_bundle
-                    .commitments
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, commitment)| {
-                        let hash = kzg_commitment_to_versioned_hash(commitment);
-                        versioned_hashes.contains(&hash)
-                    })
-                    .filter_map(|(blob_idx, _)| {
-                        let is_fulu_bundle = blobs_bundle.blobs.len() < blobs_bundle.proofs.len();
-                        let blob = blobs_bundle.blobs.get(blob_idx)?.clone();
-                        if is_fulu_bundle {
-                            let start = blob_idx * E::cells_per_ext_blob();
-                            let end = start + E::cells_per_ext_blob();
-                            let proofs = blobs_bundle
-                                .proofs
-                                .get(start..end)?
-                                .to_vec()
-                                .try_into()
-                                .ok()?;
-                            Some(BlobAndProof::V2(BlobAndProofV2 { blob, proofs }))
-                        } else {
-                            Some(BlobAndProof::V1(BlobAndProofV1 {
-                                blob,
-                                proof: *blobs_bundle.proofs.get(blob_idx)?,
-                            }))
-                        }
-                    })
-                    .collect();
-
-                (!blobs_and_proofs.is_empty()).then_some(blobs_and_proofs)
-            })
-            .unwrap_or_default()
+    /// Look up a blob and proof by versioned hash across all stored bundles.
+    pub fn get_blob_and_proof(&self, versioned_hash: &Hash256) -> Option<BlobAndProof<E>> {
+        self.blobs_bundles.values().find_map(|blobs_bundle| {
+            let (blob_idx, _) = blobs_bundle.commitments.iter().enumerate().find(
+                |(_, commitment)| {
+                    &kzg_commitment_to_versioned_hash(commitment) == versioned_hash
+                },
+            )?;
+            let is_fulu_bundle = blobs_bundle.blobs.len() < blobs_bundle.proofs.len();
+            let blob = blobs_bundle.blobs.get(blob_idx)?.clone();
+            if is_fulu_bundle {
+                let start = blob_idx * E::cells_per_ext_blob();
+                let end = start + E::cells_per_ext_blob();
+                let proofs = blobs_bundle
+                    .proofs
+                    .get(start..end)?
+                    .to_vec()
+                    .try_into()
+                    .ok()?;
+                Some(BlobAndProof::V2(BlobAndProofV2 { blob, proofs }))
+            } else {
+                Some(BlobAndProof::V1(BlobAndProofV1 {
+                    blob,
+                    proof: *blobs_bundle.proofs.get(blob_idx)?,
+                }))
+            }
+        })
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<E>) -> PayloadStatusV1 {
