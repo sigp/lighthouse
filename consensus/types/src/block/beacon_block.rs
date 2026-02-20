@@ -15,7 +15,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    ExecPayload, ExecutionBlockHash, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBid,
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,

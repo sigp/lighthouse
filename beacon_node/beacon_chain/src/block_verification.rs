@@ -945,21 +945,21 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
 
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
-        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-            if bid.message.parent_block_root != block.message().parent_root() {
-                return Err(BlockError::BidParentRootMismatch {
-                    bid_parent_root: bid.message.parent_block_root,
-                    block_parent_root: block.message().parent_root(),
-                });
-            }
-
-            // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
-            // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-            // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-            // once the parent payload is retrieved). If execution_payload verification of block's execution
-            // payload parent by an execution node is complete, verify the block's execution payload
-            // parent (defined by bid.parent_block_hash) passes all validation.
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid()
+            && bid.message.parent_block_root != block.message().parent_root()
+        {
+            return Err(BlockError::BidParentRootMismatch {
+                bid_parent_root: bid.message.parent_block_root,
+                block_parent_root: block.message().parent_root(),
+            });
         }
+
+        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
+        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
+        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
+        // once the parent payload is retrieved). If execution_payload verification of block's execution
+        // payload parent by an execution node is complete, verify the block's execution payload
+        // parent (defined by bid.parent_block_hash) passes all validation.
 
         drop(fork_choice_read_lock);
 
