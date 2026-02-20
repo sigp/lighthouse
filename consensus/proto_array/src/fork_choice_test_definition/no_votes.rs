@@ -1,4 +1,4 @@
-use types::FixedBytesExtended;
+use fixed_bytes::FixedBytesExtended;
 
 use super::*;
 

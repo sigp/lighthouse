@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use types::SlotData;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
-use types::slot_data::SlotData;
 use types::{
     Attestation, AttestationData, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution,
 };
@@ -473,7 +473,8 @@ where
 #[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use types::{AttestationBase, FixedBytesExtended, Hash256, test_utils::test_random_instance};
+    use fixed_bytes::FixedBytesExtended;
+    use types::{AttestationBase, Hash256, test_utils::test_random_instance};
 
     type E = types::MainnetEthSpec;
 

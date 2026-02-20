@@ -1,0 +1,124 @@
+# We only run tests on `RECENT_FORKS` on CI. To make sure we don't break prior forks, we run nightly tests to cover all prior forks.
+name: nightly-tests
+
+on:
+  schedule:
+    # Run at 8:30 AM UTC every day
+    - cron: '30 8 * * *'
+  workflow_dispatch: # Allow manual triggering
+    inputs:
+      branch:
+        description: 'Branch to test'
+        required: false
+        default: 'unstable'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Deny warnings in CI
+  # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
+  RUSTFLAGS: "-D warnings -C debuginfo=0"
+  # Prevent Github API rate limiting.
+  LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.LIGHTHOUSE_GITHUB_TOKEN }}
+  # Disable incremental compilation
+  CARGO_INCREMENTAL: 0
+  # Enable portable to prevent issues with caching `blst` for the wrong CPU type
+  TEST_FEATURES: portable
+
+jobs:
+  setup-matrix:
+    name: setup-matrix
+    runs-on: ubuntu-latest
+    outputs:
+      forks: ${{ steps.set-matrix.outputs.forks }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # All prior forks to cover in nightly tests. This list should be updated when we remove a fork from `RECENT_FORKS`.
+          echo 'forks=["phase0", "altair", "bellatrix", "capella", "deneb"]' >> $GITHUB_OUTPUT
+
+  beacon-chain-tests:
+    name: beacon-chain-tests
+    needs: setup-matrix
+    runs-on: 'ubuntu-latest'
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch || 'unstable' }}
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run beacon_chain tests for ${{ matrix.fork }}
+      run: make test-beacon-chain-${{ matrix.fork }}
+      timeout-minutes: 60
+
+  op-pool-tests:
+    name: op-pool-tests
+    needs: setup-matrix
+    runs-on: ubuntu-latest
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch || 'unstable' }}
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run operation_pool tests for ${{ matrix.fork }}
+      run: make test-op-pool-${{ matrix.fork }}
+      timeout-minutes: 60
+
+  network-tests:
+    name: network-tests
+    needs: setup-matrix
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch || 'unstable' }}
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+        bins: cargo-nextest
+    - name: Create CI logger dir
+      run: mkdir ${{ runner.temp }}/network_test_logs
+    - name: Run network tests for ${{ matrix.fork }}
+      run: make test-network-${{ matrix.fork }}
+      timeout-minutes: 60
+      env:
+        TEST_FEATURES: portable
+        CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: network_test_logs_${{ matrix.fork }}
+        path: ${{ runner.temp }}/network_test_logs

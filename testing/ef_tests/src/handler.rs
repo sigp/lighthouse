@@ -2,7 +2,7 @@ use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
 use crate::{FeatureName, type_name};
 use context_deserialize::ContextDeserialize;
-use derivative::Derivative;
+use educe::Educe;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Gloas]
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -154,8 +154,8 @@ pub trait Handler {
 
 macro_rules! bls_eth_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
-        #[derive(Derivative)]
-        #[derivative(Default(bound = ""))]
+        #[derive(Educe)]
+        #[educe(Default)]
         pub struct $runner_name;
 
         impl Handler for $runner_name {
@@ -174,8 +174,8 @@ macro_rules! bls_eth_handler {
 
 macro_rules! bls_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
-        #[derive(Derivative)]
-        #[derivative(Default(bound = ""))]
+        #[derive(Educe)]
+        #[educe(Default)]
         pub struct $runner_name;
 
         impl Handler for $runner_name {
@@ -305,6 +305,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Fulu])
     }
 
+    pub fn gloas_only() -> Self {
+        Self::for_forks(vec![ForkName::Gloas])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -329,14 +333,18 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
 
+    pub fn gloas_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[7..].to_vec())
+    }
+
     pub fn pre_electra() -> Self {
         Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
 }
 
 /// Handler for SSZ types that implement `CachedTreeHash`.
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
 
 /// Handler for SSZ types that don't implement `ssz::Decode`.
@@ -436,8 +444,8 @@ where
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct ShufflingHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
@@ -460,8 +468,8 @@ impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SanityBlocksHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
@@ -486,8 +494,8 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SanitySlotsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
@@ -511,8 +519,8 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct RandomHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
@@ -529,10 +537,15 @@ impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
     fn handler_name(&self) -> String {
         "random".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas random tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct EpochProcessingHandler<E, T>(PhantomData<(E, T)>);
 
 impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHandler<E, T> {
@@ -579,10 +592,19 @@ impl<E: EthSpec + TypeName> Handler for RewardsHandler<E> {
     fn handler_name(&self) -> String {
         self.handler_name.to_string()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        if self.handler_name == "inactivity_scores" {
+            // These tests were added in v1.7.0-alpha.2 and are available for Altair and later.
+            fork_name.altair_enabled()
+        } else {
+            true
+        }
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct ForkHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
@@ -601,8 +623,8 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct TransitionHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
@@ -621,8 +643,8 @@ impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct FinalityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
@@ -703,10 +725,15 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas fork choice tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct OptimisticSyncHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
@@ -732,10 +759,15 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas optimistic sync tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
@@ -754,8 +786,8 @@ impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct GenesisInitializationHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
@@ -774,8 +806,8 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGBlobToKZGCommitmentHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGBlobToKZGCommitmentHandler<E> {
@@ -794,8 +826,8 @@ impl<E: EthSpec> Handler for KZGBlobToKZGCommitmentHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeBlobKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeBlobKZGProofHandler<E> {
@@ -814,8 +846,8 @@ impl<E: EthSpec> Handler for KZGComputeBlobKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeKZGProofHandler<E> {
@@ -834,8 +866,8 @@ impl<E: EthSpec> Handler for KZGComputeKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyBlobKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofHandler<E> {
@@ -854,8 +886,8 @@ impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyBlobKZGProofBatchHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofBatchHandler<E> {
@@ -874,8 +906,8 @@ impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofBatchHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
@@ -894,8 +926,8 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct GetCustodyGroupsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
@@ -914,8 +946,8 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct ComputeColumnsForCustodyGroupHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> {
@@ -934,8 +966,8 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeCellsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
@@ -952,10 +984,15 @@ impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
     fn handler_name(&self) -> String {
         "compute_cells".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeCellsAndKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
@@ -972,10 +1009,15 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
     fn handler_name(&self) -> String {
         "compute_cells_and_kzg_proofs".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGVerifyCellKZGProofBatchHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
@@ -992,10 +1034,15 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
     fn handler_name(&self) -> String {
         "verify_cell_kzg_proof_batch".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGRecoverCellsAndKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
@@ -1012,10 +1059,15 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
     fn handler_name(&self) -> String {
         "recover_cells_and_kzg_proofs".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KzgInclusionMerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E> {
@@ -1036,10 +1088,15 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.deneb_enabled()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG merkle proof tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
@@ -1060,10 +1117,15 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.altair_enabled()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas light client tests
+        vec![ForkName::Gloas]
+    }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct LightClientUpdateHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
@@ -1083,13 +1145,17 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
-        // No test in Fulu yet.
-        fork_name.altair_enabled() && fork_name != ForkName::Fulu
+        fork_name.altair_enabled()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas light client tests
+        vec![ForkName::Gloas]
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
 
 impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O> {
@@ -1108,8 +1174,8 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
+#[derive(Educe)]
+#[educe(Default)]
 pub struct SszGenericHandler<H>(PhantomData<H>);
 
 impl<H: TypeName> Handler for SszGenericHandler<H> {

@@ -1,14 +1,15 @@
 use crate::attestation_storage::{CompactAttestationRef, CompactIndexedAttestation};
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
+use ssz::BitList;
 use state_processing::common::{
     attesting_indices_base::get_attesting_indices, base, get_attestation_participation_flag_indices,
 };
 use std::collections::HashMap;
 use types::{
-    Attestation, BeaconState, BitList, ChainSpec, EthSpec,
-    beacon_state::BeaconStateBase,
+    Attestation, BeaconState, ChainSpec, EthSpec,
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
+    state::BeaconStateBase,
 };
 
 pub const PROPOSER_REWARD_DENOMINATOR: u64 =

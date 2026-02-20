@@ -1,24 +1,29 @@
 #![cfg(test)]
 
-mod common;
-
+use crate::common;
 use crate::common::spec_with_all_forks_enabled;
-use common::{Protocol, build_tracing_subscriber};
+use crate::common::{Protocol, build_tracing_subscriber};
+use bls::Signature;
+use fixed_bytes::FixedBytesExtended;
+use libp2p::PeerId;
 use lighthouse_network::rpc::{RequestType, methods::*};
-use lighthouse_network::service::api_types::AppRequestId;
+use lighthouse_network::service::api_types::{
+    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+    DataColumnsByRangeRequestId, DataColumnsByRangeRequester, RangeRequestId, SyncRequestId,
+};
 use lighthouse_network::{NetworkEvent, ReportSource, Response};
 use ssz::Encode;
-use ssz_types::VariableList;
+use ssz_types::{RuntimeVariableList, VariableList};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use tracing::{Instrument, debug, error, info_span, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
-    EthSpec, FixedBytesExtended, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec,
-    RuntimeVariableList, Signature, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
+    DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
+    KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -26,8 +31,8 @@ type E = MinimalEthSpec;
 /// Bellatrix block with length < max_rpc_size.
 fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
     let mut block = BeaconBlockBellatrix::<E>::empty(spec);
-    let tx = VariableList::from(vec![0; 1024]);
-    let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
+    let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+    let txs = VariableList::try_from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>()).unwrap();
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -41,8 +46,8 @@ fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
 /// Hence, we generate a bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
 fn bellatrix_block_large(spec: &ChainSpec) -> BeaconBlock<E> {
     let mut block = BeaconBlockBellatrix::<E>::empty(spec);
-    let tx = VariableList::from(vec![0; 1024]);
-    let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
+    let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+    let txs = VariableList::try_from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>()).unwrap();
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -951,9 +956,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     })
 }
 
-#[test]
-#[allow(clippy::single_match)]
-fn test_tcp_columns_by_root_chunked_rpc() {
+fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -962,14 +965,17 @@ fn test_tcp_columns_by_root_chunked_rpc() {
     let messages_to_send = 32 * num_of_columns;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
-    let current_fork_name = ForkName::Fulu;
+    let slot = spec
+        .fork_epoch(fork_name)
+        .expect("fork must be scheduled")
+        .start_slot(E::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            current_fork_name,
+            fork_name,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -979,7 +985,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
 
         // DataColumnsByRootRequest Request
 
-        let max_request_blocks = spec.max_request_blocks(current_fork_name);
+        let max_request_blocks = spec.max_request_blocks(fork_name);
         let req = DataColumnsByRootRequest::new(
             vec![
                 DataColumnsByRootIdentifier {
@@ -998,7 +1004,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         let req_decoded = DataColumnsByRootRequest {
             data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
                 &req_bytes,
-                spec.max_request_blocks(current_fork_name),
+                spec.max_request_blocks(fork_name),
             )
             .unwrap(),
         };
@@ -1006,27 +1012,43 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         let rpc_request = RequestType::DataColumnsByRoot(req);
 
         // DataColumnsByRoot Response
-        let data_column = Arc::new(DataColumnSidecar {
-            index: 1,
-            signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader {
-                    slot: 320u64.into(),
-                    proposer_index: 1,
-                    parent_root: Hash256::zero(),
-                    state_root: Hash256::zero(),
-                    body_root: Hash256::zero(),
+        let data_column = if fork_name.gloas_enabled() {
+            Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+                index: 1,
+                slot,
+                beacon_block_root: Hash256::zero(),
+
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+            }))
+        } else {
+            Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                index: 1,
+                signed_block_header: SignedBeaconBlockHeader {
+                    message: BeaconBlockHeader {
+                        slot,
+                        proposer_index: 1,
+                        parent_root: Hash256::zero(),
+                        state_root: Hash256::zero(),
+                        body_root: Hash256::zero(),
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            },
-            column: vec![vec![0; E::bytes_per_blob()].into()].into(),
-            kzg_commitments: vec![KzgCommitment::empty_for_testing()].into(),
-            kzg_proofs: vec![KzgProof::empty()].into(),
-            kzg_commitments_inclusion_proof: vec![
-                Hash256::zero();
-                E::kzg_commitments_inclusion_proof_depth()
-            ]
-            .into(),
-        });
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+                kzg_commitments_inclusion_proof: vec![
+                    Hash256::zero();
+                    E::kzg_commitments_inclusion_proof_depth()
+                ]
+                .try_into()
+                .unwrap(),
+            }))
+        };
 
         let rpc_response = Response::DataColumnsByRoot(Some(data_column.clone()));
 
@@ -1037,7 +1059,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        tracing::info!("Sending RPC");
+                        info!("Sending RPC");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
@@ -1051,7 +1073,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                         Response::DataColumnsByRoot(Some(sidecar)) => {
                             assert_eq!(sidecar, data_column.clone());
                             messages_received += 1;
-                            tracing::info!("Chunk received");
+                            info!("Chunk received");
                         }
                         Response::DataColumnsByRoot(None) => {
                             // should be exactly messages_to_send
@@ -1078,7 +1100,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                     } => {
                         if request_type == rpc_request {
                             // send the response
-                            tracing::info!("Receiver got request");
+                            info!("Receiver got request");
 
                             for _ in 0..messages_to_send {
                                 receiver.send_response(
@@ -1086,7 +1108,7 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                                     inbound_request_id,
                                     rpc_response.clone(),
                                 );
-                                tracing::info!("Sending message");
+                                info!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -1094,11 +1116,11 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                                 inbound_request_id,
                                 Response::DataColumnsByRoot(None),
                             );
-                            tracing::info!("Send stream term");
+                            info!("Send stream term");
                         }
                     }
                     e => {
-                        tracing::info!(?e, "Got event");
+                        info!(?e, "Got event");
                     } // Ignore other events
                 }
             }
@@ -1116,7 +1138,17 @@ fn test_tcp_columns_by_root_chunked_rpc() {
 
 #[test]
 #[allow(clippy::single_match)]
-fn test_tcp_columns_by_range_chunked_rpc() {
+fn test_tcp_columns_by_root_chunked_rpc_fulu() {
+    test_tcp_columns_by_root_chunked_rpc_for_fork(ForkName::Fulu);
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_root_chunked_rpc_gloas() {
+    test_tcp_columns_by_root_chunked_rpc_for_fork(ForkName::Gloas);
+}
+
+fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -1125,14 +1157,17 @@ fn test_tcp_columns_by_range_chunked_rpc() {
     let messages_to_send = 32;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
-    let current_fork_name = ForkName::Fulu;
+    let slot = spec
+        .fork_epoch(fork_name)
+        .expect("fork must be scheduled")
+        .start_slot(E::slots_per_epoch());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            current_fork_name,
+            fork_name,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -1142,33 +1177,48 @@ fn test_tcp_columns_by_range_chunked_rpc() {
 
         // DataColumnsByRange Request
         let rpc_request = RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
-            start_slot: 320,
+            start_slot: slot.as_u64(),
             count: 32,
             columns: (0..E::number_of_columns() as u64).collect(),
         });
 
         // DataColumnsByRange Response
-        let data_column = Arc::new(DataColumnSidecar {
-            index: 1,
-            signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader {
-                    slot: 320u64.into(),
-                    proposer_index: 1,
-                    parent_root: Hash256::zero(),
-                    state_root: Hash256::zero(),
-                    body_root: Hash256::zero(),
+        let data_column = if fork_name.gloas_enabled() {
+            Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+                index: 1,
+                slot,
+                beacon_block_root: Hash256::zero(),
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+            }))
+        } else {
+            Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                index: 1,
+                signed_block_header: SignedBeaconBlockHeader {
+                    message: BeaconBlockHeader {
+                        slot,
+                        proposer_index: 1,
+                        parent_root: Hash256::zero(),
+                        state_root: Hash256::zero(),
+                        body_root: Hash256::zero(),
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            },
-            column: vec![vec![0; E::bytes_per_blob()].into()].into(),
-            kzg_commitments: vec![KzgCommitment::empty_for_testing()].into(),
-            kzg_proofs: vec![KzgProof::empty()].into(),
-            kzg_commitments_inclusion_proof: vec![
-                Hash256::zero();
-                E::kzg_commitments_inclusion_proof_depth()
-            ]
-            .into(),
-        });
+                column: vec![vec![0; E::bytes_per_cell()].try_into().unwrap()]
+                    .try_into()
+                    .unwrap(),
+                kzg_commitments: vec![KzgCommitment::empty_for_testing()].try_into().unwrap(),
+                kzg_proofs: vec![KzgProof::empty()].try_into().unwrap(),
+                kzg_commitments_inclusion_proof: vec![
+                    Hash256::zero();
+                    E::kzg_commitments_inclusion_proof_depth()
+                ]
+                .try_into()
+                .unwrap(),
+            }))
+        };
 
         let rpc_response = Response::DataColumnsByRange(Some(data_column.clone()));
 
@@ -1179,7 +1229,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        tracing::info!("Sending RPC");
+                        info!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -1192,7 +1242,7 @@ fn test_tcp_columns_by_range_chunked_rpc() {
                         Response::DataColumnsByRange(Some(sidecar)) => {
                             assert_eq!(sidecar, data_column.clone());
                             messages_received += 1;
-                            tracing::info!("Chunk received");
+                            info!("Chunk received");
                         }
                         Response::DataColumnsByRange(None) => {
                             // should be exactly messages_to_send
@@ -1211,34 +1261,27 @@ fn test_tcp_columns_by_range_chunked_rpc() {
         // build the receiver future
         let receiver_future = async {
             loop {
-                match receiver.next_event().await {
-                    NetworkEvent::RequestReceived {
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    inbound_request_id,
+                    request_type,
+                } = receiver.next_event().await
+                    && request_type == rpc_request
+                {
+                    // send the response
+                    info!("Receiver got request");
+
+                    for _ in 0..messages_to_send {
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                        info!("Sending message");
+                    }
+                    // send the stream termination
+                    receiver.send_response(
                         peer_id,
                         inbound_request_id,
-                        request_type,
-                    } => {
-                        if request_type == rpc_request {
-                            // send the response
-                            tracing::info!("Receiver got request");
-
-                            for _ in 0..messages_to_send {
-                                receiver.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    rpc_response.clone(),
-                                );
-                                tracing::info!("Sending message");
-                            }
-                            // send the stream termination
-                            receiver.send_response(
-                                peer_id,
-                                inbound_request_id,
-                                Response::DataColumnsByRange(None),
-                            );
-                            tracing::info!("Send stream term");
-                        }
-                    }
-                    _ => {} // Ignore other events
+                        Response::DataColumnsByRange(None),
+                    );
+                    info!("Send stream term");
                 }
             }
         }
@@ -1251,6 +1294,18 @@ fn test_tcp_columns_by_range_chunked_rpc() {
             }
         }
     })
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_range_chunked_rpc_fulu() {
+    test_tcp_columns_by_range_chunked_rpc_for_fork(ForkName::Fulu);
+}
+
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_columns_by_range_chunked_rpc_gloas() {
+    test_tcp_columns_by_range_chunked_rpc_for_fork(ForkName::Gloas);
 }
 
 // Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received
@@ -1731,4 +1786,158 @@ fn test_active_requests() {
             }
         }
     })
+}
+
+// Test that when a node receives an invalid BlocksByRange request exceeding the maximum count,
+// it bans the sender.
+#[test]
+fn test_request_too_large_blocks_by_range() {
+    let spec = Arc::new(spec_with_all_forks_enabled());
+
+    test_request_too_large(
+        AppRequestId::Sync(SyncRequestId::BlocksByRange(BlocksByRangeRequestId {
+            id: 1,
+            parent_request_id: ComponentsByRangeRequestId {
+                id: 1,
+                requester: RangeRequestId::RangeSync {
+                    chain_id: 1,
+                    batch_id: Epoch::new(1),
+                },
+            },
+        })),
+        RequestType::BlocksByRange(OldBlocksByRangeRequest::new(
+            0,
+            spec.max_request_blocks(ForkName::Base) as u64 + 1, // exceeds the max request defined in the spec.
+            1,
+        )),
+    );
+}
+
+// Test that when a node receives an invalid BlobsByRange request exceeding the maximum count,
+// it bans the sender.
+#[test]
+fn test_request_too_large_blobs_by_range() {
+    let spec = Arc::new(spec_with_all_forks_enabled());
+
+    let max_request_blobs_count = spec.max_request_blob_sidecars(ForkName::Base) as u64
+        / spec.max_blobs_per_block_within_fork(ForkName::Base);
+    test_request_too_large(
+        AppRequestId::Sync(SyncRequestId::BlobsByRange(BlobsByRangeRequestId {
+            id: 1,
+            parent_request_id: ComponentsByRangeRequestId {
+                id: 1,
+                requester: RangeRequestId::RangeSync {
+                    chain_id: 1,
+                    batch_id: Epoch::new(1),
+                },
+            },
+        })),
+        RequestType::BlobsByRange(BlobsByRangeRequest {
+            start_slot: 0,
+            count: max_request_blobs_count + 1, // exceeds the max request defined in the spec.
+        }),
+    );
+}
+
+// Test that when a node receives an invalid DataColumnsByRange request exceeding the columns count,
+// it bans the sender.
+#[test]
+fn test_request_too_large_data_columns_by_range() {
+    test_request_too_large(
+        AppRequestId::Sync(SyncRequestId::DataColumnsByRange(
+            DataColumnsByRangeRequestId {
+                id: 1,
+                parent_request_id: DataColumnsByRangeRequester::ComponentsByRange(
+                    ComponentsByRangeRequestId {
+                        id: 1,
+                        requester: RangeRequestId::RangeSync {
+                            chain_id: 1,
+                            batch_id: Epoch::new(1),
+                        },
+                    },
+                ),
+                peer: PeerId::random(),
+            },
+        )),
+        RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            // exceeds the max request defined in the spec.
+            columns: vec![0; E::number_of_columns() + 1],
+        }),
+    );
+}
+
+fn test_request_too_large(app_request_id: AppRequestId, request: RequestType<E>) {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = true;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+    let rt = Arc::new(Runtime::new().unwrap());
+    let spec = Arc::new(spec_with_all_forks_enabled());
+
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            ForkName::Base,
+            spec,
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // Build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!(?request, %peer_id, "Sending RPC request");
+                        sender
+                            .send_request(peer_id, app_request_id, request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        app_request_id,
+                        response,
+                        ..
+                    } => {
+                        debug!(?app_request_id, ?response, "Received response");
+                    }
+                    NetworkEvent::RPCFailed { error, .. } => {
+                        // This variant should be unreachable, as the receiver doesn't respond with an error when a request exceeds the limit.
+                        debug!(?error, "RPC failed");
+                        unreachable!();
+                    }
+                    NetworkEvent::PeerDisconnected(peer_id) => {
+                        // The receiver should disconnect as a result of the invalid request.
+                        debug!(%peer_id, "Peer disconnected");
+                        // End the test.
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // Build the receiver future
+        let receiver_future = async {
+            loop {
+                if let NetworkEvent::RequestReceived { .. } = receiver.next_event().await {
+                    // This event should be unreachable, as the handler drops the invalid request.
+                    unreachable!();
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    });
 }

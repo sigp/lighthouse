@@ -29,6 +29,7 @@ use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
 use tracing::{Level, info};
+use tracing_samplers::PrefixBasedSampler;
 use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -675,7 +676,15 @@ fn run<E: EthSpec>(
                     _ => "lighthouse".to_string(),
                 });
 
+            // Use ParentBased sampler with PrefixBasedSampler to only export traces
+            // that start from known instrumented code paths (lh_ prefix). Child spans
+            // automatically inherit their parent's sampling decision.
+            let sampler = opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(
+                PrefixBasedSampler::new("lh_"),
+            ));
+
             let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_sampler(sampler)
                 .with_batch_exporter(exporter)
                 .with_resource(
                     opentelemetry_sdk::Resource::builder()
@@ -730,7 +739,8 @@ fn run<E: EthSpec>(
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        tracing::warn!(
+        use tracing::warn;
+        warn!(
             advice = "If you get a SIGILL, please try Lighthouse portable build",
             "CPU seems incompatible with optimized Lighthouse build"
         );

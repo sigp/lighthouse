@@ -1,4 +1,3 @@
-use crate::attester_cache::Error as AttesterCacheError;
 use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
@@ -9,12 +8,15 @@ use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
+use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
 use futures::channel::mpsc::TrySendError;
+use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
+use state_processing::envelope_processing::EnvelopeProcessingError;
 use state_processing::{
     BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
     block_signature_verifier::Error as BlockSignatureVerifierError,
@@ -28,7 +30,6 @@ use state_processing::{
 };
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
-use types::milhouse::Error as MilhouseError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -98,7 +99,7 @@ pub enum BeaconChainError {
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
     ObservedDataSidecarsError(ObservedDataSidecarsError),
-    AttesterCacheError(AttesterCacheError),
+    EarlyAttesterCacheError,
     PruningError(PruningError),
     ArithError(ArithError),
     InvalidShufflingId {
@@ -219,7 +220,7 @@ pub enum BeaconChainError {
     UnableToPublish,
     UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientUpdateError(LightClientUpdateError),
+    LightClientError(LightClientError),
     LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
@@ -265,7 +266,6 @@ easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(ObservedDataSidecarsError, BeaconChainError);
-easy_from_to!(AttesterCacheError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
@@ -275,7 +275,7 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientUpdateError, BeaconChainError);
+easy_from_to!(LightClientError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
 easy_from_to!(AttestationError, BeaconChainError);
 
@@ -318,6 +318,11 @@ pub enum BlockProductionError {
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),
     MissingExecutionRequests,
+    SszTypesError(ssz_types::Error),
+    EnvelopeProcessingError(EnvelopeProcessingError),
+    BlsError(bls::Error),
+    // TODO(gloas): Remove this once Gloas is implemented
+    GloasNotImplemented(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

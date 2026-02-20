@@ -685,13 +685,13 @@ impl From<Error> for BeaconChainError {
 mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use bls::Keypair;
     use execution_layer::test_utils::Block;
+    use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{
-        ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
-    };
+    use types::{ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
 
     const VALIDATOR_COUNT: usize = 48;
 
@@ -715,8 +715,9 @@ mod tests {
         harness
     }
 
+    // TODO(EIP-7732) Extend this test for gloas
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_gloas() {
+    async fn check_all_blocks_from_altair_to_fulu() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
         let num_epochs = 12;
         let bellatrix_fork_epoch = 2usize;
@@ -724,7 +725,6 @@ mod tests {
         let deneb_fork_epoch = 6usize;
         let electra_fork_epoch = 8usize;
         let fulu_fork_epoch = 10usize;
-        let gloas_fork_epoch = 12usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
@@ -734,7 +734,6 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
-        spec.gloas_fork_epoch = Some(Epoch::new(gloas_fork_epoch as u64));
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());
@@ -749,7 +748,8 @@ mod tests {
             .execution_block_generator()
             .move_to_terminal_block()
             .expect("should move to terminal block");
-        let timestamp = harness.get_timestamp_at_slot() + harness.spec.seconds_per_slot;
+        let timestamp =
+            harness.get_timestamp_at_slot() + harness.spec.get_slot_duration().as_secs();
         harness
             .execution_block_generator()
             .modify_last_block(|block| {

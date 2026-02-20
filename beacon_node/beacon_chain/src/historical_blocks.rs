@@ -1,5 +1,6 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
+use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
@@ -12,7 +13,7 @@ use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::{debug, instrument};
-use types::{FixedBytesExtended, Hash256, Slot};
+use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -156,12 +157,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             match &block_data {
-                AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(..) => {
-                    new_oldest_blob_slot = Some(block.slot());
-                }
+                AvailableBlockData::NoData => (),
+                AvailableBlockData::Blobs(_) => new_oldest_blob_slot = Some(block.slot()),
                 AvailableBlockData::DataColumns(_) => {
-                    new_oldest_data_column_slot = Some(block.slot());
+                    new_oldest_data_column_slot = Some(block.slot())
                 }
             }
 
@@ -306,10 +305,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
         // This can only happen if we have backfilled all the way to genesis.
-        if backfill_complete
-            && self.genesis_backfill_slot == Slot::new(0)
-            && self.config.reconstruct_historic_states
-        {
+        if backfill_complete && self.genesis_backfill_slot == Slot::new(0) && self.config.archive {
             self.store_migrator.process_reconstruction();
         }
 

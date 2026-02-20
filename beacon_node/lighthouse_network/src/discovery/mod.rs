@@ -51,7 +51,7 @@ use types::{ChainSpec, EnrForkId, EthSpec};
 mod subnet_predicate;
 use crate::discovery::enr::{NEXT_FORK_DIGEST_ENR_KEY, PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY};
 pub use subnet_predicate::subnet_predicate;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
@@ -264,47 +264,62 @@ impl<E: EthSpec> Discovery<E> {
             info!("Contacting Multiaddr boot-nodes for their ENR");
         }
 
-        // get futures for requesting the Enrs associated to these multiaddr and wait for their
+        // get futures for requesting the ENRs associated to these multiaddr and wait for their
         // completion
-        let mut fut_coll = config
+        let discv5_eligible_addrs = config
             .boot_nodes_multiaddr
             .iter()
-            .map(|addr| addr.to_string())
-            // request the ENR for this multiaddr and keep the original for logging
-            .map(|addr| {
-                futures::future::join(
-                    discv5.request_enr(addr.clone()),
-                    futures::future::ready(addr),
-                )
-            })
-            .collect::<FuturesUnordered<_>>();
+            // Filter out multiaddrs without UDP or P2P protocols required for discv5 ENR requests
+            .filter(|addr| {
+                addr.iter().any(|proto| matches!(proto, Protocol::Udp(_)))
+                    && addr.iter().any(|proto| matches!(proto, Protocol::P2p(_)))
+            });
 
-        while let Some((result, original_addr)) = fut_coll.next().await {
-            match result {
-                Ok(enr) => {
-                    debug!(
-                        node_id = %enr.node_id(),
-                        peer_id = %enr.peer_id(),
-                        ip4 = ?enr.ip4(),
-                        udp4 = ?enr.udp4(),
-                        tcp4 = ?enr.tcp4(),
-                        quic4 = ?enr.quic4(),
-                        "Adding node to routing table"
-                    );
-                    let _ = discv5.add_enr(enr).map_err(|e| {
-                        error!(
-                            addr = original_addr.to_string(),
-                            error = e.to_string(),
-                            "Could not add peer to the local routing table"
-                        )
-                    });
-                }
-                Err(e) => {
-                    error!(
-                        multiaddr = original_addr.to_string(),
-                        error = e.to_string(),
-                        "Error getting mapping to ENR"
+        if config.disable_discovery {
+            if discv5_eligible_addrs.count() > 0 {
+                warn!(
+                    "Boot node multiaddrs requiring discv5 ENR lookup will be ignored because discovery is disabled"
+                );
+            }
+        } else {
+            let mut fut_coll = discv5_eligible_addrs
+                .map(|addr| addr.to_string())
+                // request the ENR for this multiaddr and keep the original for logging
+                .map(|addr| {
+                    futures::future::join(
+                        discv5.request_enr(addr.clone()),
+                        futures::future::ready(addr),
                     )
+                })
+                .collect::<FuturesUnordered<_>>();
+
+            while let Some((result, original_addr)) = fut_coll.next().await {
+                match result {
+                    Ok(enr) => {
+                        debug!(
+                            node_id = %enr.node_id(),
+                            peer_id = %enr.peer_id(),
+                            ip4 = ?enr.ip4(),
+                            udp4 = ?enr.udp4(),
+                            tcp4 = ?enr.tcp4(),
+                            quic4 = ?enr.quic4(),
+                            "Adding node to routing table"
+                        );
+                        let _ = discv5.add_enr(enr).map_err(|e| {
+                            error!(
+                                addr = original_addr.to_string(),
+                                error = e.to_string(),
+                                "Could not add peer to the local routing table"
+                            )
+                        });
+                    }
+                    Err(e) => {
+                        error!(
+                            multiaddr = original_addr.to_string(),
+                            error = e.to_string(),
+                            "Error getting mapping to ENR"
+                        )
+                    }
                 }
             }
         }
@@ -1231,7 +1246,8 @@ mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV3};
     use libp2p::identity::secp256k1;
-    use types::{BitVector, MinimalEthSpec, SubnetId};
+    use ssz_types::BitVector;
+    use types::{MinimalEthSpec, SubnetId};
 
     type E = MinimalEthSpec;
 
@@ -1243,11 +1259,12 @@ mod tests {
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let next_fork_digest = [0; 4];
+        let custody_group_count = spec.custody_requirement;
         let enr: Enr = build_enr::<E>(
             &enr_key,
             &config,
             &EnrForkId::default(),
-            None,
+            custody_group_count,
             next_fork_digest,
             &spec,
         )
@@ -1258,7 +1275,7 @@ mod tests {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
-                custody_group_count: spec.custody_requirement,
+                custody_group_count,
             }),
             vec![],
             false,

@@ -2,11 +2,12 @@ use crate::common::update_progressive_balances_cache::initialize_progressive_bal
 use crate::common::{
     attesting_indices_base::get_attesting_indices, get_attestation_participation_flag_indices,
 };
+use milhouse::List;
 use std::mem;
 use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
-    Fork, List, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee,
+    Fork, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.

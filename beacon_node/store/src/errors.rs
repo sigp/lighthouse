@@ -1,4 +1,3 @@
-use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::{HotColdDBError, StateSummaryIteratorError};
 use crate::{DBColumn, hdiff};
@@ -6,16 +5,14 @@ use crate::{DBColumn, hdiff};
 use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot, milhouse};
+use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
     SszDecodeError(DecodeError),
-    VectorChunkError(ChunkError),
     BeaconStateError(BeaconStateError),
-    PartialBeaconStateError,
     HotColdDBError(HotColdDBError),
     DBError {
         message: String,
@@ -123,12 +120,6 @@ impl<T> HandleUnavailable<T> for Result<T> {
 impl From<DecodeError> for Error {
     fn from(e: DecodeError) -> Error {
         Error::SszDecodeError(e)
-    }
-}
-
-impl From<ChunkError> for Error {
-    fn from(e: ChunkError) -> Error {
-        Error::VectorChunkError(e)
     }
 }
 
