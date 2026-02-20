@@ -39,7 +39,7 @@ informally.
 
 ### A Note on LLM usage
 
-Contributing to Lighthouse is a learning experience. We are happy to support contributors who are genuinely engaging with the code base. Our general policy regarding LLM usage:
+We are happy to support contributors who are genuinely engaging with the code base. Our general policy regarding LLM usage:
 
 - Please refrain from submissions that you haven't thoroughly understood, reviewed, and tested.
 - Please disclose if a significant portion of your contribution was AI-generated.
