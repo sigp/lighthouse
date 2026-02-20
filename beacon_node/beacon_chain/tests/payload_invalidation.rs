@@ -6,7 +6,7 @@ use beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
     StateSkipConfig, WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
-    test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec},
+    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
@@ -42,12 +42,13 @@ struct InvalidPayloadRig {
 
 impl InvalidPayloadRig {
     /// Returns true if payload invalidation tests should be skipped for the current fork.
-    /// Gloas replaces execution_payload with signed_execution_payload_bid, so the
-    /// new_payload/forkchoice_updated payload validation flow does not apply.
+    /// Pre-Bellatrix has no execution payloads. Gloas replaces execution_payload with
+    /// signed_execution_payload_bid, so the new_payload/forkchoice_updated flow does not apply.
     fn should_skip() -> bool {
         // TODO(EIP-7732): Add gloas-specific payload invalidation tests.
         // https://github.com/sigp/lighthouse/issues/8590
-        test_spec::<E>().gloas_fork_epoch.is_some()
+        fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled())
+            || test_spec::<E>().gloas_fork_epoch.is_some()
     }
 
     fn new() -> Self {

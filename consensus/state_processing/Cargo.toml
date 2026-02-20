@@ -8,6 +8,8 @@ edition = { workspace = true }
 default = []
 fake_crypto = ["bls/fake_crypto"]
 arbitrary-fuzz = [
+    "dep:arbitrary",
+    "smallvec/arbitrary",
     "types/arbitrary-fuzz",
     "merkle_proof/arbitrary",
     "ethereum_ssz/arbitrary",
@@ -17,7 +19,7 @@ arbitrary-fuzz = [
 portable = ["bls/supranational-portable"]
 
 [dependencies]
-arbitrary = { workspace = true }
+arbitrary = { workspace = true, optional = true }
 bls = { workspace = true }
 educe = { workspace = true }
 ethereum_hashing = { workspace = true }
