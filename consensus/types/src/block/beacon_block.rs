@@ -329,21 +329,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             ),
         }
     }
-
-    pub fn execution_block_hash(&self) -> Option<ExecutionBlockHash> {
-        match self {
-            BeaconBlockRef::Base(_) => None,
-            BeaconBlockRef::Altair(_) => None,
-            BeaconBlockRef::Bellatrix(block) => Some(block.body.execution_payload.block_hash()),
-            BeaconBlockRef::Capella(block) => Some(block.body.execution_payload.block_hash()),
-            BeaconBlockRef::Deneb(block) => Some(block.body.execution_payload.block_hash()),
-            BeaconBlockRef::Electra(block) => Some(block.body.execution_payload.block_hash()),
-            BeaconBlockRef::Fulu(block) => Some(block.body.execution_payload.block_hash()),
-            BeaconBlockRef::Gloas(block) => {
-                Some(block.body.signed_execution_payload_bid.message.block_hash)
-            }
-        }
-    }
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRefMut<'a, E, Payload> {
