@@ -5792,7 +5792,7 @@ async fn bellatrix_produce_and_store_payloads() {
     );
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..ChainConfig::default()
     };
     let harness = TestHarness::builder(MinimalEthSpec)
