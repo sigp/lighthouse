@@ -9,8 +9,8 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use types::EthSpec;
 use validator_metrics::{
-    HEAD_MONITOR_RESTARTS, HEAD_MONITOR_STREAM_DISCONNECTIONS,
-    HEAD_MONITOR_STREAM_RECONNECTIONS, inc_counter,
+    HEAD_MONITOR_RESTARTS, HEAD_MONITOR_STREAM_DISCONNECTIONS, HEAD_MONITOR_STREAM_RECONNECTIONS,
+    inc_counter,
 };
 
 type CacheHashMap = HashMap<usize, SseHead>;
