@@ -34,14 +34,14 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
             .map_err(|e| format!("Invalid hex in JWT secret file: {}", e))?;
         JwtKey::from_slice(&secret_bytes)
             .map_err(|e| format!("Invalid JWT secret length (expected 32 bytes): {}", e))?
-    } else {
-        let jwt_path = jwt_output_path
-            .ok_or("either --jwt-secret-path or --jwt-output-path must be provided")?;
+    } else if let Some(jwt_path) = jwt_output_path {
         let jwt_key = JwtKey::from_slice(&DEFAULT_JWT_SECRET)
             .map_err(|e| format!("Default JWT secret invalid: {}", e))?;
         std::fs::write(jwt_path, hex::encode(jwt_key.as_bytes()))
             .map_err(|e| format!("Failed to write JWT secret to output path: {}", e))?;
         jwt_key
+    } else {
+        return Err("either --jwt-secret-path or --jwt-output-path must be provided".to_string());
     };
 
     let config = MockExecutionConfig {
