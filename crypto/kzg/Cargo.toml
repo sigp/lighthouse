@@ -7,10 +7,11 @@ edition = "2021"
 
 [features]
 default = []
+arbitrary = ["dep:arbitrary"]
 fake_crypto = []
 
 [dependencies]
-arbitrary = { workspace = true }
+arbitrary = { workspace = true, optional = true }
 c-kzg = { workspace = true }
 educe = { workspace = true }
 ethereum_hashing = { workspace = true }
