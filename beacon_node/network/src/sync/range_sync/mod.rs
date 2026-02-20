@@ -7,6 +7,8 @@ mod sync_type;
 
 pub use chain::{ChainId, EPOCHS_PER_BATCH};
 #[cfg(test)]
+pub use chain::RangeSyncBatchConfig;
+#[cfg(test)]
 pub use chain_collection::SyncChainStatus;
 pub use range::RangeSync;
 pub use sync_type::RangeSyncType;
