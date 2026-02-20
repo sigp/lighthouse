@@ -493,6 +493,7 @@ fn main() {
                         .value_name("PATH")
                         .action(ArgAction::Set)
                         .required_unless_present("jwt-secret-path")
+                        .conflicts_with("jwt-secret-path")
                         .help("Path to write the JWT secret.")
                         .display_order(0)
                 )
