@@ -485,11 +485,14 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     /// Look up a blob and proof by versioned hash across all stored bundles.
     pub fn get_blob_and_proof(&self, versioned_hash: &Hash256) -> Option<BlobAndProof<E>> {
         self.blobs_bundles.values().find_map(|blobs_bundle| {
-            let (blob_idx, _) = blobs_bundle.commitments.iter().enumerate().find(
-                |(_, commitment)| {
-                    &kzg_commitment_to_versioned_hash(commitment) == versioned_hash
-                },
-            )?;
+            let (blob_idx, _) =
+                blobs_bundle
+                    .commitments
+                    .iter()
+                    .enumerate()
+                    .find(|(_, commitment)| {
+                        &kzg_commitment_to_versioned_hash(commitment) == versioned_hash
+                    })?;
             let is_fulu_bundle = blobs_bundle.blobs.len() < blobs_bundle.proofs.len();
             let blob = blobs_bundle.blobs.get(blob_idx)?.clone();
             if is_fulu_bundle {
