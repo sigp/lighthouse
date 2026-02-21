@@ -18,6 +18,7 @@ deny = [
     { crate = "pbkdf2", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "scrypt", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "syn", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "uuid", deny-multiple-versions = true, reason = "dependency hygiene" },
 ]
 
 [sources]
