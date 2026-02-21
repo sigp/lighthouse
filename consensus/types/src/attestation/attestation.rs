@@ -19,7 +19,7 @@ use crate::{
         IndexedAttestationElectra,
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot, SlotData},
-    fork::{Fork, ForkName},
+    fork::{Fork, ForkName, ForkVersionDecode},
     test_utils::TestRandom,
 };
 
@@ -579,6 +579,26 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Attestation<E> {
                 .map_err(serde::de::Error::custom)
                 .map(Attestation::Base)
         }
+    }
+}
+
+impl<E: EthSpec> Attestation<E> {
+    /// SSZ decode with explicit fork variant.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        if fork_name.electra_enabled() {
+            ssz::Decode::from_ssz_bytes(bytes).map(Self::Electra)
+        } else {
+            ssz::Decode::from_ssz_bytes(bytes).map(Self::Base)
+        }
+    }
+}
+
+impl<E: EthSpec> ForkVersionDecode for Attestation<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes_for_fork(bytes, fork_name)
     }
 }
 
