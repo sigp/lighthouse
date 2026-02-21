@@ -261,6 +261,17 @@ impl<E: EthSpec> Attestation<E> {
             Self::Electra(attn) => attn.get_aggregation_bits(),
         }
     }
+
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        if fork_name.electra_enabled() {
+            ssz::Decode::from_ssz_bytes(bytes).map(Self::Electra)
+        } else {
+            ssz::Decode::from_ssz_bytes(bytes).map(Self::Base)
+        }
+    }
 }
 
 impl<E: EthSpec> AttestationRef<'_, E> {
@@ -578,20 +589,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Attestation<E> {
             AttestationBase::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(Attestation::Base)
-        }
-    }
-}
-
-impl<E: EthSpec> Attestation<E> {
-    /// SSZ decode with explicit fork variant.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        if fork_name.electra_enabled() {
-            ssz::Decode::from_ssz_bytes(bytes).map(Self::Electra)
-        } else {
-            ssz::Decode::from_ssz_bytes(bytes).map(Self::Base)
         }
     }
 }
