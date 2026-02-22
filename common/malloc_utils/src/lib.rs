@@ -5,11 +5,16 @@
 //! This crate can be compiled with different feature flags to support different allocators:
 //!
 //! - Jemalloc, via the `jemalloc` feature.
+//! - mimalloc, via the `mimalloc` feature.
+//! - tcmalloc, via the `tcmalloc` feature.
 //! - GNU malloc, if no features are set and the system supports it.
 //! - The system allocator, if no features are set and the allocator is not GNU malloc.
 //!
-//! It is assumed that if Jemalloc is not in use, and the following two statements are correct then
-//! we should expect to configure `glibc`:
+//! When multiple allocator features are enabled (e.g. because `jemalloc` is hardcoded in the
+//! binary dependencies), the priority order is: mimalloc > tcmalloc > jemalloc > glibc > system.
+//!
+//! It is assumed that if no allocator feature is in use, and the following two statements are
+//! correct then we should expect to configure `glibc`:
 //!
 //! - `target_os = linux`
 //! - `target_env != musl`
@@ -24,22 +29,55 @@
 //! detecting `glibc` are best-effort. If this crate throws errors about undefined external
 //! functions, then try to compile with the `not_glibc_interface` module.
 
+// Ensure mimalloc and tcmalloc are not both enabled.
+// Note: jemalloc + mimalloc/tcmalloc is allowed because jemalloc is hardcoded in the lighthouse
+// and lcli binary dependencies. mimalloc/tcmalloc override jemalloc via cfg guards, matching the
+// existing sysmalloc override pattern.
+#[cfg(all(feature = "mimalloc", feature = "tcmalloc"))]
+compile_error!("Cannot enable both `mimalloc` and `tcmalloc` allocator features");
+
+// mimalloc and tcmalloc modules are only compiled on unix. Fail loudly rather than
+// silently falling back to the system allocator.
+#[cfg(all(not(unix), feature = "mimalloc"))]
+compile_error!("`mimalloc` feature is only supported on unix targets");
+
+#[cfg(all(not(unix), feature = "tcmalloc"))]
+compile_error!("`tcmalloc` feature is only supported on unix targets");
+
 #[cfg(all(
-    any(feature = "sysmalloc", not(feature = "jemalloc")),
+    any(
+        feature = "sysmalloc",
+        not(any(feature = "jemalloc", feature = "mimalloc", feature = "tcmalloc"))
+    ),
     target_os = "linux",
     not(target_env = "musl")
 ))]
 pub mod glibc;
 
-#[cfg(all(unix, not(feature = "sysmalloc"), feature = "jemalloc"))]
+#[cfg(all(
+    unix,
+    not(feature = "sysmalloc"),
+    not(feature = "mimalloc"),
+    not(feature = "tcmalloc"),
+    feature = "jemalloc"
+))]
 pub mod jemalloc;
+
+#[cfg(all(unix, not(feature = "sysmalloc"), feature = "mimalloc"))]
+pub mod mimalloc_alloc;
+
+#[cfg(all(unix, not(feature = "sysmalloc"), feature = "tcmalloc"))]
+pub mod tcmalloc_alloc;
 
 pub use interface::*;
 
-// Glibc malloc is the default on non-musl Linux if the sysmalloc feature is enabled, or jemalloc
-// is disabled.
+// Glibc malloc is the default on non-musl Linux when no allocator feature is set, or when
+// sysmalloc is explicitly requested.
 #[cfg(all(
-    any(feature = "sysmalloc", not(feature = "jemalloc")),
+    any(
+        feature = "sysmalloc",
+        not(any(feature = "jemalloc", feature = "mimalloc", feature = "tcmalloc"))
+    ),
     target_os = "linux",
     not(target_env = "musl")
 ))]
@@ -52,8 +90,15 @@ mod interface {
     }
 }
 
-// Jemalloc is the default on UNIX (including musl) unless the sysmalloc feature is enabled.
-#[cfg(all(unix, not(feature = "sysmalloc"), feature = "jemalloc"))]
+// Jemalloc is the default on UNIX (including musl) unless overridden by sysmalloc, mimalloc, or
+// tcmalloc.
+#[cfg(all(
+    unix,
+    not(feature = "sysmalloc"),
+    not(feature = "mimalloc"),
+    not(feature = "tcmalloc"),
+    feature = "jemalloc"
+))]
 mod interface {
     #[allow(dead_code)]
     pub fn configure_memory_allocator() -> Result<(), String> {
@@ -70,10 +115,44 @@ mod interface {
     }
 }
 
+// mimalloc allocator.
+#[cfg(all(unix, not(feature = "sysmalloc"), feature = "mimalloc"))]
+mod interface {
+    #[allow(dead_code)]
+    pub fn configure_memory_allocator() -> Result<(), String> {
+        Ok(())
+    }
+
+    pub use crate::mimalloc_alloc::scrape_mimalloc_metrics as scrape_allocator_metrics;
+
+    pub fn allocator_name() -> String {
+        "mimalloc".to_string()
+    }
+}
+
+// tcmalloc allocator (via gperftools).
+#[cfg(all(unix, not(feature = "sysmalloc"), feature = "tcmalloc"))]
+mod interface {
+    #[allow(dead_code)]
+    pub fn configure_memory_allocator() -> Result<(), String> {
+        Ok(())
+    }
+
+    pub use crate::tcmalloc_alloc::scrape_tcmalloc_metrics as scrape_allocator_metrics;
+
+    pub fn allocator_name() -> String {
+        "tcmalloc".to_string()
+    }
+}
+
+// System allocator fallback for platforms where no allocator feature applies.
 #[cfg(any(
     not(unix),
     all(
-        any(feature = "sysmalloc", not(feature = "jemalloc")),
+        any(
+            feature = "sysmalloc",
+            not(any(feature = "jemalloc", feature = "mimalloc", feature = "tcmalloc"))
+        ),
         any(not(target_os = "linux"), target_env = "musl")
     )
 ))]

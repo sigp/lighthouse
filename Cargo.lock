@@ -4994,6 +4994,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "667f4fec20f29dfc6bc7357c582d91796c169ad7e2fce709468aefeb2c099870"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "libp2p"
 version = "0.56.1"
 source = "git+https://github.com/libp2p/rust-libp2p.git#5e3519fb66b92c7f7c0dc744ab360fd8b669fe54"
@@ -5682,7 +5692,9 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "metrics",
+ "mimalloc",
  "parking_lot",
+ "tcmalloc",
  "tikv-jemalloc-ctl",
  "tikv-jemallocator",
 ]
@@ -5820,6 +5832,15 @@ dependencies = [
  "triomphe",
  "typenum",
  "vec_map",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1ee66a4b64c74f4ef288bcbb9192ad9c3feaad75193129ac8509af543894fd8"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]
@@ -8770,6 +8791,12 @@ dependencies = [
  "tokio",
  "tracing",
 ]
+
+[[package]]
+name = "tcmalloc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "375205113d84a1c5eeed67beaa0ce08e41be1a9d5acc3425ad2381fddd9d819b"
 
 [[package]]
 name = "tempfile"

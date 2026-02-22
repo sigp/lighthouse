@@ -11,6 +11,10 @@ normal = ["malloc_utils"]
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
+# Use mimalloc as the global allocator (alternative to jemalloc).
+mimalloc = ["malloc_utils/mimalloc"]
+# Use tcmalloc (gperftools) as the global allocator (alternative to jemalloc).
+tcmalloc = ["malloc_utils/tcmalloc"]
 
 [dependencies]
 account_utils = { workspace = true }
