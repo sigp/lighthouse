@@ -1,26 +1,42 @@
 use std::sync::Arc;
 
 use educe::Educe;
+use parking_lot::{Mutex, RwLock};
 use slot_clock::SlotClock;
 use state_processing::{
     VerifySignatures,
     envelope_processing::{VerifyStateRoot, process_execution_payload_envelope},
 };
+use store::DatabaseBlock;
 use tracing::{Span, debug};
 use types::{
-    EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    ChainSpec, EthSpec, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, NotifyExecutionLayer,
     PayloadVerificationOutcome,
+    beacon_proposer_cache::{self, BeaconProposerCache},
+    canonical_head::CanonicalHead,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeImportData, EnvelopeProcessingSnapshot, ExecutionPendingEnvelope,
         IntoExecutionPendingEnvelope, MaybeAvailableEnvelope, load_snapshot,
         payload_notifier::PayloadNotifier,
     },
+    validator_pubkey_cache::ValidatorPubkeyCache,
 };
+
+/// Bundles only the dependencies needed for gossip verification of execution payload envelopes,
+/// decoupling `GossipVerifiedEnvelope::new` from the full `BeaconChain`.
+pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
+    pub canonical_head: &'a CanonicalHead<T>,
+    pub store: &'a BeaconStore<T>,
+    pub spec: &'a ChainSpec,
+    pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
+    pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
+    pub genesis_validators_root: Hash256,
+}
 
 /// A wrapper around a `SignedExecutionPayloadEnvelope` that indicates it has been approved for re-gossiping on
 /// the p2p network.
@@ -35,7 +51,7 @@ pub struct GossipVerifiedEnvelope<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
     pub fn new(
         signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-        chain: &BeaconChain<T>,
+        ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
         let payload = &envelope.payload;
@@ -48,7 +64,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // 2. Blocks we've seen that are invalid (REJECT).
         //
         // Presently these two cases are conflated.
-        let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
+        let fork_choice_read_lock = ctx.canonical_head.fork_choice_read_lock();
         let Some(proto_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
             return Err(EnvelopeError::BlockRootUnknown {
                 block_root: beacon_block_root,
@@ -64,12 +80,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         // TODO(EIP-7732): check that we haven't seen another valid `SignedExecutionPayloadEnvelope`
         //                 for this block root from this builder - envelope status table check
-        let block = chain
-            .get_full_block(&beacon_block_root)?
-            .ok_or_else(|| {
-                EnvelopeError::from(BeaconChainError::MissingBeaconBlock(beacon_block_root))
-            })
-            .map(Arc::new)?;
+        let block = match ctx.store.try_get_full_block(&beacon_block_root)? {
+            Some(DatabaseBlock::Full(block)) => Arc::new(block),
+            Some(DatabaseBlock::Blinded(_)) | None => {
+                return Err(EnvelopeError::from(BeaconChainError::MissingBeaconBlock(
+                    beacon_block_root,
+                )));
+            }
+        };
         let execution_bid = &block
             .message()
             .body()
@@ -118,13 +136,15 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let block_slot = envelope.slot;
         let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         let proposer_shuffling_decision_block =
-            proto_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
+            proto_block.proposer_shuffling_root_for_child_block(block_epoch, ctx.spec);
 
         let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
             // Fast path: self-build envelopes can be verified without loading the state.
             let envelope_ref = signed_envelope.as_ref();
             let mut opt_snapshot = None;
-            let proposer = chain.with_proposer_cache::<_, EnvelopeError>(
+            let proposer = beacon_proposer_cache::with_proposer_cache(
+                ctx.beacon_proposer_cache,
+                ctx.spec,
                 proposer_shuffling_decision_block,
                 block_epoch,
                 |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
@@ -133,14 +153,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                         %beacon_block_root,
                         "Proposer shuffling cache miss for envelope verification"
                     );
-                    let snapshot = load_snapshot(envelope_ref, chain)?;
+                    let snapshot = load_snapshot(envelope_ref, ctx.canonical_head, ctx.store)?;
                     opt_snapshot = Some(Box::new(snapshot.clone()));
-                    Ok((snapshot.state_root, snapshot.pre_state))
+                    Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
             )?;
             let fork = proposer.fork;
 
-            let pubkey_cache = chain.validator_pubkey_cache.read();
+            let pubkey_cache = ctx.validator_pubkey_cache.read();
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| EnvelopeError::UnknownValidator {
@@ -149,16 +169,16 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             let is_valid = signed_envelope.verify_signature(
                 pubkey,
                 &fork,
-                chain.genesis_validators_root,
-                &chain.spec,
+                ctx.genesis_validators_root,
+                ctx.spec,
             );
             (is_valid, opt_snapshot)
         } else {
             // TODO(gloas) if we implement a builder pubkey cache, we'll need to use it here.
             // External builder: must load the state to get the builder pubkey.
-            let snapshot = load_snapshot(signed_envelope.as_ref(), chain)?;
+            let snapshot = load_snapshot(signed_envelope.as_ref(), ctx.canonical_head, ctx.store)?;
             let is_valid =
-                signed_envelope.verify_signature_with_state(&snapshot.pre_state, &chain.spec)?;
+                signed_envelope.verify_signature_with_state(&snapshot.pre_state, ctx.spec)?;
             (is_valid, Some(Box::new(snapshot)))
         };
 
@@ -228,7 +248,11 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         let snapshot = if let Some(snapshot) = self.snapshot {
             *snapshot
         } else {
-            load_snapshot(signed_envelope.as_ref(), chain)?
+            load_snapshot(
+                signed_envelope.as_ref(),
+                &chain.canonical_head,
+                &chain.store,
+            )?
         };
         let mut state = snapshot.pre_state;
 
@@ -263,6 +287,18 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    /// Build a `GossipVerificationContext` from this `BeaconChain`.
+    pub fn gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
+        GossipVerificationContext {
+            canonical_head: &self.canonical_head,
+            store: &self.store,
+            spec: &self.spec,
+            beacon_proposer_cache: &self.beacon_proposer_cache,
+            validator_pubkey_cache: &self.validator_pubkey_cache,
+            genesis_validators_root: self.genesis_validators_root,
+        }
+    }
+
     /// Returns `Ok(GossipVerifiedEnvelope)` if the supplied `envelope` should be forwarded onto the
     /// gossip network. The envelope is not imported into the chain, it is just partially verified.
     ///
@@ -287,7 +323,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = envelope.slot();
                     let beacon_block_root = envelope.message.beacon_block_root;
 
-                    match GossipVerifiedEnvelope::new(envelope, &chain) {
+                    let ctx = chain.gossip_verification_context();
+                    match GossipVerifiedEnvelope::new(envelope, &ctx) {
                         Ok(verified) => {
                             debug!(
                                 %slot,

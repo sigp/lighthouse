@@ -39,15 +39,18 @@ use types::{
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError,
-    NotifyExecutionLayer, PayloadVerificationOutcome,
-    block_verification::PayloadVerificationHandle,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, BlockError,
+    ExecutionPayloadError, NotifyExecutionLayer, PayloadVerificationOutcome,
+    block_verification::PayloadVerificationHandle, canonical_head::CanonicalHead,
     payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 
 pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
+
+#[cfg(test)]
+mod tests;
 
 pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
     fn into_execution_pending_envelope(
@@ -289,7 +292,8 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
 #[instrument(skip_all, level = "debug", fields(beacon_block_root = %envelope.beacon_block_root()))]
 pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
-    chain: &BeaconChain<T>,
+    canonical_head: &CanonicalHead<T>,
+    store: &BeaconStore<T>,
 ) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
     // Reject any envelope if its block is not known to fork choice.
     //
@@ -302,7 +306,7 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
 
-    let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
+    let fork_choice_read_lock = canonical_head.fork_choice_read_lock();
     let beacon_block_root = envelope.beacon_block_root();
     let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
         return Err(EnvelopeError::BlockRootUnknown {
@@ -317,8 +321,7 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     // We can use `get_hot_state` here rather than `get_advanced_hot_state` because the envelope
     // must be from the same slot as its block (so no advance is required).
     let cache_state = true;
-    let state = chain
-        .store
+    let state = store
         .get_hot_state(&block_state_root, cache_state)
         .map_err(EnvelopeError::from)?
         .ok_or_else(|| {
@@ -342,7 +345,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
-        GossipVerifiedEnvelope::new(self, chain)?
+        GossipVerifiedEnvelope::new(self, &chain.gossip_verification_context())?
             .into_execution_pending_envelope(chain, notify_execution_layer)
     }
 
