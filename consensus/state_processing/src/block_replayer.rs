@@ -12,8 +12,8 @@ use itertools::Itertools;
 use std::iter::Peekable;
 use std::marker::PhantomData;
 use types::{
-    BeaconState, BeaconStateError, BlindedPayload, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    BeaconState, BeaconStateError, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot, execution::StatePayloadStatus,
 };
 
 pub type PreBlockHook<'a, E, Error> = Box<
@@ -53,6 +53,13 @@ pub struct BlockReplayer<
     /// envelope.
     pub(crate) state_root_iter: Option<Peekable<StateRootIter>>,
     state_root_miss: bool,
+    /// The payload status of the state desired as the end result of block replay.
+    ///
+    /// This dictates whether a payload should be applied after applying the last block.
+    ///
+    /// Prior to Gloas, this should always be set to `StatePayloadStatus::Pending` to indicate
+    /// that no envelope needs to be applied.
+    desired_state_payload_status: StatePayloadStatus,
     _phantom: PhantomData<Error>,
 }
 
@@ -65,7 +72,6 @@ pub enum BlockReplayError {
     /// A payload envelope for this `slot` was required but not provided.
     MissingPayloadEnvelope {
         slot: Slot,
-        block_hash: ExecutionBlockHash,
     },
 }
 
@@ -118,6 +124,7 @@ where
             post_slot_hook: None,
             state_root_iter: None,
             state_root_miss: false,
+            desired_state_payload_status: StatePayloadStatus::Pending,
             _phantom: PhantomData,
         }
     }
@@ -183,6 +190,14 @@ where
         self
     }
 
+    /// Set the desired payload status of the state reached by replay.
+    ///
+    /// This determines whether to apply a payload after applying the last block.
+    pub fn desired_state_payload_status(mut self, payload_status: StatePayloadStatus) -> Self {
+        self.desired_state_payload_status = payload_status;
+        self
+    }
+
     /// Compute the state root for `self.state` as efficiently as possible.
     ///
     /// This function MUST only be called when `self.state` is a post-state, i.e. it MUST not be
@@ -230,6 +245,38 @@ where
         Ok(state_root)
     }
 
+    /// Apply an execution payload envelope to `self.state`.
+    ///
+    /// The `block_state_root` MUST be the `state_root` of the most recently applied block.
+    ///
+    /// Returns the `state_root` of `self.state` after payload application.
+    fn apply_payload_envelope(
+        &mut self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        block_state_root: Hash256,
+    ) -> Result<Hash256, Error> {
+        // TODO(gloas): bulk signature verification could be relevant here?
+        let verify_payload_signatures =
+            if let BlockSignatureStrategy::NoVerification = self.block_sig_strategy {
+                VerifySignatures::False
+            } else {
+                VerifySignatures::True
+            };
+        // TODO(gloas): state root verif enabled during initial prototyping
+        let verify_state_root = VerifyStateRoot::True;
+        process_execution_payload_envelope(
+            &mut self.state,
+            Some(block_state_root),
+            envelope,
+            verify_payload_signatures,
+            verify_state_root,
+            self.spec,
+        )
+        .map_err(BlockReplayError::from)?;
+
+        Ok(envelope.message.state_root)
+    }
+
     /// Apply `blocks` atop `self.state`, taking care of slot processing.
     ///
     /// If `target_slot` is provided then the state will be advanced through to `target_slot`
@@ -242,6 +289,16 @@ where
     ) -> Result<Self, Error> {
         let mut envelopes_iter = payload_envelopes.into_iter();
 
+        let mut next_envelope_at_slot = |slot| {
+            if let Some(envelope) = envelopes_iter.next()
+                && envelope.message.slot == slot
+            {
+                Ok(envelope)
+            } else {
+                Err(BlockReplayError::MissingPayloadEnvelope { slot })
+            }
+        };
+
         for (i, block) in blocks.iter().enumerate() {
             // Allow one additional block at the start which is only used for its state root.
             if i == 0 && block.slot() <= self.state.slot() {
@@ -249,13 +306,12 @@ where
             }
 
             while self.state.slot() < block.slot() {
-                let block_state_root = self.get_state_root(&blocks, i)?;
+                let mut state_root = self.get_state_root(&blocks, i)?;
 
                 // Apply the payload for the *previous* block if the bid in the current block
-                // indicates that the parent is full.
-                // TODO(gloas): check this condition at the fork boundary.
-                let state_root = if self.state.slot() == self.state.latest_block_header().slot
-                    && block.fork_name_unchecked().gloas_enabled()
+                // indicates that the parent is full (and it hasn't already been applied).
+                state_root = if block.fork_name_unchecked().gloas_enabled()
+                    && self.state.slot() == self.state.latest_block_header().slot
                 {
                     let latest_bid_block_hash = self
                         .state
@@ -266,49 +322,18 @@ where
                     // Similar to `is_parent_block_full`, but reading the block hash from the
                     // not-yet-applied `block`.
                     if block.is_parent_block_full(latest_bid_block_hash) {
-                        if let Some(envelope) = envelopes_iter.next()
-                            && envelope.message.slot == self.state.slot()
-                        {
-                            // TODO(gloas): bulk signature verification could be relevant here?
-                            let verify_payload_signatures =
-                                if let BlockSignatureStrategy::NoVerification =
-                                    self.block_sig_strategy
-                                {
-                                    VerifySignatures::False
-                                } else {
-                                    VerifySignatures::True
-                                };
-                            // TODO(gloas): state root verif enabled during initial
-                            // prototyping/testing
-                            let verify_state_root = VerifyStateRoot::True;
-                            process_execution_payload_envelope(
-                                &mut self.state,
-                                Some(block_state_root),
-                                &envelope,
-                                verify_payload_signatures,
-                                verify_state_root,
-                                self.spec,
-                            )
-                            .map_err(BlockReplayError::from)?;
-
-                            // State root for next slot processing is now the envelope's state root.
-                            envelope.message.state_root
-                        } else {
-                            return Err(BlockReplayError::MissingPayloadEnvelope {
-                                slot: block.slot(),
-                                block_hash: latest_bid_block_hash,
-                            }
-                            .into());
-                        }
+                        let envelope = next_envelope_at_slot(self.state.slot())?;
+                        // State root for the next slot processing is now the envelope's state root.
+                        self.apply_payload_envelope(&envelope, state_root)?
                     } else {
                         // Empty payload at this slot, the state root is unchanged from when the
                         // beacon block was applied.
-                        block_state_root
+                        state_root
                     }
                 } else {
                     // Pre-Gloas or at skipped slots post-Gloas, the state root of the parent state
                     // is always the output from `self.get_state_root`.
-                    block_state_root
+                    state_root
                 };
 
                 if let Some(ref mut pre_slot_hook) = self.pre_slot_hook {
@@ -353,11 +378,24 @@ where
             }
         }
 
-        // TODO(gloas): apply last payload, but how to know if it *should* be applied?
+        // Apply the last payload if desired.
+        let mut opt_state_root = if let StatePayloadStatus::Full = self.desired_state_payload_status
+            && let Some(last_block) = blocks.last()
+        {
+            let envelope = next_envelope_at_slot(self.state.slot())?;
+            Some(self.apply_payload_envelope(&envelope, last_block.state_root())?)
+        } else {
+            None
+        };
 
         if let Some(target_slot) = target_slot {
             while self.state.slot() < target_slot {
-                let state_root = self.get_state_root(&blocks, blocks.len())?;
+                // Read state root from `opt_state_root` if a payload was just applied.
+                let state_root = if let Some(root) = opt_state_root.take() {
+                    root
+                } else {
+                    self.get_state_root(&blocks, blocks.len())?
+                };
 
                 if let Some(ref mut pre_slot_hook) = self.pre_slot_hook {
                     pre_slot_hook(state_root, &mut self.state)?;
