@@ -2359,9 +2359,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(base_state);
         }
 
-        let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
-        // TODO(gloas): load payload envelopes
-        let envelopes = vec![];
+        let (blocks, envelopes) = self.load_cold_blocks(base_state.slot() + 1, slot)?;
 
         // Include state root for base state as it is required by block processing to not
         // have to hash the state.
@@ -2470,26 +2468,44 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Load cold blocks between `start_slot` and `end_slot` inclusive.
+    /// Load cold blocks and payload envelopes between `start_slot` and `end_slot` inclusive.
+    #[allow(clippy::type_complexity)]
     pub fn load_cold_blocks(
         &self,
         start_slot: Slot,
         end_slot: Slot,
-    ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
+    ) -> Result<
+        (
+            Vec<SignedBlindedBeaconBlock<E>>,
+            Vec<SignedExecutionPayloadEnvelope<E>>,
+        ),
+        Error,
+    > {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_COLD_BLOCKS_TIME);
         let block_root_iter =
             self.forwards_block_roots_iterator_until(start_slot, end_slot, || {
                 Err(Error::StateShouldNotBeRequired(end_slot))
             })?;
-        process_results(block_root_iter, |iter| {
+        let blocks = process_results(block_root_iter, |iter| {
             iter.map(|(block_root, _slot)| block_root)
                 .dedup()
                 .map(|block_root| {
                     self.get_blinded_block(&block_root)?
                         .ok_or(Error::MissingBlock(block_root))
                 })
-                .collect()
-        })?
+                .collect::<Result<Vec<_>, Error>>()
+        })
+        .flatten()?;
+
+        // If Gloas is not enabled for any slots in the range, just return `blocks`.
+        if !self.spec.fork_name_at_slot::<E>(start_slot).gloas_enabled()
+            && !self.spec.fork_name_at_slot::<E>(end_slot).gloas_enabled()
+        {
+            return Ok((blocks, vec![]));
+        }
+        let envelopes = self.load_payload_envelopes_for_blocks(&blocks)?;
+
+        Ok((blocks, envelopes))
     }
 
     /// Load the blocks & envelopes between `start_slot` and `end_slot` by backtracking from
@@ -2551,7 +2567,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok((blocks, vec![]));
         }
 
-        // Load envelopes.
+        let envelopes = self.load_payload_envelopes_for_blocks(&blocks)?;
+
+        Ok((blocks, envelopes))
+    }
+
+    pub fn load_payload_envelopes_for_blocks(
+        &self,
+        blocks: &[SignedBlindedBeaconBlock<E>],
+    ) -> Result<Vec<SignedExecutionPayloadEnvelope<E>>, Error> {
         let mut envelopes = vec![];
 
         for (block, next_block) in blocks.iter().tuple_windows() {
@@ -2570,8 +2594,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 envelopes.push(envelope);
             }
         }
-
-        Ok((blocks, envelopes))
+        Ok(envelopes)
     }
 
     /// Replay `blocks` on top of `state` until `target_slot` is reached.
