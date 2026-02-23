@@ -17,6 +17,7 @@ use crate::{
     NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
     metrics,
+    payload_envelope_verification::ExecutionPendingEnvelope,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
 };
 
@@ -155,6 +156,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(other)
             }
         }
+    }
+
+    /// Accepts a fully-verified payload envelope and awaits on its payload verification handle to
+    /// get a fully `ExecutedEnvelope`.
+    ///
+    /// An error is returned if the verification handle couldn't be awaited.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn into_executed_payload_envelope(
+        self: Arc<Self>,
+        pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
+    ) -> Result<ExecutedEnvelope<T::EthSpec>, EnvelopeError> {
+        let ExecutionPendingEnvelope {
+            signed_envelope,
+            import_data,
+            payload_verification_handle,
+        } = pending_envelope;
+
+        let payload_verification_outcome = payload_verification_handle
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
+            .ok_or(BeaconChainError::RuntimeShutdown)??;
+
+        Ok(ExecutedEnvelope::new(
+            signed_envelope,
+            import_data,
+            payload_verification_outcome,
+        ))
     }
 
     #[instrument(skip_all)]

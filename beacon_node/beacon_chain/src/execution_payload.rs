@@ -122,7 +122,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     }
 }
 
-/// Verify that `execution_payload` contained by `block` is considered valid by an execution
+/// Verify that `execution_payload` associated with `beacon_block_root` is considered valid by an execution
 /// engine.
 ///
 /// ## Specification
