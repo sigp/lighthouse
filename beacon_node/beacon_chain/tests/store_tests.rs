@@ -697,6 +697,7 @@ async fn block_replayer_hooks() {
     let mut pre_block_slots = vec![];
     let mut post_block_slots = vec![];
 
+    // TODO(gloas): handle payloads?
     let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
         .pre_slot_hook(Box::new(|_, state| {
             pre_slots.push(state.slot());
@@ -724,7 +725,7 @@ async fn block_replayer_hooks() {
             post_block_slots.push(block.slot());
             Ok(())
         }))
-        .apply_blocks(blocks, None)
+        .apply_blocks(blocks, vec![], None)
         .unwrap()
         .into_state();
 

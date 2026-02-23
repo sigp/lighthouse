@@ -1,14 +1,19 @@
 use crate::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot, per_block_processing, per_epoch_processing::EpochProcessingSummary,
+    VerifyBlockRoot, VerifySignatures,
+    envelope_processing::{
+        EnvelopeProcessingError, VerifyStateRoot, process_execution_payload_envelope,
+    },
+    per_block_processing,
+    per_epoch_processing::EpochProcessingSummary,
     per_slot_processing,
 };
 use itertools::Itertools;
 use std::iter::Peekable;
 use std::marker::PhantomData;
 use types::{
-    BeaconState, BeaconStateError, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock,
-    Slot,
+    BeaconState, BeaconStateError, BlindedPayload, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub type PreBlockHook<'a, E, Error> = Box<
@@ -24,7 +29,7 @@ pub type PostSlotHook<'a, E, Error> = Box<
 >;
 pub type StateRootIterDefault<Error> = std::iter::Empty<Result<(Hash256, Slot), Error>>;
 
-/// Efficiently apply blocks to a state while configuring various parameters.
+/// Efficiently apply blocks and payloads to a state while configuring various parameters.
 ///
 /// Usage follows a builder pattern.
 pub struct BlockReplayer<
@@ -41,6 +46,11 @@ pub struct BlockReplayer<
     post_block_hook: Option<PostBlockHook<'a, Spec, Error>>,
     pre_slot_hook: Option<PreSlotHook<'a, Spec, Error>>,
     post_slot_hook: Option<PostSlotHook<'a, Spec, Error>>,
+    /// Iterator over state roots for all *block* states.
+    ///
+    /// Pre-Gloas, this is all states. Post-Gloas, this is *just* the states corresponding to beacon
+    /// blocks. For states corresponding to payloads, we read the state root from the payload
+    /// envelope.
     pub(crate) state_root_iter: Option<Peekable<StateRootIter>>,
     state_root_miss: bool,
     _phantom: PhantomData<Error>,
@@ -50,7 +60,13 @@ pub struct BlockReplayer<
 pub enum BlockReplayError {
     SlotProcessing(SlotProcessingError),
     BlockProcessing(BlockProcessingError),
+    EnvelopeProcessing(EnvelopeProcessingError),
     BeaconState(BeaconStateError),
+    /// A payload envelope for this `slot` was required but not provided.
+    MissingPayloadEnvelope {
+        slot: Slot,
+        block_hash: ExecutionBlockHash,
+    },
 }
 
 impl From<SlotProcessingError> for BlockReplayError {
@@ -62,6 +78,12 @@ impl From<SlotProcessingError> for BlockReplayError {
 impl From<BlockProcessingError> for BlockReplayError {
     fn from(e: BlockProcessingError) -> Self {
         Self::BlockProcessing(e)
+    }
+}
+
+impl From<EnvelopeProcessingError> for BlockReplayError {
+    fn from(e: EnvelopeProcessingError) -> Self {
+        Self::EnvelopeProcessing(e)
     }
 }
 
@@ -215,8 +237,11 @@ where
     pub fn apply_blocks(
         mut self,
         blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
+        payload_envelopes: Vec<SignedExecutionPayloadEnvelope<E>>,
         target_slot: Option<Slot>,
     ) -> Result<Self, Error> {
+        let mut envelopes_iter = payload_envelopes.into_iter();
+
         for (i, block) in blocks.iter().enumerate() {
             // Allow one additional block at the start which is only used for its state root.
             if i == 0 && block.slot() <= self.state.slot() {
@@ -224,7 +249,74 @@ where
             }
 
             while self.state.slot() < block.slot() {
-                let state_root = self.get_state_root(&blocks, i)?;
+                let block_state_root = self.get_state_root(&blocks, i)?;
+
+                // Apply the payload for the *previous* block if the bid in the current block
+                // indicates that the parent is full.
+                // TODO(gloas): check this condition at the fork boundary.
+                let state_root = if self.state.slot() == self.state.latest_block_header().slot
+                    && block.fork_name_unchecked().gloas_enabled()
+                {
+                    let state_block_hash = self
+                        .state
+                        .latest_execution_payload_bid()
+                        .map_err(BlockReplayError::from)?
+                        .block_hash;
+                    let parent_block_hash = block
+                        .message()
+                        .body()
+                        .signed_execution_payload_bid()
+                        .map_err(BlockReplayError::from)?
+                        .message
+                        .parent_block_hash;
+
+                    // Similar to `is_parent_block_full`, but reading the block hash from the
+                    // not-yet-applied `block`.
+                    if state_block_hash == parent_block_hash {
+                        if let Some(envelope) = envelopes_iter.next()
+                            && envelope.message.slot == self.state.slot()
+                        {
+                            // TODO(gloas): bulk signature verification could be relevant here?
+                            let verify_payload_signatures =
+                                if let BlockSignatureStrategy::NoVerification =
+                                    self.block_sig_strategy
+                                {
+                                    VerifySignatures::False
+                                } else {
+                                    VerifySignatures::True
+                                };
+                            // TODO(gloas): state root verif enabled during initial
+                            // prototyping/testing
+                            let verify_state_root = VerifyStateRoot::True;
+                            process_execution_payload_envelope(
+                                &mut self.state,
+                                Some(block_state_root),
+                                &envelope,
+                                verify_payload_signatures,
+                                verify_state_root,
+                                self.spec,
+                            )
+                            .map_err(BlockReplayError::from)?;
+
+                            // State root for next slot processing is now the envelope's state root.
+                            envelope.message.state_root
+                        } else {
+                            return Err(BlockReplayError::MissingPayloadEnvelope {
+                                slot: block.slot(),
+                                block_hash: state_block_hash,
+                            }
+                            .into());
+                        }
+                    } else {
+                        // Empty payload at this slot, the state root is unchanged from when the
+                        // beacon block was applied.
+                        block_state_root
+                    }
+                } else {
+                    // Pre-Gloas or at skipped slots post-Gloas, the state root of the parent state
+                    // is always the output from `self.get_state_root`.
+                    block_state_root
+                };
 
                 if let Some(ref mut pre_slot_hook) = self.pre_slot_hook {
                     pre_slot_hook(state_root, &mut self.state)?;
@@ -267,6 +359,8 @@ where
                 post_block_hook(&mut self.state, block)?;
             }
         }
+
+        // TODO(gloas): apply last payload, but how to know if it *should* be applied?
 
         if let Some(target_slot) = target_slot {
             while self.state.slot() < target_slot {

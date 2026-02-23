@@ -2548,8 +2548,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             block_replayer = block_replayer.pre_slot_hook(pre_slot_hook);
         }
 
+        // TODO(gloas): plumb through payloads here
         block_replayer
-            .apply_blocks(blocks, Some(target_slot))
+            .apply_blocks(blocks, vec![], Some(target_slot))
             .map(|block_replayer| {
                 if have_state_root_iterator && block_replayer.state_root_miss() {
                     warn!(
