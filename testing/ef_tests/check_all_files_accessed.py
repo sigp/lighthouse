@@ -47,8 +47,16 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # TODO(gloas): remove these ignores as Gloas consensus is implemented
+    "tests/.*/gloas/fork_choice/.*",
     # Ignore MatrixEntry SSZ tests for now.
-    "tests/.*/fulu/ssz_static/MatrixEntry/.*",
+    "tests/.*/.*/ssz_static/MatrixEntry/.*",
+    # TODO(gloas): Ignore Gloas light client stuff for now
+    "tests/.*/gloas/ssz_static/LightClient.*/.*",
+    # Execution payload header is irrelevant after Gloas, this type will probably be deleted.
+    "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
+    # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
+    "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
     # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
     "tests/general/phase0/ssz_generic/progressive_bitlist",
     "tests/general/phase0/ssz_generic/basic_progressive_list",
@@ -59,11 +67,11 @@ excluded_paths = [
     # Ignore full epoch tests for now (just test the sub-transitions).
     "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
-    # Ignore gloas tests for now
-    "tests/.*/gloas/.*",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",
+    # We don't need these manifest files at the moment.
+    "tests/.*/manifest.yaml"
 ]
 
 

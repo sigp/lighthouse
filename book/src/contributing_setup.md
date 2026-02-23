@@ -10,9 +10,6 @@ base dependencies.
 
 The additional requirements for developers are:
 
-- [`anvil`](https://github.com/foundry-rs/foundry/tree/master/crates/anvil). This is used to
-  simulate the execution chain during tests. You'll get failures during tests if you
-  don't have `anvil` available on your `PATH`.
 - [`cmake`](https://cmake.org/cmake/help/latest/command/install.html). Used by
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
 - [`java 17 runtime`](https://openjdk.java.net/projects/jdk/). 17 is the minimum,

@@ -5,6 +5,7 @@ mod chain_spec;
 mod config_and_preset;
 mod enr_fork_id;
 mod eth_spec;
+mod execution_block_hash;
 mod graffiti;
 mod non_zero_usize;
 mod preset;
@@ -25,6 +26,7 @@ pub use config_and_preset::{
 };
 pub use enr_fork_id::EnrForkId;
 pub use eth_spec::{EthSpec, EthSpecId, GNOSIS, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+pub use execution_block_hash::ExecutionBlockHash;
 pub use graffiti::{GRAFFITI_BYTES_LEN, Graffiti, GraffitiString};
 pub use non_zero_usize::new_non_zero_usize;
 pub use preset::{
@@ -35,6 +37,11 @@ pub use relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use signing_data::{SignedRoot, SigningData};
 pub use slot_data::SlotData;
 pub use slot_epoch::{Epoch, Slot};
+
+#[cfg(test)]
+pub(crate) use chain_spec::{
+    max_blobs_by_root_request_common, max_data_columns_by_root_request_common,
+};
 
 pub type Hash256 = alloy_primitives::B256;
 pub type Uint256 = alloy_primitives::U256;

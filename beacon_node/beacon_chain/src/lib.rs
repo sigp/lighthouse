@@ -9,6 +9,7 @@ pub mod beacon_proposer_cache;
 mod beacon_snapshot;
 pub mod bellatrix_readiness;
 pub mod blob_verification;
+mod block_production;
 pub mod block_reward;
 mod block_times_cache;
 mod block_verification;
@@ -42,6 +43,7 @@ pub mod observed_block_producers;
 pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
+pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
 pub mod persisted_custody;
 mod persisted_fork_choice;
@@ -78,7 +80,7 @@ pub use block_verification::{
     BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
     IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature,
     PayloadVerificationOutcome, PayloadVerificationStatus, build_blob_data_column_sidecars,
-    get_block_root,
+    get_block_root, signature_verify_chain_segment,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;

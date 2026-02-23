@@ -24,6 +24,9 @@ Options:
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
           [default: info] [possible values: info, debug, trace, warn, error]
+      --enabled <enabled>
+          When provided, the imported validator will be enabled or disabled.
+          [possible values: true, false]
       --gas-limit <UINT64>
           When provided, the imported validator will use this gas limit. It is
           recommended to leave this as the default value by not specifying this

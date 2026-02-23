@@ -8,7 +8,6 @@ use crate::sync::{
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
-use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
@@ -21,18 +20,13 @@ use beacon_processor::{
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
-use lighthouse_tracing::{
-    SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS, SPAN_PROCESS_CHAIN_SEGMENT,
-    SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL, SPAN_PROCESS_RPC_BLOBS, SPAN_PROCESS_RPC_BLOCK,
-    SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
-};
 use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::beacon_block_body::format_kzg_commitments;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
+use types::kzg_ext::format_kzg_commitments;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -107,7 +101,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_PROCESS_RPC_BLOCK,
+        name = "lh_process_rpc_block",
         parent = None,
         level = "debug",
         skip_all,
@@ -225,7 +219,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // to be sent from the peers if we already have them.
                 let publish_blobs = false;
                 self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root, publish_blobs)
-                    .await
+                    .await;
             }
             _ => {}
         }
@@ -261,7 +255,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to process a list of blobs received from a direct RPC request.
     #[instrument(
-        name = SPAN_PROCESS_RPC_BLOBS,
+        name = "lh_process_rpc_blobs",
         parent = None,
         level = "debug",
         skip_all,
@@ -303,7 +297,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             && current_slot == slot
         {
             // Note: this metric is useful to gauge how long it takes to receive blobs requested
-            // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
+            // over rpc. Since we always send the request for block components at `get_unaggregated_attestation_due() / 2`
             // we can use that as a baseline to measure against.
             let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
 
@@ -349,7 +343,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[instrument(
-        name = SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
+        name = "lh_process_rpc_custody_columns",
         parent = None,
         level = "debug",
         skip_all,
@@ -374,7 +368,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
         }
 
-        let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();
+        let mut indices = custody_columns
+            .iter()
+            .map(|d| *d.index())
+            .collect::<Vec<_>>();
         indices.sort_unstable();
         debug!(
             ?indices,
@@ -429,7 +426,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         expected_cgc: u64,
     ) {
         let _guard = debug_span!(
-            SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS,
+            "lh_custody_backfill_sync_import_columns",
             epoch = %batch_id.epoch,
             columns_received_count = downloaded_columns.len()
         )
@@ -524,7 +521,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     #[instrument(
-        name = SPAN_PROCESS_CHAIN_SEGMENT,
+        name = "lh_process_chain_segment",
         parent = None,
         level = "debug",
         skip_all,
@@ -605,7 +602,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     #[instrument(
-        name = SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL,
+        name = "lh_process_chain_segment_backfill",
         parent = None,
         level = "debug",
         skip_all,
@@ -722,18 +719,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = match self
+        let mut available_blocks = vec![];
+
+        for downloaded_block in downloaded_blocks {
+            match downloaded_block {
+                RpcBlock::FullyAvailable(available_block) => available_blocks.push(available_block),
+                RpcBlock::BlockOnly { .. } => return (
+                    0,
+                    Err(ChainSegmentFailed {
+                        peer_action: None,
+                        message: "Invalid downloaded_blocks segment. All downloaded blocks must be fully available".to_string()
+                    })
+                ),
+            }
+        }
+
+        match self
             .chain
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(downloaded_blocks)
+            .batch_verify_kzg_for_available_blocks(&available_blocks)
         {
-            Ok(blocks) => blocks
-                .into_iter()
-                .filter_map(|maybe_available| match maybe_available {
-                    MaybeAvailableBlock::Available(block) => Some(block),
-                    MaybeAvailableBlock::AvailabilityPending { .. } => None,
-                })
-                .collect::<Vec<_>>(),
+            Ok(()) => {}
             Err(e) => match e {
                 AvailabilityCheckError::StoreError(_) => {
                     return (

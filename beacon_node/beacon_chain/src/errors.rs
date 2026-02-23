@@ -16,6 +16,7 @@ use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
+use state_processing::envelope_processing::EnvelopeProcessingError;
 use state_processing::{
     BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
     block_signature_verifier::Error as BlockSignatureVerifierError,
@@ -219,7 +220,7 @@ pub enum BeaconChainError {
     UnableToPublish,
     UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientUpdateError(LightClientUpdateError),
+    LightClientError(LightClientError),
     LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
@@ -274,7 +275,7 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientUpdateError, BeaconChainError);
+easy_from_to!(LightClientError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
 easy_from_to!(AttestationError, BeaconChainError);
 
@@ -318,8 +319,10 @@ pub enum BlockProductionError {
     FailedToBuildBlobSidecars(String),
     MissingExecutionRequests,
     SszTypesError(ssz_types::Error),
+    EnvelopeProcessingError(EnvelopeProcessingError),
+    BlsError(bls::Error),
     // TODO(gloas): Remove this once Gloas is implemented
-    GloasNotImplemented,
+    GloasNotImplemented(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

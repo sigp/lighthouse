@@ -1263,6 +1263,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         signed_aggregate_and_proof: &SignedAggregateAndProof<E>,
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         self.register_aggregated_attestation(
             "gossip",
@@ -1270,6 +1271,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             signed_aggregate_and_proof,
             indexed_attestation,
             slot_clock,
+            spec,
         )
     }
 
@@ -1280,6 +1282,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         signed_aggregate_and_proof: &SignedAggregateAndProof<E>,
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         self.register_aggregated_attestation(
             "api",
@@ -1287,6 +1290,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             signed_aggregate_and_proof,
             indexed_attestation,
             slot_clock,
+            spec,
         )
     }
 
@@ -1297,13 +1301,14 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         signed_aggregate_and_proof: &SignedAggregateAndProof<E>,
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         let data = indexed_attestation.data();
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            slot_clock.agg_attestation_production_delay(),
+            spec.get_aggregate_attestation_due(),
             slot_clock,
         );
 
@@ -1488,12 +1493,14 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         seen_timestamp: Duration,
         sync_committee_message: &SyncCommitteeMessage,
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         self.register_sync_committee_message(
             "gossip",
             seen_timestamp,
             sync_committee_message,
             slot_clock,
+            spec,
         )
     }
 
@@ -1503,12 +1510,14 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         seen_timestamp: Duration,
         sync_committee_message: &SyncCommitteeMessage,
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         self.register_sync_committee_message(
             "api",
             seen_timestamp,
             sync_committee_message,
             slot_clock,
+            spec,
         )
     }
 
@@ -1519,15 +1528,15 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         seen_timestamp: Duration,
         sync_committee_message: &SyncCommitteeMessage,
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         if let Some(validator) = self.get_validator(sync_committee_message.validator_index) {
             let id = &validator.id;
-
             let epoch = sync_committee_message.slot.epoch(E::slots_per_epoch());
             let delay = get_message_delay_ms(
                 seen_timestamp,
                 sync_committee_message.slot,
-                slot_clock.sync_committee_message_production_delay(),
+                spec.get_sync_message_due(),
                 slot_clock,
             );
 
@@ -1568,6 +1577,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         sync_contribution: &SignedContributionAndProof<E>,
         participant_pubkeys: &[PublicKeyBytes],
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         self.register_sync_committee_contribution(
             "gossip",
@@ -1575,6 +1585,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             sync_contribution,
             participant_pubkeys,
             slot_clock,
+            spec,
         )
     }
 
@@ -1585,6 +1596,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         sync_contribution: &SignedContributionAndProof<E>,
         participant_pubkeys: &[PublicKeyBytes],
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         self.register_sync_committee_contribution(
             "api",
@@ -1592,6 +1604,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             sync_contribution,
             participant_pubkeys,
             slot_clock,
+            spec,
         )
     }
 
@@ -1603,6 +1616,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         sync_contribution: &SignedContributionAndProof<E>,
         participant_pubkeys: &[PublicKeyBytes],
         slot_clock: &S,
+        spec: &ChainSpec,
     ) {
         let slot = sync_contribution.message.contribution.slot;
         let epoch = slot.epoch(E::slots_per_epoch());
@@ -1610,7 +1624,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             slot,
-            slot_clock.sync_committee_contribution_production_delay(),
+            spec.get_contribution_message_due(),
             slot_clock,
         );
 

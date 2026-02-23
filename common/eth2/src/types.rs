@@ -9,7 +9,11 @@ use crate::{
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::ContextDeserialize;
+#[cfg(feature = "network")]
+use enr::{CombinedKey, Enr};
 use mediatype::{MediaType, MediaTypeList, names};
+#[cfg(feature = "network")]
+use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -559,12 +563,13 @@ pub struct ChainHeadData {
     pub execution_optimistic: Option<bool>,
 }
 
+#[cfg(feature = "network")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentityData {
     pub peer_id: String,
-    pub enr: String,
-    pub p2p_addresses: Vec<String>,
-    pub discovery_addresses: Vec<String>,
+    pub enr: Enr<CombinedKey>,
+    pub p2p_addresses: Vec<Multiaddr>,
+    pub discovery_addresses: Vec<Multiaddr>,
     pub metadata: MetaData,
 }
 
@@ -1016,14 +1021,18 @@ impl SseDataColumnSidecar {
     pub fn from_data_column_sidecar<E: EthSpec>(
         data_column_sidecar: &DataColumnSidecar<E>,
     ) -> SseDataColumnSidecar {
-        let kzg_commitments = data_column_sidecar.kzg_commitments.to_vec();
+        // TODO(gloas): fetch kzg_commitments from block for Gloas SSE events
+        let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
+            DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
+            DataColumnSidecar::Gloas(_) => vec![],
+        };
         let versioned_hashes = kzg_commitments
             .iter()
             .map(|c| c.calculate_versioned_hash())
             .collect();
         SseDataColumnSidecar {
             block_root: data_column_sidecar.block_root(),
-            index: data_column_sidecar.index,
+            index: *data_column_sidecar.index(),
             slot: data_column_sidecar.slot(),
             kzg_commitments,
             versioned_hashes,
@@ -1595,7 +1604,7 @@ pub struct BroadcastValidationQuery {
 }
 
 pub mod serde_status_code {
-    use crate::StatusCode;
+    use reqwest::StatusCode;
     use serde::{Deserialize, Serialize, de::Error};
 
     pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
@@ -1714,7 +1723,7 @@ pub type JsonProduceBlockV3Response<E> =
 pub enum FullBlockContents<E: EthSpec> {
     /// This is a full deneb variant with block and blobs.
     BlockContents(BlockContents<E>),
-    /// This variant is for all pre-deneb full blocks.
+    /// This variant is for all pre-deneb full blocks or post-gloas beacon block.
     Block(BeaconBlock<E>),
 }
 
@@ -1738,6 +1747,20 @@ pub struct ProduceBlockV3Metadata {
     pub execution_payload_blinded: bool,
     #[serde(with = "serde_utils::u256_dec")]
     pub execution_payload_value: Uint256,
+    #[serde(with = "serde_utils::u256_dec")]
+    pub consensus_block_value: Uint256,
+}
+
+/// Metadata about a `produce_block_v4` response which is returned in the body & headers.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProduceBlockV4Metadata {
+    // The consensus version is serialized & deserialized by `ForkVersionedResponse`.
+    #[serde(
+        skip_serializing,
+        skip_deserializing,
+        default = "dummy_consensus_version"
+    )]
+    pub consensus_version: ForkName,
     #[serde(with = "serde_utils::u256_dec")]
     pub consensus_block_value: Uint256,
 }
@@ -1898,6 +1921,27 @@ impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
     }
 }
 
+impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
+    type Error = String;
+
+    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+        let consensus_version = parse_required_header(headers, CONSENSUS_VERSION_HEADER, |s| {
+            s.parse::<ForkName>()
+                .map_err(|e| format!("invalid {CONSENSUS_VERSION_HEADER}: {e:?}"))
+        })?;
+        let consensus_block_value =
+            parse_required_header(headers, CONSENSUS_BLOCK_VALUE_HEADER, |s| {
+                Uint256::from_str_radix(s, 10)
+                    .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
+            })?;
+
+        Ok(ProduceBlockV4Metadata {
+            consensus_version,
+            consensus_block_value,
+        })
+    }
+}
+
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBlockContents`].
 #[derive(Clone, Debug, PartialEq, Encode, Serialize)]
 #[serde(untagged)]
@@ -1945,7 +1989,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 
     /// SSZ decode with fork variant determined by `fork_name`.
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
-        if fork_name.deneb_enabled() {
+        if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
             builder.register_anonymous_variable_length_item()?;
             builder.register_type::<KzgProofs<E>>()?;
