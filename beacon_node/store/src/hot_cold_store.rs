@@ -2494,8 +2494,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         .ok_or(Error::MissingBlock(block_root))
                 })
                 .collect::<Result<Vec<_>, Error>>()
-        })
-        .flatten()?;
+        })??;
 
         // If Gloas is not enabled for any slots in the range, just return `blocks`.
         if !self.spec.fork_name_at_slot::<E>(start_slot).gloas_enabled()
