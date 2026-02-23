@@ -674,7 +674,7 @@ impl<E: EthSpec> Discovery<E> {
     /// updates the min_ttl field.
     fn add_subnet_query(&mut self, subnet: Subnet, min_ttl: Option<Instant>, retries: usize) {
         // remove the entry and complete the query if greater than the maximum search count
-        if retries > MAX_DISCOVERY_RETRY {
+        if retries >= MAX_DISCOVERY_RETRY {
             debug!("Subnet peer discovery did not find sufficient peers. Reached max retry limit");
             return;
         }
