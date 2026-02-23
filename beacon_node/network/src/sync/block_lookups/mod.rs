@@ -398,7 +398,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
         // the risk of OOM in case of bugs of malicious activity.
-        if self.single_block_lookups.len() > MAX_LOOKUPS {
+        if self.single_block_lookups.len() >= MAX_LOOKUPS {
             warn!(?block_root, "Dropping lookup reached max");
             return false;
         }
