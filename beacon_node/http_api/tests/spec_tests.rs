@@ -115,7 +115,6 @@ async fn extract_all_endpoints() -> HashMap<String, RequiredFields> {
     // path_item itself is a Struct
     if let Some(paths) = &spec.paths {
         for (endpoint, path_item) in paths {
-            println!("Processing endpoint: {}", endpoint);
             // path_item.get is of type: Option<Operation>
             // This will process all GET endpoints and ignore others (e.g., POST)
             let get = match &path_item.get {
@@ -373,9 +372,80 @@ async fn test_all_endpoints() {
 
             let response: serde_json::Value = client.get(url).await.unwrap();
 
-            // println!("Response is: {:?}", response);
+            println!("Response is: {:?}", response);
 
-            // let response_json = response.as_object().unwrap();
+            if let Some(response_array) = response.as_array() {
+                // Top-level array response (e.g., light_client/updates)
+                // Each element has the "generic" fields (version, data)
+                for item in response_array {
+                    let item_json = item.as_object().unwrap();
+                    for field in &fields.generic_required_fields {
+                        assert!(
+                            item_json.contains_key(field),
+                            "Response missing generic required field '{}'",
+                            field,
+                        );
+                    }
+                    // Check specific fields inside each item's "data"
+                    if let Some(data_array) = item_json.get("data").and_then(|v| v.as_array()) {
+                        for item in data_array.iter() {
+                            let item_json = item.as_object().unwrap();
+                            for field in &fields.specific_required_fields {
+                                assert!(
+                                    item_json.contains_key(field),
+                                    "Response missing specific required field '{}'",
+                                    field,
+                                );
+                            }
+                        }
+                    } else if let Some(data_json) =
+                        item_json.get("data").and_then(|v| v.as_object())
+                    {
+                        // Data is an object - check required fields on it
+                        for field in &fields.specific_required_fields {
+                            assert!(
+                                data_json.contains_key(field),
+                                "Response missing specific required field '{}'",
+                                field,
+                            );
+                        }
+                    }
+                }
+            } else if let Some(response_json) = response.as_object() {
+                // Normal object response - existing logic
+                for field in &fields.generic_required_fields {
+                    assert!(
+                        response_json.contains_key(field),
+                        "Response missing generic required field '{}'",
+                        field,
+                    );
+                }
+                // ...
+                if let Some(data_array) = response_json.get("data").and_then(|v| v.as_array()) {
+                    for item in data_array.iter() {
+                        let item_json = item.as_object().unwrap();
+                        for field in &fields.specific_required_fields {
+                            assert!(
+                                item_json.contains_key(field),
+                                "Response missing specific required field '{}'",
+                                field,
+                            );
+                        }
+                    }
+                } else if let Some(data_json) =
+                    response_json.get("data").and_then(|v| v.as_object())
+                {
+                    // Data is an object - check required fields on it
+                    for field in &fields.specific_required_fields {
+                        assert!(
+                            data_json.contains_key(field),
+                            "Response missing specific required field '{}'",
+                            field,
+                        );
+                    }
+                }
+            }
+
             // println!("Response JSON is: {:?}", response_json);
 
             // Check generic required fields
@@ -386,8 +456,8 @@ async fn test_all_endpoints() {
             //         field,
             //     );
             // }
-            //
-            // // Check if data is an array or object and handle differently
+
+            // Check if data is an array or object and handle differently
             // if let Some(data_array) = response_json.get("data").and_then(|v| v.as_array()) {
             //     for item in data_array.iter() {
             //         let item_json = item.as_object().unwrap();
