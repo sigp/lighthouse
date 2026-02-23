@@ -159,7 +159,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     // Replay blocks from finalized checkpoint back to head.
     // We do not replay attestations presently, relying on the absence of other blocks
     // to guarantee `head_block_root` as the head.
-    let blocks = store
+    // TODO(gloas): this code doesn't work anyway, could just delete all of it
+    let (blocks, _envelopes) = store
         .load_blocks_to_replay(finalized_slot + 1, head_state.slot(), head_block_root)
         .map_err(|e| format!("Error loading blocks to replay for fork choice: {:?}", e))?;
 

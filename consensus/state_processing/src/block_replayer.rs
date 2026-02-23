@@ -257,22 +257,15 @@ where
                 let state_root = if self.state.slot() == self.state.latest_block_header().slot
                     && block.fork_name_unchecked().gloas_enabled()
                 {
-                    let state_block_hash = self
+                    let latest_bid_block_hash = self
                         .state
                         .latest_execution_payload_bid()
                         .map_err(BlockReplayError::from)?
                         .block_hash;
-                    let parent_block_hash = block
-                        .message()
-                        .body()
-                        .signed_execution_payload_bid()
-                        .map_err(BlockReplayError::from)?
-                        .message
-                        .parent_block_hash;
 
                     // Similar to `is_parent_block_full`, but reading the block hash from the
                     // not-yet-applied `block`.
-                    if state_block_hash == parent_block_hash {
+                    if block.is_parent_block_full(latest_bid_block_hash) {
                         if let Some(envelope) = envelopes_iter.next()
                             && envelope.message.slot == self.state.slot()
                         {
@@ -303,7 +296,7 @@ where
                         } else {
                             return Err(BlockReplayError::MissingPayloadEnvelope {
                                 slot: block.slot(),
-                                block_hash: state_block_hash,
+                                block_hash: latest_bid_block_hash,
                             }
                             .into());
                         }

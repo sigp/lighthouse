@@ -688,7 +688,7 @@ async fn block_replayer_hooks() {
         .add_attested_blocks_at_slots(state.clone(), state_root, &block_slots, &all_validators)
         .await;
 
-    let blocks = store
+    let (blocks, envelopes) = store
         .load_blocks_to_replay(Slot::new(0), max_slot, end_block_root.into())
         .unwrap();
 
@@ -697,7 +697,6 @@ async fn block_replayer_hooks() {
     let mut pre_block_slots = vec![];
     let mut post_block_slots = vec![];
 
-    // TODO(gloas): handle payloads?
     let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
         .pre_slot_hook(Box::new(|_, state| {
             pre_slots.push(state.slot());
@@ -725,7 +724,7 @@ async fn block_replayer_hooks() {
             post_block_slots.push(block.slot());
             Ok(())
         }))
-        .apply_blocks(blocks, vec![], None)
+        .apply_blocks(blocks, envelopes, None)
         .unwrap()
         .into_state();
 

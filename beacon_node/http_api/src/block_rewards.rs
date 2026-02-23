@@ -32,7 +32,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .map_err(unhandled_error)?
         .ok_or_else(|| custom_bad_request(format!("block at end slot {} unknown", end_slot)))?;
 
-    let blocks = chain
+    let (blocks, envelopes) = chain
         .store
         .load_blocks_to_replay(start_slot, end_slot, end_block_root)
         .map_err(|e| unhandled_error(BeaconChainError::from(e)))?;
@@ -56,7 +56,6 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
     let mut reward_cache = Default::default();
     let mut block_rewards = Vec::with_capacity(blocks.len());
 
-    // TODO(gloas): handle payloads
     let block_replayer = BlockReplayer::new(state, &chain.spec)
         .pre_block_hook(Box::new(|state, block| {
             state.build_all_committee_caches(&chain.spec)?;
@@ -79,7 +78,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         )
         .no_signature_verification()
         .minimal_block_root_verification()
-        .apply_blocks(blocks, vec![], None)
+        .apply_blocks(blocks, envelopes, None)
         .map_err(unhandled_error)?;
 
     if block_replayer.state_root_miss() {
