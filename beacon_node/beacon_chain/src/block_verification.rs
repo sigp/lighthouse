@@ -1067,7 +1067,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // [New in Gloas]: Skip payload validation checks. The payload now arrives separetely
+        // [New in Gloas]: Skip payload validation checks. The payload now arrives separately
         // via `ExecutionPayloadEnvelope`.
         if !chain
             .spec
