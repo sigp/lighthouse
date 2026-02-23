@@ -1,5 +1,38 @@
 #!/bin/sh
-# Pre-commit hook: runs cargo fmt --check
+# Pre-commit hook: formatting + safety checks
 # Install with: make install-hooks
 
-exec cargo fmt --check
+# Check formatting
+cargo fmt --check || {
+    echo "Formatting check failed. Run 'cargo fmt --all' to fix."
+    exit 1
+}
+
+# Quick safety check on staged consensus files (excluding types/ and tests)
+STAGED_CONSENSUS=$(git diff --cached --name-only --diff-filter=ACMR -- 'consensus/*.rs' | \
+    grep -v 'consensus/types/' | \
+    grep -v '/tests/' | \
+    grep -v 'test_utils' || true)
+
+if [ -n "$STAGED_CONSENSUS" ]; then
+    FOUND_ISSUES=false
+    for file in $STAGED_CONSENSUS; do
+        # Check for .unwrap() in added lines
+        if git diff --cached -- "$file" | grep '^\+' | grep -v '^\+\+\+' | grep -q '\.unwrap()'; then
+            echo "ERROR: .unwrap() in consensus file: $file"
+            echo "  Use ? operator or .ok_or() instead."
+            FOUND_ISSUES=true
+        fi
+        # Check for .expect( in added lines
+        if git diff --cached -- "$file" | grep '^\+' | grep -v '^\+\+\+' | grep -q '\.expect('; then
+            echo "ERROR: .expect() in consensus file: $file"
+            echo "  Use ? operator or .ok_or() instead."
+            FOUND_ISSUES=true
+        fi
+    done
+    if [ "$FOUND_ISSUES" = true ]; then
+        echo ""
+        echo "Consensus crate safety violations found. Fix before committing."
+        exit 1
+    fi
+fi

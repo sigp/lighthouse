@@ -171,6 +171,31 @@ Avoid using the rayon global thread pool - it causes CPU oversubscription when b
 - **Adapter pattern**: For testing `BeaconChain` dependent components, create adapter structs. See [`fetch_blobs/tests.rs`](beacon_node/beacon_chain/src/fetch_blobs/tests.rs)
 - **Local testnet**: See `scripts/local_testnet/README.md`
 
+## Test-Impact Mapping
+
+When you modify files, run the targeted tests for the affected crates:
+
+| Changed Directory | Test Command | Notes |
+|---|---|---|
+| `consensus/state_processing/` | `cargo nextest run -p state_processing` | Safe math enforced by clippy |
+| `consensus/types/` | `cargo nextest run -p types` | Also re-test dependents |
+| `consensus/fork_choice/` | `cargo nextest run -p fork_choice` | |
+| `beacon_node/beacon_chain/` | `FORK_NAME=electra cargo nextest run -p beacon_chain` | Supports `FORK_NAME` env var |
+| `beacon_node/store/` | `cargo nextest run -p store` | |
+| `beacon_node/network/` | `make test-network` | Runs phase0, electra, fulu |
+| `beacon_node/http_api/` | `make test-http-api` | Runs electra, fulu, gloas |
+| `beacon_node/operation_pool/` | `make test-op-pool` | Runs electra, fulu |
+| `slasher/` | `cargo nextest run -p slasher` | Tests lmdb, mdbx, redb backends |
+| `validator_client/` | `cargo nextest run -p validator_client` | |
+| `crypto/bls/` | `cargo nextest run -p bls` | |
+| `common/eth2/` | `cargo nextest run -p eth2` | |
+
+**Multi-crate changes**: If you change `consensus/types/`, also run tests for crates that depend on it (`state_processing`, `beacon_chain`).
+
+**Full suite**: `make test-release` (~20 min). Use for significant cross-cutting changes.
+
+**Devnet**: For critical changes, start a local testnet with `scripts/local_testnet/start_local_testnet.sh -c -a` to run Assertoor automated checks.
+
 ## Build Notes
 
 - Full builds take 5+ minutes - use large timeouts (300s+)
