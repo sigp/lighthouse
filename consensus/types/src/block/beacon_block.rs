@@ -309,6 +309,26 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
     pub fn execution_payload(&self) -> Result<Payload::Ref<'a>, BeaconStateError> {
         self.body().execution_payload()
     }
+
+    pub fn blob_kzg_commitments_len(&self) -> Option<usize> {
+        match self {
+            BeaconBlockRef::Base(_) => None,
+            BeaconBlockRef::Altair(_) => None,
+            BeaconBlockRef::Bellatrix(_) => None,
+            BeaconBlockRef::Capella(_) => None,
+            BeaconBlockRef::Deneb(block) => Some(block.body.blob_kzg_commitments.len()),
+            BeaconBlockRef::Electra(block) => Some(block.body.blob_kzg_commitments.len()),
+            BeaconBlockRef::Fulu(block) => Some(block.body.blob_kzg_commitments.len()),
+            BeaconBlockRef::Gloas(block) => Some(
+                block
+                    .body
+                    .signed_execution_payload_bid
+                    .message
+                    .blob_kzg_commitments
+                    .len(),
+            ),
+        }
+    }
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRefMut<'a, E, Payload> {
