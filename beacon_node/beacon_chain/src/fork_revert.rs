@@ -1,13 +1,7 @@
-use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::{ForkChoice, PayloadVerificationStatus};
+use crate::BeaconForkChoiceStore;
+use fork_choice::ForkChoice;
 use itertools::process_results;
-use state_processing::state_advance::complete_state_advance;
-use state_processing::{
-    ConsensusContext, VerifyBlockRoot, per_block_processing,
-    per_block_processing::BlockSignatureStrategy,
-};
 use std::sync::Arc;
-use std::time::Duration;
 use store::{HotColdDB, ItemStore, iter::ParentRootBlockIterator};
 use tracing::{info, warn};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
@@ -92,114 +86,11 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
 /// chains other than the chain leading to `head_block_root`. It should only be used in extreme
 /// circumstances when there is no better alternative.
 pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-    head_block_root: Hash256,
-    head_state: &BeaconState<E>,
-    store: Arc<HotColdDB<E, Hot, Cold>>,
-    current_slot: Option<Slot>,
-    spec: &ChainSpec,
+    _head_block_root: Hash256,
+    _head_state: &BeaconState<E>,
+    _store: Arc<HotColdDB<E, Hot, Cold>>,
+    _current_slot: Option<Slot>,
+    _spec: &ChainSpec,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
-    // Fetch finalized block.
-    let finalized_checkpoint = head_state.finalized_checkpoint();
-    let finalized_block_root = finalized_checkpoint.root;
-    let finalized_block = store
-        .get_full_block(&finalized_block_root)
-        .map_err(|e| format!("Error loading finalized block: {:?}", e))?
-        .ok_or_else(|| {
-            format!(
-                "Finalized block missing for revert: {:?}",
-                finalized_block_root
-            )
-        })?;
-
-    // Advance finalized state to finalized epoch (to handle skipped slots).
-    let finalized_state_root = finalized_block.state_root();
-    // The enshrined finalized state should be in the state cache.
-    let mut finalized_state = store
-        .get_state(&finalized_state_root, Some(finalized_block.slot()), true)
-        .map_err(|e| format!("Error loading finalized state: {:?}", e))?
-        .ok_or_else(|| {
-            format!(
-                "Finalized block state missing from database: {:?}",
-                finalized_state_root
-            )
-        })?;
-    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
-    complete_state_advance(
-        &mut finalized_state,
-        Some(finalized_state_root),
-        finalized_slot,
-        spec,
-    )
-    .map_err(|e| {
-        format!(
-            "Error advancing finalized state to finalized epoch: {:?}",
-            e
-        )
-    })?;
-    let finalized_snapshot = BeaconSnapshot {
-        beacon_block_root: finalized_block_root,
-        beacon_block: Arc::new(finalized_block),
-        beacon_state: finalized_state,
-    };
-
-    let fc_store =
-        BeaconForkChoiceStore::get_forkchoice_store(store.clone(), finalized_snapshot.clone())
-            .map_err(|e| format!("Unable to reset fork choice store for revert: {e:?}"))?;
-
-    let mut fork_choice = ForkChoice::from_anchor(
-        fc_store,
-        finalized_block_root,
-        &finalized_snapshot.beacon_block,
-        &finalized_snapshot.beacon_state,
-        current_slot,
-        spec,
-    )
-    .map_err(|e| format!("Unable to reset fork choice for revert: {:?}", e))?;
-
-    // Replay blocks from finalized checkpoint back to head.
-    // We do not replay attestations presently, relying on the absence of other blocks
-    // to guarantee `head_block_root` as the head.
-    // TODO(gloas): this code doesn't work anyway, could just delete all of it
-    let (blocks, _envelopes) = store
-        .load_blocks_to_replay(finalized_slot + 1, head_state.slot(), head_block_root)
-        .map_err(|e| format!("Error loading blocks to replay for fork choice: {:?}", e))?;
-
-    let mut state = finalized_snapshot.beacon_state;
-    for block in blocks {
-        complete_state_advance(&mut state, None, block.slot(), spec)
-            .map_err(|e| format!("State advance failed: {:?}", e))?;
-
-        let mut ctxt = ConsensusContext::new(block.slot())
-            .set_proposer_index(block.message().proposer_index());
-        per_block_processing(
-            &mut state,
-            &block,
-            BlockSignatureStrategy::NoVerification,
-            VerifyBlockRoot::True,
-            &mut ctxt,
-            spec,
-        )
-        .map_err(|e| format!("Error replaying block: {:?}", e))?;
-
-        // Setting this to unverified is the safest solution, since we don't have a way to
-        // retro-actively determine if they were valid or not.
-        //
-        // This scenario is so rare that it seems OK to double-verify some blocks.
-        let payload_verification_status = PayloadVerificationStatus::Optimistic;
-
-        fork_choice
-            .on_block(
-                block.slot(),
-                block.message(),
-                block.canonical_root(),
-                // Reward proposer boost. We are reinforcing the canonical chain.
-                Duration::from_secs(0),
-                &state,
-                payload_verification_status,
-                spec,
-            )
-            .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
-    }
-
-    Ok(fork_choice)
+    Err("broken".into())
 }

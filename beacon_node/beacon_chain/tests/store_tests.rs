@@ -689,7 +689,12 @@ async fn block_replayer_hooks() {
         .await;
 
     let (blocks, envelopes) = store
-        .load_blocks_to_replay(Slot::new(0), max_slot, end_block_root.into())
+        .load_blocks_to_replay(
+            Slot::new(0),
+            max_slot,
+            end_block_root.into(),
+            StatePayloadStatus::Pending,
+        )
         .unwrap();
 
     let mut pre_slots = vec![];

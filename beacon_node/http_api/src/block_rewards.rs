@@ -6,6 +6,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, warn};
 use types::block::BlindedBeaconBlock;
+use types::execution::StatePayloadStatus;
 use types::new_non_zero_usize;
 use warp_utils::reject::{beacon_state_error, custom_bad_request, unhandled_error};
 
@@ -34,7 +35,12 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 
     let (blocks, envelopes) = chain
         .store
-        .load_blocks_to_replay(start_slot, end_slot, end_block_root)
+        .load_blocks_to_replay(
+            start_slot,
+            end_slot,
+            end_block_root,
+            StatePayloadStatus::Pending,
+        )
         .map_err(|e| unhandled_error(BeaconChainError::from(e)))?;
 
     let state_root = chain
