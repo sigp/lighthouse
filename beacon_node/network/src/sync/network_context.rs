@@ -285,6 +285,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.custody_backfill_data_column_batch_requests
             .insert(batch_req_id, entry);
     }
+
+    /// Returns true if there is a `components_by_range_requests` entry with the given id.
+    pub(crate) fn has_components_by_range_entry(&self, id: Id) -> bool {
+        self.components_by_range_requests.keys().any(|k| k.id == id)
+    }
 }
 
 #[cfg(test)]
@@ -532,6 +537,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             )
             .map_err(|e| {
                 // Clean up the components_by_range_requests entry before returning error
+                debug!(
+                    id,
+                    reason = "retry_peer_selection_failed",
+                    map_len = self.components_by_range_requests.len() - 1,
+                    "components_by_range: entry removed"
+                );
                 self.components_by_range_requests
                     .retain(|key, _| key.id != id);
                 format!("{:?}", e)
@@ -562,6 +573,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
                 // Clean up the components_by_range_requests entry before returning error
+                debug!(
+                    entry = ?id,
+                    reason = "retry_send_failed",
+                    map_len = self.components_by_range_requests.len() - 1,
+                    "components_by_range: entry removed"
+                );
                 self.components_by_range_requests
                     .retain(|key, _| key != &id);
                 format!("{:?}", e)
@@ -577,14 +594,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         range_request.reinsert_failed_column_requests(data_column_requests)?;
         Ok(())
-    }
-
-    /// Remove all `components_by_range_requests` entries associated with the given range sync chain.
-    /// Defense-in-depth cleanup when a chain is removed.
-    pub fn remove_components_by_range_for_chain(&mut self, chain_id: Id) {
-        self.components_by_range_requests.retain(|key, _| {
-            !matches!(key.requester, RangeRequestId::RangeSync { chain_id: id, .. } if id == chain_id)
-        });
     }
 
     /// A blocks by range request sent by the range sync algorithm
@@ -723,6 +732,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }),
             range_request_span,
         );
+        let status = info.pending_status();
+        debug!(
+            entry = ?id,
+            %status,
+            map_len = self.components_by_range_requests.len() + 1,
+            "components_by_range: entry created"
+        );
         self.components_by_range_requests.insert(id, info);
 
         Ok(id.id)
@@ -790,6 +806,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: ComponentsByRangeRequestId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) -> Option<Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>> {
+        let map_len = self.components_by_range_requests.len();
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
             return None;
@@ -825,6 +842,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             }
         } {
+            let status = entry.get().pending_status();
+            debug!(
+                entry = ?entry.key(),
+                %status,
+                reason = "add_component_error",
+                map_len = map_len - 1,
+                "components_by_range: entry removed"
+            );
             entry.remove();
             return Some(Err(e));
         }
@@ -842,16 +867,40 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             {
                 // Remove the entry if it's a peer failure **and** retry counter is exceeded
                 if *exceeded_retries {
+                    let status = entry.get().pending_status();
                     debug!(
-                        entry=?entry.key(),
+                        entry = ?entry.key(),
+                        %status,
                         msg = error,
-                        "Request exceeded max retries, failing batch"
+                        reason = "exceeded_retries",
+                        map_len = map_len - 1,
+                        "components_by_range: entry removed"
                     );
                     entry.remove();
+                } else {
+                    let status = entry.get().pending_status();
+                    debug!(
+                        entry = ?entry.key(),
+                        %status,
+                        reason = "data_column_peer_failure_retry",
+                        map_len,
+                        "components_by_range: entry kept for retry"
+                    );
                 };
             } else {
-                // also remove the entry only if it coupled successfully
-                // or if it isn't a column peer failure.
+                let reason = if blocks_result.is_ok() {
+                    "success"
+                } else {
+                    "coupling_error"
+                };
+                let status = entry.get().pending_status();
+                debug!(
+                    entry = ?entry.key(),
+                    %status,
+                    reason,
+                    map_len = map_len - 1,
+                    "components_by_range: entry removed"
+                );
                 entry.remove();
             }
             // If the request is finished, dequeue everything
@@ -1872,6 +1921,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ),
         ] {
             metrics::set_gauge_vec(&metrics::SYNC_ACTIVE_NETWORK_REQUESTS, &[id], count as i64);
+        }
+
+        // Detect stale components_by_range entries (older than 60s)
+        let stale_threshold = Duration::from_secs(60);
+        for (key, entry) in &self.components_by_range_requests {
+            let age = entry.created_at.elapsed();
+            if age > stale_threshold {
+                let status = entry.pending_status();
+                warn!(
+                    entry = ?key,
+                    %status,
+                    map_len = self.components_by_range_requests.len(),
+                    "components_by_range: stale entry detected"
+                );
+            }
         }
     }
 }

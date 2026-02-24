@@ -337,8 +337,6 @@ where
             debug!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         }
 
-        network.remove_components_by_range_for_chain(chain.id());
-
         if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason
             && RangeSyncType::Finalized == sync_type
             && blacklist
