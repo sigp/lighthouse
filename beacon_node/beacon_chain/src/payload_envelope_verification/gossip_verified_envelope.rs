@@ -118,12 +118,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             });
         };
 
-        let latest_finalized_slot = fork_choice_read_lock
+        drop(fork_choice_read_lock);
+
+        let latest_finalized_slot = ctx
+            .canonical_head
+            .cached_head()
             .finalized_checkpoint()
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-
-        drop(fork_choice_read_lock);
 
         // TODO(EIP-7732): check that we haven't seen another valid `SignedExecutionPayloadEnvelope`
         //                 for this block root from this builder - envelope status table check
