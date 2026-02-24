@@ -241,11 +241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         _payload_verification_status: PayloadVerificationStatus,
         parent_block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<Hash256, EnvelopeError> {
-        // ----------------------------- ENVELOPE NOT YET ATTESTABLE ----------------------------------
-        // Everything in this initial section is on the hot path between processing the envelope and
-        // being able to attest to it. DO NOT add any extra processing in this initial section
-        // unless it must run before fork choice.
-        // -----------------------------------------------------------------------------------------
+        // Everything in this initial section is on the hot path for processing the envelope.
 
         let post_exec_timer =
             metrics::start_timer(&metrics::ENVELOPE_PROCESSING_POST_EXEC_PROCESSING);
@@ -276,12 +272,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO(gloas) emit SSE event if the payload became the new head payload
         drop(post_exec_timer);
 
-        // ---------------------------- ENVELOPE PROBABLY ATTESTABLE ----------------------------------
         // It is important NOT to return errors here before the database commit, because the envelope
         // has already been added to fork choice and the database would be left in an inconsistent
         // state if we returned early without committing. In other words, an error here would
         // corrupt the node's database permanently.
-        // -----------------------------------------------------------------------------------------
 
         // Store the envelope and its state, and execute the confirmation batch for the intermediate
         // states, which will delete their temporary flags.
