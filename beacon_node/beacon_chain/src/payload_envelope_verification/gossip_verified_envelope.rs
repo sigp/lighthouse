@@ -22,7 +22,7 @@ use crate::{
     payload_envelope_verification::{
         EnvelopeError, EnvelopeImportData, EnvelopeProcessingSnapshot, ExecutionPendingEnvelope,
         IntoExecutionPendingEnvelope, MaybeAvailableEnvelope, load_snapshot,
-        payload_notifier::PayloadNotifier,
+        load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
     },
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
@@ -161,7 +161,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
             // Fast path: self-built envelopes can be verified without loading the state.
-            let envelope_ref = signed_envelope.as_ref();
             let mut opt_snapshot = None;
             let proposer = beacon_proposer_cache::with_proposer_cache(
                 ctx.beacon_proposer_cache,
@@ -174,7 +173,11 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                         %beacon_block_root,
                         "Proposer shuffling cache miss for envelope verification"
                     );
-                    let snapshot = load_snapshot(envelope_ref, ctx.canonical_head, ctx.store)?;
+                    let snapshot = load_snapshot_from_state_root::<T>(
+                        beacon_block_root,
+                        proto_block.state_root,
+                        ctx.store,
+                    )?;
                     opt_snapshot = Some(Box::new(snapshot.clone()));
                     Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
@@ -205,7 +208,11 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         } else {
             // TODO(gloas) if we implement a builder pubkey cache, we'll need to use it here.
             // External builder: must load the state to get the builder pubkey.
-            let snapshot = load_snapshot(signed_envelope.as_ref(), ctx.canonical_head, ctx.store)?;
+            let snapshot = load_snapshot_from_state_root::<T>(
+                beacon_block_root,
+                proto_block.state_root,
+                ctx.store,
+            )?;
             let is_valid =
                 signed_envelope.verify_signature_with_state(&snapshot.pre_state, ctx.spec)?;
             (is_valid, Some(Box::new(snapshot)))

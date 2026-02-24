@@ -291,35 +291,16 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
 }
 
 #[allow(clippy::type_complexity)]
-#[instrument(skip_all, level = "debug", fields(beacon_block_root = %envelope.beacon_block_root()))]
-pub(crate) fn load_snapshot<T: BeaconChainTypes>(
-    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
-    canonical_head: &CanonicalHead<T>,
+#[instrument(skip_all, level = "debug", fields(beacon_block_root = %beacon_block_root))]
+/// Load state from store given a known state root and block root.
+/// Use this when the proto block has already been looked up from fork choice.
+pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
+    beacon_block_root: Hash256,
+    block_state_root: Hash256,
     store: &BeaconStore<T>,
 ) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
-    // Reject any envelope if its block is not known to fork choice.
-    //
-    // A block that is not in fork choice is either:
-    //
-    //  - Not yet imported: we should reject this envelope because we should only import it after its parent block
-    //  has been fully imported.
-    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore the envelope
-    //  because it will revert finalization. Note that the finalized block is stored in fork
-    //  choice, so we will not reject any child of the finalized block (this is relevant during
-    //  genesis).
-
-    let fork_choice_read_lock = canonical_head.fork_choice_read_lock();
-    let beacon_block_root = envelope.beacon_block_root();
-    let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
-        return Err(EnvelopeError::BlockRootUnknown {
-            block_root: beacon_block_root,
-        });
-    };
-    drop(fork_choice_read_lock);
-
     // TODO(EIP-7732): add metrics here
 
-    let block_state_root = proto_beacon_block.state_root;
     // We can use `get_hot_state` here rather than `get_advanced_hot_state` because the envelope
     // must be from the same slot as its block (so no advance is required).
     let cache_state = true;
@@ -337,6 +318,35 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
         state_root: block_state_root,
         beacon_block_root,
     })
+}
+
+#[instrument(skip_all, level = "debug", fields(beacon_block_root = %envelope.beacon_block_root()))]
+pub(crate) fn load_snapshot<T: BeaconChainTypes>(
+    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
+    canonical_head: &CanonicalHead<T>,
+    store: &BeaconStore<T>,
+) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
+    // Reject any envelope if its block is not known to fork choice.
+    //
+    // A block that is not in fork choice is either:
+    //
+    //  - Not yet imported: we should reject this envelope because we should only import it after
+    //    its parent block has been fully imported.
+    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore the
+    //    envelope because it will revert finalization. Note that the finalized block is stored in
+    //    fork choice, so we will not reject any child of the finalized block (this is relevant
+    //    during genesis).
+
+    let fork_choice_read_lock = canonical_head.fork_choice_read_lock();
+    let beacon_block_root = envelope.beacon_block_root();
+    let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
+        return Err(EnvelopeError::BlockRootUnknown {
+            block_root: beacon_block_root,
+        });
+    };
+    drop(fork_choice_read_lock);
+
+    load_snapshot_from_state_root::<T>(beacon_block_root, proto_beacon_block.state_root, store)
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
