@@ -721,14 +721,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         })
     }
 
-    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
-        self.get_block_with(block_root, SignedBeaconBlock::any_from_ssz_bytes)
-    }
-
     /// Fetch a block from the store using a custom decode function.
     ///
     /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
