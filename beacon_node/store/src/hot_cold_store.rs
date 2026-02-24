@@ -1518,10 +1518,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
-        let kv_blob_ops = {
-            let _span = debug_span!("convert_blob_ops").entered();
-            self.convert_to_kv_batch(blobs_ops)?
-        };
+        let kv_blob_ops = self.convert_to_kv_batch(blobs_ops)?;
         {
             let _span = debug_span!("write_blobs_db").entered();
             self.blobs_db.do_atomically(kv_blob_ops)?;
