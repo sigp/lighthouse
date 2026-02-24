@@ -77,7 +77,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 },
                 RpcSuccessResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
-                RpcSuccessResponse::PayloadEnvelopesbyRange(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::PayloadEnvelopesByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::PayloadEnvelopesByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
@@ -669,7 +669,7 @@ fn handle_rpc_response<E: EthSpec>(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::PayloadEnvelopesByRangeV1 => {
-            Ok(Some(RpcSuccessResponse::PayloadEnvelopesbyRange(Arc::new(
+            Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRange(Arc::new(
                 SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
             ))))
         }

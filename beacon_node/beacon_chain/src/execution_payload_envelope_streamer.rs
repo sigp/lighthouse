@@ -21,7 +21,7 @@ pub struct PayloadEnvelopeStreamer<T: BeaconChainTypes> {
     _check_caches: CheckCaches,
 }
 
-// TODO(gloas) eventually we'll need to expand this to support loading blinded payload envelopes from the dsb
+// TODO(gloas) eventually we'll need to expand this to support loading blinded payload envelopes from the db
 // and fetching the execution payload from the EL. See BlockStreamer impl as an example
 impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     pub fn new(
@@ -43,7 +43,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         }))
     }
 
-    // TODO(gloas) simply a strub impl for now. Should check some exec payload envelope cache
+    // TODO(gloas) simply a stub impl for now. Should check some exec payload envelope cache
     // and return the envelope if it exists in the cache
     fn check_payload_envelope_cache(
         &self,

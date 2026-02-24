@@ -1661,7 +1661,7 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
-                    RpcSuccessResponse::PayloadEnvelopesbyRange(resp) => self.build_response(
+                    RpcSuccessResponse::PayloadEnvelopesByRange(resp) => self.build_response(
                         id,
                         peer_id,
                         Response::PayloadEnvelopesByRange(Some(resp)),

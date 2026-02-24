@@ -516,7 +516,7 @@ impl BlocksByRootRequest {
     }
 }
 
-/// Reqwuest a number of execution payload envelopes from a peer
+/// Request a number of execution payload envelopes from a peer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayloadEnvelopesByRootRequest {
     /// The list of beacon block roots used to request execution payload envelopes.
@@ -626,7 +626,7 @@ pub enum RpcSuccessResponse<E: EthSpec> {
 
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE request. A None response signifies
     /// the end of the batch.
-    PayloadEnvelopesbyRange(Arc<SignedExecutionPayloadEnvelope<E>>),
+    PayloadEnvelopesByRange(Arc<SignedExecutionPayloadEnvelope<E>>),
 
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT request.
     PayloadEnvelopesByRoot(Arc<SignedExecutionPayloadEnvelope<E>>),
@@ -795,7 +795,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::Status(_) => Protocol::Status,
             RpcSuccessResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RpcSuccessResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            RpcSuccessResponse::PayloadEnvelopesbyRange(_) => Protocol::PayloadEnvelopesByRange,
+            RpcSuccessResponse::PayloadEnvelopesByRange(_) => Protocol::PayloadEnvelopesByRange,
             RpcSuccessResponse::PayloadEnvelopesByRoot(_) => Protocol::PayloadEnvelopesByRoot,
             RpcSuccessResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RpcSuccessResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
@@ -815,7 +815,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
     pub fn slot(&self) -> Option<Slot> {
         match self {
             Self::BlocksByRange(r) | Self::BlocksByRoot(r) => Some(r.slot()),
-            Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesbyRange(r) => Some(r.slot()),
+            Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesByRange(r) => Some(r.slot()),
             Self::BlobsByRange(r) | Self::BlobsByRoot(r) => Some(r.slot()),
             Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => Some(r.slot()),
             Self::LightClientBootstrap(r) => Some(r.get_slot()),
@@ -866,7 +866,7 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
             RpcSuccessResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
-            RpcSuccessResponse::PayloadEnvelopesbyRange(envelope) => {
+            RpcSuccessResponse::PayloadEnvelopesByRange(envelope) => {
                 write!(
                     f,
                     "ExecutionPayloadEnvelopesByRange: Envelope slot: {}",

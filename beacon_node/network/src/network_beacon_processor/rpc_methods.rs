@@ -286,7 +286,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
     }
 
-    /// Handle a `ExecutionPayloadEnvelopes` request from the peer.
+    /// Handle a `ExecutionPayloadEnvelopesByRoot` request from the peer.
     async fn handle_payload_envelopes_by_root_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,

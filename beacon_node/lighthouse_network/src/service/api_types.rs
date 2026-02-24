@@ -163,7 +163,7 @@ pub enum Response<E: EthSpec> {
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
     PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
-    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BYH_RANGE` request.
+    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
     PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
@@ -195,7 +195,7 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                 None => RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRoot),
             },
             Response::PayloadEnvelopesByRange(r) => match r {
-                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesbyRange(p)),
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesByRange(p)),
                 None => {
                     RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRange)
                 }
