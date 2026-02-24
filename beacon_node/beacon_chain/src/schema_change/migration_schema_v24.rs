@@ -224,7 +224,7 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
         if previous_snapshot_slot >= anchor_info.state_upper_limit
             && db
                 .hierarchy
-                .storage_strategy(split.slot, dummy_start_slot)
+                .storage_strategy(split.slot, dummy_start_slot, StatePayloadStatus::Pending)
                 .is_ok_and(|strategy| !strategy.is_replay_from())
         {
             info!(
@@ -331,7 +331,8 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
                 );
             } else {
                 // 1. Store snapshot or diff at this slot (if required).
-                let storage_strategy = db.hot_storage_strategy(slot)?;
+                let storage_strategy =
+                    db.hot_storage_strategy(slot, StatePayloadStatus::Pending)?;
                 debug!(
                     %slot,
                     ?state_root,

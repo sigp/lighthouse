@@ -5097,7 +5097,7 @@ async fn replay_from_split_state() {
     assert!(
         store
             .hierarchy
-            .storage_strategy(split.slot, anchor_slot)
+            .storage_strategy(split.slot, anchor_slot, StatePayloadStatus::Pending)
             .unwrap()
             .is_replay_from()
     );

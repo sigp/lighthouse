@@ -452,15 +452,26 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
-    fn cold_storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
+    fn cold_storage_strategy(
+        &self,
+        slot: Slot,
+        // payload_status: StatePayloadStatus,
+    ) -> Result<StorageStrategy, Error> {
         // The start slot for the freezer HDiff is always 0
-        Ok(self.hierarchy.storage_strategy(slot, Slot::new(0))?)
-    }
-
-    pub fn hot_storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
+        // TODO(gloas): wire up payload_status
         Ok(self
             .hierarchy
-            .storage_strategy(slot, self.hot_hdiff_start_slot()?)?)
+            .storage_strategy(slot, Slot::new(0), StatePayloadStatus::Pending)?)
+    }
+
+    pub fn hot_storage_strategy(
+        &self,
+        slot: Slot,
+        payload_status: StatePayloadStatus,
+    ) -> Result<StorageStrategy, Error> {
+        Ok(self
+            .hierarchy
+            .storage_strategy(slot, self.hot_hdiff_start_slot()?, payload_status)?)
     }
 
     pub fn hot_hdiff_start_slot(&self) -> Result<Slot, Error> {
@@ -1380,8 +1391,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     // NOTE: `hot_storage_strategy` can error if there are states in the database
                     // prior to the `anchor_slot`. This can happen if checkpoint sync has been
                     // botched and left some states in the database prior to completing.
+                    // Use `Pending` status here because snapshots and diffs are only stored for
+                    // `Pending` states.
                     if let Some(slot) = slot
-                        && let Ok(strategy) = self.hot_storage_strategy(slot)
+                        && let Ok(strategy) =
+                            self.hot_storage_strategy(slot, StatePayloadStatus::Pending)
                     {
                         match strategy {
                             StorageStrategy::Snapshot => {
@@ -1643,6 +1657,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
+        let payload_status = state.payload_status();
+
         match self.state_cache.lock().put_state(
             *state_root,
             state.get_latest_block_root(*state_root),
@@ -1688,7 +1704,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         debug!(
             ?state_root,
             slot = %state.slot(),
-            storage_strategy = ?self.hot_storage_strategy(state.slot())?,
+            storage_strategy = ?self.hot_storage_strategy(state.slot(), payload_status)?,
             diff_base_state = %summary.diff_base_state,
             previous_state_root = ?summary.previous_state_root,
             "Storing hot state summary and diffs"
@@ -1711,7 +1727,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self,
             *state_root,
             state,
-            self.hot_storage_strategy(state.slot())?,
+            self.hot_storage_strategy(state.slot(), state.payload_status())?,
         )?;
         ops.push(hot_state_summary.as_kv_store_op(*state_root));
         Ok(hot_state_summary)
@@ -1724,7 +1740,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         let slot = state.slot();
-        let storage_strategy = self.hot_storage_strategy(slot)?;
+        let storage_strategy = self.hot_storage_strategy(slot, state.payload_status())?;
         match storage_strategy {
             StorageStrategy::ReplayFrom(_) => {
                 // Already have persisted the state summary, don't persist anything else
@@ -1884,16 +1900,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(buffer);
         }
 
-        let Some(HotStateSummary {
-            slot,
-            diff_base_state,
-            ..
-        }) = self.load_hot_state_summary(&state_root)?
+        let Some(
+            summary @ HotStateSummary {
+                slot,
+                diff_base_state,
+                ..
+            },
+        ) = self.load_hot_state_summary(&state_root)?
         else {
             return Err(Error::MissingHotStateSummary(state_root));
         };
 
-        let buffer = match self.hot_storage_strategy(slot)? {
+        let payload_status = self.get_hot_state_summary_payload_status(&summary)?;
+
+        let buffer = match self.hot_storage_strategy(slot, payload_status)? {
             StorageStrategy::Snapshot => {
                 let Some(state) = self.load_hot_state_as_snapshot(state_root)? else {
                     let existing_snapshots = self.load_hot_state_snapshot_roots()?;
@@ -1979,7 +1999,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             },
         ) = self.load_hot_state_summary(state_root)?
         {
-            let mut state = match self.hot_storage_strategy(slot)? {
+            let payload_status = self.get_hot_state_summary_payload_status(&summary)?;
+            let mut state = match self.hot_storage_strategy(slot, payload_status)? {
                 strat @ StorageStrategy::Snapshot | strat @ StorageStrategy::DiffFrom(_) => {
                     let buffer_timer = metrics::start_timer_vec(
                         &metrics::BEACON_HDIFF_BUFFER_LOAD_TIME,
@@ -2025,8 +2046,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     self.state_cache
                         .lock()
                         .rebase_on_finalized(&mut base_state, &self.spec)?;
-
-                    let payload_status = self.get_hot_state_summary_payload_status(&summary)?;
 
                     self.load_hot_state_using_replay(
                         base_state,
