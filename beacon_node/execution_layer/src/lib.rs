@@ -43,6 +43,7 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
+use types::ExecutionPayloadGloas;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
@@ -55,7 +56,6 @@ use types::{
     ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
     ProposerPreparationData, Slot,
 };
-use types::{ExecutionPayloadGloas, new_non_zero_usize};
 
 mod block_hash;
 mod engine_api;
