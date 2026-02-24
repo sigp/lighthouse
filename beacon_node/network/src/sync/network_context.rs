@@ -251,6 +251,42 @@ pub enum RangeBlockComponent<E: EthSpec> {
     ),
 }
 
+/// Counts of active meta-requests, for verifying resource cleanup in tests.
+#[cfg(test)]
+pub(crate) struct ActiveRequestCounts {
+    pub components_by_range: usize,
+    pub custody_backfill_batches: usize,
+}
+
+#[cfg(test)]
+impl<T: BeaconChainTypes> SyncNetworkContext<T> {
+    /// Returns counts of active meta-requests. Used in tests to verify that
+    /// entries are cleaned up after errors or chain removal.
+    pub(crate) fn active_request_counts(&self) -> ActiveRequestCounts {
+        ActiveRequestCounts {
+            components_by_range: self.components_by_range_requests.len(),
+            custody_backfill_batches: self.custody_backfill_data_column_batch_requests.len(),
+        }
+    }
+
+    /// Inserts a test entry into `custody_backfill_data_column_batch_requests` with a single
+    /// sub-request that expects the given custody columns. Used for testing cleanup behavior.
+    pub(crate) fn insert_test_custody_backfill_entry(
+        &mut self,
+        batch_req_id: CustodyBackFillBatchRequestId,
+        dc_req_id: DataColumnsByRangeRequestId,
+        column_indexes: Vec<ColumnIndex>,
+    ) {
+        let entry = RangeDataColumnBatchRequest::new(
+            vec![(dc_req_id, column_indexes)],
+            self.chain.clone(),
+            batch_req_id.batch_id.epoch,
+        );
+        self.custody_backfill_data_column_batch_requests
+            .insert(batch_req_id, entry);
+    }
+}
+
 #[cfg(test)]
 impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
     pub fn new_for_testing(
@@ -494,7 +530,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 active_request_count_by_peer,
                 peers_to_deprioritize,
             )
-            .map_err(|e| format!("{:?}", e))?;
+            .map_err(|e| {
+                // Clean up the components_by_range_requests entry before returning error
+                self.components_by_range_requests
+                    .retain(|key, _| key.id != id);
+                format!("{:?}", e)
+            })?;
 
         // Reuse the id for the request that received partially correct responses
         let id = ComponentsByRangeRequestId { id, requester };
@@ -519,7 +560,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )
             })
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("{:?}", e))?;
+            .map_err(|e| {
+                // Clean up the components_by_range_requests entry before returning error
+                self.components_by_range_requests
+                    .retain(|key, _| key != &id);
+                format!("{:?}", e)
+            })?;
 
         // instead of creating a new `RangeBlockComponentsRequest`, we reinsert
         // the new requests created for the failed requests
@@ -531,6 +577,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         range_request.reinsert_failed_column_requests(data_column_requests)?;
         Ok(())
+    }
+
+    /// Remove all `components_by_range_requests` entries associated with the given range sync chain.
+    /// Defense-in-depth cleanup when a chain is removed.
+    pub fn remove_components_by_range_for_chain(&mut self, chain_id: Id) {
+        self.components_by_range_requests.retain(|key, _| {
+            !matches!(key.requester, RangeRequestId::RangeSync { chain_id: id, .. } if id == chain_id)
+        });
     }
 
     /// A blocks by range request sent by the range sync algorithm
@@ -1787,11 +1841,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         if let Some(data_column_result) = entry.get_mut().responses() {
-            if data_column_result.is_ok() {
-                // remove the entry only if it coupled successfully with
-                // no errors
-                entry.remove();
-            }
+            // Request is complete — always remove the entry. On error, the caller
+            // will create a new entry for the retry.
+            entry.remove();
             // If the request is finished, dequeue everything
             Some(data_column_result.map_err(RpcResponseError::BlockComponentCouplingError))
         } else {

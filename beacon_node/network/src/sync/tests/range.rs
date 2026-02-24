@@ -22,6 +22,7 @@ use lighthouse_network::service::api_types::{
     SyncRequestId,
 };
 use lighthouse_network::{PeerId, SyncInfo};
+use std::collections::HashSet;
 use std::time::Duration;
 use types::{
     BlobSidecarList, BlockImportSource, Epoch, EthSpec, Hash256, MinimalEthSpec as E,
@@ -182,6 +183,15 @@ impl TestRig {
             Vec::<Hash256>::new(),
             "Expected no failed chains"
         )
+    }
+
+    fn assert_components_by_range_count(&self, expected: usize) {
+        let counts = self.sync_manager.active_request_counts();
+        assert_eq!(
+            counts.components_by_range, expected,
+            "Expected {expected} components_by_range entries, found {}",
+            counts.components_by_range,
+        );
     }
 
     #[track_caller]
@@ -630,4 +640,148 @@ fn finalized_sync_not_enough_custody_peers_on_start() {
 
     let last_epoch = advanced_epochs + EXTRA_SYNCED_EPOCHS;
     r.complete_and_process_range_sync_until(last_epoch, filter());
+}
+
+/// Test that components_by_range_requests entries are cleaned up when a chain is removed.
+#[test]
+fn chain_removal_cleans_up_components_by_range() {
+    let mut rig = TestRig::default();
+    // Only run post-PeerDAS (components_by_range only exists with data columns)
+    if !rig.fork_name.fulu_enabled() {
+        return;
+    }
+
+    // Start with no active requests
+    rig.assert_components_by_range_count(0);
+
+    // Add a finalized peer to trigger range sync and batch requests
+    let peer = rig.add_finalized_peer();
+    rig.assert_state(RangeSyncType::Finalized);
+
+    // Grab the batch request (this creates entries in components_by_range_requests —
+    // finalized sync may create multiple batches at once)
+    let _ = rig.find_blocks_by_range_request(filter().peer(peer));
+
+    // Verify at least one entry was created
+    let count_before = rig.sync_manager.active_request_counts().components_by_range;
+    assert!(
+        count_before > 0,
+        "Expected at least one components_by_range entry"
+    );
+
+    // Disconnect the peer — this removes the chain via on_chain_removed
+    rig.peer_disconnected(peer);
+
+    // The entry should be cleaned up when the chain is removed
+    rig.assert_components_by_range_count(0);
+}
+
+/// Test that retry_columns_by_range cleans up the components_by_range entry when
+/// no custody peer is available for the retry.
+#[test]
+fn retry_columns_by_range_cleans_up_on_no_peers() {
+    use lighthouse_network::rpc::BlocksByRangeRequest;
+
+    let mut rig = TestRig::default();
+    // Only run post-PeerDAS
+    if !rig.fork_name.fulu_enabled() {
+        return;
+    }
+
+    rig.assert_components_by_range_count(0);
+
+    // Add a finalized peer to trigger range sync and batch requests
+    let peer = rig.add_finalized_peer();
+    rig.assert_state(RangeSyncType::Finalized);
+
+    // Grab the blocks request to get the ComponentsByRangeRequestId
+    let ((blocks_req_id, _block_peer), _data_reqs) =
+        rig.find_blocks_by_range_request(filter().peer(peer));
+
+    // Entries should exist in components_by_range_requests (finalized sync creates multiple batches)
+    let count_before = rig.sync_manager.active_request_counts().components_by_range;
+    assert!(
+        count_before > 0,
+        "Expected at least one components_by_range entry"
+    );
+
+    let parent_id = blocks_req_id.parent_request_id.id;
+
+    // Call retry_columns_by_range with an empty peer set — simulates no custody
+    // peers available for the retry
+    let result = rig.sync_manager.network_context().retry_columns_by_range(
+        parent_id,
+        &HashSet::new(),
+        &HashSet::new(),
+        BlocksByRangeRequest::new(0, 1),
+        &HashSet::from([0]),
+    );
+
+    // Retry should fail (no peers)
+    assert!(result.is_err(), "Expected retry to fail with no peers");
+
+    // The specific entry targeted by retry should be cleaned up (one fewer than before)
+    let count_after = rig.sync_manager.active_request_counts().components_by_range;
+    assert_eq!(
+        count_after,
+        count_before - 1,
+        "Expected retry failure to clean up one entry"
+    );
+}
+
+/// Test that custody_backfill_data_column_batch_requests entries are cleaned up when
+/// the aggregated response returns DataColumnPeerFailure.
+#[tokio::test]
+async fn custody_backfill_entry_cleaned_up_on_peer_failure() {
+    use lighthouse_network::service::api_types::{
+        CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
+    };
+
+    let mut rig = TestRig::default();
+    // Only run post-PeerDAS
+    if !rig.fork_name.fulu_enabled() {
+        return;
+    }
+
+    // Create a block with data columns so responses_with_custody_columns has blocks
+    // to check against (blocks with num_expected_blobs > 0)
+    let _block = rig.create_canonical_block().await;
+
+    let peer_id = rig.new_connected_supernode_peer();
+
+    // Create test IDs for the custody backfill request at epoch 0
+    // (where the block we created lives)
+    let batch_id = CustodyBackfillBatchId {
+        epoch: Epoch::new(0),
+        run_id: 1,
+    };
+    let batch_req_id = CustodyBackFillBatchRequestId { id: 999, batch_id };
+    let dc_req_id = DataColumnsByRangeRequestId {
+        id: 1000,
+        parent_request_id:
+            lighthouse_network::service::api_types::DataColumnsByRangeRequester::CustodyBackfillSync(
+                batch_req_id,
+            ),
+        peer: peer_id,
+    };
+
+    // Insert a test entry that expects column 0 from this peer
+    let ctx = rig.sync_manager.network_context();
+    ctx.insert_test_custody_backfill_entry(batch_req_id, dc_req_id, vec![0]);
+
+    assert_eq!(ctx.active_request_counts().custody_backfill_batches, 1);
+
+    // Send a "successful" response with NO columns — the sub-request completes
+    // but the aggregate check will fail because column 0 is missing from a
+    // slot that expects blobs.
+    let resp = ctx.custody_backfill_data_columns_response(batch_req_id, dc_req_id, Ok((vec![], D)));
+
+    // The response should be an error (DataColumnPeerFailure - missing expected columns)
+    assert!(
+        resp.is_some_and(|r| r.is_err()),
+        "Expected DataColumnPeerFailure error"
+    );
+
+    // The entry should be cleaned up even on error
+    assert_eq!(ctx.active_request_counts().custody_backfill_batches, 0);
 }
