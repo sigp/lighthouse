@@ -4199,11 +4199,11 @@ impl HotStateSummary {
             OptionalDiffBaseState::Snapshot(0)
         };
 
-        let previous_state_root = if state.slot() == 0
-            && let StatePayloadStatus::Pending = payload_status
-        {
+        let previous_state_root = if state.slot() == 0 {
             // Set to 0x0 for genesis state to prevent any sort of circular reference.
             Hash256::zero()
+        } else if let StatePayloadStatus::Full = payload_status {
+            get_state_root(state.slot())?
         } else {
             get_state_root(state.slot().safe_sub(1_u64)?)?
         };

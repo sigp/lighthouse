@@ -665,8 +665,11 @@ impl HierarchyModuli {
         payload_status: StatePayloadStatus,
     ) -> Result<StorageStrategy, Error> {
         // Store all Full states by replaying from their respective Pending state at the same slot.
+        // Make an exception for the genesis state, which "counts as" Full by virtue of having 0x0
+        // in both `latest_block_hash` and `latest_execution_payload_bid.block_hash`.
         if let StatePayloadStatus::Full = payload_status
             && slot >= start_slot
+            && slot != 0
         {
             return Ok(StorageStrategy::ReplayFrom(slot));
         }
