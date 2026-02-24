@@ -106,6 +106,9 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
         // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
+        // If we have a block_processing_table, we could have a Processed(Bid, bool) state that is only
+        // entered post adding to fork choice. That way, we could potentially need only a single call to make
+        // sure the block is valid and to do all consequent checks with the bid
         //
         // 1. Blocks we haven't seen (IGNORE), and
         // 2. Blocks we've seen that are invalid (REJECT).
@@ -147,7 +150,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         // Verify the envelope signature.
         //
-        // For self-build envelopes, we can use the proposer cache for the fork and the
+        // For self-built envelopes, we can use the proposer cache for the fork and the
         // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
         // For external builder envelopes, we must load the state to access the builder registry.
         let builder_index = envelope.builder_index;
@@ -157,7 +160,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             proto_block.proposer_shuffling_root_for_child_block(block_epoch, ctx.spec);
 
         let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
-            // Fast path: self-build envelopes can be verified without loading the state.
+            // Fast path: self-built envelopes can be verified without loading the state.
             let envelope_ref = signed_envelope.as_ref();
             let mut opt_snapshot = None;
             let proposer = beacon_proposer_cache::with_proposer_cache(
@@ -176,7 +179,15 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
             )?;
+            let expected_proposer = proposer.index;
             let fork = proposer.fork;
+
+            if block.message().proposer_index() != expected_proposer as u64 {
+                return Err(EnvelopeError::IncorrectBlockProposer {
+                    block: block.message().proposer_index(),
+                    local_shuffling: expected_proposer as u64,
+                });
+            }
 
             let pubkey_cache = ctx.validator_pubkey_cache.read();
             let pubkey = pubkey_cache

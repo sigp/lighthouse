@@ -206,6 +206,11 @@ pub enum EnvelopeError {
         committed_bid: ExecutionBlockHash,
         envelope: ExecutionBlockHash,
     },
+    // The block's proposer_index does not match the locally computed proposer
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     // The slot belongs to a block that is from a slot prior than
     // the most recently finalized slot
     PriorToFinalization {
