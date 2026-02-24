@@ -1,4 +1,3 @@
-use crate::DatabasePayloadEnvelope;
 use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::database::interface::BeaconNodeBackend;
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
@@ -744,27 +743,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
-    }
-
-    pub fn try_get_full_payload_envelope(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<DatabasePayloadEnvelope<E>>, Error> {
-        // TODO(gloas) metrics
-        // metrics::inc_counter(&metrics::PAYLOAD_ENVELOPE_GET_COUNT);
-
-        // Load the execution payload envelope
-        // TODO(gloas) we'll want to implement a way to load a blinded envelope
-        let Some(envelope) = self.get_payload_envelope(block_root)? else {
-            return Ok(None);
-        };
-
-        Ok(Some(DatabasePayloadEnvelope::Full(envelope)))
-
-        // TODO(gloas) implement the logic described below (see `try_get_full_block`)
-        // If the payload envelope is after the split point then we should have the full execution payload
-        // stored in the database. If it isn't but payload pruning is disabled, try to load it
-        // on-demand.
     }
 
     pub fn get_payload_envelope(
