@@ -44,6 +44,8 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         let envelope = &signed_envelope.message;
         let payload = &envelope.payload;
 
+        // TODO(gloas)
+
         // Verify the execution payload is valid
         let payload_notifier = PayloadNotifier::new(
             chain.clone(),

@@ -29,6 +29,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         let payload_verification_status = {
             let payload_message = &envelope.message;
 
+            // TODO(gloas) re-asses if optimistic syncing works similarly post-gloas
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
                     let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;

@@ -3272,7 +3272,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Span::current().record("beacon_block_root", beacon_block_root.to_string());
 
             // TODO(gloas) in process_gossip_block here we check_and_insert on the duplicate cache
-            // before calling gossip_verified_block
+            // before calling gossip_verified_block. We need this to ensure we dont try to execute the
+            // payload multiple times.
 
             self.process_gossip_verified_execution_payload_envelope(
                 peer_id,
