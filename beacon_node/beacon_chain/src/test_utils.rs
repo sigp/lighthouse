@@ -65,6 +65,7 @@ use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
+use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::U4294967296;
 use types::attestation::IndexedAttestationBase;
@@ -1092,7 +1093,7 @@ where
         slot: Slot,
     ) -> (
         SignedBlockContentsTuple<E>,
-        Option<ExecutionPayloadEnvelope<E>>,
+        Option<SignedExecutionPayloadEnvelope<E>>,
         BeaconState<E>,
     ) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
@@ -1132,11 +1133,30 @@ where
                 &self.spec,
             ));
 
-            // Retrieve the cached envelope produced during block production.
-            let envelope = self.chain.pending_payload_envelopes.write().remove(slot);
+            // Retrieve the cached envelope produced during block production and sign it.
+            let signed_envelope = self
+                .chain
+                .pending_payload_envelopes
+                .write()
+                .remove(slot)
+                .map(|envelope| {
+                    let epoch = slot.epoch(E::slots_per_epoch());
+                    let domain = self.spec.get_domain(
+                        epoch,
+                        Domain::BeaconBuilder,
+                        &pending_state.fork(),
+                        pending_state.genesis_validators_root(),
+                    );
+                    let message = envelope.signing_root(domain);
+                    let signature = self.validator_keypairs[proposer_index].sk.sign(message);
+                    SignedExecutionPayloadEnvelope {
+                        message: envelope,
+                        signature,
+                    }
+                });
 
             let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
-            (block_contents, envelope, pending_state)
+            (block_contents, signed_envelope, pending_state)
         } else {
             let (block_contents, state) = self.make_block(state, slot).await;
             (block_contents, None, state)
@@ -2539,42 +2559,31 @@ where
     }
 
     /// Process an execution payload envelope for a Gloas block.
-    ///
-    /// This applies the envelope to the pending state to produce the Full state,
-    /// computes the Full state root, sets it on the envelope, and stores both the
-    /// envelope and the Full state in the database.
-    ///
-    /// Returns the Full state root.
     pub fn process_envelope(
         &self,
         block_root: Hash256,
-        envelope: ExecutionPayloadEnvelope<E>,
+        signed_envelope: SignedExecutionPayloadEnvelope<E>,
         pending_state: &mut BeaconState<E>,
     ) -> Hash256 {
+        let state_root = signed_envelope.message.state_root;
+        debug!(
+            slot = %signed_envelope.message.slot,
+            ?state_root,
+            "Processing execution payload envelope"
+        );
         let block_state_root = pending_state
             .update_tree_hash_cache()
             .expect("should compute pending state root");
-
-        let mut signed_envelope = SignedExecutionPayloadEnvelope {
-            message: envelope,
-            signature: Signature::infinity().expect("should create infinity signature"),
-        };
 
         state_processing::envelope_processing::process_execution_payload_envelope(
             pending_state,
             Some(block_state_root),
             &signed_envelope,
-            state_processing::VerifySignatures::False,
-            state_processing::envelope_processing::VerifyStateRoot::False,
+            state_processing::VerifySignatures::True,
+            state_processing::envelope_processing::VerifyStateRoot::True,
             &self.spec,
         )
         .expect("should process envelope");
-
-        let full_state_root = pending_state
-            .update_tree_hash_cache()
-            .expect("should compute full state root");
-
-        signed_envelope.message.state_root = full_state_root;
 
         // Store the envelope.
         self.chain
@@ -2585,10 +2594,10 @@ where
         // Store the Full state.
         self.chain
             .store
-            .put_state(&full_state_root, pending_state)
+            .put_state(&state_root, pending_state)
             .expect("should store full state");
 
-        full_state_root
+        state_root
     }
 
     /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from
