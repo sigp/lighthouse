@@ -656,7 +656,8 @@ impl HierarchyModuli {
     ///   layer 2 diff will point to the start snapshot instead of the layer 1 diff at
     ///   2998272.
     /// * `payload_status` - whether the state is `Full` (came from processing a payload), or
-    ///   `Pending` (came from processing a block). Prior to Gloas all states are Pending.
+    ///   `Pending` (came from processing a block). Prior to Gloas all states are `Pending`.
+    ///   Skipped slots post-Gloas should also use a `Pending` status.
     pub fn storage_strategy(
         &self,
         slot: Slot,

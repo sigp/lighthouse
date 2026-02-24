@@ -1657,7 +1657,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let payload_status = state.payload_status();
+        let payload_status = state.payload_status_with_skipped_pending();
 
         match self.state_cache.lock().put_state(
             *state_root,
@@ -1727,7 +1727,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self,
             *state_root,
             state,
-            self.hot_storage_strategy(state.slot(), state.payload_status())?,
+            self.hot_storage_strategy(state.slot(), state.payload_status_with_skipped_pending())?,
         )?;
         ops.push(hot_state_summary.as_kv_store_op(*state_root));
         Ok(hot_state_summary)
@@ -1740,7 +1740,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         let slot = state.slot();
-        let storage_strategy = self.hot_storage_strategy(slot, state.payload_status())?;
+        let storage_strategy =
+            self.hot_storage_strategy(slot, state.payload_status_with_skipped_pending())?;
         match storage_strategy {
             StorageStrategy::ReplayFrom(_) => {
                 // Already have persisted the state summary, don't persist anything else
@@ -1880,6 +1881,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // summary then we know this summary is for a `Full` block (payload state).
         // NOTE: We treat any and all skipped-slot states as `Pending` by this definition, which is
         // perhaps a bit strange (they could have a payload most-recently applied).
+        // TODO(gloas): could maybe simplify this by checking diff_base_slot == slot?
         let previous_state_summary = self
             .load_hot_state_summary(&previous_state_root)?
             .ok_or(Error::MissingHotStateSummary(previous_state_root))?;
@@ -2072,7 +2074,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         desired_payload_status: StatePayloadStatus,
         update_cache: bool,
     ) -> Result<BeaconState<E>, Error> {
-        if base_state.slot() == slot && base_state.payload_status() == desired_payload_status {
+        if base_state.slot() == slot
+            && base_state.payload_status_with_skipped_pending() == desired_payload_status
+        {
             return Ok(base_state);
         }
 
@@ -4163,9 +4167,20 @@ impl HotStateSummary {
         // slots where there isn't a skip).
         let latest_block_root = state.get_latest_block_root(state_root);
 
+        // Payload status of the state determines a lot about how it is stored.
+        let payload_status = state.payload_status_with_skipped_pending();
+
         let get_state_root = |slot| {
             if slot == state.slot() {
-                Ok::<_, Error>(state_root)
+                // In the case where this state is a `Full` state, use the `state_root` of its
+                // prior `Pending` state.
+                if let StatePayloadStatus::Full = payload_status {
+                    // TODO(gloas): change this assert to debug_assert_eq
+                    assert_eq!(state.latest_block_header().slot, state.slot());
+                    Ok(state.latest_block_header().state_root)
+                } else {
+                    Ok::<_, Error>(state_root)
+                }
             } else {
                 Ok(get_ancestor_state_root(store, state, slot).map_err(|e| {
                     Error::StateSummaryIteratorError {
@@ -4184,7 +4199,9 @@ impl HotStateSummary {
             OptionalDiffBaseState::Snapshot(0)
         };
 
-        let previous_state_root = if state.slot() == 0 {
+        let previous_state_root = if state.slot() == 0
+            && let StatePayloadStatus::Pending = payload_status
+        {
             // Set to 0x0 for genesis state to prevent any sort of circular reference.
             Hash256::zero()
         } else {
