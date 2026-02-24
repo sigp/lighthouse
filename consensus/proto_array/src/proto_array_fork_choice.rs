@@ -2,7 +2,7 @@ use crate::{
     JustifiedBalances,
     error::Error,
     proto_array::{
-        InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+        InvalidationOperation, Iter, NodeDelta, ProposerBoost, ProtoArray, ProtoNode,
         calculate_committee_fraction,
     },
     ssz_container::SszContainer,
@@ -28,15 +28,17 @@ pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
+    current_slot: Slot,
     next_slot: Slot,
+    current_payload_present: bool,
     next_payload_present: bool,
 }
 
 // FIXME(sproul): version this type
 pub struct LatestMessage {
-    slot: Slot,
-    root: Hash256,
-    payload_present: bool,
+    pub slot: Slot,
+    pub root: Hash256,
+    pub payload_present: bool,
 }
 
 /// Represents the verification status of an execution payload pre-Gloas.
@@ -448,7 +450,7 @@ impl ProtoArrayForkChoice {
         execution_status: ExecutionStatus,
         execution_payload_parent_hash: Option<ExecutionBlockHash>,
         execution_payload_block_hash: Option<ExecutionBlockHash>,
-
+        spec: &ChainSpec,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -474,7 +476,6 @@ impl ProtoArrayForkChoice {
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash,
             execution_payload_block_hash,
-
         };
 
         proto_array
@@ -569,9 +570,16 @@ impl ProtoArrayForkChoice {
     ) -> Result<Hash256, String> {
         let old_balances = &mut self.balances;
         let new_balances = justified_state_balances;
+        let node_slots = self
+            .proto_array
+            .nodes
+            .iter()
+            .map(|node| node.slot())
+            .collect::<Vec<_>>();
 
         let deltas = compute_deltas(
             &self.proto_array.indices,
+            &node_slots,
             &mut self.votes,
             &old_balances.effective_balances,
             &new_balances.effective_balances,
@@ -628,13 +636,13 @@ impl ProtoArrayForkChoice {
         )?;
 
         // Only re-org a single slot. This prevents cascading failures during asynchrony.
-        let head_slot_ok = info.head_node.slot + 1 == current_slot;
+        let head_slot_ok = info.head_node.slot() + 1 == current_slot;
         if !head_slot_ok {
             return Err(DoNotReOrg::HeadDistance.into());
         }
 
         // Only re-org if the head's weight is less than the heads configured committee fraction.
-        let head_weight = info.head_node.weight;
+        let head_weight = info.head_node.weight();
         let re_org_head_weight_threshold = info.re_org_head_weight_threshold;
         let weak_head = head_weight < re_org_head_weight_threshold;
         if !weak_head {
@@ -646,7 +654,7 @@ impl ProtoArrayForkChoice {
         }
 
         // Only re-org if the parent's weight is greater than the parents configured committee fraction.
-        let parent_weight = info.parent_node.weight;
+        let parent_weight = info.parent_node.weight();
         let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
         let parent_strong = parent_weight > re_org_parent_weight_threshold;
         if !parent_strong {
@@ -685,14 +693,14 @@ impl ProtoArrayForkChoice {
         let parent_node = nodes.pop().ok_or(DoNotReOrg::MissingHeadOrParentNode)?;
         let head_node = nodes.pop().ok_or(DoNotReOrg::MissingHeadOrParentNode)?;
 
-        let parent_slot = parent_node.slot;
-        let head_slot = head_node.slot;
+        let parent_slot = parent_node.slot();
+        let head_slot = head_node.slot();
         let re_org_block_slot = head_slot + 1;
 
         // Check finalization distance.
         let proposal_epoch = re_org_block_slot.epoch(E::slots_per_epoch());
         let finalized_epoch = head_node
-            .unrealized_finalized_checkpoint
+            .unrealized_finalized_checkpoint()
             .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
             .epoch;
         let epochs_since_finalization = proposal_epoch.saturating_sub(finalized_epoch).as_u64();
@@ -724,10 +732,10 @@ impl ProtoArrayForkChoice {
         }
 
         // Check FFG.
-        let ffg_competitive = parent_node.unrealized_justified_checkpoint
-            == head_node.unrealized_justified_checkpoint
-            && parent_node.unrealized_finalized_checkpoint
-                == head_node.unrealized_finalized_checkpoint;
+        let ffg_competitive = parent_node.unrealized_justified_checkpoint()
+            == head_node.unrealized_justified_checkpoint()
+            && parent_node.unrealized_finalized_checkpoint()
+                == head_node.unrealized_finalized_checkpoint();
         if !ffg_competitive {
             return Err(DoNotReOrg::JustificationAndFinalizationNotCompetitive.into());
         }
@@ -755,10 +763,10 @@ impl ProtoArrayForkChoice {
     /// This will operate on *all* blocks, even those that do not descend from the finalized
     /// ancestor.
     pub fn contains_invalid_payloads(&mut self) -> bool {
-        self.proto_array
-            .nodes
-            .iter()
-            .any(|node| node.execution_status.is_invalid())
+        self.proto_array.nodes.iter().any(|node| {
+            node.execution_status()
+                .is_ok_and(|status| status.is_invalid())
+        })
     }
 
     /// For all nodes, regardless of their relationship to the finalized block, set their execution
@@ -783,9 +791,11 @@ impl ProtoArrayForkChoice {
                 .get_mut(node_index)
                 .ok_or("unreachable index out of bounds in proto_array nodes")?;
 
-            match node.execution_status {
-                ExecutionStatus::Invalid(block_hash) => {
-                    node.execution_status = ExecutionStatus::Optimistic(block_hash);
+            match node.execution_status() {
+                Ok(ExecutionStatus::Invalid(block_hash)) => {
+                    if let ProtoNode::V17(node) = node {
+                        node.execution_status = ExecutionStatus::Optimistic(block_hash);
+                    }
 
                     // Restore the weight of the node, it would have been set to `0` in
                     // `apply_score_changes` when it was invalidated.
@@ -795,7 +805,7 @@ impl ProtoArrayForkChoice {
                         .iter()
                         .enumerate()
                         .filter_map(|(validator_index, vote)| {
-                            if vote.current_root == node.root {
+                            if vote.current_root == node.root() {
                                 // Any voting validator that does not have a balance should be
                                 // ignored. This is consistent with `compute_deltas`.
                                 self.balances.effective_balances.get(validator_index)
@@ -808,7 +818,7 @@ impl ProtoArrayForkChoice {
                     // If the invalid root was boosted, apply the weight to it and
                     // ancestors.
                     if let Some(proposer_score_boost) = spec.proposer_score_boost
-                        && self.proto_array.previous_proposer_boost.root == node.root
+                        && self.proto_array.previous_proposer_boost.root == node.root()
                     {
                         // Compute the score based upon the current balances. We can't rely on
                         // the `previous_proposr_boost.score` since it is set to zero with an
@@ -829,12 +839,12 @@ impl ProtoArrayForkChoice {
                     if restored_weight > 0 {
                         let mut node_or_ancestor = node;
                         loop {
-                            node_or_ancestor.weight = node_or_ancestor
-                                .weight
+                            *node_or_ancestor.weight_mut() = node_or_ancestor
+                                .weight()
                                 .checked_add(restored_weight)
                                 .ok_or("Overflow when adding weight to ancestor")?;
 
-                            if let Some(parent_index) = node_or_ancestor.parent {
+                            if let Some(parent_index) = node_or_ancestor.parent() {
                                 node_or_ancestor = self
                                     .proto_array
                                     .nodes
@@ -850,11 +860,14 @@ impl ProtoArrayForkChoice {
                 }
                 // There are no balance changes required if the node was either valid or
                 // optimistic.
-                ExecutionStatus::Valid(block_hash) | ExecutionStatus::Optimistic(block_hash) => {
-                    node.execution_status = ExecutionStatus::Optimistic(block_hash)
+                Ok(ExecutionStatus::Valid(block_hash))
+                | Ok(ExecutionStatus::Optimistic(block_hash)) => {
+                    if let ProtoNode::V17(node) = node {
+                        node.execution_status = ExecutionStatus::Optimistic(block_hash)
+                    }
                 }
                 // An irrelevant node cannot become optimistic, this is a no-op.
-                ExecutionStatus::Irrelevant(_) => (),
+                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => (),
             }
         }
 
@@ -891,30 +904,34 @@ impl ProtoArrayForkChoice {
     pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
         let block = self.get_proto_node(block_root)?;
         let parent_root = block
-            .parent
+            .parent()
             .and_then(|i| self.proto_array.nodes.get(i))
-            .map(|parent| parent.root);
+            .map(|parent| parent.root());
 
         Some(Block {
-            slot: block.slot,
-            root: block.root,
+            slot: block.slot(),
+            root: block.root(),
             parent_root,
-            state_root: block.state_root,
-            target_root: block.target_root,
-            current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
-            next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
-            justified_checkpoint: block.justified_checkpoint,
-            finalized_checkpoint: block.finalized_checkpoint,
-            execution_status: block.execution_status,
-            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
+            state_root: block.state_root(),
+            target_root: block.target_root(),
+            current_epoch_shuffling_id: block.current_epoch_shuffling_id().clone(),
+            next_epoch_shuffling_id: block.next_epoch_shuffling_id().clone(),
+            justified_checkpoint: *block.justified_checkpoint(),
+            finalized_checkpoint: *block.finalized_checkpoint(),
+            execution_status: block
+                .execution_status()
+                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
+            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
+            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: block.execution_payload_block_hash().ok(),
         })
     }
 
     /// Returns the `block.execution_status` field, if the block is present.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         let block = self.get_proto_node(block_root)?;
-        Some(block.execution_status)
+        block.execution_status().ok()
     }
 
     /// Returns the weight of a given block.
@@ -923,7 +940,22 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .nodes
             .get(*block_index)
-            .map(|node| node.weight)
+            .map(|node| node.weight())
+    }
+
+    /// Returns the payload status of the head node based on accumulated weights.
+    ///
+    /// Returns `Full` if `full_payload_weight >= empty_payload_weight` (Full wins ties per spec's
+    /// `get_payload_status_tiebreaker` natural ordering FULL=2 > EMPTY=1).
+    /// Returns `Empty` otherwise. Returns `None` for V17 nodes.
+    pub fn head_payload_status(&self, head_root: &Hash256) -> Option<PayloadStatus> {
+        let node = self.get_proto_node(head_root)?;
+        let v29 = node.as_v29().ok()?;
+        if v29.full_payload_weight >= v29.empty_payload_weight {
+            Some(PayloadStatus::Full)
+        } else {
+            Some(PayloadStatus::Empty)
+        }
     }
 
     /// See `ProtoArray` documentation.
@@ -1039,15 +1071,30 @@ impl ProtoArrayForkChoice {
 /// - If a value in `indices` is greater to or equal to `indices.len()`.
 /// - If some `Hash256` in `votes` is not a key in `indices` (except for `Hash256::zero()`, this is
 ///   always valid).
-// FIXME(sproul): implement get-weight changes here
 fn compute_deltas(
     indices: &HashMap<Hash256, usize>,
+    node_slots: &[Slot],
     votes: &mut ElasticList<VoteTracker>,
     old_balances: &[u64],
     new_balances: &[u64],
     equivocating_indices: &BTreeSet<u64>,
-) -> Result<Vec<i64>, Error> {
-    let mut deltas = vec![0_i64; indices.len()];
+) -> Result<Vec<NodeDelta>, Error> {
+    let block_slot = |index: usize| -> Result<Slot, Error> {
+        node_slots
+            .get(index)
+            .copied()
+            .ok_or(Error::InvalidNodeDelta(index))
+    };
+
+    let mut deltas = vec![
+        NodeDelta {
+            delta: 0,
+            empty_delta: 0,
+            full_delta: 0,
+            payload_tiebreaker: None,
+        };
+        indices.len()
+    ];
 
     for (val_index, vote) in votes.iter_mut().enumerate() {
         // There is no need to create a score change if the validator has never voted or both their
@@ -1072,17 +1119,25 @@ fn compute_deltas(
                 let old_balance = old_balances.get(val_index).copied().unwrap_or(0);
 
                 if let Some(current_delta_index) = indices.get(&vote.current_root).copied() {
-                    let delta = deltas
-                        .get(current_delta_index)
-                        .ok_or(Error::InvalidNodeDelta(current_delta_index))?
+                    let node_delta = deltas
+                        .get_mut(current_delta_index)
+                        .ok_or(Error::InvalidNodeDelta(current_delta_index))?;
+                    node_delta.delta = node_delta
+                        .delta
                         .checked_sub(old_balance as i64)
                         .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                    // Array access safe due to check on previous line.
-                    deltas[current_delta_index] = delta;
+                    let status = NodeDelta::payload_status(
+                        vote.current_slot,
+                        vote.current_payload_present,
+                        block_slot(current_delta_index)?,
+                    );
+                    node_delta.sub_payload_delta(status, old_balance, current_delta_index)?;
                 }
 
                 vote.current_root = Hash256::zero();
+                vote.current_slot = Slot::new(0);
+                vote.current_payload_present = false;
             }
             // We've handled this slashed validator, continue without applying an ordinary delta.
             continue;
@@ -1099,34 +1154,52 @@ fn compute_deltas(
         // on-boarded less validators than the prior fork.
         let new_balance = new_balances.get(val_index).copied().unwrap_or(0);
 
-        if vote.current_root != vote.next_root || old_balance != new_balance {
+        if vote.current_root != vote.next_root
+            || old_balance != new_balance
+            || vote.current_payload_present != vote.next_payload_present
+            || vote.current_slot != vote.next_slot
+        {
             // We ignore the vote if it is not known in `indices`. We assume that it is outside
             // of our tree (i.e., pre-finalization) and therefore not interesting.
             if let Some(current_delta_index) = indices.get(&vote.current_root).copied() {
-                let delta = deltas
-                    .get(current_delta_index)
-                    .ok_or(Error::InvalidNodeDelta(current_delta_index))?
+                let node_delta = deltas
+                    .get_mut(current_delta_index)
+                    .ok_or(Error::InvalidNodeDelta(current_delta_index))?;
+                node_delta.delta = node_delta
+                    .delta
                     .checked_sub(old_balance as i64)
                     .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                // Array access safe due to check on previous line.
-                deltas[current_delta_index] = delta;
+                let status = NodeDelta::payload_status(
+                    vote.current_slot,
+                    vote.current_payload_present,
+                    block_slot(current_delta_index)?,
+                );
+                node_delta.sub_payload_delta(status, old_balance, current_delta_index)?;
             }
 
             // We ignore the vote if it is not known in `indices`. We assume that it is outside
             // of our tree (i.e., pre-finalization) and therefore not interesting.
             if let Some(next_delta_index) = indices.get(&vote.next_root).copied() {
-                let delta = deltas
-                    .get(next_delta_index)
-                    .ok_or(Error::InvalidNodeDelta(next_delta_index))?
+                let node_delta = deltas
+                    .get_mut(next_delta_index)
+                    .ok_or(Error::InvalidNodeDelta(next_delta_index))?;
+                node_delta.delta = node_delta
+                    .delta
                     .checked_add(new_balance as i64)
                     .ok_or(Error::DeltaOverflow(next_delta_index))?;
 
-                // Array access safe due to check on previous line.
-                deltas[next_delta_index] = delta;
+                let status = NodeDelta::payload_status(
+                    vote.next_slot,
+                    vote.next_payload_present,
+                    block_slot(next_delta_index)?,
+                );
+                node_delta.add_payload_delta(status, new_balance, next_delta_index)?;
             }
 
             vote.current_root = vote.next_root;
+            vote.current_slot = vote.next_slot;
+            vote.current_payload_present = vote.next_payload_present;
         }
     }
 
@@ -1144,8 +1217,13 @@ mod test_compute_deltas {
         Hash256::from_low_u64_be(i as u64 + 1)
     }
 
+    fn test_node_slots(count: usize) -> Vec<Slot> {
+        vec![Slot::new(0); count]
+    }
+
     #[test]
     fn finalized_descendant() {
+        let spec = MainnetEthSpec::default_spec();
         let genesis_slot = Slot::new(0);
         let genesis_epoch = Epoch::new(0);
 
@@ -1176,6 +1254,9 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
+            None,
+            None,
+            &spec,
         )
         .unwrap();
 
@@ -1195,10 +1276,13 @@ mod test_compute_deltas {
                     execution_status,
                     unrealized_justified_checkpoint: Some(genesis_checkpoint),
                     unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                    execution_payload_parent_hash: None,
+                    execution_payload_block_hash: None,
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
                 genesis_checkpoint,
+                &spec,
             )
             .unwrap();
 
@@ -1220,10 +1304,13 @@ mod test_compute_deltas {
                     execution_status,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
+                    execution_payload_parent_hash: None,
+                    execution_payload_block_hash: None,
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
                 genesis_checkpoint,
+                &spec,
             )
             .unwrap();
 
@@ -1299,6 +1386,7 @@ mod test_compute_deltas {
     /// *checkpoint*, not just the finalized *block*.
     #[test]
     fn finalized_descendant_edge_case() {
+        let spec = MainnetEthSpec::default_spec();
         let get_block_root = Hash256::from_low_u64_be;
         let genesis_slot = Slot::new(0);
         let junk_state_root = Hash256::zero();
@@ -1320,6 +1408,9 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
+            None,
+            None,
+            &spec,
         )
         .unwrap();
 
@@ -1348,10 +1439,13 @@ mod test_compute_deltas {
                         execution_status,
                         unrealized_justified_checkpoint: Some(genesis_checkpoint),
                         unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                        execution_payload_parent_hash: None,
+                        execution_payload_block_hash: None,
                     },
                     Slot::from(block.slot),
                     genesis_checkpoint,
                     genesis_checkpoint,
+                    &spec,
                 )
                 .unwrap();
         };
@@ -1454,7 +1548,10 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: Hash256::zero(),
                 next_root: Hash256::zero(),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
             old_balances.push(0);
             new_balances.push(0);
@@ -1462,6 +1559,7 @@ mod test_compute_deltas {
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1505,7 +1603,10 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: Hash256::zero(),
                 next_root: hash_from_index(0),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
             old_balances.push(BALANCE);
             new_balances.push(BALANCE);
@@ -1513,6 +1614,7 @@ mod test_compute_deltas {
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1563,7 +1665,10 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: Hash256::zero(),
                 next_root: hash_from_index(i),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
             old_balances.push(BALANCE);
             new_balances.push(BALANCE);
@@ -1571,6 +1676,7 @@ mod test_compute_deltas {
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1616,7 +1722,10 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: hash_from_index(0),
                 next_root: hash_from_index(1),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
             old_balances.push(BALANCE);
             new_balances.push(BALANCE);
@@ -1624,6 +1733,7 @@ mod test_compute_deltas {
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1680,18 +1790,25 @@ mod test_compute_deltas {
         votes.0.push(VoteTracker {
             current_root: hash_from_index(1),
             next_root: Hash256::zero(),
-            next_epoch: Epoch::new(0),
+            current_slot: Slot::new(0),
+            next_slot: Slot::new(0),
+            current_payload_present: false,
+            next_payload_present: false,
         });
 
         // One validator moves their vote from the block to something outside the tree.
         votes.0.push(VoteTracker {
             current_root: hash_from_index(1),
             next_root: Hash256::from_low_u64_be(1337),
-            next_epoch: Epoch::new(0),
+            current_slot: Slot::new(0),
+            next_slot: Slot::new(0),
+            current_payload_present: false,
+            next_payload_present: false,
         });
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1733,7 +1850,10 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: hash_from_index(0),
                 next_root: hash_from_index(1),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
             old_balances.push(OLD_BALANCE);
             new_balances.push(NEW_BALANCE);
@@ -1741,6 +1861,7 @@ mod test_compute_deltas {
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1802,12 +1923,16 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: hash_from_index(1),
                 next_root: hash_from_index(2),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
         }
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1858,12 +1983,16 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: hash_from_index(1),
                 next_root: hash_from_index(2),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
         }
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1912,7 +2041,10 @@ mod test_compute_deltas {
             votes.0.push(VoteTracker {
                 current_root: hash_from_index(1),
                 next_root: hash_from_index(2),
-                next_epoch: Epoch::new(0),
+                current_slot: Slot::new(0),
+                next_slot: Slot::new(0),
+                current_payload_present: false,
+                next_payload_present: false,
             });
         }
 
@@ -1921,6 +2053,7 @@ mod test_compute_deltas {
 
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &old_balances,
             &new_balances,
@@ -1950,6 +2083,7 @@ mod test_compute_deltas {
         // Re-computing the deltas should be a no-op (no repeat deduction for the slashed validator).
         let deltas = compute_deltas(
             &indices,
+            &test_node_slots(indices.len()),
             &mut votes,
             &new_balances,
             &new_balances,
@@ -1957,5 +2091,69 @@ mod test_compute_deltas {
         )
         .expect("should compute deltas");
         assert_eq!(deltas, vec![0, 0]);
+    }
+
+    #[test]
+    fn payload_bucket_changes_on_non_pending_vote() {
+        const BALANCE: u64 = 42;
+
+        let mut indices = HashMap::new();
+        indices.insert(hash_from_index(1), 0);
+
+        let node_slots = vec![Slot::new(0)];
+        let mut votes = ElasticList(vec![VoteTracker {
+            current_root: hash_from_index(1),
+            next_root: hash_from_index(1),
+            current_slot: Slot::new(1),
+            next_slot: Slot::new(1),
+            current_payload_present: false,
+            next_payload_present: true,
+        }]);
+
+        let deltas = compute_deltas(
+            &indices,
+            &node_slots,
+            &mut votes,
+            &[BALANCE],
+            &[BALANCE],
+            &BTreeSet::new(),
+        )
+        .expect("should compute deltas");
+
+        assert_eq!(deltas[0].delta, 0);
+        assert_eq!(deltas[0].empty_delta, -(BALANCE as i64));
+        assert_eq!(deltas[0].full_delta, BALANCE as i64);
+    }
+
+    #[test]
+    fn pending_vote_only_updates_regular_weight() {
+        const BALANCE: u64 = 42;
+
+        let mut indices = HashMap::new();
+        indices.insert(hash_from_index(1), 0);
+
+        let node_slots = vec![Slot::new(0)];
+        let mut votes = ElasticList(vec![VoteTracker {
+            current_root: hash_from_index(1),
+            next_root: hash_from_index(1),
+            current_slot: Slot::new(0),
+            next_slot: Slot::new(0),
+            current_payload_present: false,
+            next_payload_present: true,
+        }]);
+
+        let deltas = compute_deltas(
+            &indices,
+            &node_slots,
+            &mut votes,
+            &[BALANCE],
+            &[BALANCE],
+            &BTreeSet::new(),
+        )
+        .expect("should compute deltas");
+
+        assert_eq!(deltas[0].delta, 0);
+        assert_eq!(deltas[0].empty_delta, 0);
+        assert_eq!(deltas[0].full_delta, 0);
     }
 }

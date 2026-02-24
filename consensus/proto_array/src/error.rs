@@ -55,10 +55,10 @@ pub enum Error {
     InvalidEpochOffset(u64),
     Arith(ArithError),
     GloasNotImplemented,
-    InvalidNodeVariant{
+    InvalidNodeVariant {
         block_root: Hash256,
     },
-    BrokenBlock{
+    BrokenBlock {
         block_root: Hash256,
     },
 }

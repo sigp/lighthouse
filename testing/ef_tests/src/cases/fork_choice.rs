@@ -939,7 +939,7 @@ impl<E: EthSpec> Tester<E> {
             DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
         );
         let proposer_head = match proposer_head_result {
-            Ok(head) => head.parent_node.root,
+            Ok(head) => head.parent_node.root(),
             Err(ProposerHeadError::DoNotReOrg(_)) => canonical_head,
             _ => panic!("Unexpected error in get proposer head"),
         };

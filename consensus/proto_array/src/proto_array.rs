@@ -1,5 +1,5 @@
 use crate::error::InvalidBestNodeInfo;
-use crate::{Block, ExecutionStatus, JustifiedBalances, error::Error, PayloadStatus};
+use crate::{Block, ExecutionStatus, JustifiedBalances, PayloadStatus, error::Error};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -68,13 +68,12 @@ impl InvalidationOperation {
     }
 }
 
-
 #[superstruct(
     variants(V17, V29),
-    variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)),
+    variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize))
 )]
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Clone)]
-#[ssz(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "union")]
 pub struct ProtoNode {
     /// The `slot` is not necessary for `ProtoArray`, it just exists so external components can
     /// easily query the block slot. This is useful for upstream fork choice logic.
@@ -130,6 +129,10 @@ pub struct ProtoNode {
     pub full_payload_weight: u64,
     #[superstruct(only(V29), partial_getter(copy))]
     pub execution_payload_block_hash: ExecutionBlockHash,
+    /// Tiebreaker for payload preference when full_payload_weight == empty_payload_weight.
+    /// Per spec: prefer Full if block was timely and data is available; otherwise prefer Empty.
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub payload_tiebreak: PayloadTiebreak,
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -145,6 +148,83 @@ impl Default for ProposerBoost {
             score: 0,
         }
     }
+}
+
+#[derive(Clone, PartialEq, Debug, Copy)]
+pub struct NodeDelta {
+    pub delta: i64,
+    pub empty_delta: i64,
+    pub full_delta: i64,
+    pub payload_tiebreaker: Option<PayloadTiebreak>,
+}
+
+impl NodeDelta {
+    /// Determine the payload bucket for a vote based on whether the vote's slot matches the
+    /// block's slot (Pending), or the vote's `payload_present` flag (Full/Empty).
+    pub fn payload_status(
+        vote_slot: Slot,
+        payload_present: bool,
+        block_slot: Slot,
+    ) -> PayloadStatus {
+        if vote_slot == block_slot {
+            PayloadStatus::Pending
+        } else if payload_present {
+            PayloadStatus::Full
+        } else {
+            PayloadStatus::Empty
+        }
+    }
+
+    /// Add a balance to the appropriate payload status.
+    pub fn add_payload_delta(
+        &mut self,
+        status: PayloadStatus,
+        balance: u64,
+        index: usize,
+    ) -> Result<(), Error> {
+        let field = match status {
+            PayloadStatus::Full => &mut self.full_delta,
+            PayloadStatus::Empty => &mut self.empty_delta,
+            PayloadStatus::Pending => return Ok(()),
+        };
+        *field = field
+            .checked_add(balance as i64)
+            .ok_or(Error::DeltaOverflow(index))?;
+        Ok(())
+    }
+
+    /// Subtract a balance from the appropriate payload status.
+    pub fn sub_payload_delta(
+        &mut self,
+        status: PayloadStatus,
+        balance: u64,
+        index: usize,
+    ) -> Result<(), Error> {
+        let field = match status {
+            PayloadStatus::Full => &mut self.full_delta,
+            PayloadStatus::Empty => &mut self.empty_delta,
+            PayloadStatus::Pending => return Ok(()),
+        };
+        *field = field
+            .checked_sub(balance as i64)
+            .ok_or(Error::DeltaOverflow(index))?;
+        Ok(())
+    }
+}
+
+impl PartialEq<i64> for NodeDelta {
+    fn eq(&self, other: &i64) -> bool {
+        self.delta == *other
+            && self.empty_delta == 0
+            && self.full_delta == 0
+            && self.payload_tiebreaker.is_none()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Encode, Decode, Serialize, Deserialize)]
+pub struct PayloadTiebreak {
+    pub is_timely: bool,
+    pub is_data_available: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -174,7 +254,7 @@ impl ProtoArray {
     #[allow(clippy::too_many_arguments)]
     pub fn apply_score_changes<E: EthSpec>(
         &mut self,
-        mut deltas: Vec<i64>,
+        mut deltas: Vec<NodeDelta>,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
         new_justified_balances: &JustifiedBalances,
@@ -206,16 +286,32 @@ impl ProtoArray {
                 continue;
             }
 
-            let mut node_delta = if let Ok(proto_node) = node.as_v17() && proto_node.execution_status.is_invalid() {
+            let execution_status_is_invalid = if let Ok(proto_node) = node.as_v17()
+                && proto_node.execution_status.is_invalid()
+            {
+                true
+            } else {
+                false
+            };
+
+            let node_deltas = deltas
+                .get(node_index)
+                .copied()
+                .ok_or(Error::InvalidNodeDelta(node_index))?;
+
+            let mut node_delta = if execution_status_is_invalid {
                 // If the node has an invalid execution payload, reduce its weight to zero.
                 0_i64
                     .checked_sub(node.weight() as i64)
                     .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
             } else {
-                deltas
-                    .get(node_index)
-                    .copied()
-                    .ok_or(Error::InvalidNodeDelta(node_index))?
+                node_deltas.delta
+            };
+
+            let (node_empty_delta, node_full_delta) = if node.as_v29().is_ok() {
+                (node_deltas.empty_delta, node_deltas.full_delta)
+            } else {
+                (0, 0)
             };
 
             // If we find the node for which the proposer boost was previously applied, decrease
@@ -250,27 +346,17 @@ impl ProtoArray {
 
             // Apply the delta to the node.
             if execution_status_is_invalid {
-                // Invalid nodes always have a weight of 0.
-                node.weight() = 0
-            } else if node_delta < 0 {
-                // Note: I am conflicted about whether to use `saturating_sub` or `checked_sub`
-                // here.
-                //
-                // I can't think of any valid reason why `node_delta.abs()` should be greater than
-                // `node.weight`, so I have chosen `checked_sub` to try and fail-fast if there is
-                // some error.
-                //
-                // However, I am not fully convinced that some valid case for `saturating_sub` does
-                // not exist.
-                node.weight() = node
-                    .weight()
-                    .checked_sub(node_delta.unsigned_abs())
-                    .ok_or(Error::DeltaOverflow(node_index))?;
+                *node.weight_mut() = 0;
             } else {
-                node.weight = node
-                    .weight()
-                    .checked_add(node_delta as u64)
-                    .ok_or(Error::DeltaOverflow(node_index))?;
+                *node.weight_mut() = apply_delta(node.weight(), node_delta, node_index)?;
+            }
+
+            // Apply post-Gloas score deltas.
+            if let Ok(node) = node.as_v29_mut() {
+                node.empty_payload_weight =
+                    apply_delta(node.empty_payload_weight, node_empty_delta, node_index)?;
+                node.full_payload_weight =
+                    apply_delta(node.full_payload_weight, node_full_delta, node_index)?;
             }
 
             // Update the parent delta (if any).
@@ -279,8 +365,32 @@ impl ProtoArray {
                     .get_mut(parent_index)
                     .ok_or(Error::InvalidParentDelta(parent_index))?;
 
-                // Back-propagate the nodes delta to its parent.
-                *parent_delta += node_delta;
+                // Back-propagate the node's delta to its parent.
+                parent_delta.delta = parent_delta
+                    .delta
+                    .checked_add(node_delta)
+                    .ok_or(Error::DeltaOverflow(parent_index))?;
+
+                // Per spec's `is_supporting_vote`: a vote for descendant B supports
+                // ancestor A's payload status based on B's `parent_payload_status`.
+                // Route the child's *total* weight delta to the parent's appropriate
+                // payload bucket.
+                match node.parent_payload_status() {
+                    Ok(PayloadStatus::Full) => {
+                        parent_delta.full_delta = parent_delta
+                            .full_delta
+                            .checked_add(node_delta)
+                            .ok_or(Error::DeltaOverflow(parent_index))?;
+                    }
+                    Ok(PayloadStatus::Empty) => {
+                        parent_delta.empty_delta = parent_delta
+                            .empty_delta
+                            .checked_add(node_delta)
+                            .ok_or(Error::DeltaOverflow(parent_index))?;
+                    }
+                    // Pending or V17 nodes: no payload propagation.
+                    _ => {}
+                }
             }
         }
 
@@ -357,26 +467,40 @@ impl ProtoArray {
                 unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
             })
         } else {
-            let execution_payload_block_hash = block
-                .execution_payload_block_hash
-                .ok_or(Error::BrokenBlock{block_root: block.root})?;
+            let execution_payload_block_hash =
+                block
+                    .execution_payload_block_hash
+                    .ok_or(Error::BrokenBlock {
+                        block_root: block.root,
+                    })?;
 
-            let parent_payload_status: PayloadStatus =
-                if let Some(parent_node) =
-                    parent_index.and_then(|idx| self.nodes.get(idx))
-                {
-                    let v29 = parent_node
-                        .as_v29()
-                        .map_err(|_| Error::InvalidNodeVariant{block_root: block.root})?;
-                    if execution_payload_block_hash == v29.execution_payload_block_hash
-                    {
-                        PayloadStatus::Empty
-                    } else {
-                        PayloadStatus::Full
-                    }
-                } else {
-                    PayloadStatus::Full
+            let execution_payload_parent_hash =
+                block
+                    .execution_payload_parent_hash
+                    .ok_or(Error::BrokenBlock {
+                        block_root: block.root,
+                    })?;
+
+            let parent_payload_status: PayloadStatus = if let Some(parent_node) =
+                parent_index.and_then(|idx| self.nodes.get(idx))
+            {
+                // Get the parent's execution block hash, handling both V17 and V29 nodes.
+                // V17 parents occur during the Gloas fork transition.
+                let parent_el_block_hash = match parent_node {
+                    ProtoNode::V29(v29) => Some(v29.execution_payload_block_hash),
+                    ProtoNode::V17(v17) => v17.execution_status.block_hash(),
                 };
+                // Per spec's `is_parent_node_full`: if the child's EL parent hash
+                // matches the parent's EL block hash, the child extends the parent's
+                // payload chain, meaning the parent was Full.
+                if parent_el_block_hash.is_some_and(|hash| execution_payload_parent_hash == hash) {
+                    PayloadStatus::Full
+                } else {
+                    PayloadStatus::Empty
+                }
+            } else {
+                PayloadStatus::Full
+            };
 
             ProtoNode::V29(ProtoNodeV29 {
                 slot: block.slot,
@@ -397,6 +521,7 @@ impl ProtoArray {
                 empty_payload_weight: 0,
                 full_payload_weight: 0,
                 execution_payload_block_hash,
+                payload_tiebreak: PayloadTiebreak::default(),
             })
         };
 
@@ -408,7 +533,9 @@ impl ProtoArray {
                 .get(parent_index)
                 .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
-            if let Ok(status) = parent.execution_status() && status.is_invalid() {
+            if let Ok(status) = parent.execution_status()
+                && status.is_invalid()
+            {
                 return Err(Error::ParentExecutionStatusIsInvalid {
                     block_root: block.root,
                     parent_root: parent.root(),
@@ -469,32 +596,42 @@ impl ProtoArray {
                 .nodes
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
-            let parent_index = match node.execution_status {
-                // We have reached a node that we already know is valid. No need to iterate further
-                // since we assume an ancestors have already been set to valid.
-                ExecutionStatus::Valid(_) => return Ok(()),
-                // We have reached an irrelevant node, this node is prior to a terminal execution
-                // block. There's no need to iterate further, it's impossible for this block to have
-                // any relevant ancestors.
-                ExecutionStatus::Irrelevant(_) => return Ok(()),
-                // The block has an unknown status, set it to valid since any ancestor of a valid
-                // payload can be considered valid.
-                ExecutionStatus::Optimistic(payload_block_hash) => {
-                    node.execution_status = ExecutionStatus::Valid(payload_block_hash);
+            let parent_index = match node {
+                ProtoNode::V17(node) => match node.execution_status {
+                    // We have reached a node that we already know is valid. No need to iterate further
+                    // since we assume an ancestors have already been set to valid.
+                    ExecutionStatus::Valid(_) => return Ok(()),
+                    // We have reached an irrelevant node, this node is prior to a terminal execution
+                    // block. There's no need to iterate further, it's impossible for this block to have
+                    // any relevant ancestors.
+                    ExecutionStatus::Irrelevant(_) => return Ok(()),
+                    // The block has an unknown status, set it to valid since any ancestor of a valid
+                    // payload can be considered valid.
+                    ExecutionStatus::Optimistic(payload_block_hash) => {
+                        node.execution_status = ExecutionStatus::Valid(payload_block_hash);
+                        if let Some(parent_index) = node.parent {
+                            parent_index
+                        } else {
+                            // We have reached the root block, iteration complete.
+                            return Ok(());
+                        }
+                    }
+                    // An ancestor of the valid payload was invalid. This is a serious error which
+                    // indicates a consensus failure in the execution node. This is unrecoverable.
+                    ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
+                        return Err(Error::InvalidAncestorOfValidPayload {
+                            ancestor_block_root: node.root,
+                            ancestor_payload_block_hash,
+                        });
+                    }
+                },
+                // Gloas nodes don't carry `ExecutionStatus`.
+                ProtoNode::V29(node) => {
                     if let Some(parent_index) = node.parent {
                         parent_index
                     } else {
-                        // We have reached the root block, iteration complete.
                         return Ok(());
                     }
-                }
-                // An ancestor of the valid payload was invalid. This is a serious error which
-                // indicates a consensus failure in the execution node. This is unrecoverable.
-                ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
-                    return Err(Error::InvalidAncestorOfValidPayload {
-                        ancestor_block_root: node.root,
-                        ancestor_payload_block_hash,
-                    });
                 }
             };
 
@@ -551,10 +688,11 @@ impl ProtoArray {
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
-            match node.execution_status {
-                ExecutionStatus::Valid(hash)
-                | ExecutionStatus::Invalid(hash)
-                | ExecutionStatus::Optimistic(hash) => {
+            let node_execution_status = node.execution_status();
+            match node_execution_status {
+                Ok(ExecutionStatus::Valid(hash))
+                | Ok(ExecutionStatus::Invalid(hash))
+                | Ok(ExecutionStatus::Optimistic(hash)) => {
                     // If we're no longer processing the `head_block_root` and the last valid
                     // ancestor is unknown, exit this loop and proceed to invalidate and
                     // descendants of `head_block_root`/`latest_valid_ancestor_root`.
@@ -563,7 +701,7 @@ impl ProtoArray {
                     // supplied, don't validate any ancestors. The alternative is to invalidate
                     // *all* ancestors, which would likely involve shutting down the client due to
                     // an invalid justified checkpoint.
-                    if !latest_valid_ancestor_is_descendant && node.root != head_block_root {
+                    if !latest_valid_ancestor_is_descendant && node.root() != head_block_root {
                         break;
                     } else if op.latest_valid_ancestor() == Some(hash) {
                         // If the `best_child` or `best_descendant` of the latest valid hash was
@@ -574,63 +712,67 @@ impl ProtoArray {
                         // defend against errors which might result in an invalid block being set as
                         // head.
                         if node
-                            .best_child
+                            .best_child()
                             .is_some_and(|i| invalidated_indices.contains(&i))
                         {
-                            node.best_child = None
+                            *node.best_child_mut() = None
                         }
                         if node
-                            .best_descendant
+                            .best_descendant()
                             .is_some_and(|i| invalidated_indices.contains(&i))
                         {
-                            node.best_descendant = None
+                            *node.best_descendant_mut() = None
                         }
 
                         break;
                     }
                 }
-                ExecutionStatus::Irrelevant(_) => break,
+                Ok(ExecutionStatus::Irrelevant(_)) => break,
+                Err(_) => break,
             }
 
             // Only invalidate the head block if either:
             //
             // - The head block was specifically indicated to be invalidated.
             // - The latest valid hash is a known ancestor.
-            if node.root != head_block_root
+            if node.root() != head_block_root
                 || op.invalidate_block_root()
                 || latest_valid_ancestor_is_descendant
             {
-                match &node.execution_status {
+                match node.execution_status() {
                     // It's illegal for an execution client to declare that some previously-valid block
                     // is now invalid. This is a consensus failure on their behalf.
-                    ExecutionStatus::Valid(hash) => {
+                    Ok(ExecutionStatus::Valid(hash)) => {
                         return Err(Error::ValidExecutionStatusBecameInvalid {
-                            block_root: node.root,
-                            payload_block_hash: *hash,
+                            block_root: node.root(),
+                            payload_block_hash: hash,
                         });
                     }
-                    ExecutionStatus::Optimistic(hash) => {
+                    Ok(ExecutionStatus::Optimistic(hash)) => {
                         invalidated_indices.insert(index);
-                        node.execution_status = ExecutionStatus::Invalid(*hash);
+                        if let ProtoNode::V17(node) = node {
+                            node.execution_status = ExecutionStatus::Invalid(hash);
+                        }
 
                         // It's impossible for an invalid block to lead to a "best" block, so set these
                         // fields to `None`.
                         //
                         // Failing to set these values will result in `Self::node_leads_to_viable_head`
                         // returning `false` for *valid* ancestors of invalid blocks.
-                        node.best_child = None;
-                        node.best_descendant = None;
+                        *node.best_child_mut() = None;
+                        *node.best_descendant_mut() = None;
                     }
                     // The block is already invalid, but keep going backwards to ensure all ancestors
                     // are updated.
-                    ExecutionStatus::Invalid(_) => (),
+                    Ok(ExecutionStatus::Invalid(_)) => (),
                     // This block is pre-merge, therefore it has no execution status. Nor do its
                     // ancestors.
-                    ExecutionStatus::Irrelevant(_) => break,
+                    Ok(ExecutionStatus::Irrelevant(_)) => break,
+                    Err(_) => (),
                 }
             }
 
-            if let Some(parent_index) = node.parent {
+            if let Some(parent_index) = node.parent() {
                 index = parent_index
             } else {
                 // The root of the block tree has been reached (aka the finalized block), without
@@ -664,24 +806,27 @@ impl ProtoArray {
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
-            if let Some(parent_index) = node.parent
+            if let Some(parent_index) = node.parent()
                 && invalidated_indices.contains(&parent_index)
             {
-                match &node.execution_status {
-                    ExecutionStatus::Valid(hash) => {
+                match node.execution_status() {
+                    Ok(ExecutionStatus::Valid(hash)) => {
                         return Err(Error::ValidExecutionStatusBecameInvalid {
-                            block_root: node.root,
-                            payload_block_hash: *hash,
+                            block_root: node.root(),
+                            payload_block_hash: hash,
                         });
                     }
-                    ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
-                        node.execution_status = ExecutionStatus::Invalid(*hash)
+                    Ok(ExecutionStatus::Optimistic(hash)) | Ok(ExecutionStatus::Invalid(hash)) => {
+                        if let ProtoNode::V17(node) = node {
+                            node.execution_status = ExecutionStatus::Invalid(hash)
+                        }
                     }
-                    ExecutionStatus::Irrelevant(_) => {
+                    Ok(ExecutionStatus::Irrelevant(_)) => {
                         return Err(Error::IrrelevantDescendant {
-                            block_root: node.root,
+                            block_root: node.root(),
                         });
                     }
+                    Err(_) => (),
                 }
 
                 invalidated_indices.insert(index);
@@ -724,13 +869,15 @@ impl ProtoArray {
         // practically possible to set a new justified root if we are unable to find a new head.
         //
         // This scenario is *unsupported*. It represents a serious consensus failure.
-        if justified_node.execution_status.is_invalid() {
+        if let Ok(execution_status) = justified_node.execution_status()
+            && execution_status.is_invalid()
+        {
             return Err(Error::InvalidJustifiedCheckpointExecutionStatus {
                 justified_root: *justified_root,
             });
         }
 
-        let best_descendant_index = justified_node.best_descendant.unwrap_or(justified_index);
+        let best_descendant_index = justified_node.best_descendant().unwrap_or(justified_index);
 
         let best_node = self
             .nodes
@@ -749,13 +896,13 @@ impl ProtoArray {
                 start_root: *justified_root,
                 justified_checkpoint: best_justified_checkpoint,
                 finalized_checkpoint: best_finalized_checkpoint,
-                head_root: best_node.root,
-                head_justified_checkpoint: best_node.justified_checkpoint,
-                head_finalized_checkpoint: best_node.finalized_checkpoint,
+                head_root: best_node.root(),
+                head_justified_checkpoint: *best_node.justified_checkpoint(),
+                head_finalized_checkpoint: *best_node.finalized_checkpoint(),
             })));
         }
 
-        Ok(best_node.root)
+        Ok(best_node.root())
     }
 
     /// Update the tree with new finalization information. The tree is only actually pruned if both
@@ -788,7 +935,7 @@ impl ProtoArray {
                 .nodes
                 .get(node_index)
                 .ok_or(Error::InvalidNodeIndex(node_index))?
-                .root;
+                .root();
             self.indices.remove(root);
         }
 
@@ -805,19 +952,19 @@ impl ProtoArray {
         // Iterate through all the existing nodes and adjust their indices to match the new layout
         // of `self.nodes`.
         for node in self.nodes.iter_mut() {
-            if let Some(parent) = node.parent {
+            if let Some(parent) = node.parent() {
                 // If `node.parent` is less than `finalized_index`, set it to `None`.
-                node.parent = parent.checked_sub(finalized_index);
+                *node.parent_mut() = parent.checked_sub(finalized_index);
             }
-            if let Some(best_child) = node.best_child {
-                node.best_child = Some(
+            if let Some(best_child) = node.best_child() {
+                *node.best_child_mut() = Some(
                     best_child
                         .checked_sub(finalized_index)
                         .ok_or(Error::IndexOverflow("best_child"))?,
                 );
             }
-            if let Some(best_descendant) = node.best_descendant {
-                node.best_descendant = Some(
+            if let Some(best_descendant) = node.best_descendant() {
+                *node.best_descendant_mut() = Some(
                     best_descendant
                         .checked_sub(finalized_index)
                         .ok_or(Error::IndexOverflow("best_descendant"))?,
@@ -905,19 +1052,32 @@ impl ProtoArray {
                     } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
                         // The best child leads to a viable head, but the child doesn't.
                         no_change
-                    } else if child.weight() == best_child.weight() {
-                        // Tie-breaker of equal weights by root.
-                        if *child.root() >= *best_child.root() {
-                            change_to_child
-                        } else {
-                            no_change
-                        }
                     } else {
-                        // Choose the winner by weight.
-                        if child.weight() > best_child.weight() {
+                        // Both viable or both non-viable. For V29 parents, prefer the child
+                        // whose parent_payload_status matches the parent's payload preference
+                        // (Full if full_payload_weight >= empty_payload_weight, else Empty).
+                        let child_matches = child_matches_parent_payload_preference(parent, child);
+                        let best_child_matches =
+                            child_matches_parent_payload_preference(parent, best_child);
+
+                        if child_matches && !best_child_matches {
                             change_to_child
-                        } else {
+                        } else if !child_matches && best_child_matches {
                             no_change
+                        } else if child.weight() == best_child.weight() {
+                            // Tie-breaker of equal weights by root.
+                            if *child.root() >= *best_child.root() {
+                                change_to_child
+                            } else {
+                                no_change
+                            }
+                        } else {
+                            // Choose the winner by weight.
+                            if child.weight() > best_child.weight() {
+                                change_to_child
+                            } else {
+                                no_change
+                            }
                         }
                     }
                 }
@@ -988,11 +1148,13 @@ impl ProtoArray {
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
     ) -> bool {
-        if let Ok(proto_node) = node.as_v17() && proto_node.execution_status.is_invalid() {
+        if let Ok(proto_node) = node.as_v17()
+            && proto_node.execution_status.is_invalid()
+        {
             return false;
         }
 
-        let genesis_epoch = Epoch::new(0);
+        let genesis_epoch = Epoch::new(1);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let node_epoch = node.slot().epoch(E::slots_per_epoch());
         let node_justified_checkpoint = node.justified_checkpoint();
@@ -1006,7 +1168,7 @@ impl ProtoArray {
         } else {
             // The block is not from a prior epoch, therefore the voting source
             // is not pulled up.
-            node_justified_checkpoint
+            *node_justified_checkpoint
         };
 
         let correct_justified = best_justified_checkpoint.epoch == genesis_epoch
@@ -1015,7 +1177,7 @@ impl ProtoArray {
 
         let correct_finalized = best_finalized_checkpoint.epoch == genesis_epoch
             || self
-                .is_finalized_checkpoint_or_descendant::<E>(node.root, best_finalized_checkpoint);
+                .is_finalized_checkpoint_or_descendant::<E>(node.root(), best_finalized_checkpoint);
 
         correct_justified && correct_finalized
     }
@@ -1037,7 +1199,7 @@ impl ProtoArray {
         block_root: &Hash256,
     ) -> impl Iterator<Item = (Hash256, Slot)> + 'a {
         self.iter_nodes(block_root)
-            .map(|node| (node.root, node.slot))
+            .map(|node| (node.root(), node.slot()))
     }
 
     /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
@@ -1058,8 +1220,8 @@ impl ProtoArray {
             .and_then(|ancestor_index| self.nodes.get(*ancestor_index))
             .and_then(|ancestor| {
                 self.iter_block_roots(&descendant_root)
-                    .take_while(|(_root, slot)| *slot >= ancestor.slot)
-                    .find(|(_root, slot)| *slot == ancestor.slot)
+                    .take_while(|(_root, slot)| *slot >= ancestor.slot())
+                    .find(|(_root, slot)| *slot == ancestor.slot())
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
@@ -1098,15 +1260,15 @@ impl ProtoArray {
         // Run this check once, outside of the loop rather than inside the loop.
         // If the conditions don't match for this node then they're unlikely to
         // start matching for its ancestors.
-        for checkpoint in &[node.finalized_checkpoint, node.justified_checkpoint] {
-            if checkpoint == &best_finalized_checkpoint {
+        for checkpoint in &[node.finalized_checkpoint(), node.justified_checkpoint()] {
+            if **checkpoint == best_finalized_checkpoint {
                 return true;
             }
         }
 
         for checkpoint in &[
-            node.unrealized_finalized_checkpoint,
-            node.unrealized_justified_checkpoint,
+            node.unrealized_finalized_checkpoint(),
+            node.unrealized_justified_checkpoint(),
         ] {
             if checkpoint.is_some_and(|cp| cp == best_finalized_checkpoint) {
                 return true;
@@ -1116,13 +1278,13 @@ impl ProtoArray {
         loop {
             // If `node` is less than or equal to the finalized slot then `node`
             // must be the finalized block.
-            if node.slot <= finalized_slot {
-                return node.root == finalized_root;
+            if node.slot() <= finalized_slot {
+                return node.root() == finalized_root;
             }
 
             // Since `node` is from a higher slot that the finalized checkpoint,
             // replace `node` with the parent of `node`.
-            if let Some(parent) = node.parent.and_then(|index| self.nodes.get(index)) {
+            if let Some(parent) = node.parent().and_then(|index| self.nodes.get(index)) {
                 node = parent
             } else {
                 // If `node` is not the finalized block and its parent does not
@@ -1144,11 +1306,12 @@ impl ProtoArray {
             .iter()
             .rev()
             .find(|node| {
-                node.execution_status
-                    .block_hash()
+                node.execution_status()
+                    .ok()
+                    .and_then(|execution_status| execution_status.block_hash())
                     .is_some_and(|node_block_hash| node_block_hash == *block_hash)
             })
-            .map(|node| node.root)
+            .map(|node| node.root())
     }
 
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
@@ -1163,13 +1326,37 @@ impl ProtoArray {
         self.nodes
             .iter()
             .filter(|node| {
-                node.best_child.is_none()
+                node.best_child().is_none()
                     && self.is_finalized_checkpoint_or_descendant::<E>(
-                        node.root,
+                        node.root(),
                         best_finalized_checkpoint,
                     )
             })
             .collect()
+    }
+}
+
+/// For V29 parents, returns `true` if the child's `parent_payload_status` matches the parent's
+/// preferred payload status. When full and empty weights are unequal, the higher weight wins.
+/// When equal, the tiebreaker uses the parent's `payload_tiebreak`: prefer Full if the block
+/// was timely and data is available; otherwise prefer Empty.
+/// For V17 parents (or mixed), always returns `true` (no payload preference).
+fn child_matches_parent_payload_preference(parent: &ProtoNode, child: &ProtoNode) -> bool {
+    let (Ok(parent_v29), Ok(child_v29)) = (parent.as_v29(), child.as_v29()) else {
+        return true;
+    };
+    let prefers_full = if parent_v29.full_payload_weight > parent_v29.empty_payload_weight {
+        true
+    } else if parent_v29.empty_payload_weight > parent_v29.full_payload_weight {
+        false
+    } else {
+        // Equal weights: tiebreaker per spec
+        parent_v29.payload_tiebreak.is_timely && parent_v29.payload_tiebreak.is_data_available
+    };
+    if prefers_full {
+        child_v29.parent_payload_status == PayloadStatus::Full
+    } else {
+        child_v29.parent_payload_status == PayloadStatus::Empty
     }
 }
 
@@ -1188,6 +1375,19 @@ pub fn calculate_committee_fraction<E: EthSpec>(
         .checked_div(100)
 }
 
+/// Apply a signed delta to an unsigned weight, returning an error on overflow.
+fn apply_delta(weight: u64, delta: i64, index: usize) -> Result<u64, Error> {
+    if delta < 0 {
+        weight
+            .checked_sub(delta.unsigned_abs())
+            .ok_or(Error::DeltaOverflow(index))
+    } else {
+        weight
+            .checked_add(delta as u64)
+            .ok_or(Error::DeltaOverflow(index))
+    }
+}
+
 /// Reverse iterator over one path through a `ProtoArray`.
 pub struct Iter<'a> {
     next_node_index: Option<usize>,
@@ -1200,7 +1400,7 @@ impl<'a> Iterator for Iter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let next_node_index = self.next_node_index?;
         let node = self.proto_array.nodes.get(next_node_index)?;
-        self.next_node_index = node.parent;
+        self.next_node_index = node.parent();
         Some(node)
     }
 }

@@ -1,21 +1,23 @@
-/* FIXME(sproul) fix these tests later
 mod execution_status;
 mod ffg_updates;
+mod gloas_payload;
 mod no_votes;
 mod votes;
 
-use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
+use crate::proto_array::PayloadTiebreak;
+use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use types::{
-    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     MainnetEthSpec, Slot,
 };
 
 pub use execution_status::*;
 pub use ffg_updates::*;
+pub use gloas_payload::*;
 pub use no_votes::*;
 pub use votes::*;
 
@@ -45,11 +47,17 @@ pub enum Operation {
         parent_root: Hash256,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        #[serde(default)]
+        execution_payload_parent_hash: Option<ExecutionBlockHash>,
+        #[serde(default)]
+        execution_payload_block_hash: Option<ExecutionBlockHash>,
     },
     ProcessAttestation {
         validator_index: usize,
         block_root: Hash256,
-        target_epoch: Epoch,
+        attestation_slot: Slot,
+        #[serde(default)]
+        payload_present: bool,
     },
     Prune {
         finalized_root: Hash256,
@@ -64,6 +72,24 @@ pub enum Operation {
         block_root: Hash256,
         weight: u64,
     },
+    AssertPayloadWeights {
+        block_root: Hash256,
+        expected_full_weight: u64,
+        expected_empty_weight: u64,
+    },
+    AssertParentPayloadStatus {
+        block_root: Hash256,
+        expected_status: PayloadStatus,
+    },
+    AssertHeadPayloadStatus {
+        head_root: Hash256,
+        expected_status: PayloadStatus,
+    },
+    SetPayloadTiebreak {
+        block_root: Hash256,
+        is_timely: bool,
+        is_data_available: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,12 +98,23 @@ pub struct ForkChoiceTestDefinition {
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
     pub operations: Vec<Operation>,
+    #[serde(default)]
+    pub execution_payload_parent_hash: Option<ExecutionBlockHash>,
+    #[serde(default)]
+    pub execution_payload_block_hash: Option<ExecutionBlockHash>,
+    #[serde(skip)]
+    pub spec: Option<ChainSpec>,
 }
 
 impl ForkChoiceTestDefinition {
     pub fn run(self) {
-        let mut spec = MainnetEthSpec::default_spec();
-        spec.proposer_score_boost = Some(50);
+        let spec = self.spec.unwrap_or_else(|| {
+            let mut spec = MainnetEthSpec::default_spec();
+            spec.proposer_score_boost = Some(50);
+            // Legacy test definitions target pre-Gloas behaviour unless explicitly overridden.
+            spec.gloas_fork_epoch = None;
+            spec
+        });
 
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
@@ -90,6 +127,9 @@ impl ForkChoiceTestDefinition {
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+            self.execution_payload_parent_hash,
+            self.execution_payload_block_hash,
+            &spec,
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
@@ -189,6 +229,8 @@ impl ForkChoiceTestDefinition {
                     parent_root,
                     justified_checkpoint,
                     finalized_checkpoint,
+                    execution_payload_parent_hash,
+                    execution_payload_block_hash,
                 } => {
                     let block = Block {
                         slot,
@@ -212,6 +254,8 @@ impl ForkChoiceTestDefinition {
                         ),
                         unrealized_justified_checkpoint: None,
                         unrealized_finalized_checkpoint: None,
+                        execution_payload_parent_hash,
+                        execution_payload_block_hash,
                     };
                     fork_choice
                         .process_block::<MainnetEthSpec>(
@@ -219,6 +263,7 @@ impl ForkChoiceTestDefinition {
                             slot,
                             self.justified_checkpoint,
                             self.finalized_checkpoint,
+                            &spec,
                         )
                         .unwrap_or_else(|e| {
                             panic!(
@@ -228,14 +273,19 @@ impl ForkChoiceTestDefinition {
                         });
                     check_bytes_round_trip(&fork_choice);
                 }
-                // FIXME(sproul): update with payload_present
                 Operation::ProcessAttestation {
                     validator_index,
                     block_root,
-                    target_epoch,
+                    attestation_slot,
+                    payload_present,
                 } => {
                     fork_choice
-                        .process_attestation(validator_index, block_root, target_epoch, false)
+                        .process_attestation(
+                            validator_index,
+                            block_root,
+                            attestation_slot,
+                            payload_present,
+                        )
                         .unwrap_or_else(|_| {
                             panic!(
                                 "process_attestation op at index {} returned error",
@@ -289,8 +339,141 @@ impl ForkChoiceTestDefinition {
                 Operation::AssertWeight { block_root, weight } => assert_eq!(
                     fork_choice.get_weight(&block_root).unwrap(),
                     weight,
-                    "block weight"
+                    "block weight at op index {}",
+                    op_index
                 ),
+                Operation::AssertPayloadWeights {
+                    block_root,
+                    expected_full_weight,
+                    expected_empty_weight,
+                } => {
+                    let block_index = fork_choice
+                        .proto_array
+                        .indices
+                        .get(&block_root)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "AssertPayloadWeights: block root not found at op index {}",
+                                op_index
+                            )
+                        });
+                    let node = fork_choice
+                        .proto_array
+                        .nodes
+                        .get(*block_index)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "AssertPayloadWeights: node not found at op index {}",
+                                op_index
+                            )
+                        });
+                    let v29 = node.as_v29().unwrap_or_else(|_| {
+                        panic!(
+                            "AssertPayloadWeights: node is not V29 at op index {}",
+                            op_index
+                        )
+                    });
+                    assert_eq!(
+                        v29.full_payload_weight, expected_full_weight,
+                        "full_payload_weight mismatch at op index {}",
+                        op_index
+                    );
+                    assert_eq!(
+                        v29.empty_payload_weight, expected_empty_weight,
+                        "empty_payload_weight mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::AssertParentPayloadStatus {
+                    block_root,
+                    expected_status,
+                } => {
+                    let block_index = fork_choice
+                        .proto_array
+                        .indices
+                        .get(&block_root)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "AssertParentPayloadStatus: block root not found at op index {}",
+                                op_index
+                            )
+                        });
+                    let node = fork_choice
+                        .proto_array
+                        .nodes
+                        .get(*block_index)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "AssertParentPayloadStatus: node not found at op index {}",
+                                op_index
+                            )
+                        });
+                    let v29 = node.as_v29().unwrap_or_else(|_| {
+                        panic!(
+                            "AssertParentPayloadStatus: node is not V29 at op index {}",
+                            op_index
+                        )
+                    });
+                    assert_eq!(
+                        v29.parent_payload_status, expected_status,
+                        "parent_payload_status mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::AssertHeadPayloadStatus {
+                    head_root,
+                    expected_status,
+                } => {
+                    let actual = fork_choice
+                        .head_payload_status(&head_root)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "AssertHeadPayloadStatus: head root not found at op index {}",
+                                op_index
+                            )
+                        });
+                    assert_eq!(
+                        actual, expected_status,
+                        "head_payload_status mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::SetPayloadTiebreak {
+                    block_root,
+                    is_timely,
+                    is_data_available,
+                } => {
+                    let block_index = fork_choice
+                        .proto_array
+                        .indices
+                        .get(&block_root)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "SetPayloadTiebreak: block root not found at op index {}",
+                                op_index
+                            )
+                        });
+                    let node = fork_choice
+                        .proto_array
+                        .nodes
+                        .get_mut(*block_index)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "SetPayloadTiebreak: node not found at op index {}",
+                                op_index
+                            )
+                        });
+                    let node_v29 = node.as_v29_mut().unwrap_or_else(|_| {
+                        panic!(
+                            "SetPayloadTiebreak: node is not V29 at op index {}",
+                            op_index
+                        )
+                    });
+                    node_v29.payload_tiebreak = PayloadTiebreak {
+                        is_timely,
+                        is_data_available,
+                    };
+                }
             }
         }
     }
@@ -325,4 +508,3 @@ fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
         "fork choice should encode and decode without change"
     );
 }
-*/

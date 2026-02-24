@@ -20,7 +20,8 @@ use tracing::{debug, instrument, warn};
 use types::{
     AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    Hash256, IndexedAttestationRef, IndexedPayloadAttestation, RelativeEpoch, SignedBeaconBlock,
+    Slot,
 };
 
 #[derive(Debug)]
@@ -138,10 +139,10 @@ pub enum InvalidBlock {
         finalized_root: Hash256,
         block_ancestor: Option<Hash256>,
     },
-    MissingExecutionPayloadBid{
+    MissingExecutionPayloadBid {
         block_slot: Slot,
         block_root: Hash256,
-    }
+    },
 }
 
 #[derive(Debug)]
@@ -174,6 +175,9 @@ pub enum InvalidAttestation {
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     AttestsToFutureBlock { block: Slot, attestation: Slot },
+    /// A same-slot attestation has a non-zero index, indicating a payload attestation during the
+    /// same slot as the block. Payload attestations must only arrive in subsequent slots.
+    PayloadAttestationDuringSameSlot { slot: Slot },
 }
 
 impl<T> From<String> for Error<T> {
@@ -401,6 +405,9 @@ where
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
+            None,
+            None,
+            spec,
         )?;
 
         let mut fork_choice = Self {
@@ -889,23 +896,22 @@ where
         };
 
         let (execution_payload_parent_hash, execution_payload_block_hash) =
-        if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
-            (
-                Some(signed_bid.message.parent_block_hash),
-                Some(signed_bid.message.block_hash),
-            )
-        } else {
-            if spec.fork_name_at_slot::<E>(block.slot()).gloas_enabled() {
-                return Err(Error::InvalidBlock(
-                    InvalidBlock::MissingExecutionPayloadBid{
-                        block_slot: block.slot(),
-                        block_root,
-                    }
-
-                ))
-            }
-            (None, None)
-        };
+            if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
+                (
+                    Some(signed_bid.message.parent_block_hash),
+                    Some(signed_bid.message.block_hash),
+                )
+            } else {
+                if spec.fork_name_at_slot::<E>(block.slot()).gloas_enabled() {
+                    return Err(Error::InvalidBlock(
+                        InvalidBlock::MissingExecutionPayloadBid {
+                            block_slot: block.slot(),
+                            block_root,
+                        },
+                    ));
+                }
+                (None, None)
+            };
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
@@ -935,7 +941,6 @@ where
                 unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
                 execution_payload_parent_hash,
                 execution_payload_block_hash,
-
             },
             current_slot,
             self.justified_checkpoint(),
@@ -1081,6 +1086,46 @@ where
             });
         }
 
+        // Same-slot attestations must have index == 0 (i.e., indicate pending payload status).
+        // Payload-present attestations (index == 1) for the same slot as the block are invalid
+        // because PTC votes should only arrive in subsequent slots.
+        if indexed_attestation.data().slot == block.slot && indexed_attestation.data().index != 0 {
+            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot { slot: block.slot });
+        }
+
+        Ok(())
+    }
+
+    /// Validates a payload attestation for application to fork choice.
+    fn validate_on_payload_attestation(
+        &self,
+        indexed_payload_attestation: &IndexedPayloadAttestation<E>,
+        _is_from_block: AttestationFromBlock,
+    ) -> Result<(), InvalidAttestation> {
+        if indexed_payload_attestation.attesting_indices.is_empty() {
+            return Err(InvalidAttestation::EmptyAggregationBitfield);
+        }
+
+        let block = self
+            .proto_array
+            .get_block(&indexed_payload_attestation.data.beacon_block_root)
+            .ok_or(InvalidAttestation::UnknownHeadBlock {
+                beacon_block_root: indexed_payload_attestation.data.beacon_block_root,
+            })?;
+
+        if block.slot > indexed_payload_attestation.data.slot {
+            return Err(InvalidAttestation::AttestsToFutureBlock {
+                block: block.slot,
+                attestation: indexed_payload_attestation.data.slot,
+            });
+        }
+
+        if indexed_payload_attestation.data.slot == block.slot
+            && indexed_payload_attestation.data.payload_present
+        {
+            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot { slot: block.slot });
+        }
+
         Ok(())
     }
 
@@ -1149,6 +1194,43 @@ where
             // ```
             self.queued_attestations
                 .push(QueuedAttestation::from(attestation));
+        }
+
+        Ok(())
+    }
+
+    /// Register a payload attestation with the fork choice DAG.
+    pub fn on_payload_attestation(
+        &mut self,
+        system_time_current_slot: Slot,
+        attestation: &IndexedPayloadAttestation<E>,
+        is_from_block: AttestationFromBlock,
+    ) -> Result<(), Error<T::Error>> {
+        self.update_time(system_time_current_slot)?;
+
+        if attestation.data.beacon_block_root == Hash256::zero() {
+            return Ok(());
+        }
+
+        self.validate_on_payload_attestation(attestation, is_from_block)?;
+
+        if attestation.data.slot < self.fc_store.get_current_slot() {
+            for validator_index in attestation.attesting_indices_iter() {
+                self.proto_array.process_attestation(
+                    *validator_index as usize,
+                    attestation.data.beacon_block_root,
+                    attestation.data.slot,
+                    attestation.data.payload_present,
+                )?;
+            }
+        } else {
+            self.queued_attestations.push(QueuedAttestation {
+                slot: attestation.data.slot,
+                attesting_indices: attestation.attesting_indices.iter().copied().collect(),
+                block_root: attestation.data.beacon_block_root,
+                target_epoch: attestation.data.slot.epoch(E::slots_per_epoch()),
+                payload_present: attestation.data.payload_present,
+            });
         }
 
         Ok(())
@@ -1564,7 +1646,7 @@ where
 ///
 /// This is used when persisting the state of the fork choice to disk.
 #[superstruct(
-    variants(V17, V28),
+    variants(V17, V28, V29),
     variant_attributes(derive(Encode, Decode, Clone)),
     no_enum
 )]
@@ -1572,30 +1654,42 @@ pub struct PersistedForkChoice {
     #[superstruct(only(V17))]
     pub proto_array_bytes: Vec<u8>,
     #[superstruct(only(V28))]
-    pub proto_array: proto_array::core::SszContainerV28,
+    pub proto_array_v28: proto_array::core::SszContainerLegacyV28,
+    #[superstruct(only(V29))]
+    pub proto_array: proto_array::core::SszContainerV29,
     pub queued_attestations: Vec<QueuedAttestation>,
 }
 
-pub type PersistedForkChoice = PersistedForkChoiceV28;
+pub type PersistedForkChoice = PersistedForkChoiceV29;
 
 impl TryFrom<PersistedForkChoiceV17> for PersistedForkChoiceV28 {
     type Error = ssz::DecodeError;
 
     fn try_from(v17: PersistedForkChoiceV17) -> Result<Self, Self::Error> {
         let container_v17 =
-            proto_array::core::SszContainerV17::from_ssz_bytes(&v17.proto_array_bytes)?;
-        let container_v28 = container_v17.into();
+            proto_array::core::SszContainerLegacyV17::from_ssz_bytes(&v17.proto_array_bytes)?;
+        let container_v28: proto_array::core::SszContainerLegacyV28 = container_v17.into();
 
         Ok(Self {
-            proto_array: container_v28,
+            proto_array_v28: container_v28,
             queued_attestations: v17.queued_attestations,
         })
     }
 }
 
+impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
+    fn from(v28: PersistedForkChoiceV28) -> Self {
+        Self {
+            proto_array: v28.proto_array_v28.into(),
+            queued_attestations: v28.queued_attestations,
+        }
+    }
+}
+
 impl From<(PersistedForkChoiceV28, JustifiedBalances)> for PersistedForkChoiceV17 {
     fn from((v28, balances): (PersistedForkChoiceV28, JustifiedBalances)) -> Self {
-        let container_v17 = proto_array::core::SszContainerV17::from((v28.proto_array, balances));
+        let container_v17 =
+            proto_array::core::SszContainerLegacyV17::from((v28.proto_array_v28, balances));
         let proto_array_bytes = container_v17.as_ssz_bytes();
 
         Self {
@@ -1640,6 +1734,7 @@ mod tests {
                 attesting_indices: vec![],
                 block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
+                payload_present: false,
             })
             .collect()
     }

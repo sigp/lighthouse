@@ -1683,6 +1683,26 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
             }?;
         }
+
+        // Register each payload attestation in the block with fork choice.
+        if let Ok(payload_attestations) = block.message().body().payload_attestations() {
+            for (i, payload_attestation) in payload_attestations.iter().enumerate() {
+                let indexed_payload_attestation = consensus_context
+                    .get_indexed_payload_attestation(&state, payload_attestation, &chain.spec)
+                    .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
+
+                match fork_choice.on_payload_attestation(
+                    current_slot,
+                    indexed_payload_attestation,
+                    AttestationFromBlock::True,
+                ) {
+                    Ok(()) => Ok(()),
+                    // Ignore invalid payload attestations whilst importing from a block.
+                    Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
+                    Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
+                }?;
+            }
+        }
         drop(fork_choice);
 
         Ok(Self {

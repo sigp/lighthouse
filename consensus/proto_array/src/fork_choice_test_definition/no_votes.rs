@@ -36,6 +36,8 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 epoch: Epoch::new(1),
                 root: Hash256::zero(),
             },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
         // Ensure the head is 2
         //
@@ -71,6 +73,8 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 epoch: Epoch::new(1),
                 root: Hash256::zero(),
             },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
         // Ensure the head is still 2
         //
@@ -108,6 +112,8 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 epoch: Epoch::new(1),
                 root: Hash256::zero(),
             },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
         // Ensure 2 is still the head
         //
@@ -147,6 +153,8 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 epoch: Epoch::new(1),
                 root: Hash256::zero(),
             },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
         // Ensure the head is 4.
         //
@@ -185,6 +193,8 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 epoch: Epoch::new(1),
                 root: Hash256::zero(),
             },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
         // Ensure the head is now 5 whilst the justified epoch is 0.
         //
@@ -271,6 +281,8 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
                 epoch: Epoch::new(1),
                 root: Hash256::zero(),
             },
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
         },
         // Ensure 6 is the head
         //
@@ -305,6 +317,9 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             root: Hash256::zero(),
         },
         operations,
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
+        spec: None,
     }
 }
 

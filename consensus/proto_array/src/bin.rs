@@ -1,4 +1,3 @@
-/* FIXME(sproul)
 use proto_array::fork_choice_test_definition::*;
 use std::fs::File;
 
@@ -25,5 +24,3 @@ fn write_test_def_to_yaml(filename: &str, def: ForkChoiceTestDefinition) {
     let file = File::create(filename).expect("Should be able to open file");
     serde_yaml::to_writer(file, &def).expect("Should be able to write YAML to file");
 }
-*/
-fn main() {}

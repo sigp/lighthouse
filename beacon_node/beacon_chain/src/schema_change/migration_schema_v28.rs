@@ -1,7 +1,7 @@
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, PersistedForkChoiceStoreV17,
     beacon_chain::FORK_CHOICE_DB_KEY,
-    persisted_fork_choice::{PersistedForkChoiceV17, PersistedForkChoiceV28},
+    persisted_fork_choice::PersistedForkChoiceV17,
     summaries_dag::{DAGStateSummary, StateSummariesDAG},
 };
 use fork_choice::{ForkChoice, ForkChoiceStore, ResetPayloadStatuses};
@@ -88,8 +88,11 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
     // Construct top-level ForkChoice struct using the patched fork choice store, and the converted
     // proto array.
     let reset_payload_statuses = ResetPayloadStatuses::OnlyWithInvalidPayload;
+    let persisted_fc_v28: fork_choice::PersistedForkChoiceV28 =
+        persisted_fork_choice_v17.fork_choice_v17.try_into()?;
+    let persisted_fc_v29: fork_choice::PersistedForkChoiceV29 = persisted_fc_v28.into();
     let fork_choice = ForkChoice::from_persisted(
-        persisted_fork_choice_v17.fork_choice_v17.try_into()?,
+        persisted_fc_v29,
         reset_payload_statuses,
         fc_store,
         db.get_chain_spec(),
@@ -118,26 +121,22 @@ pub fn downgrade_from_v28<T: BeaconChainTypes>(
         return Ok(vec![]);
     };
 
-    // Recreate V28 persisted fork choice, then convert each field back to its V17 version.
-    let persisted_fork_choice = PersistedForkChoiceV28 {
-        fork_choice: fork_choice.to_persisted(),
-        fork_choice_store: fork_choice.fc_store().to_persisted(),
-    };
-
+    let persisted_v29 = fork_choice.to_persisted();
+    let fc_store_v28 = fork_choice.fc_store().to_persisted();
     let justified_balances = fork_choice.fc_store().justified_balances();
 
-    // 1. Create `proto_array::PersistedForkChoiceV17`.
-    let fork_choice_v17: fork_choice::PersistedForkChoiceV17 = (
-        persisted_fork_choice.fork_choice,
-        justified_balances.clone(),
-    )
-        .into();
+    // Convert V29 proto_array back to legacy V28 for downgrade.
+    let persisted_fork_choice_v28 = fork_choice::PersistedForkChoiceV28 {
+        proto_array_v28: persisted_v29.proto_array.into(),
+        queued_attestations: persisted_v29.queued_attestations,
+    };
 
-    let fork_choice_store_v17: PersistedForkChoiceStoreV17 = (
-        persisted_fork_choice.fork_choice_store,
-        justified_balances.clone(),
-    )
-        .into();
+    // 1. Create `proto_array::PersistedForkChoiceV17`.
+    let fork_choice_v17: fork_choice::PersistedForkChoiceV17 =
+        (persisted_fork_choice_v28, justified_balances.clone()).into();
+
+    let fork_choice_store_v17: PersistedForkChoiceStoreV17 =
+        (fc_store_v28, justified_balances.clone()).into();
 
     let persisted_fork_choice_v17 = PersistedForkChoiceV17 {
         fork_choice_v17,

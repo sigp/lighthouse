@@ -923,6 +923,36 @@ async fn invalid_attestation_future_block() {
         .await;
 }
 
+/// Payload attestations (index == 1) are invalid when they refer to a block in the same slot.
+#[tokio::test]
+async fn invalid_attestation_payload_during_same_slot() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, chain| {
+                let block_slot = chain
+                    .get_blinded_block(&attestation.data().beacon_block_root)
+                    .expect("should read attested block")
+                    .expect("attested block should exist")
+                    .slot();
+
+                attestation.data_mut().slot = block_slot;
+                attestation.data_mut().target.epoch = block_slot.epoch(E::slots_per_epoch());
+                attestation.data_mut().index = 1;
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::PayloadAttestationDuringSameSlot { slot }
+                    if slot == Slot::new(1)
+                )
+            },
+        )
+        .await;
+}
+
 /// Specification v0.12.1:
 ///
 /// assert target.root == get_ancestor(store, attestation.data.beacon_block_root, target_slot)

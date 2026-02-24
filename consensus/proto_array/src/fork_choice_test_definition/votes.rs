@@ -35,6 +35,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(1),
             root: get_root(0),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
     // Ensure that the head is 2
@@ -73,6 +75,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(1),
             root: get_root(0),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
     // Ensure that the head is still 2
@@ -101,7 +105,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::ProcessAttestation {
         validator_index: 0,
         block_root: get_root(1),
-        target_epoch: Epoch::new(2),
+        attestation_slot: Slot::new(2),
+        payload_present: false,
     });
 
     // Ensure that the head is now 1, because 1 has a vote.
@@ -130,7 +135,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::ProcessAttestation {
         validator_index: 1,
         block_root: get_root(2),
-        target_epoch: Epoch::new(2),
+        attestation_slot: Slot::new(2),
+        payload_present: false,
     });
 
     // Ensure that the head is 2 since 1 and 2 both have a vote
@@ -170,6 +176,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(1),
             root: get_root(0),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
     // Ensure that the head is still 2
@@ -202,7 +210,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::ProcessAttestation {
         validator_index: 0,
         block_root: get_root(3),
-        target_epoch: Epoch::new(3),
+        attestation_slot: Slot::new(3),
+        payload_present: false,
     });
 
     // Ensure that the head is still 2
@@ -236,7 +245,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::ProcessAttestation {
         validator_index: 1,
         block_root: get_root(1),
-        target_epoch: Epoch::new(3),
+        attestation_slot: Slot::new(3),
+        payload_present: false,
     });
 
     // Ensure that the head is now 3
@@ -280,6 +290,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(1),
             root: get_root(0),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
     // Ensure that the head is now 4
@@ -327,9 +339,11 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(2),
             root: get_root(1),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
-    // Ensure that 5 is filtered out and the head stays at 4.
+    // Ensure that 5 becomes the head.
     //
     //          0
     //         / \
@@ -337,9 +351,9 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     //            |
     //            3
     //            |
-    //            4 <- head
+    //            4
     //           /
-    //          5
+    // head->   5
     ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(1),
@@ -350,7 +364,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             root: get_root(0),
         },
         justified_state_balances: balances.clone(),
-        expected_head: get_root(4),
+        expected_head: get_root(5),
     });
 
     // Add block 6, which has a justified epoch of 0.
@@ -376,6 +390,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(1),
             root: get_root(0),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
     // Move both votes to 5.
@@ -392,12 +408,14 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::ProcessAttestation {
         validator_index: 0,
         block_root: get_root(5),
-        target_epoch: Epoch::new(4),
+        attestation_slot: Slot::new(4),
+        payload_present: false,
     });
     ops.push(Operation::ProcessAttestation {
         validator_index: 1,
         block_root: get_root(5),
-        target_epoch: Epoch::new(4),
+        attestation_slot: Slot::new(4),
+        payload_present: false,
     });
 
     // Add blocks 7, 8 and 9. Adding these blocks helps test the `best_descendant`
@@ -430,6 +448,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(2),
             root: get_root(5),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(0),
@@ -443,6 +463,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(2),
             root: get_root(5),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(0),
@@ -456,10 +478,12 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(2),
             root: get_root(5),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
-    // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
-    // that 5 is filtered out due to a differing justified epoch.
+    // Ensure that 9 is the head. The branch rooted at 5 remains viable and its best descendant
+    // is selected.
     //
     //          0
     //         / \
@@ -469,13 +493,13 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     //            |
     //            4
     //           / \
-    //          5   6 <- head
+    //          5   6
     //          |
     //          7
     //          |
     //          8
     //         /
-    //         9
+    // head->  9
     ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(1),
@@ -486,7 +510,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             root: get_root(0),
         },
         justified_state_balances: balances.clone(),
-        expected_head: get_root(6),
+        expected_head: get_root(9),
     });
 
     // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
@@ -545,12 +569,14 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::ProcessAttestation {
         validator_index: 0,
         block_root: get_root(9),
-        target_epoch: Epoch::new(5),
+        attestation_slot: Slot::new(5),
+        payload_present: false,
     });
     ops.push(Operation::ProcessAttestation {
         validator_index: 1,
         block_root: get_root(9),
-        target_epoch: Epoch::new(5),
+        attestation_slot: Slot::new(5),
+        payload_present: false,
     });
 
     // Add block 10
@@ -582,6 +608,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(2),
             root: get_root(5),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
     // Double-check the head is still 9 (no diagram this time)
@@ -621,12 +649,14 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::ProcessAttestation {
         validator_index: 2,
         block_root: get_root(10),
-        target_epoch: Epoch::new(5),
+        attestation_slot: Slot::new(5),
+        payload_present: false,
     });
     ops.push(Operation::ProcessAttestation {
         validator_index: 3,
         block_root: get_root(10),
-        target_epoch: Epoch::new(5),
+        attestation_slot: Slot::new(5),
+        payload_present: false,
     });
 
     // Check the head is now 10.
@@ -817,6 +847,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             epoch: Epoch::new(2),
             root: get_root(5),
         },
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
     });
 
     // Ensure the head is now 11
@@ -854,6 +886,9 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             root: get_root(0),
         },
         operations: ops,
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
+        spec: None,
     }
 }
 

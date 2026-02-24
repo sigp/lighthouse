@@ -110,22 +110,21 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
     // Doesn't matter what policy we use for invalid payloads, as our head calculation just
     // considers descent from finalization.
     let reset_payload_statuses = ResetPayloadStatuses::OnlyWithInvalidPayload;
-    let fork_choice = ForkChoice::from_persisted(
-        persisted_fork_choice.fork_choice_v17.try_into()?,
-        reset_payload_statuses,
-        fc_store,
-        &db.spec,
-    )
-    .map_err(|e| {
-        Error::MigrationError(format!("Error loading fork choice from persisted: {e:?}"))
-    })?;
+    let persisted_fc_v28: fork_choice::PersistedForkChoiceV28 =
+        persisted_fork_choice.fork_choice_v17.try_into()?;
+    let persisted_fc_v29: fork_choice::PersistedForkChoiceV29 = persisted_fc_v28.into();
+    let fork_choice =
+        ForkChoice::from_persisted(persisted_fc_v29, reset_payload_statuses, fc_store, &db.spec)
+            .map_err(|e| {
+                Error::MigrationError(format!("Error loading fork choice from persisted: {e:?}"))
+            })?;
 
     let heads = fork_choice
         .proto_array()
         .heads_descended_from_finalization::<T::EthSpec>(fork_choice.finalized_checkpoint());
 
-    let head_roots = heads.iter().map(|node| node.root).collect();
-    let head_slots = heads.iter().map(|node| node.slot).collect();
+    let head_roots = heads.iter().map(|node| node.root()).collect();
+    let head_slots = heads.iter().map(|node| node.slot()).collect();
 
     let persisted_beacon_chain_v22 = PersistedBeaconChainV22 {
         _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
