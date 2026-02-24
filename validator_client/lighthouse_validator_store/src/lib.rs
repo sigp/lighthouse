@@ -20,12 +20,12 @@ use task_executor::TaskExecutor;
 use tracing::{error, info, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
-    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256,
-    SelectionProof, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
-    graffiti::GraffitiString,
+    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
+    FullPayload, Graffiti, Hash256, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedRoot,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit, graffiti::GraffitiString,
 };
 use validator_store::{
     DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, SignedBlock, UnsignedBlock,
@@ -954,7 +954,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
-        let domain_hash = self.spec.get_builder_domain();
+        let domain_hash = self.spec.get_builder_application_domain();
         let signing_root = validator_registration_data.signing_root(domain_hash);
 
         let signing_method =
@@ -1241,5 +1241,36 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 builder_proposals: self
                     .get_builder_proposals_defaulting(validator.get_builder_proposals()),
             })
+    }
+
+    /// Sign an `ExecutionPayloadEnvelope` for Gloas (local building).
+    /// The proposer acts as the builder and signs with the BeaconBuilder domain.
+    async fn sign_execution_payload_envelope(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        envelope: ExecutionPayloadEnvelope<E>,
+    ) -> Result<SignedExecutionPayloadEnvelope<E>, Error> {
+        let signing_context = self.signing_context(
+            Domain::BeaconBuilder,
+            envelope.slot.epoch(E::slots_per_epoch()),
+        );
+
+        // Execution payload envelope signing is not slashable, bypass doppelganger protection.
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, FullPayload<E>>(
+                SignableMessage::ExecutionPayloadEnvelope(&envelope),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        Ok(SignedExecutionPayloadEnvelope {
+            message: envelope,
+            signature,
+        })
     }
 }

@@ -38,7 +38,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
 use typenum::Unsigned;
 use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
@@ -719,14 +719,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.get_block_with(block_root, |bytes| {
             SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
         })
-    }
-
-    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
-        self.get_block_with(block_root, SignedBeaconBlock::any_from_ssz_bytes)
     }
 
     /// Fetch a block from the store using a custom decode function.
@@ -1518,14 +1510,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
-        self.blobs_db
-            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
+        let kv_blob_ops = self.convert_to_kv_batch(blobs_ops)?;
+        {
+            let _span = debug_span!("write_blobs_db").entered();
+            self.blobs_db.do_atomically(kv_blob_ops)?;
+        }
 
         let hot_db_cache_ops = hot_db_ops.clone();
         // Try to execute hot db store ops.
-        let tx_res = match self.convert_to_kv_batch(hot_db_ops) {
-            Ok(kv_store_ops) => self.hot_db.do_atomically(kv_store_ops),
-            Err(e) => Err(e),
+        let tx_res = {
+            let _convert_span = debug_span!("convert_hot_db_ops").entered();
+            match self.convert_to_kv_batch(hot_db_ops) {
+                Ok(kv_store_ops) => {
+                    drop(_convert_span);
+                    let _span = debug_span!("write_hot_db").entered();
+                    self.hot_db.do_atomically(kv_store_ops)
+                }
+                Err(e) => Err(e),
+            }
         };
         // Rollback on failure
         if let Err(e) = tx_res {

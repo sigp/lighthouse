@@ -4,11 +4,11 @@ use beacon_chain::{
     GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy},
 };
-use eth2::reqwest::{Response, StatusCode};
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
 use http_api::{Config, ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block};
+use reqwest::{Response, StatusCode};
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};

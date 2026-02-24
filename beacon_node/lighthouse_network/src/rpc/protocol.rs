@@ -731,7 +731,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum RequestType<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),

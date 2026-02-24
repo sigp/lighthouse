@@ -20,6 +20,23 @@ macro_rules! envelope_verify {
     };
 }
 
+/// The strategy to be used when validating the payloads state root.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Clone, Copy)]
+pub enum VerifyStateRoot {
+    /// Validate state root.
+    True,
+    /// Do not validate state root. Use with caution.
+    /// This should only be used when first constructing the payload envelope.
+    False,
+}
+
+impl VerifyStateRoot {
+    pub fn is_true(self) -> bool {
+        self == VerifyStateRoot::True
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum EnvelopeProcessingError {
     /// Bad Signature
@@ -111,6 +128,7 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
     parent_state_root: Option<Hash256>,
     signed_envelope: &SignedExecutionPayloadEnvelope<E>,
     verify_signatures: VerifySignatures,
+    verify_state_root: VerifyStateRoot,
     spec: &ChainSpec,
 ) -> Result<(), EnvelopeProcessingError> {
     if verify_signatures.is_true() {
@@ -264,15 +282,17 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
         .map_err(EnvelopeProcessingError::BitFieldError)?;
     *state.latest_block_hash_mut()? = payload.block_hash;
 
-    // Verify the state root
-    let state_root = state.canonical_root()?;
-    envelope_verify!(
-        envelope.state_root == state_root,
-        EnvelopeProcessingError::InvalidStateRoot {
-            state: state_root,
-            envelope: envelope.state_root,
-        }
-    );
+    if verify_state_root.is_true() {
+        // Verify the state root
+        let state_root = state.canonical_root()?;
+        envelope_verify!(
+            envelope.state_root == state_root,
+            EnvelopeProcessingError::InvalidStateRoot {
+                state: state_root,
+                envelope: envelope.state_root,
+            }
+        );
+    }
 
     Ok(())
 }
