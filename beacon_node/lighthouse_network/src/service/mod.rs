@@ -1525,6 +1525,28 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::PayloadEnvelopesByRange(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_range"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
+                    RequestType::PayloadEnvelopesByRoot(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_root"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::BlobsByRange(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
@@ -1639,6 +1661,16 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    RpcSuccessResponse::PayloadEnvelopesbyRange(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRange(Some(resp)),
+                    ),
+                    RpcSuccessResponse::PayloadEnvelopesByRoot(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRoot(Some(resp)),
+                    ),
                     RpcSuccessResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
@@ -1673,6 +1705,12 @@ impl<E: EthSpec> Network<E> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::PayloadEnvelopesByRange => {
+                        Response::PayloadEnvelopesByRange(None)
+                    }
+                    ResponseTermination::PayloadEnvelopesByRoot => {
+                        Response::PayloadEnvelopesByRoot(None)
+                    }
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),

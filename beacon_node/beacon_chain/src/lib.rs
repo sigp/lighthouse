@@ -24,6 +24,7 @@ mod early_attester_cache;
 mod errors;
 pub mod events;
 pub mod execution_payload;
+pub mod execution_payload_envelope_streamer;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;

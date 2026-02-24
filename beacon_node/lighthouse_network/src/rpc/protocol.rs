@@ -242,6 +242,12 @@ pub enum Protocol {
     /// The `BlobsByRange` protocol name.
     #[strum(serialize = "blob_sidecars_by_range")]
     BlobsByRange,
+    /// The `ExecutionPayloadEnvelopesByRoot` protocol name.
+    #[strum(serialize = "execution_payload_envelopes_by_root")]
+    PayloadEnvelopesByRoot,
+    /// The `ExecutionPayloadEnvelopesByRange` protocol name.
+    #[strum(serialize = "execution_payload_envelopes_by_range")]
+    PayloadEnvelopesByRange,
     /// The `BlobsByRoot` protocol name.
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
@@ -277,6 +283,8 @@ impl Protocol {
             Protocol::Goodbye => None,
             Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
+            Protocol::PayloadEnvelopesByRange => Some(ResponseTermination::PayloadEnvelopesByRange),
+            Protocol::PayloadEnvelopesByRoot => Some(ResponseTermination::PayloadEnvelopesByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
             Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
@@ -307,6 +315,8 @@ pub enum SupportedProtocol {
     BlocksByRangeV2,
     BlocksByRootV1,
     BlocksByRootV2,
+    PayloadEnvelopesByRangeV1,
+    PayloadEnvelopesByRootV1,
     BlobsByRangeV1,
     BlobsByRootV1,
     DataColumnsByRootV1,
@@ -329,6 +339,8 @@ impl SupportedProtocol {
             SupportedProtocol::GoodbyeV1 => "1",
             SupportedProtocol::BlocksByRangeV1 => "1",
             SupportedProtocol::BlocksByRangeV2 => "2",
+            SupportedProtocol::PayloadEnvelopesByRangeV1 => "1",
+            SupportedProtocol::PayloadEnvelopesByRootV1 => "1",
             SupportedProtocol::BlocksByRootV1 => "1",
             SupportedProtocol::BlocksByRootV2 => "2",
             SupportedProtocol::BlobsByRangeV1 => "1",
@@ -355,6 +367,8 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
             SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
+            SupportedProtocol::PayloadEnvelopesByRangeV1 => Protocol::PayloadEnvelopesByRange,
+            SupportedProtocol::PayloadEnvelopesByRootV1 => Protocol::PayloadEnvelopesByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
@@ -511,6 +525,11 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
+            Protocol::PayloadEnvelopesByRange => RpcLimits::new(
+                <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
+                <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::PayloadEnvelopesByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
@@ -549,6 +568,12 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork_name()),
+            Protocol::PayloadEnvelopesByRange => {
+                rpc_block_limits_by_fork(fork_context.current_fork_name())
+            }
+            Protocol::PayloadEnvelopesByRoot => {
+                rpc_block_limits_by_fork(fork_context.current_fork_name())
+            }
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => {
@@ -586,6 +611,8 @@ impl ProtocolId {
         match self.versioned_protocol {
             SupportedProtocol::BlocksByRangeV2
             | SupportedProtocol::BlocksByRootV2
+            | SupportedProtocol::PayloadEnvelopesByRangeV1
+            | SupportedProtocol::PayloadEnvelopesByRootV1
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
             | SupportedProtocol::DataColumnsByRootV1
@@ -737,6 +764,8 @@ pub enum RequestType<E: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    PayloadEnvelopesByRange(PayloadEnvelopesByRangeRequest),
+    PayloadEnvelopesByRoot(PayloadEnvelopesByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     DataColumnsByRoot(DataColumnsByRootRequest<E>),
@@ -760,6 +789,8 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
+            RequestType::PayloadEnvelopesByRange(req) => req.count,
+            RequestType::PayloadEnvelopesByRoot(req) => req.beacon_block_roots.len() as u64,
             RequestType::BlobsByRange(req) => req.max_blobs_requested(digest_epoch, spec),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.max_requested() as u64,
@@ -789,6 +820,8 @@ impl<E: EthSpec> RequestType<E> {
                 BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
                 BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
             },
+            RequestType::PayloadEnvelopesByRange(_) => SupportedProtocol::PayloadEnvelopesByRangeV1,
+            RequestType::PayloadEnvelopesByRoot(_) => SupportedProtocol::PayloadEnvelopesByRootV1,
             RequestType::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             RequestType::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             RequestType::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
@@ -820,6 +853,8 @@ impl<E: EthSpec> RequestType<E> {
             // variants that have `multiple_responses()` can have values.
             RequestType::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             RequestType::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            RequestType::PayloadEnvelopesByRange(_) => ResponseTermination::PayloadEnvelopesByRange,
+            RequestType::PayloadEnvelopesByRoot(_) => ResponseTermination::PayloadEnvelopesByRoot,
             RequestType::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             RequestType::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             RequestType::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
@@ -854,6 +889,14 @@ impl<E: EthSpec> RequestType<E> {
                 ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
             ],
+            RequestType::PayloadEnvelopesByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::PayloadEnvelopesByRangeV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::PayloadEnvelopesByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::PayloadEnvelopesByRootV1,
+                Encoding::SSZSnappy,
+            )],
             RequestType::BlobsByRange(_) => vec![ProtocolId::new(
                 SupportedProtocol::BlobsByRangeV1,
                 Encoding::SSZSnappy,
@@ -905,6 +948,8 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlocksByRange(_) => false,
             RequestType::BlocksByRoot(_) => false,
             RequestType::BlobsByRange(_) => false,
+            RequestType::PayloadEnvelopesByRange(_) => false,
+            RequestType::PayloadEnvelopesByRoot(_) => false,
             RequestType::BlobsByRoot(_) => false,
             RequestType::DataColumnsByRoot(_) => false,
             RequestType::DataColumnsByRange(_) => false,
@@ -1015,6 +1060,12 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             RequestType::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RequestType::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RequestType::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            RequestType::PayloadEnvelopesByRange(req) => {
+                write!(f, "Payload envelopes by range: {:?}", req)
+            }
+            RequestType::PayloadEnvelopesByRoot(req) => {
+                write!(f, "Payload envelopes by root: {:?}", req)
+            }
             RequestType::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             RequestType::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             RequestType::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),

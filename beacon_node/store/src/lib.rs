@@ -390,6 +390,13 @@ pub enum DatabaseBlock<E: EthSpec> {
     Blinded(SignedBeaconBlock<E, BlindedPayload<E>>),
 }
 
+/// An execution payload envelope from the database
+// TODO(gloas) implement blinded variant
+pub enum DatabasePayloadEnvelope<E: EthSpec> {
+    Full(SignedExecutionPayloadEnvelope<E>),
+    Blinded(SignedExecutionPayloadEnvelope<E>),
+}
+
 impl DBColumn {
     pub fn as_str(self) -> &'static str {
         self.into()
