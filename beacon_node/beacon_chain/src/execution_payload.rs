@@ -118,6 +118,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             notify_new_payload(
                 &self.chain,
                 self.block.message().tree_hash_root(),
+                self.block.message().slot(),
                 self.block.message().try_into()?,
             )
             .await
@@ -137,6 +138,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     beacon_block_root: Hash256,
+    slot: Slot,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
@@ -163,11 +165,8 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                     ?validation_error,
                     ?latest_valid_hash,
                     ?execution_block_hash,
-                    // TODO(gloas) are these other logs important?
                     root = ?beacon_block_root,
-                    // graffiti = block.body().graffiti().as_utf8_lossy(),
-                    // proposer_index = block.proposer_index(),
-                    // slot = %block.slot(),
+                    %slot,
                     method = "new_payload",
                     "Invalid execution payload"
                 );
@@ -209,11 +208,8 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 warn!(
                     ?validation_error,
                     ?execution_block_hash,
-                    // TODO(gloas) are these other logs important?
                     root = ?beacon_block_root,
-                    // graffiti = block.body().graffiti().as_utf8_lossy(),
-                    // proposer_index = block.proposer_index(),
-                    // slot = %block.slot(),
+                    %slot,
                     method = "new_payload",
                     "Invalid execution payload block hash"
                 );
