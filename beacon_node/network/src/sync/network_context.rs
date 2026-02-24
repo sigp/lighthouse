@@ -285,6 +285,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.custody_backfill_data_column_batch_requests
             .insert(batch_req_id, entry);
     }
+
+    /// Returns true if there is a `components_by_range_requests` entry with the given id.
+    pub(crate) fn has_components_by_range_entry(&self, id: Id) -> bool {
+        self.components_by_range_requests.keys().any(|k| k.id == id)
+    }
 }
 
 #[cfg(test)]
