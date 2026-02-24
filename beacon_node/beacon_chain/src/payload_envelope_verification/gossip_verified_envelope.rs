@@ -10,8 +10,8 @@ use state_processing::{
 use store::DatabaseBlock;
 use tracing::{Span, debug};
 use types::{
-    ChainSpec, EthSpec, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
-    consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use crate::{
@@ -38,6 +38,54 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub genesis_validators_root: Hash256,
 }
 
+/// Verify that an execution payload envelope is consistent with its beacon block
+/// and execution bid. This checks:
+/// - The envelope slot is not prior to finalization
+/// - The envelope slot matches the block slot
+/// - The builder index matches the committed bid
+/// - The payload block hash matches the committed bid
+pub(crate) fn verify_envelope_consistency<E: EthSpec>(
+    envelope: &ExecutionPayloadEnvelope<E>,
+    block: &SignedBeaconBlock<E>,
+    execution_bid: &ExecutionPayloadBid<E>,
+    latest_finalized_slot: Slot,
+) -> Result<(), EnvelopeError> {
+    // Check that the envelope's slot isn't from a slot prior
+    // to the latest finalized slot.
+    if envelope.slot < latest_finalized_slot {
+        return Err(EnvelopeError::PriorToFinalization {
+            payload_slot: envelope.slot,
+            latest_finalized_slot,
+        });
+    }
+
+    // Check that the slot of the envelope matches the slot of the parent block.
+    if envelope.slot != block.slot() {
+        return Err(EnvelopeError::SlotMismatch {
+            block: block.slot(),
+            envelope: envelope.slot,
+        });
+    }
+
+    // Builder index matches committed bid.
+    if envelope.builder_index != execution_bid.builder_index {
+        return Err(EnvelopeError::BuilderIndexMismatch {
+            committed_bid: execution_bid.builder_index,
+            envelope: envelope.builder_index,
+        });
+    }
+
+    // The block hash should match the block hash of the execution bid.
+    if envelope.payload.block_hash != execution_bid.block_hash {
+        return Err(EnvelopeError::BlockHashMismatch {
+            committed_bid: execution_bid.block_hash,
+            envelope: envelope.payload.block_hash,
+        });
+    }
+
+    Ok(())
+}
+
 /// A wrapper around a `SignedExecutionPayloadEnvelope` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Educe)]
@@ -54,7 +102,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
-        let payload = &envelope.payload;
         let beacon_block_root = envelope.beacon_block_root;
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
@@ -94,38 +141,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .signed_execution_payload_bid()?
             .message;
 
-        // check that the envelopes slot isnt from a slot prior
-        // to the latest finalized slot.
-        if envelope.slot < latest_finalized_slot {
-            return Err(EnvelopeError::PriorToFinalization {
-                payload_slot: envelope.slot,
-                latest_finalized_slot,
-            });
-        }
-
-        // check that the slot of the envelope matches the slot of the parent block
-        if envelope.slot != block.slot() {
-            return Err(EnvelopeError::SlotMismatch {
-                block: block.slot(),
-                envelope: envelope.slot,
-            });
-        }
-
-        // builder index matches committed bid
-        if envelope.builder_index != execution_bid.builder_index {
-            return Err(EnvelopeError::BuilderIndexMismatch {
-                committed_bid: execution_bid.builder_index,
-                envelope: envelope.builder_index,
-            });
-        }
-
-        // the block hash should match the block hash of the execution bid
-        if payload.block_hash != execution_bid.block_hash {
-            return Err(EnvelopeError::BlockHashMismatch {
-                committed_bid: execution_bid.block_hash,
-                envelope: payload.block_hash,
-            });
-        }
+        verify_envelope_consistency(envelope, &block, execution_bid, latest_finalized_slot)?;
 
         // Verify the envelope signature.
         //
@@ -351,5 +367,156 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BeaconChainError::RuntimeShutdown)?
             .await
             .map_err(BeaconChainError::TokioJoin)?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::marker::PhantomData;
+
+    use bls::Signature;
+    use ssz_types::VariableList;
+    use types::{
+        BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionBlockHash,
+        ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests,
+        Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBid, Slot,
+        SyncAggregate,
+    };
+
+    use super::verify_envelope_consistency;
+    use crate::payload_envelope_verification::EnvelopeError;
+
+    type E = MinimalEthSpec;
+
+    fn make_envelope(
+        slot: Slot,
+        builder_index: u64,
+        block_hash: ExecutionBlockHash,
+    ) -> ExecutionPayloadEnvelope<E> {
+        ExecutionPayloadEnvelope {
+            payload: ExecutionPayloadGloas {
+                block_hash,
+                ..ExecutionPayloadGloas::default()
+            },
+            execution_requests: ExecutionRequests::default(),
+            builder_index,
+            beacon_block_root: Hash256::ZERO,
+            slot,
+            state_root: Hash256::ZERO,
+        }
+    }
+
+    fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
+        let block = BeaconBlock::Gloas(BeaconBlockGloas {
+            slot,
+            proposer_index: 0,
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
+            body: BeaconBlockBodyGloas {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                bls_to_execution_changes: VariableList::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                payload_attestations: VariableList::empty(),
+                _phantom: PhantomData,
+            },
+        });
+        SignedBeaconBlock::from_block(block, Signature::empty())
+    }
+
+    fn make_bid(builder_index: u64, block_hash: ExecutionBlockHash) -> ExecutionPayloadBid<E> {
+        ExecutionPayloadBid {
+            builder_index,
+            block_hash,
+            ..ExecutionPayloadBid::default()
+        }
+    }
+
+    #[test]
+    fn test_valid_envelope() {
+        let slot = Slot::new(10);
+        let builder_index = 5;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xaa);
+
+        let envelope = make_envelope(slot, builder_index, block_hash);
+        let block = make_block(slot);
+        let bid = make_bid(builder_index, block_hash);
+
+        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+    }
+
+    #[test]
+    fn test_prior_to_finalization() {
+        let slot = Slot::new(5);
+        let builder_index = 1;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xbb);
+
+        let envelope = make_envelope(slot, builder_index, block_hash);
+        let block = make_block(slot);
+        let bid = make_bid(builder_index, block_hash);
+        let latest_finalized_slot = Slot::new(10);
+
+        let result =
+            verify_envelope_consistency::<E>(&envelope, &block, &bid, latest_finalized_slot);
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::PriorToFinalization { .. })
+        ));
+    }
+
+    #[test]
+    fn test_slot_mismatch() {
+        let builder_index = 1;
+        let block_hash = ExecutionBlockHash::repeat_byte(0xcc);
+
+        let envelope = make_envelope(Slot::new(10), builder_index, block_hash);
+        let block = make_block(Slot::new(20));
+        let bid = make_bid(builder_index, block_hash);
+
+        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        assert!(matches!(result, Err(EnvelopeError::SlotMismatch { .. })));
+    }
+
+    #[test]
+    fn test_builder_index_mismatch() {
+        let slot = Slot::new(10);
+        let block_hash = ExecutionBlockHash::repeat_byte(0xdd);
+
+        let envelope = make_envelope(slot, 1, block_hash);
+        let block = make_block(slot);
+        let bid = make_bid(2, block_hash);
+
+        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::BuilderIndexMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_block_hash_mismatch() {
+        let slot = Slot::new(10);
+        let builder_index = 1;
+
+        let envelope = make_envelope(slot, builder_index, ExecutionBlockHash::repeat_byte(0xee));
+        let block = make_block(slot);
+        let bid = make_bid(builder_index, ExecutionBlockHash::repeat_byte(0xff));
+
+        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        assert!(matches!(
+            result,
+            Err(EnvelopeError::BlockHashMismatch { .. })
+        ));
     }
 }

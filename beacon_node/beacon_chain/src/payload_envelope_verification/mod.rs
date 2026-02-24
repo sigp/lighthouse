@@ -49,9 +49,6 @@ pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
 
-#[cfg(test)]
-mod tests;
-
 pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
     fn into_execution_pending_envelope(
         self,
