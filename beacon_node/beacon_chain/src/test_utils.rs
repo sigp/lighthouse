@@ -1082,6 +1082,67 @@ where
         (block_contents, block_response.state)
     }
 
+    /// Returns a newly created block, signed by the proposer for the given slot,
+    /// along with the execution payload envelope (for Gloas) and the pending state.
+    ///
+    /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
+    pub async fn make_block_with_envelope(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+    ) -> (
+        SignedBlockContentsTuple<E>,
+        Option<ExecutionPayloadEnvelope<E>>,
+        BeaconState<E>,
+    ) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        if state.fork_name_unchecked().gloas_enabled()
+            || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
+        {
+            complete_state_advance(&mut state, None, slot, &self.spec)
+                .expect("should be able to advance state to slot");
+            state.build_caches(&self.spec).expect("should build caches");
+
+            let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+            let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+            let graffiti_settings =
+                GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
+            let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
+
+            let (block, pending_state, _consensus_block_value) = self
+                .chain
+                .produce_block_on_state_gloas(
+                    state,
+                    None,
+                    slot,
+                    randao_reveal,
+                    graffiti_settings,
+                    ProduceBlockVerification::VerifyRandao,
+                )
+                .await
+                .unwrap();
+
+            let signed_block = Arc::new(block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &pending_state.fork(),
+                pending_state.genesis_validators_root(),
+                &self.spec,
+            ));
+
+            // Retrieve the cached envelope produced during block production.
+            let envelope = self.chain.pending_payload_envelopes.write().remove(slot);
+
+            let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
+            (block_contents, envelope, pending_state)
+        } else {
+            let (block_contents, state) = self.make_block(state, slot).await;
+            (block_contents, None, state)
+        }
+    }
+
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
     /// caches are built but before the generated block is processed.
     pub async fn make_block_return_pre_state(
@@ -2475,6 +2536,59 @@ where
             .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
+    }
+
+    /// Process an execution payload envelope for a Gloas block.
+    ///
+    /// This applies the envelope to the pending state to produce the Full state,
+    /// computes the Full state root, sets it on the envelope, and stores both the
+    /// envelope and the Full state in the database.
+    ///
+    /// Returns the Full state root.
+    pub fn process_envelope(
+        &self,
+        block_root: Hash256,
+        envelope: ExecutionPayloadEnvelope<E>,
+        pending_state: &mut BeaconState<E>,
+    ) -> Hash256 {
+        let block_state_root = pending_state
+            .update_tree_hash_cache()
+            .expect("should compute pending state root");
+
+        let mut signed_envelope = SignedExecutionPayloadEnvelope {
+            message: envelope,
+            signature: Signature::infinity().expect("should create infinity signature"),
+        };
+
+        state_processing::envelope_processing::process_execution_payload_envelope(
+            pending_state,
+            Some(block_state_root),
+            &signed_envelope,
+            state_processing::VerifySignatures::False,
+            state_processing::envelope_processing::VerifyStateRoot::False,
+            &self.spec,
+        )
+        .expect("should process envelope");
+
+        let full_state_root = pending_state
+            .update_tree_hash_cache()
+            .expect("should compute full state root");
+
+        signed_envelope.message.state_root = full_state_root;
+
+        // Store the envelope.
+        self.chain
+            .store
+            .put_payload_envelope(&block_root, signed_envelope)
+            .expect("should store envelope");
+
+        // Store the Full state.
+        self.chain
+            .store
+            .put_state(&full_state_root, pending_state)
+            .expect("should store full state");
+
+        full_state_root
     }
 
     /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from

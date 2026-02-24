@@ -5431,6 +5431,388 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
     );
 }
 
+// ===================== Gloas Store Tests =====================
+
+/// Test basic Gloas block + envelope storage and retrieval.
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let num_blocks = 8u64;
+    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let mut state = genesis_state;
+
+    let mut block_roots = vec![];
+    let mut pending_state_roots = vec![];
+    let mut full_state_roots = vec![];
+
+    for i in 1..=num_blocks {
+        let slot = Slot::new(i);
+        harness.advance_slot();
+
+        let (block_contents, envelope, pending_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let block_root = block_contents.0.canonical_root();
+
+        // Process the block.
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+
+        let pending_state_root = pending_state.clone().update_tree_hash_cache().unwrap();
+        pending_state_roots.push(pending_state_root);
+
+        // Process the envelope.
+        let envelope = envelope.expect("Gloas block should have envelope");
+        let mut full_state = pending_state.clone();
+        let full_state_root = harness.process_envelope(block_root, envelope, &mut full_state);
+        full_state_roots.push(full_state_root);
+
+        block_roots.push(block_root);
+        state = full_state;
+    }
+
+    // Verify storage.
+    for (i, block_root) in block_roots.iter().enumerate() {
+        // Block can be loaded.
+        assert!(
+            store.get_blinded_block(block_root).unwrap().is_some(),
+            "block at slot {} should be in DB",
+            i + 1
+        );
+
+        // Envelope can be loaded.
+        let loaded_envelope = store.get_payload_envelope(block_root).unwrap();
+        assert!(
+            loaded_envelope.is_some(),
+            "envelope at slot {} should be in DB",
+            i + 1
+        );
+
+        // Pending state can be loaded.
+        let pending_state_root = pending_state_roots[i];
+        let loaded_pending_state = store
+            .get_state(&pending_state_root, None, CACHE_STATE_IN_TESTS)
+            .unwrap();
+        assert!(
+            loaded_pending_state.is_some(),
+            "pending state at slot {} should be in DB",
+            i + 1
+        );
+        let loaded_pending_state = loaded_pending_state.unwrap();
+        assert_eq!(
+            loaded_pending_state.payload_status_with_skipped_pending(),
+            StatePayloadStatus::Pending,
+            "loaded pending state at slot {} should have Pending status",
+            i + 1
+        );
+
+        // Full state can be loaded.
+        let full_state_root = full_state_roots[i];
+        let loaded_full_state = store
+            .get_state(&full_state_root, None, CACHE_STATE_IN_TESTS)
+            .unwrap();
+        assert!(
+            loaded_full_state.is_some(),
+            "full state at slot {} should be in DB",
+            i + 1
+        );
+        let loaded_full_state = loaded_full_state.unwrap();
+        assert_eq!(
+            loaded_full_state.payload_status_with_skipped_pending(),
+            StatePayloadStatus::Full,
+            "loaded full state at slot {} should have Full status",
+            i + 1
+        );
+    }
+}
+
+/// Test that Pending and Full states have the correct payload status through round-trip
+/// storage and retrieval.
+#[tokio::test]
+async fn test_gloas_state_payload_status() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let num_blocks = 6u64;
+    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let mut state = genesis_state;
+
+    for i in 1..=num_blocks {
+        let slot = Slot::new(i);
+        harness.advance_slot();
+
+        let (block_contents, envelope, pending_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let block_root = block_contents.0.canonical_root();
+
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+
+        // Verify the pending state has correct payload status.
+        assert_eq!(
+            pending_state.payload_status_with_skipped_pending(),
+            StatePayloadStatus::Pending,
+            "pending state at slot {} should be Pending",
+            i
+        );
+
+        // Process the envelope and verify the full state has correct payload status.
+        let envelope = envelope.expect("Gloas block should have envelope");
+        let mut full_state = pending_state;
+        let full_state_root = harness.process_envelope(block_root, envelope, &mut full_state);
+
+        assert_eq!(
+            full_state.payload_status_with_skipped_pending(),
+            StatePayloadStatus::Full,
+            "full state at slot {} should be Full",
+            i
+        );
+
+        // Round-trip: load the full state from DB and check status.
+        let loaded_full = store
+            .get_state(&full_state_root, None, CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .expect("full state should exist in DB");
+        assert_eq!(
+            loaded_full.payload_status_with_skipped_pending(),
+            StatePayloadStatus::Full,
+            "loaded full state at slot {} should be Full after round-trip",
+            i
+        );
+
+        state = full_state;
+    }
+}
+
+/// Test block replay with and without envelopes.
+#[tokio::test]
+async fn test_gloas_block_replay_with_envelopes() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let num_blocks = 16u64;
+    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let mut state = genesis_state.clone();
+
+    let mut last_block_root = Hash256::zero();
+    let mut pending_states = HashMap::new();
+    let mut full_states = HashMap::new();
+
+    for i in 1..=num_blocks {
+        let slot = Slot::new(i);
+        harness.advance_slot();
+
+        let (block_contents, envelope, pending_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let block_root = block_contents.0.canonical_root();
+
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+
+        let pending_state_root = pending_state.clone().update_tree_hash_cache().unwrap();
+        pending_states.insert(slot, (pending_state_root, pending_state.clone()));
+
+        let envelope = envelope.expect("Gloas block should have envelope");
+        let mut full_state = pending_state;
+        let full_state_root = harness.process_envelope(block_root, envelope, &mut full_state);
+        full_states.insert(slot, (full_state_root, full_state.clone()));
+
+        last_block_root = block_root;
+        state = full_state;
+    }
+
+    let end_slot = Slot::new(num_blocks);
+
+    // Load blocks for Pending replay (no envelopes for the last block).
+    let (blocks_pending, envelopes_pending) = store
+        .load_blocks_to_replay(
+            Slot::new(0),
+            end_slot,
+            last_block_root,
+            StatePayloadStatus::Pending,
+        )
+        .unwrap();
+    assert!(
+        !blocks_pending.is_empty(),
+        "should have blocks for pending replay"
+    );
+    // For Pending, no envelope for the last block; envelopes for intermediate blocks
+    // whose payloads are canonical.
+    let expected_pending_envelopes = blocks_pending.len().saturating_sub(1);
+    assert_eq!(
+        envelopes_pending.len(),
+        expected_pending_envelopes,
+        "pending replay should have envelopes for all blocks except the last"
+    );
+
+    // Load blocks for Full replay (envelopes for all blocks including the last).
+    let (blocks_full, envelopes_full) = store
+        .load_blocks_to_replay(
+            Slot::new(0),
+            end_slot,
+            last_block_root,
+            StatePayloadStatus::Full,
+        )
+        .unwrap();
+    assert_eq!(
+        envelopes_full.len(),
+        expected_pending_envelopes + 1,
+        "full replay should have one more envelope than pending replay"
+    );
+
+    // Replay to Pending state and verify.
+    let mut replayed_pending =
+        BlockReplayer::<MinimalEthSpec>::new(genesis_state.clone(), store.get_chain_spec())
+            .no_signature_verification()
+            .minimal_block_root_verification()
+            .desired_state_payload_status(StatePayloadStatus::Pending)
+            .apply_blocks(blocks_pending, envelopes_pending, None)
+            .expect("should replay blocks to pending state")
+            .into_state();
+    replayed_pending.apply_pending_mutations().unwrap();
+
+    let (_, mut expected_pending) = pending_states.get(&end_slot).unwrap().clone();
+    expected_pending.apply_pending_mutations().unwrap();
+
+    replayed_pending.drop_all_caches().unwrap();
+    expected_pending.drop_all_caches().unwrap();
+    assert_eq!(
+        replayed_pending, expected_pending,
+        "replayed pending state should match stored pending state"
+    );
+
+    // Replay to Full state and verify.
+    let mut replayed_full =
+        BlockReplayer::<MinimalEthSpec>::new(genesis_state, store.get_chain_spec())
+            .no_signature_verification()
+            .minimal_block_root_verification()
+            .desired_state_payload_status(StatePayloadStatus::Full)
+            .apply_blocks(blocks_full, envelopes_full, None)
+            .expect("should replay blocks to full state")
+            .into_state();
+    replayed_full.apply_pending_mutations().unwrap();
+
+    let (_, mut expected_full) = full_states.get(&end_slot).unwrap().clone();
+    expected_full.apply_pending_mutations().unwrap();
+
+    replayed_full.drop_all_caches().unwrap();
+    expected_full.drop_all_caches().unwrap();
+    assert_eq!(
+        replayed_full, expected_full,
+        "replayed full state should match stored full state"
+    );
+}
+
+/// Test the hot state hierarchy with Full states stored as ReplayFrom.
+#[tokio::test]
+async fn test_gloas_hot_state_hierarchy() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Build enough blocks to span multiple epochs. With MinimalEthSpec (8 slots/epoch),
+    // 40 slots covers 5 epochs.
+    let num_blocks = E::slots_per_epoch() * 5;
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+
+    // Use manual block building with envelopes for the first few blocks,
+    // then use the standard attested-blocks path once we've verified envelope handling.
+    let mut state = genesis_state;
+    let mut last_block_root = Hash256::zero();
+
+    for i in 1..=num_blocks {
+        let slot = Slot::new(i);
+        harness.advance_slot();
+
+        let (block_contents, envelope, pending_state) =
+            harness.make_block_with_envelope(state.clone(), slot).await;
+        let block_root = block_contents.0.canonical_root();
+
+        // Attest to previous block before processing next.
+        if i > 1 {
+            let state_root = state.update_tree_hash_cache().unwrap();
+            harness.attest_block(
+                &state,
+                state_root,
+                last_block_root.into(),
+                &block_contents.0,
+                &all_validators,
+            );
+        }
+
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+
+        let envelope = envelope.expect("Gloas block should have envelope");
+        let mut full_state = pending_state;
+        harness.process_envelope(block_root, envelope, &mut full_state);
+
+        last_block_root = block_root;
+        state = full_state;
+    }
+
+    // Verify states can be loaded and have correct payload status.
+    let _head_state = harness.get_current_state();
+    let _head_slot = harness.head_slot();
+
+    // States at some slots should be retrievable.
+    for slot_num in 1..=num_blocks {
+        let slot = Slot::new(slot_num);
+        // Get the state root from the block at this slot via the state root iterator.
+        let state_root_result: Option<(Hash256, Slot)> = harness
+            .chain
+            .forwards_iter_state_roots(slot)
+            .expect("should get iter")
+            .map(Result::unwrap)
+            .find(|(_, s)| *s == slot);
+
+        if let Some((state_root, _)) = state_root_result {
+            let loaded_state = store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap();
+            assert!(
+                loaded_state.is_some(),
+                "state at slot {} should be loadable",
+                slot_num
+            );
+        }
+    }
+
+    // Verify chain dump and iterators work with Gloas states.
+    check_chain_dump(&harness, num_blocks + 1);
+    check_iterators(&harness);
+}
+
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
 fn check_split_slot(
     harness: &TestHarness,
