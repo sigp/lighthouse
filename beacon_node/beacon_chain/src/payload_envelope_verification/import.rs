@@ -28,6 +28,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Items that implement `IntoExecutionPendingEnvelope` include:
     ///
     /// - `GossipVerifiedEnvelope`
+    /// - TODO(gloas) implement for envelopes recieved over RPC
     ///
     /// ## Errors
     ///
