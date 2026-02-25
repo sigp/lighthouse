@@ -119,6 +119,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 &self.chain,
                 self.block.message().tree_hash_root(),
                 self.block.message().slot(),
+                self.block.message().parent_root(),
                 self.block.message().try_into()?,
             )
             .await
@@ -139,6 +140,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     beacon_block_root: Hash256,
     slot: Slot,
+    parent_beacon_block_root: Hash256,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
@@ -189,11 +191,9 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 {
                     // This block has not yet been applied to fork choice, so the latest block that was
                     // imported to fork choice was the parent.
-                    let latest_root = new_payload_request.parent_beacon_block_root()?;
-
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                            head_block_root: *latest_root,
+                            head_block_root: parent_beacon_block_root,
                             always_invalidate_head: false,
                             latest_valid_ancestor: latest_valid_hash,
                         })
