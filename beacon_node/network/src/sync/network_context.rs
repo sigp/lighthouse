@@ -288,7 +288,6 @@ impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
     pub fn components_by_range_count(&self) -> usize {
         self.components_by_range_requests.len()
     }
-
 }
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {

@@ -46,7 +46,7 @@ use crate::metrics;
 use crate::status::ToStatusMessage;
 use crate::sync::BatchProcessResult;
 use crate::sync::batch::BatchId;
-use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
+use crate::sync::network_context::{RangeRequestId, RpcResponseError, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
@@ -348,6 +348,12 @@ where
             );
             self.failed_chains.insert(chain.target_head_root);
         }
+
+        // Clean up any orphaned components_by_range entries belonging to this chain.
+        let removed_chain_id = chain.id();
+        network.remove_components_by_range_requests(|r| {
+            matches!(r, RangeRequestId::RangeSync { chain_id, .. } if *chain_id == removed_chain_id)
+        });
 
         metrics::inc_counter_vec_by(
             &metrics::SYNCING_CHAINS_DROPPED_BLOCKS,
