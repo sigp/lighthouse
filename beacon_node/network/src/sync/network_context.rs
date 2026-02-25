@@ -257,6 +257,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub(crate) fn has_components_by_range_entry(&self, id: Id) -> bool {
         self.components_by_range_requests.keys().any(|k| k.id == id)
     }
+
+    /// Returns the number of entries in `components_by_range_requests`.
+    pub(crate) fn components_by_range_count(&self) -> usize {
+        self.components_by_range_requests.len()
+    }
 }
 
 #[cfg(test)]
@@ -487,27 +492,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
-        parent_request_span.in_scope(|| {
-            debug!(
-                ?failed_columns,
-                ?id,
-                ?requester,
-                "Retrying only failed column requests from other peers"
-            );
-        });
-
-        // Helper: remove the entry and log the reason on any error exit.
-        let remove_entry = |slf: &mut Self, id: &ComponentsByRangeRequestId, reason: &str| {
-            parent_request_span.in_scope(|| {
-                debug!(
-                    entry = ?id,
-                    reason,
-                    map_len = slf.components_by_range_requests.len() - 1,
-                    "components_by_range: entry removed"
-                );
-            });
-            slf.components_by_range_requests.remove(id);
-        };
+        debug!(
+            ?failed_columns,
+            ?id,
+            ?requester,
+            "Retrying only failed column requests from other peers"
+        );
 
         // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = match self.select_columns_by_range_peers_to_request(
@@ -519,7 +509,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             Ok(peers) => peers,
             Err(e) => {
                 let id = ComponentsByRangeRequestId { id, requester };
-                remove_entry(self, &id, "retry_peer_selection_failed");
+                self.components_by_range_requests.remove(&id);
                 return Err(format!("{:?}", e));
             }
         };
@@ -551,7 +541,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let data_column_requests = match data_column_requests {
             Ok(reqs) => reqs,
             Err(e) => {
-                remove_entry(self, &id, "retry_send_failed");
+                self.components_by_range_requests.remove(&id);
                 return Err(format!("{:?}", e));
             }
         };
@@ -703,10 +693,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }),
             range_request_span,
         );
-        debug!(
-            map_len = self.components_by_range_requests.len() + 1,
-            "components_by_range: entry created"
-        );
         self.components_by_range_requests.insert(id, info);
 
         Ok(id.id)
@@ -774,7 +760,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: ComponentsByRangeRequestId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) -> Option<Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>> {
-        let map_len = self.components_by_range_requests.len();
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
             return None;
@@ -810,13 +795,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             }
         } {
-            entry.get().request_span.in_scope(|| {
-                debug!(
-                    reason = "add_component_error",
-                    map_len = map_len - 1,
-                    "components_by_range: entry removed"
-                );
-            });
             entry.remove();
             return Some(Err(e));
         }
@@ -834,36 +812,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             {
                 // Remove the entry if it's a peer failure **and** retry counter is exceeded
                 if *exceeded_retries {
-                    entry.get().request_span.in_scope(|| {
-                        debug!(
-                            msg = error,
-                            reason = "exceeded_retries",
-                            map_len = map_len - 1,
-                            "components_by_range: entry removed"
-                        );
-                    });
+                    debug!(
+                        entry=?entry.key(),
+                        msg = error,
+                        "Request exceeded max retries, failing batch"
+                    );
                     entry.remove();
-                } else {
-                    entry.get().request_span.in_scope(|| {
-                        debug!(
-                            reason = "data_column_peer_failure_retry",
-                            map_len, "components_by_range: entry kept for retry"
-                        );
-                    });
                 };
             } else {
-                let reason = if blocks_result.is_ok() {
-                    "success"
-                } else {
-                    "coupling_error"
-                };
-                entry.get().request_span.in_scope(|| {
-                    debug!(
-                        reason,
-                        map_len = map_len - 1,
-                        "components_by_range: entry removed"
-                    );
-                });
                 entry.remove();
             }
             // If the request is finished, dequeue everything
