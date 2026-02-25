@@ -16,6 +16,7 @@ sqlite = ["dep:rusqlite"]
 arbitrary = [
     "dep:arbitrary",
     "bls/arbitrary",
+    "kzg/arbitrary",
     "ethereum_ssz/arbitrary",
     "milhouse/arbitrary",
     "ssz_types/arbitrary",
