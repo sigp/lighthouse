@@ -3,13 +3,10 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use execution_layer::{
     auth::{JwtKey, strip_prefix},
-    test_utils::{
-        Config, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, MockExecutionConfig, MockServer,
-    },
+    test_utils::{Config, DEFAULT_JWT_SECRET, MockExecutionConfig, MockServer},
 };
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::Arc;
 use types::*;
 
 pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<(), String> {
@@ -25,7 +22,6 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let amsterdam_time = parse_optional(matches, "amsterdam-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
-    let spec = Arc::new(E::default_spec());
 
     let jwt_key = if let Some(secret_path) = jwt_secret_path {
         let hex_str = std::fs::read_to_string(&secret_path)
@@ -50,9 +46,6 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
             listen_port,
         },
         jwt_key,
-        terminal_difficulty: spec.terminal_total_difficulty,
-        terminal_block: DEFAULT_TERMINAL_BLOCK,
-        terminal_block_hash: spec.terminal_block_hash,
         shanghai_time: Some(shanghai_time),
         cancun_time,
         prague_time,

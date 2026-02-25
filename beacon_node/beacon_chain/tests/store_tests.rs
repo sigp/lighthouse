@@ -5558,6 +5558,226 @@ fn check_iterators_from_slot(harness: &TestHarness, slot: Slot) {
     );
 }
 
+/// Test that blocks with default (pre-merge) execution payloads and non-default (post-merge)
+/// execution payloads can be produced, stored, and retrieved correctly through a merge transition.
+///
+/// Spec (see .claude/plans/8658.md):
+///   - Bellatrix at epoch 0 (genesis), genesis has default execution payload header
+///   - Slots 1-9: blocks have default (zeroed) execution payloads
+///   - Slot 10: first block with a non-default execution payload (merge transition block)
+///   - Slots 11-32+: non-default payloads, each with parent_hash == prev payload block_hash
+///   - Chain must finalize past genesis
+#[tokio::test]
+async fn bellatrix_produce_and_store_payloads() {
+    use beacon_chain::test_utils::{
+        DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, InteropGenesisBuilder,
+    };
+    use safe_arith::SafeArith;
+    use state_processing::per_block_processing::is_merge_transition_complete;
+    use tree_hash::TreeHash;
+
+    let merge_slot = 10u64;
+    let total_slots = 48u64;
+    let spec = ForkName::Bellatrix.make_genesis_spec(E::default_spec());
+
+    // Build genesis state with a default (zeroed) execution payload header so that
+    // is_merge_transition_complete = false at genesis.
+    let keypairs = KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec();
+    let genesis_state = InteropGenesisBuilder::default()
+        .set_alternating_eth1_withdrawal_credentials()
+        .set_opt_execution_payload_header(None)
+        .build_genesis_state(
+            &keypairs,
+            HARNESS_GENESIS_TIME,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            &spec,
+        )
+        .unwrap();
+
+    assert!(
+        !is_merge_transition_complete(&genesis_state),
+        "genesis should NOT have merge complete"
+    );
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig {
+            prune_payloads: false,
+            ..StoreConfig::default()
+        },
+        spec.clone(),
+    );
+
+    let chain_config = ChainConfig {
+        archive: true,
+        ..ChainConfig::default()
+    };
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(store.get_chain_spec().clone())
+        .keypairs(keypairs.clone())
+        .fresh_disk_store(store.clone())
+        .override_store_mutator(Box::new(move |builder: BeaconChainBuilder<_>| {
+            builder
+                .genesis_state(genesis_state)
+                .expect("should set genesis state")
+        }))
+        .mock_execution_layer()
+        .chain_config(chain_config)
+        .build();
+
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .all_payloads_valid();
+
+    harness.advance_slot();
+
+    // Phase 1: slots 1 to merge_slot-1 — blocks with default execution payloads.
+    let mut state = harness.get_current_state();
+    for slot_num in 1..merge_slot {
+        let slot = Slot::new(slot_num);
+        harness.advance_slot();
+        harness
+            .build_and_import_block_with_payload(
+                &mut state,
+                slot,
+                ExecutionPayloadBellatrix::default(),
+            )
+            .await;
+        state = harness.get_current_state();
+    }
+
+    // Phase 2: slot merge_slot — the merge transition block with a real payload.
+    {
+        let slot = Slot::new(merge_slot);
+        harness.advance_slot();
+
+        // Advance state to compute correct timestamp and randao.
+        let mut pre_state = state.clone();
+        complete_state_advance(&mut pre_state, None, slot, &harness.spec)
+            .expect("should advance state");
+        pre_state
+            .build_caches(&harness.spec)
+            .expect("should build caches");
+
+        let timestamp = pre_state
+            .genesis_time()
+            .safe_add(
+                slot.as_u64()
+                    .safe_mul(harness.spec.seconds_per_slot)
+                    .unwrap(),
+            )
+            .unwrap();
+        let prev_randao = *pre_state.get_randao_mix(pre_state.current_epoch()).unwrap();
+
+        let mut transition_payload = ExecutionPayloadBellatrix {
+            parent_hash: ExecutionBlockHash::zero(),
+            fee_recipient: Address::repeat_byte(42),
+            receipts_root: Hash256::repeat_byte(42),
+            state_root: Hash256::repeat_byte(43),
+            logs_bloom: vec![0; 256].try_into().unwrap(),
+            prev_randao,
+            block_number: 1,
+            gas_limit: 30_000_000,
+            gas_used: 0,
+            timestamp,
+            extra_data: VariableList::empty(),
+            base_fee_per_gas: Uint256::from(1u64),
+            block_hash: ExecutionBlockHash::zero(),
+            transactions: VariableList::empty(),
+        };
+        transition_payload.block_hash =
+            ExecutionBlockHash::from_root(transition_payload.tree_hash_root());
+
+        // Insert the transition payload into the mock EL so subsequent blocks can chain.
+        {
+            let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+            let mut block_gen = mock_el.server.execution_block_generator();
+            block_gen.insert_block_without_checks(execution_layer::test_utils::Block::PoS(
+                ExecutionPayload::Bellatrix(transition_payload.clone()),
+            ));
+        }
+
+        harness
+            .build_and_import_block_with_payload(&mut state, slot, transition_payload)
+            .await;
+        state = harness.get_current_state();
+
+        assert!(
+            is_merge_transition_complete(&state),
+            "merge should be complete after slot {merge_slot}"
+        );
+    }
+
+    // Phase 3: slots merge_slot+1 to total_slots — use harness with attestations.
+    let post_merge_slots = (total_slots - merge_slot) as usize;
+    harness.extend_slots(post_merge_slots).await;
+
+    // ---- Verification: check all blocks in the store against plan invariants ----
+
+    let mut prev_payload_block_hash: Option<ExecutionBlockHash> = None;
+
+    for slot_num in 1..=total_slots {
+        let slot = Slot::new(slot_num);
+        let block_root = harness
+            .chain
+            .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+            .unwrap()
+            .unwrap_or_else(|| panic!("missing block at slot {slot_num}"));
+        let block = store
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .unwrap_or_else(|| panic!("block not in store at slot {slot_num}"));
+        let payload = block
+            .message()
+            .body()
+            .execution_payload()
+            .expect("bellatrix block should have execution payload");
+
+        if slot_num < merge_slot {
+            // Slots 1 to merge_slot-1: payload must be default.
+            assert!(
+                payload.is_default_with_empty_roots(),
+                "slot {slot_num} should have default payload"
+            );
+        } else if slot_num == merge_slot {
+            // Merge transition block: first non-default payload.
+            assert!(
+                !payload.is_default_with_empty_roots(),
+                "slot {slot_num} (merge) should have non-default payload"
+            );
+            prev_payload_block_hash = Some(payload.block_hash());
+        } else {
+            // Post-merge: non-default payload with valid parent_hash chain.
+            assert!(
+                !payload.is_default_with_empty_roots(),
+                "slot {slot_num} should have non-default payload"
+            );
+            assert_eq!(
+                payload.parent_hash(),
+                prev_payload_block_hash.unwrap(),
+                "slot {slot_num} payload parent_hash should chain from previous payload"
+            );
+            prev_payload_block_hash = Some(payload.block_hash());
+        }
+    }
+
+    // Verify finalization.
+    let finalized_epoch = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint()
+        .epoch;
+    assert!(
+        finalized_epoch > 0,
+        "chain should have finalized past genesis"
+    );
+}
+
 fn get_finalized_epoch_boundary_blocks(
     dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {

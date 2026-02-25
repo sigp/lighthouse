@@ -28,8 +28,6 @@ use types::{
     Transactions, Uint256,
 };
 
-use super::DEFAULT_TERMINAL_BLOCK;
-
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 const TEST_BLOB_BUNDLE_V2: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle_v2.ssz");
 
@@ -172,9 +170,6 @@ fn make_rng() -> Arc<Mutex<StdRng>> {
 impl<E: EthSpec> ExecutionBlockGenerator<E> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        terminal_total_difficulty: Uint256,
-        terminal_block_number: u64,
-        terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
@@ -187,9 +182,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             finalized_block_hash: <_>::default(),
             blocks: <_>::default(),
             block_hashes: <_>::default(),
-            terminal_total_difficulty,
-            terminal_block_number,
-            terminal_block_hash,
+            terminal_total_difficulty: Default::default(),
+            terminal_block_number: 0,
+            terminal_block_hash: Default::default(),
             pending_payloads: <_>::default(),
             next_payload_id: 0,
             payload_ids: <_>::default(),
@@ -291,25 +286,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     pub fn execution_payload_by_number(&self, number: u64) -> Option<ExecutionPayload<E>> {
         self.block_by_number(number)
             .and_then(|block| block.as_execution_payload())
-    }
-
-    pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {
-        let target_block = self
-            .terminal_block_number
-            .checked_sub(1)
-            .ok_or("terminal pow block is 0")?;
-        self.move_to_pow_block(target_block)
-    }
-
-    pub fn move_to_terminal_block(&mut self) -> Result<(), String> {
-        self.move_to_pow_block(self.terminal_block_number)
-    }
-
-    pub fn move_to_pow_block(&mut self, target_block: u64) -> Result<(), String> {
-        let next_block = self.latest_block().unwrap().block_number() + 1;
-        assert!(target_block >= next_block);
-
-        self.insert_pow_blocks(next_block..=target_block)
     }
 
     pub fn drop_all_blocks(&mut self) {
@@ -879,27 +855,22 @@ fn payload_id_from_u64(n: u64) -> PayloadId {
     n.to_le_bytes()
 }
 
-pub fn generate_genesis_header<E: EthSpec>(
-    spec: &ChainSpec,
-    post_transition_merge: bool,
-) -> Option<ExecutionPayloadHeader<E>> {
+pub fn generate_genesis_header<E: EthSpec>(spec: &ChainSpec) -> Option<ExecutionPayloadHeader<E>> {
     let genesis_fork = spec.fork_name_at_slot::<E>(spec.genesis_slot);
-    let genesis_block_hash =
-        generate_genesis_block(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK)
-            .ok()
-            .map(|block| block.block_hash);
+    let genesis_block_hash = generate_genesis_block(Default::default(), 0)
+        .ok()
+        .map(|block| block.block_hash);
     let empty_transactions_root = Transactions::<E>::empty().tree_hash_root();
     match genesis_fork {
-        ForkName::Base | ForkName::Altair => None,
+        ForkName::Base | ForkName::Altair => {
+            // Pre-Bellatrix forks have no execution payload
+            None
+        }
         ForkName::Bellatrix => {
-            if post_transition_merge {
-                let mut header = ExecutionPayloadHeader::Bellatrix(<_>::default());
-                *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
-                *header.transactions_root_mut() = empty_transactions_root;
-                Some(header)
-            } else {
-                Some(ExecutionPayloadHeader::<E>::Bellatrix(<_>::default()))
-            }
+            let mut header = ExecutionPayloadHeader::Bellatrix(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
+            Some(header)
         }
         ForkName::Capella => {
             let mut header = ExecutionPayloadHeader::Capella(<_>::default());
@@ -984,70 +955,6 @@ mod test {
     use super::*;
     use kzg::{Bytes48, CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
     use types::{MainnetEthSpec, MinimalEthSpec};
-
-    #[test]
-    fn pow_chain_only() {
-        const TERMINAL_DIFFICULTY: u64 = 10;
-        const TERMINAL_BLOCK: u64 = 10;
-        const DIFFICULTY_INCREMENT: u64 = 1;
-
-        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
-            Uint256::from(TERMINAL_DIFFICULTY),
-            TERMINAL_BLOCK,
-            ExecutionBlockHash::zero(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
-
-        for i in 0..=TERMINAL_BLOCK {
-            if i > 0 {
-                generator.insert_pow_block(i).unwrap();
-            }
-
-            /*
-             * Generate a block, inspect it.
-             */
-
-            let block = generator.latest_block().unwrap();
-            assert_eq!(block.block_number(), i);
-
-            let expected_parent = i
-                .checked_sub(1)
-                .map(|i| generator.block_by_number(i).unwrap().block_hash())
-                .unwrap_or_else(ExecutionBlockHash::zero);
-            assert_eq!(block.parent_hash(), expected_parent);
-
-            assert_eq!(
-                block.total_difficulty().unwrap(),
-                Uint256::from(i * DIFFICULTY_INCREMENT)
-            );
-
-            assert_eq!(generator.block_by_hash(block.block_hash()).unwrap(), block);
-            assert_eq!(generator.block_by_number(i).unwrap(), block);
-
-            /*
-             * Check the parent is accessible.
-             */
-
-            if let Some(prev_i) = i.checked_sub(1) {
-                assert_eq!(
-                    generator.block_by_number(prev_i).unwrap(),
-                    generator.block_by_hash(block.parent_hash()).unwrap()
-                );
-            }
-
-            /*
-             * Check the next block is inaccessible.
-             */
-
-            let next_i = i + 1;
-            assert!(generator.block_by_number(next_i).is_none());
-        }
-    }
 
     #[test]
     fn valid_test_blobs_bundle_v1() {
