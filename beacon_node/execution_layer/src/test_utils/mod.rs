@@ -133,7 +133,6 @@ impl<E: EthSpec> MockServer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
-            ..
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));

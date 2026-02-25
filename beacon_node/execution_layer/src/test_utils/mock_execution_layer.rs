@@ -282,37 +282,4 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         assert_eq!(head_execution_block.block_hash(), block_hash);
         assert_eq!(head_execution_block.parent_hash(), parent_hash);
     }
-
-    pub fn produce_forked_pow_block(self) -> (Self, ExecutionBlockHash) {
-        let head_block = self
-            .server
-            .execution_block_generator()
-            .latest_block()
-            .unwrap();
-
-        let block_hash = self
-            .server
-            .execution_block_generator()
-            .insert_pow_block_by_hash(head_block.parent_hash(), 1)
-            .unwrap();
-        (self, block_hash)
-    }
-
-    pub async fn with_terminal_block<U, V>(self, func: U) -> Self
-    where
-        U: Fn(Arc<ChainSpec>, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
-        V: Future<Output = ()>,
-    {
-        let terminal_block_number = self
-            .server
-            .execution_block_generator()
-            .terminal_block_number;
-        let terminal_block = self
-            .server
-            .execution_block_generator()
-            .execution_block_by_number(terminal_block_number);
-
-        func(self.spec.clone(), self.el.clone(), terminal_block).await;
-        self
-    }
 }
