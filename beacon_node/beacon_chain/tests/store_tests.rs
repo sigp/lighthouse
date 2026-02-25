@@ -5461,7 +5461,7 @@ async fn test_gloas_block_and_envelope_storage() {
         let slot = Slot::new(i);
         harness.advance_slot();
 
-        let (block_contents, envelope, pending_state) =
+        let (block_contents, envelope, mut pending_state) =
             harness.make_block_with_envelope(state, slot).await;
         let block_root = block_contents.0.canonical_root();
 
@@ -5471,7 +5471,7 @@ async fn test_gloas_block_and_envelope_storage() {
             .await
             .unwrap();
 
-        let pending_state_root = pending_state.clone().update_tree_hash_cache().unwrap();
+        let pending_state_root = pending_state.update_tree_hash_cache().unwrap();
         pending_state_roots.push(pending_state_root);
 
         // Process the envelope.

@@ -37,8 +37,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         let (state, state_root_opt) = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
-            if let Some((re_org_state, re_org_state_root)) =
-                self.get_state_for_re_org(slot, head_slot, head_block_root)
+            // TODO(gloas): re-enable reorgs
+            let gloas_enabled = self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(slot)
+                .gloas_enabled();
+            if !gloas_enabled
+                && let Some((re_org_state, re_org_state_root)) =
+                    self.get_state_for_re_org(slot, head_slot, head_block_root)
             {
                 info!(
                     %slot,
@@ -49,13 +55,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
                 // state cache thanks to the state advance timer.
+                // TODO(gloas): need to fix this once fork choice understands payloads
+                // for now we just use the existence of the head's payload envelope to determine
+                // whether we should build atop it
+                let (payload_status, parent_state_root) = if gloas_enabled
+                    && let Ok(Some(envelope)) = self.store.get_payload_envelope(&head_block_root)
+                {
+                    debug!(
+                        %slot,
+                        parent_state_root = ?envelope.message.state_root,
+                        parent_block_root = ?head_block_root,
+                        "Building Gloas block on full state"
+                    );
+                    (StatePayloadStatus::Full, envelope.message.state_root)
+                } else {
+                    (StatePayloadStatus::Pending, head_state_root)
+                };
                 let (state_root, state) = self
                     .store
                     .get_advanced_hot_state(
                         head_block_root,
-                        StatePayloadStatus::Pending,
+                        payload_status,
                         slot,
-                        head_state_root,
+                        parent_state_root,
                     )
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
