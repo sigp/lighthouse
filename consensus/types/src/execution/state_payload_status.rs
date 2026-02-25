@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Note that states at skipped slots could be either `Pending` or `Full`, depending on whether
 /// the payload for the most-recently applied block was also applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StatePayloadStatus {
     /// For states produced by `process_block` executed on a `BeaconBlock`.

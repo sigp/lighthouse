@@ -100,7 +100,8 @@ use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument}
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
+    data::DataColumnSidecarError,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -1992,9 +1993,16 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Retrieve any state that is advanced through to at most `block.slot()`: this is
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
+        // TODO(gloas): use correct payload_status based on block
+        let payload_status = StatePayloadStatus::Pending;
         let (parent_state_root, state) = chain
             .store
-            .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
+            .get_advanced_hot_state(
+                root,
+                payload_status,
+                block.slot(),
+                parent_block.state_root(),
+            )?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),

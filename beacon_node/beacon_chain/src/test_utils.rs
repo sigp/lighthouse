@@ -27,7 +27,7 @@ use bls::{
 use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
-    ExecutionLayer,
+    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas,
     auth::JwtKey,
     test_utils::{
         DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, ExecutionBlockGenerator, MockBuilder,
@@ -53,6 +53,7 @@ use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz_types::{RuntimeVariableList, VariableList};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
+use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -2559,7 +2560,7 @@ where
     }
 
     /// Process an execution payload envelope for a Gloas block.
-    pub fn process_envelope(
+    pub async fn process_envelope(
         &self,
         block_root: Hash256,
         signed_envelope: SignedExecutionPayloadEnvelope<E>,
@@ -2584,6 +2585,42 @@ where
             &self.spec,
         )
         .expect("should process envelope");
+
+        // Notify the EL of the new payload so forkchoiceUpdated can reference it.
+        let block = self
+            .chain
+            .store
+            .get_blinded_block(&block_root)
+            .expect("should read block from store")
+            .expect("block should exist in store");
+
+        let bid = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should have a payload bid")
+            .message;
+
+        let versioned_hashes = bid
+            .blob_kzg_commitments
+            .iter()
+            .map(kzg_commitment_to_versioned_hash)
+            .collect();
+
+        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+            execution_payload: &signed_envelope.message.payload,
+            versioned_hashes,
+            parent_beacon_block_root: block.message().parent_root(),
+            execution_requests: &signed_envelope.message.execution_requests,
+        });
+
+        self.chain
+            .execution_layer
+            .as_ref()
+            .expect("harness should have execution layer")
+            .notify_new_payload(request)
+            .await
+            .expect("newPayload should succeed");
 
         // Store the envelope.
         self.chain

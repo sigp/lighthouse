@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use proto_array::ProposerHeadError;
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Hash256, Slot};
+use types::{BeaconState, Hash256, Slot, StatePayloadStatus};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -51,7 +51,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // state cache thanks to the state advance timer.
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(head_block_root, slot, head_state_root)
+                    .get_advanced_hot_state(
+                        head_block_root,
+                        StatePayloadStatus::Pending,
+                        slot,
+                        head_state_root,
+                    )
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
                 (state, Some(state_root))
@@ -204,7 +209,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let (state_root, state) = self
             .store
-            .get_advanced_hot_state_from_cache(re_org_parent_block, slot)
+            .get_advanced_hot_state_from_cache(
+                re_org_parent_block,
+                StatePayloadStatus::Pending,
+                slot,
+            )
             .or_else(|| {
                 warn!(reason = "no state in cache", "Not attempting re-org");
                 None

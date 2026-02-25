@@ -3803,7 +3803,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let (split_state_root, mut advanced_split_state) = harness
         .chain
         .store
-        .get_advanced_hot_state(split.block_root, split.slot, split.state_root)
+        .get_advanced_hot_state(
+            split.block_root,
+            StatePayloadStatus::Pending,
+            split.slot,
+            split.state_root,
+        )
         .unwrap()
         .unwrap();
     complete_state_advance(
@@ -5472,7 +5477,9 @@ async fn test_gloas_block_and_envelope_storage() {
         // Process the envelope.
         let envelope = envelope.expect("Gloas block should have envelope");
         let mut full_state = pending_state.clone();
-        let full_state_root = harness.process_envelope(block_root, envelope, &mut full_state);
+        let full_state_root = harness
+            .process_envelope(block_root, envelope, &mut full_state)
+            .await;
         full_state_roots.push(full_state_root);
 
         block_roots.push(block_root);
@@ -5574,7 +5581,9 @@ async fn test_gloas_state_payload_status() {
         // Process the envelope and verify the full state has correct payload status.
         let envelope = envelope.expect("Gloas block should have envelope");
         let mut full_state = pending_state;
-        let full_state_root = harness.process_envelope(block_root, envelope, &mut full_state);
+        let full_state_root = harness
+            .process_envelope(block_root, envelope, &mut full_state)
+            .await;
 
         assert_eq!(
             full_state.payload_status_with_skipped_pending(),
@@ -5636,7 +5645,9 @@ async fn test_gloas_block_replay_with_envelopes() {
 
         let envelope = envelope.expect("Gloas block should have envelope");
         let mut full_state = pending_state;
-        let full_state_root = harness.process_envelope(block_root, envelope, &mut full_state);
+        let full_state_root = harness
+            .process_envelope(block_root, envelope, &mut full_state)
+            .await;
         full_states.insert(slot, (full_state_root, full_state.clone()));
 
         last_block_root = block_root;
@@ -5775,7 +5786,9 @@ async fn test_gloas_hot_state_hierarchy() {
 
         let envelope = envelope.expect("Gloas block should have envelope");
         let mut full_state = pending_state;
-        harness.process_envelope(block_root, envelope, &mut full_state);
+        harness
+            .process_envelope(block_root, envelope, &mut full_state)
+            .await;
 
         last_block_root = block_root;
         state = full_state;

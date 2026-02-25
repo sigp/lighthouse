@@ -1144,10 +1144,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_advanced_hot_state(
         &self,
         block_root: Hash256,
+        payload_status: StatePayloadStatus,
         max_slot: Slot,
         state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
-        if let Some(cached) = self.get_advanced_hot_state_from_cache(block_root, max_slot) {
+        if let Some(cached) =
+            self.get_advanced_hot_state_from_cache(block_root, payload_status, max_slot)
+        {
             return Ok(Some(cached));
         }
 
@@ -1169,7 +1172,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .into());
         }
 
-        let state_root = if block_root == split.block_root && split.slot <= max_slot {
+        // Split state should always be `Pending`.
+        let state_root = if block_root == split.block_root
+            && let StatePayloadStatus::Pending = payload_status
+            && split.slot <= max_slot
+        {
             split.state_root
         } else {
             state_root
@@ -1216,11 +1223,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_advanced_hot_state_from_cache(
         &self,
         block_root: Hash256,
+        payload_status: StatePayloadStatus,
         max_slot: Slot,
     ) -> Option<(Hash256, BeaconState<E>)> {
         self.state_cache
             .lock()
-            .get_by_block_root(block_root, max_slot)
+            .get_by_block_root(block_root, payload_status, max_slot)
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
