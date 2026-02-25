@@ -681,3 +681,120 @@ fn retry_columns_by_range_cleans_up_on_no_peers() {
         "Expected retry failure to clean up the entry"
     );
 }
+
+/// Test that components_by_range_requests entries are properly cleaned up after a full
+/// DataColumnPeerFailure retry cycle (empty column responses on each attempt).
+///
+/// This test drives a batch through the complete retry loop via the event-based API:
+/// send batch → empty column responses → DataColumnPeerFailure → retry → repeat.
+/// After MAX_COLUMN_RETRIES attempts the entry should be removed.
+#[test]
+fn components_by_range_cleaned_up_after_retry_cycle() {
+    use crate::sync::network_context::MAX_COLUMN_RETRIES;
+
+    let mut rig = TestRig::test_setup();
+    if !rig.fork_name.fulu_enabled() {
+        return;
+    }
+
+    let peer = rig.add_finalized_peer();
+    rig.assert_state(RangeSyncType::Finalized);
+
+    // Grab the first batch request (blocks + columns)
+    let ((blocks_req_id, block_peer), data_reqs) =
+        rig.find_blocks_by_range_request(filter().peer(peer));
+    let parent_id = blocks_req_id.parent_request_id.id;
+
+    let initial_count = rig
+        .sync_manager
+        .network_context()
+        .components_by_range_count();
+    assert!(initial_count > 0, "Expected at least one entry");
+
+    // Complete the blocks request with empty stream (no blocks for this epoch)
+    rig.send_sync_message(SyncMessage::RpcBlock {
+        sync_request_id: SyncRequestId::BlocksByRange(blocks_req_id),
+        peer_id: block_peer,
+        beacon_block: None,
+        seen_timestamp: D,
+    });
+
+    // Complete column requests with empty stream (triggers DataColumnPeerFailure)
+    let ByRangeDataRequestIds::PostPeerDAS(col_reqs) = data_reqs else {
+        panic!("Expected PostPeerDAS data request ids");
+    };
+    for (col_id, col_peer) in &col_reqs {
+        rig.send_sync_message(SyncMessage::RpcDataColumn {
+            sync_request_id: SyncRequestId::DataColumnsByRange(*col_id),
+            peer_id: *col_peer,
+            data_column: None,
+            seen_timestamp: D,
+        });
+    }
+
+    // After attempt 1: entry should still exist (kept for retry, !exceeded_retries)
+    assert!(
+        rig.sync_manager
+            .network_context()
+            .has_components_by_range_entry(parent_id),
+        "Entry should be kept after first DataColumnPeerFailure (attempt 1 of {MAX_COLUMN_RETRIES})"
+    );
+
+    // The retry should have sent new column requests — find and complete them
+    for attempt in 2..=MAX_COLUMN_RETRIES {
+        // Find the retry column requests
+        let mut retry_col_reqs = vec![];
+        while let Ok(req) = rig.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id,
+                request: RequestType::DataColumnsByRange(_),
+                app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+            } => Some((*id, *peer_id)),
+            _ => None,
+        }) {
+            retry_col_reqs.push(req);
+        }
+        assert!(
+            !retry_col_reqs.is_empty(),
+            "Expected retry column requests for attempt {attempt}"
+        );
+
+        // Complete retry columns with empty stream
+        for (col_id, col_peer) in &retry_col_reqs {
+            rig.send_sync_message(SyncMessage::RpcDataColumn {
+                sync_request_id: SyncRequestId::DataColumnsByRange(*col_id),
+                peer_id: *col_peer,
+                data_column: None,
+                seen_timestamp: D,
+            });
+        }
+
+        if attempt < MAX_COLUMN_RETRIES {
+            // Entry should still exist (more retries left)
+            assert!(
+                rig.sync_manager
+                    .network_context()
+                    .has_components_by_range_entry(parent_id),
+                "Entry should be kept after attempt {attempt} of {MAX_COLUMN_RETRIES}"
+            );
+        }
+    }
+
+    // After MAX_COLUMN_RETRIES: entry should be removed (exceeded_retries)
+    assert!(
+        !rig.sync_manager
+            .network_context()
+            .has_components_by_range_entry(parent_id),
+        "Entry should be removed after exceeding {MAX_COLUMN_RETRIES} retries"
+    );
+
+    // The total entry count should not have grown beyond what was created initially
+    let final_count = rig
+        .sync_manager
+        .network_context()
+        .components_by_range_count();
+    assert!(
+        final_count <= initial_count,
+        "Entry count should not grow: initial={initial_count}, final={final_count}"
+    );
+}
