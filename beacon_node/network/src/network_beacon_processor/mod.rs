@@ -429,11 +429,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         execution_payload: Box<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .process_gossip_execution_payload(message_id, peer_id, *execution_payload)
+                .process_gossip_execution_payload_envelope(
+                    message_id,
+                    peer_id,
+                    Arc::new(*execution_payload),
+                    seen_timestamp,
+                )
                 .await
         };
 

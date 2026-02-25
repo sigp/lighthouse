@@ -729,7 +729,8 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 }
 
 /// Used to await the result of executing payload with an EE.
-type PayloadVerificationHandle = JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+pub type PayloadVerificationHandle =
+    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
