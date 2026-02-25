@@ -846,8 +846,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }
         } {
             entry.get().request_span.in_scope(|| {
-                debug!(reason = "add_component_error", map_len = map_len - 1,
-                    "components_by_range: entry removed");
+                debug!(
+                    reason = "add_component_error",
+                    map_len = map_len - 1,
+                    "components_by_range: entry removed"
+                );
             });
             entry.remove();
             return Some(Err(e));
@@ -867,15 +870,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 // Remove the entry if it's a peer failure **and** retry counter is exceeded
                 if *exceeded_retries {
                     entry.get().request_span.in_scope(|| {
-                        debug!(msg = error, reason = "exceeded_retries",
+                        debug!(
+                            msg = error,
+                            reason = "exceeded_retries",
                             map_len = map_len - 1,
-                            "components_by_range: entry removed");
+                            "components_by_range: entry removed"
+                        );
                     });
                     entry.remove();
                 } else {
                     entry.get().request_span.in_scope(|| {
-                        debug!(reason = "data_column_peer_failure_retry", map_len,
-                            "components_by_range: entry kept for retry");
+                        debug!(
+                            reason = "data_column_peer_failure_retry",
+                            map_len, "components_by_range: entry kept for retry"
+                        );
                     });
                 };
             } else {
@@ -885,8 +893,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     "coupling_error"
                 };
                 entry.get().request_span.in_scope(|| {
-                    debug!(reason, map_len = map_len - 1,
-                        "components_by_range: entry removed");
+                    debug!(
+                        reason,
+                        map_len = map_len - 1,
+                        "components_by_range: entry removed"
+                    );
                 });
                 entry.remove();
             }
