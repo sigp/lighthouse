@@ -461,10 +461,10 @@ impl TestRig {
                     RequestType::DataColumnsByRange(DataColumnsByRangeRequest { start_slot, .. }),
                 app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
             } => {
-                if let Some(epoch) = epoch {
-                    if Slot::new(*start_slot).epoch(E::slots_per_epoch()).as_u64() != epoch {
-                        return None;
-                    }
+                if let Some(epoch) = epoch
+                    && Slot::new(*start_slot).epoch(E::slots_per_epoch()).as_u64() != epoch
+                {
+                    return None;
                 }
                 Some((*id, *peer_id))
             }
