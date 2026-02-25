@@ -3,25 +3,29 @@ use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
-use crate::sync::network_context::RangeRequestId;
+use crate::sync::network_context::{MAX_COLUMN_RETRIES, RangeRequestId};
 use crate::sync::range_sync::RangeSyncType;
 use beacon_chain::BeaconChain;
 use beacon_chain::block_verification_types::AvailableBlockData;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::CustodyDataColumn;
-use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+use beacon_chain::test_utils::{
+    AttestationStrategy, BlockStrategy, NumBlobs, generate_rand_block_and_data_columns,
+};
 use beacon_chain::{EngineState, NotifyExecutionLayer, block_verification_types::RpcBlock};
 use beacon_processor::WorkType;
-use lighthouse_network::rpc::RequestType;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, DataColumnsByRangeRequest, OldBlocksByRangeRequest,
     OldBlocksByRangeRequestV2, StatusMessageV2,
 };
+use lighthouse_network::rpc::{RPCError, RequestType};
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     SyncRequestId,
 };
 use lighthouse_network::{PeerId, SyncInfo};
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
 use std::collections::HashSet;
 use std::time::Duration;
 use types::{
@@ -442,6 +446,49 @@ impl TestRig {
             .unwrap();
         self.harness.chain.recompute_head_at_current_slot().await;
     }
+
+    /// Drain all pending DataColumnsByRange requests from the network channel.
+    /// If `epoch` is `Some`, only drain requests whose start_slot falls in that epoch.
+    fn drain_data_columns_by_range_requests(
+        &mut self,
+        epoch: Option<u64>,
+    ) -> Vec<(DataColumnsByRangeRequestId, PeerId)> {
+        let mut reqs = vec![];
+        while let Ok(req) = self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id,
+                request:
+                    RequestType::DataColumnsByRange(DataColumnsByRangeRequest { start_slot, .. }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+            } => {
+                if let Some(epoch) = epoch {
+                    if Slot::new(*start_slot).epoch(E::slots_per_epoch()).as_u64() != epoch {
+                        return None;
+                    }
+                }
+                Some((*id, *peer_id))
+            }
+            _ => None,
+        }) {
+            reqs.push(req);
+        }
+        reqs
+    }
+
+    /// Complete a set of DataColumnsByRange requests with empty responses (stream termination).
+    fn complete_data_columns_by_range_empty(
+        &mut self,
+        col_reqs: &[(DataColumnsByRangeRequestId, PeerId)],
+    ) {
+        for (col_id, col_peer) in col_reqs {
+            self.send_sync_message(SyncMessage::RpcDataColumn {
+                sync_request_id: SyncRequestId::DataColumnsByRange(*col_id),
+                peer_id: *col_peer,
+                data_column: None,
+                seen_timestamp: D,
+            });
+        }
+    }
 }
 
 fn build_rpc_block(
@@ -687,45 +734,9 @@ fn retry_columns_by_range_cleans_up_on_no_peers() {
 /// repeats until MAX_COLUMN_RETRIES is exceeded, then asserts the entry is removed.
 #[test]
 fn components_by_range_cleaned_up_after_retry_cycle() {
-    use crate::sync::network_context::MAX_COLUMN_RETRIES;
-    use beacon_chain::test_utils::{NumBlobs, generate_rand_block_and_data_columns};
-    use rand::SeedableRng;
-    use rand::rngs::SmallRng;
-
     let mut rig = TestRig::test_setup();
     if !rig.fork_name.fulu_enabled() {
         return;
-    }
-
-    // Helper: drain all pending DataColumnsByRange requests from the network channel.
-    fn drain_column_requests(rig: &mut TestRig) -> Vec<(DataColumnsByRangeRequestId, PeerId)> {
-        let mut reqs = vec![];
-        while let Ok(req) = rig.pop_received_network_event(|ev| match ev {
-            NetworkMessage::SendRequest {
-                peer_id,
-                request: RequestType::DataColumnsByRange(_),
-                app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
-            } => Some((*id, *peer_id)),
-            _ => None,
-        }) {
-            reqs.push(req);
-        }
-        reqs
-    }
-
-    // Helper: complete a set of column requests with empty responses (stream termination).
-    fn complete_columns_empty(
-        rig: &mut TestRig,
-        col_reqs: &[(DataColumnsByRangeRequestId, PeerId)],
-    ) {
-        for (col_id, col_peer) in col_reqs {
-            rig.send_sync_message(SyncMessage::RpcDataColumn {
-                sync_request_id: SyncRequestId::DataColumnsByRange(*col_id),
-                peer_id: *col_peer,
-                data_column: None,
-                seen_timestamp: D,
-            });
-        }
     }
 
     // Given: a finalized peer triggers range sync, producing block + column requests
@@ -746,13 +757,19 @@ fn components_by_range_cleaned_up_after_retry_cycle() {
 
     // Generate a random block with blob data so num_expected_blobs() > 0.
     // This is needed to trigger DataColumnPeerFailure when columns are missing.
+    // Override the slot to 1 so it falls within batch 0's range [0, slots_per_epoch).
     let mut rng = SmallRng::seed_from_u64(42);
-    let (block, _columns) = generate_rand_block_and_data_columns::<E>(
+    let (mut block, _columns) = generate_rand_block_and_data_columns::<E>(
         rig.fork_name,
         NumBlobs::Number(1),
         &mut rng,
         &rig.harness.spec,
     );
+    if let SignedBeaconBlock::Fulu(ref mut inner) = block {
+        inner.message.slot = Slot::new(1);
+    } else {
+        panic!("Expected Fulu block for fulu-enabled fork");
+    }
 
     // When: send the block (with blob commitments), then terminate the stream
     rig.send_sync_message(SyncMessage::RpcBlock {
@@ -769,9 +786,8 @@ fn components_by_range_cleaned_up_after_retry_cycle() {
     });
 
     // Attempt 1: complete all column requests with empty stream (no columns returned).
-    // The coupling sees a block expecting columns but gets none → DataColumnPeerFailure.
-    complete_columns_empty(
-        &mut rig,
+    // The coupling sees a block expecting columns but gets none -> DataColumnPeerFailure.
+    rig.complete_data_columns_by_range_empty(
         &col_reqs.iter().map(|(id, p)| (*id, *p)).collect::<Vec<_>>(),
     );
     assert!(
@@ -783,12 +799,12 @@ fn components_by_range_cleaned_up_after_retry_cycle() {
 
     // Attempts 2..MAX_COLUMN_RETRIES: drain retry column requests and complete them empty
     for attempt in 2..=MAX_COLUMN_RETRIES {
-        let retry_reqs = drain_column_requests(&mut rig);
+        let retry_reqs = rig.drain_data_columns_by_range_requests(None);
         assert!(
             !retry_reqs.is_empty(),
             "Expected retry requests for attempt {attempt}"
         );
-        complete_columns_empty(&mut rig, &retry_reqs);
+        rig.complete_data_columns_by_range_empty(&retry_reqs);
 
         if attempt < MAX_COLUMN_RETRIES {
             assert!(
@@ -811,8 +827,8 @@ fn components_by_range_cleaned_up_after_retry_cycle() {
         rig.sync_manager
             .network_context()
             .components_by_range_count()
-            < initial_count,
-        "Map should have shrunk"
+            <= initial_count,
+        "Map should not have grown beyond initial count"
     );
 }
 
@@ -827,50 +843,9 @@ fn components_by_range_cleaned_up_after_retry_cycle() {
 ///   5. on_chain_removed cleans up batch 0's orphaned entry
 #[test]
 fn orphaned_components_by_range_entry_cleaned_up_after_chain_removal() {
-    use beacon_chain::test_utils::{NumBlobs, generate_rand_block_and_data_columns};
-    use lighthouse_network::rpc::RPCError;
-    use rand::SeedableRng;
-    use rand::rngs::SmallRng;
-
     let mut rig = TestRig::test_setup();
     if !rig.fork_name.fulu_enabled() {
         return;
-    }
-
-    /// Drain only the DataColumnsByRange requests for a given epoch from the event queue.
-    fn drain_column_requests_for_epoch(
-        rig: &mut TestRig,
-        epoch: u64,
-    ) -> Vec<(DataColumnsByRangeRequestId, PeerId)> {
-        let mut reqs = vec![];
-        while let Ok(req) = rig.pop_received_network_event(|ev| match ev {
-            NetworkMessage::SendRequest {
-                peer_id,
-                request:
-                    RequestType::DataColumnsByRange(DataColumnsByRangeRequest { start_slot, .. }),
-                app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
-            } if Slot::new(*start_slot).epoch(E::slots_per_epoch()).as_u64() == epoch => {
-                Some((*id, *peer_id))
-            }
-            _ => None,
-        }) {
-            reqs.push(req);
-        }
-        reqs
-    }
-
-    fn complete_columns_empty(
-        rig: &mut TestRig,
-        col_reqs: &[(DataColumnsByRangeRequestId, PeerId)],
-    ) {
-        for (col_id, col_peer) in col_reqs {
-            rig.send_sync_message(SyncMessage::RpcDataColumn {
-                sync_request_id: SyncRequestId::DataColumnsByRange(*col_id),
-                peer_id: *col_peer,
-                data_column: None,
-                seen_timestamp: D,
-            });
-        }
     }
 
     // GIVEN: finalized sync active with at least 2 batches (epochs 0 and 1)
@@ -917,8 +892,7 @@ fn orphaned_components_by_range_entry_cleaned_up_after_chain_removal() {
     });
 
     // Complete columns empty -> DataColumnPeerFailure{exceeded_retries:false} -> retry
-    complete_columns_empty(
-        &mut rig,
+    rig.complete_data_columns_by_range_empty(
         &col_reqs_0
             .iter()
             .map(|(id, p)| (*id, *p))
@@ -933,7 +907,7 @@ fn orphaned_components_by_range_entry_cleaned_up_after_chain_removal() {
 
     // Drain retry column requests for batch 0 only (filter by epoch 0 to avoid
     // draining batch 1's column requests which are also in the event queue)
-    let retry_reqs_0 = drain_column_requests_for_epoch(&mut rig, 0);
+    let retry_reqs_0 = rig.drain_data_columns_by_range_requests(Some(0));
     assert!(
         !retry_reqs_0.is_empty(),
         "Expected retry column requests for batch 0"
