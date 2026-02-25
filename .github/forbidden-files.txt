@@ -4,3 +4,4 @@
 
 beacon_node/beacon_chain/src/otb_verification_service.rs
 beacon_node/store/src/partial_beacon_state.rs
+beacon_node/store/src/consensus_context.rs
