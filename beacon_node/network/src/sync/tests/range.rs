@@ -815,3 +815,158 @@ fn components_by_range_cleaned_up_after_retry_cycle() {
         "Map should have shrunk"
     );
 }
+
+/// Verify that orphaned `components_by_range_requests` entries are cleaned up when the owning
+/// chain is removed before all sub-request responses arrive.
+///
+/// Sequence:
+///   1. Finalized sync starts with multiple batches, all get block+column requests
+///   2. Batch 0: block with blob data arrives, columns completed empty -> DataColumnPeerFailure
+///   3. Entry kept for retry, new column requests dispatched
+///   4. Batch 1: repeatedly fails download (RPC errors) until chain is removed
+///   5. on_chain_removed cleans up batch 0's orphaned entry
+#[test]
+fn orphaned_components_by_range_entry_cleaned_up_after_chain_removal() {
+    use beacon_chain::test_utils::{NumBlobs, generate_rand_block_and_data_columns};
+    use lighthouse_network::rpc::RPCError;
+    use rand::SeedableRng;
+    use rand::rngs::SmallRng;
+
+    let mut rig = TestRig::test_setup();
+    if !rig.fork_name.fulu_enabled() {
+        return;
+    }
+
+    /// Drain only the DataColumnsByRange requests for a given epoch from the event queue.
+    fn drain_column_requests_for_epoch(
+        rig: &mut TestRig,
+        epoch: u64,
+    ) -> Vec<(DataColumnsByRangeRequestId, PeerId)> {
+        let mut reqs = vec![];
+        while let Ok(req) = rig.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id,
+                request:
+                    RequestType::DataColumnsByRange(DataColumnsByRangeRequest { start_slot, .. }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+            } if Slot::new(*start_slot).epoch(E::slots_per_epoch()).as_u64() == epoch => {
+                Some((*id, *peer_id))
+            }
+            _ => None,
+        }) {
+            reqs.push(req);
+        }
+        reqs
+    }
+
+    fn complete_columns_empty(
+        rig: &mut TestRig,
+        col_reqs: &[(DataColumnsByRangeRequestId, PeerId)],
+    ) {
+        for (col_id, col_peer) in col_reqs {
+            rig.send_sync_message(SyncMessage::RpcDataColumn {
+                sync_request_id: SyncRequestId::DataColumnsByRange(*col_id),
+                peer_id: *col_peer,
+                data_column: None,
+                seen_timestamp: D,
+            });
+        }
+    }
+
+    // GIVEN: finalized sync active with at least 2 batches (epochs 0 and 1)
+    let _peer = rig.add_finalized_peer();
+    rig.assert_state(RangeSyncType::Finalized);
+
+    // --- Batch 0: trigger DataColumnPeerFailure and start retry ---
+    let ((blocks_req_id_0, block_peer_0), data_reqs_0) =
+        rig.find_blocks_by_range_request(filter().epoch(0));
+    let parent_id_0 = blocks_req_id_0.parent_request_id.id;
+
+    let ByRangeDataRequestIds::PostPeerDAS(col_reqs_0) = data_reqs_0 else {
+        panic!("Expected PostPeerDAS data request ids for batch 0");
+    };
+
+    // Generate a block with blob data so the coupling expects columns.
+    // The random block has an arbitrary slot; override it to slot 1 so it falls
+    // within batch 0's valid range [0, slots_per_epoch).
+    let mut rng = SmallRng::seed_from_u64(42);
+    let (mut block, _columns) = generate_rand_block_and_data_columns::<E>(
+        rig.fork_name,
+        NumBlobs::Number(1),
+        &mut rng,
+        &rig.harness.spec,
+    );
+    if let SignedBeaconBlock::Fulu(ref mut inner) = block {
+        inner.message.slot = Slot::new(1);
+    } else {
+        panic!("Expected Fulu block for fulu-enabled fork");
+    }
+
+    // Send block with blob commitments, then terminate
+    rig.send_sync_message(SyncMessage::RpcBlock {
+        sync_request_id: SyncRequestId::BlocksByRange(blocks_req_id_0),
+        peer_id: block_peer_0,
+        beacon_block: Some(block.into()),
+        seen_timestamp: D,
+    });
+    rig.send_sync_message(SyncMessage::RpcBlock {
+        sync_request_id: SyncRequestId::BlocksByRange(blocks_req_id_0),
+        peer_id: block_peer_0,
+        beacon_block: None,
+        seen_timestamp: D,
+    });
+
+    // Complete columns empty -> DataColumnPeerFailure{exceeded_retries:false} -> retry
+    complete_columns_empty(
+        &mut rig,
+        &col_reqs_0
+            .iter()
+            .map(|(id, p)| (*id, *p))
+            .collect::<Vec<_>>(),
+    );
+    assert!(
+        rig.sync_manager
+            .network_context()
+            .has_components_by_range_entry(parent_id_0),
+        "Batch 0 entry should be kept for retry after DataColumnPeerFailure"
+    );
+
+    // Drain retry column requests for batch 0 only (filter by epoch 0 to avoid
+    // draining batch 1's column requests which are also in the event queue)
+    let retry_reqs_0 = drain_column_requests_for_epoch(&mut rig, 0);
+    assert!(
+        !retry_reqs_0.is_empty(),
+        "Expected retry column requests for batch 0"
+    );
+
+    // --- WHEN: Batch 1 repeatedly fails until chain is removed ---
+    // Each RPC error on the blocks request increments download_failed_attempts.
+    // After MAX_BATCH_DOWNLOAD_ATTEMPTS (5), the chain is removed.
+    loop {
+        // Get batch 1's requests (find_blocks_by_range_request drains both blocks + columns)
+        let ((blocks_req_id_1, block_peer_1), _data_reqs_1) =
+            rig.find_blocks_by_range_request(filter().epoch(1));
+
+        // Send RPC error (timeout) on batch 1's blocks request.
+        // This removes the entry via range_block_component_response -> entry.remove(),
+        // then calls inject_error -> download_failed -> Continue or Failed.
+        rig.send_sync_message(SyncMessage::RpcError {
+            peer_id: block_peer_1,
+            sync_request_id: SyncRequestId::BlocksByRange(blocks_req_id_1),
+            error: RPCError::StreamTimeout,
+        });
+
+        // Check if the chain was removed (batch 1 failed enough times)
+        if rig.sync_manager.get_range_sync_chains().unwrap().is_none() {
+            break;
+        }
+    }
+
+    // THEN: the orphaned entry should be cleaned up by on_chain_removed
+    assert!(
+        !rig.sync_manager
+            .network_context()
+            .has_components_by_range_entry(parent_id_0),
+        "Orphaned components_by_range entry should be cleaned up on chain removal"
+    );
+}
