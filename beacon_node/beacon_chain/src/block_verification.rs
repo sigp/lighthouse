@@ -1993,8 +1993,20 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Retrieve any state that is advanced through to at most `block.slot()`: this is
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
-        // TODO(gloas): use correct payload_status based on block
-        let payload_status = StatePayloadStatus::Pending;
+        //
+        // Post-Gloas we must also fetch a state with the correct payload status. If the current
+        // block builds upon the payload of its parent block, then we know the parent block is FULL
+        // and we need to load the full state.
+        let payload_status = if block.as_block().fork_name_unchecked().gloas_enabled() {
+            let parent_bid_block_hash = parent_block.payload_bid_block_hash()?;
+            if block.as_block().is_parent_block_full(parent_bid_block_hash) {
+                StatePayloadStatus::Full
+            } else {
+                StatePayloadStatus::Pending
+            }
+        } else {
+            StatePayloadStatus::Pending
+        };
         let (parent_state_root, state) = chain
             .store
             .get_advanced_hot_state(
@@ -2025,7 +2037,9 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             );
         }
 
-        let beacon_state_root = if state.slot() == parent_block.slot() {
+        let beacon_state_root = if state.slot() == parent_block.slot()
+            && let StatePayloadStatus::Pending = payload_status
+        {
             // Sanity check.
             if parent_state_root != parent_block.state_root() {
                 return Err(BeaconChainError::DBInconsistent(format!(
