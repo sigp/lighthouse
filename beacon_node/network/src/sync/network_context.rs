@@ -252,19 +252,6 @@ pub enum RangeBlockComponent<E: EthSpec> {
 }
 
 #[cfg(test)]
-impl<T: BeaconChainTypes> SyncNetworkContext<T> {
-    /// Returns true if there is a `components_by_range_requests` entry with the given id.
-    pub(crate) fn has_components_by_range_entry(&self, id: Id) -> bool {
-        self.components_by_range_requests.keys().any(|k| k.id == id)
-    }
-
-    /// Returns the number of entries in `components_by_range_requests`.
-    pub(crate) fn components_by_range_count(&self) -> usize {
-        self.components_by_range_requests.len()
-    }
-}
-
-#[cfg(test)]
 impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
     pub fn new_for_testing(
         beacon_chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
@@ -290,6 +277,16 @@ impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
             beacon_chain,
             fork_context,
         )
+    }
+
+    /// Returns true if there is a `components_by_range_requests` entry with the given id.
+    pub fn has_components_by_range_entry(&self, id: Id) -> bool {
+        self.components_by_range_requests.keys().any(|k| k.id == id)
+    }
+
+    /// Returns the number of entries in `components_by_range_requests`.
+    pub fn components_by_range_count(&self) -> usize {
+        self.components_by_range_requests.len()
     }
 }
 
