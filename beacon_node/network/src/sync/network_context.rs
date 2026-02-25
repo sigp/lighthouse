@@ -251,41 +251,8 @@ pub enum RangeBlockComponent<E: EthSpec> {
     ),
 }
 
-/// Counts of active meta-requests, for verifying resource cleanup in tests.
-#[cfg(test)]
-pub(crate) struct ActiveRequestCounts {
-    pub components_by_range: usize,
-    pub custody_backfill_batches: usize,
-}
-
 #[cfg(test)]
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
-    /// Returns counts of active meta-requests. Used in tests to verify that
-    /// entries are cleaned up after errors or chain removal.
-    pub(crate) fn active_request_counts(&self) -> ActiveRequestCounts {
-        ActiveRequestCounts {
-            components_by_range: self.components_by_range_requests.len(),
-            custody_backfill_batches: self.custody_backfill_data_column_batch_requests.len(),
-        }
-    }
-
-    /// Inserts a test entry into `custody_backfill_data_column_batch_requests` with a single
-    /// sub-request that expects the given custody columns. Used for testing cleanup behavior.
-    pub(crate) fn insert_test_custody_backfill_entry(
-        &mut self,
-        batch_req_id: CustodyBackFillBatchRequestId,
-        dc_req_id: DataColumnsByRangeRequestId,
-        column_indexes: Vec<ColumnIndex>,
-    ) {
-        let entry = RangeDataColumnBatchRequest::new(
-            vec![(dc_req_id, column_indexes)],
-            self.chain.clone(),
-            batch_req_id.batch_id.epoch,
-        );
-        self.custody_backfill_data_column_batch_requests
-            .insert(batch_req_id, entry);
-    }
-
     /// Returns true if there is a `components_by_range_requests` entry with the given id.
     pub(crate) fn has_components_by_range_entry(&self, id: Id) -> bool {
         self.components_by_range_requests.keys().any(|k| k.id == id)
@@ -529,33 +496,38 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             );
         });
 
+        // Helper: remove the entry and log the reason on any error exit.
+        let remove_entry = |slf: &mut Self, id: &ComponentsByRangeRequestId, reason: &str| {
+            parent_request_span.in_scope(|| {
+                debug!(
+                    entry = ?id,
+                    reason,
+                    map_len = slf.components_by_range_requests.len() - 1,
+                    "components_by_range: entry removed"
+                );
+            });
+            slf.components_by_range_requests.remove(id);
+        };
+
         // Attempt to find all required custody peers to request the failed columns from
-        let columns_by_range_peers_to_request = self
-            .select_columns_by_range_peers_to_request(
-                failed_columns,
-                peers,
-                active_request_count_by_peer,
-                peers_to_deprioritize,
-            )
-            .map_err(|e| {
-                // Clean up the components_by_range_requests entry before returning error
-                parent_request_span.in_scope(|| {
-                    debug!(
-                        id,
-                        reason = "retry_peer_selection_failed",
-                        map_len = self.components_by_range_requests.len() - 1,
-                        "components_by_range: entry removed"
-                    );
-                });
-                self.components_by_range_requests
-                    .retain(|key, _| key.id != id);
-                format!("{:?}", e)
-            })?;
+        let columns_by_range_peers_to_request = match self.select_columns_by_range_peers_to_request(
+            failed_columns,
+            peers,
+            active_request_count_by_peer,
+            peers_to_deprioritize,
+        ) {
+            Ok(peers) => peers,
+            Err(e) => {
+                let id = ComponentsByRangeRequestId { id, requester };
+                remove_entry(self, &id, "retry_peer_selection_failed");
+                return Err(format!("{:?}", e));
+            }
+        };
 
         // Reuse the id for the request that received partially correct responses
         let id = ComponentsByRangeRequestId { id, requester };
 
-        let data_column_requests = columns_by_range_peers_to_request
+        let data_column_requests: Result<Vec<_>, _> = columns_by_range_peers_to_request
             .into_iter()
             .map(|(peer_id, columns)| {
                 self.send_data_columns_by_range_request(
@@ -574,24 +546,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     ),
                 )
             })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                // Clean up the components_by_range_requests entry before returning error
-                parent_request_span.in_scope(|| {
-                    debug!(
-                        entry = ?id,
-                        reason = "retry_send_failed",
-                        map_len = self.components_by_range_requests.len() - 1,
-                        "components_by_range: entry removed"
-                    );
-                });
-                self.components_by_range_requests
-                    .retain(|key, _| key != &id);
-                format!("{:?}", e)
-            })?;
+            .collect();
 
-        // instead of creating a new `RangeBlockComponentsRequest`, we reinsert
-        // the new requests created for the failed requests
+        let data_column_requests = match data_column_requests {
+            Ok(reqs) => reqs,
+            Err(e) => {
+                remove_entry(self, &id, "retry_send_failed");
+                return Err(format!("{:?}", e));
+            }
+        };
+
+        // Reinsert the new requests created for the failed columns
         let Some(range_request) = self.components_by_range_requests.get_mut(&id) else {
             return Err(
                 "retrying custody request for range request that does not exist".to_string(),
