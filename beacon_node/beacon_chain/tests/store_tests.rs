@@ -5477,9 +5477,11 @@ async fn test_gloas_block_and_envelope_storage() {
         // Process the envelope.
         let envelope = envelope.expect("Gloas block should have envelope");
         let mut full_state = pending_state.clone();
+        let envelope_state_root = envelope.message.state_root;
         let full_state_root = harness
             .process_envelope(block_root, envelope, &mut full_state)
             .await;
+        assert_eq!(full_state_root, envelope_state_root);
         full_state_roots.push(full_state_root);
 
         block_roots.push(block_root);

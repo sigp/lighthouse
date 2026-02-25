@@ -1558,7 +1558,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {
-            let state_root = if parent.beacon_block.slot() == state.slot() {
+            // TODO(gloas): could do a similar optimisation here for Full blocks if we have access
+            // to the parent envelope and its `state_root`.
+            let state_root = if parent.beacon_block.slot() == state.slot()
+                && state.payload_status() == StatePayloadStatus::Pending
+            {
                 // If it happens that `pre_state` has *not* already been advanced forward a single
                 // slot, then there is no need to compute the state root for this
                 // `per_slot_processing` call since that state root is already stored in the parent
@@ -1997,24 +2001,26 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Post-Gloas we must also fetch a state with the correct payload status. If the current
         // block builds upon the payload of its parent block, then we know the parent block is FULL
         // and we need to load the full state.
-        let payload_status = if block.as_block().fork_name_unchecked().gloas_enabled() {
-            let parent_bid_block_hash = parent_block.payload_bid_block_hash()?;
-            if block.as_block().is_parent_block_full(parent_bid_block_hash) {
-                StatePayloadStatus::Full
+        let (payload_status, parent_state_root) =
+            if block.as_block().fork_name_unchecked().gloas_enabled() {
+                let parent_bid_block_hash = parent_block.payload_bid_block_hash()?;
+                if block.as_block().is_parent_block_full(parent_bid_block_hash) {
+                    // TODO(gloas): loading the envelope here is not very efficient
+                    let envelope = chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
+                        BeaconChainError::DBInconsistent(format!(
+                            "Missing envelope for parent block {root:?}",
+                        ))
+                    })?;
+                    (StatePayloadStatus::Full, envelope.message.state_root)
+                } else {
+                    (StatePayloadStatus::Pending, parent_block.state_root())
+                }
             } else {
-                StatePayloadStatus::Pending
-            }
-        } else {
-            StatePayloadStatus::Pending
-        };
+                (StatePayloadStatus::Pending, parent_block.state_root())
+            };
         let (parent_state_root, state) = chain
             .store
-            .get_advanced_hot_state(
-                root,
-                payload_status,
-                block.slot(),
-                parent_block.state_root(),
-            )?
+            .get_advanced_hot_state(root, payload_status, block.slot(), parent_state_root)?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),
