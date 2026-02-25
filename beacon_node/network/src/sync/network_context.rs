@@ -288,6 +288,7 @@ impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
     pub fn components_by_range_count(&self) -> usize {
         self.components_by_range_requests.len()
     }
+
 }
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
@@ -319,6 +320,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
         self.network_beacon_processor
             .send_sync_message(sync_message);
+    }
+
+    /// Remove all `components_by_range_requests` entries matching the given predicate on the
+    /// requester. Used to clean up orphaned entries when a sync session is reset.
+    pub fn remove_components_by_range_requests(
+        &mut self,
+        should_remove: impl Fn(&RangeRequestId) -> bool,
+    ) {
+        self.components_by_range_requests
+            .retain(|key, _| !should_remove(&key.requester));
     }
 
     /// Returns the ids of all the requests made to the given peer_id.
