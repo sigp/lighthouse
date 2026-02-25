@@ -320,8 +320,8 @@ where
                         .block_hash;
 
                     // Similar to `is_parent_block_full`, but reading the block hash from the
-                    // not-yet-applied `block`.
-                    if block.is_parent_block_full(latest_bid_block_hash) {
+                    // not-yet-applied `block`. The 0x0 case covers genesis (no block replay reqd).
+                    if self.state.slot() != 0 && block.is_parent_block_full(latest_bid_block_hash) {
                         let envelope = next_envelope_at_slot(self.state.slot())?;
                         // State root for the next slot processing is now the envelope's state root.
                         self.apply_payload_envelope(&envelope, state_root)?

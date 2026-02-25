@@ -5671,13 +5671,24 @@ async fn test_gloas_block_replay_with_envelopes() {
         !blocks_pending.is_empty(),
         "should have blocks for pending replay"
     );
-    // For Pending, no envelope for the last block; envelopes for intermediate blocks
-    // whose payloads are canonical.
-    let expected_pending_envelopes = blocks_pending.len().saturating_sub(1);
+    // For Pending, no envelope for the first block (slot 0) or last block; envelopes for
+    // intermediate blocks whose payloads are canonical.
+    let expected_pending_envelopes = blocks_pending.len().saturating_sub(2);
     assert_eq!(
         envelopes_pending.len(),
         expected_pending_envelopes,
         "pending replay should have envelopes for all blocks except the last"
+    );
+    assert!(
+        blocks_pending
+            .iter()
+            .skip(1)
+            .take(envelopes_pending.len())
+            .map(|block| block.slot())
+            .eq(envelopes_pending
+                .iter()
+                .map(|envelope| envelope.message.slot)),
+        "block and envelope slots should match"
     );
 
     // Load blocks for Full replay (envelopes for all blocks including the last).
