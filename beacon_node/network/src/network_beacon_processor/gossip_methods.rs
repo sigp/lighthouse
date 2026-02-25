@@ -830,6 +830,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         err,
                         column.block_root,
                         column.index,
+                        Some(column),
                         topic,
                     );
                     return;
@@ -897,7 +898,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .await
             }
             Err(err) => {
-                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
+                self.handle_partial_verification_error(
+                    peer_id, err, block_root, index, None, topic,
+                );
             }
         }
 
@@ -916,6 +919,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         err: GossipDataColumnError,
         block_root: Hash256,
         index: ColumnIndex,
+        partial_data_column: Option<PartialDataColumn<T::EthSpec>>,
         topic: GossipTopic,
     ) {
         match err {
@@ -924,23 +928,40 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %block_root,
                     %index,
-                    "Invalid gossip data column variant."
+                    "Invalid gossip partial data column variant."
                 )
             }
             GossipDataColumnError::PriorKnownUnpublished => {
                 debug!(
                     %block_root,
                     %index,
-                    "Gossip data column already processed via the EL."
+                    "Gossip partial data column already processed via the EL."
                 );
             }
-            // ParentUnknown can't really happen, so we treat it like an internal error
-            GossipDataColumnError::ParentUnknown { .. }
-            | GossipDataColumnError::PubkeyCacheTimeout
+            GossipDataColumnError::ParentUnknown { parent_root } => {
+                if let Some(partial_data_column) = partial_data_column {
+                    debug!(
+                        action = "requesting parent",
+                        %block_root,
+                        %parent_root,
+                        "Unknown parent hash for partial column"
+                    );
+                    self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn(
+                        peer_id,
+                        partial_data_column,
+                    ));
+                } else {
+                    crit!(
+                        %parent_root,
+                        "Unknown parent hash for partial column - but got no partial column to reprocess"
+                    )
+                }
+            }
+            GossipDataColumnError::PubkeyCacheTimeout
             | GossipDataColumnError::BeaconChainError(_) => {
                 crit!(
                     error = ?err,
-                    "Internal error when verifying column sidecar"
+                    "Internal error when verifying partial column sidecar"
                 )
             }
             GossipDataColumnError::ProposalSignatureInvalid
@@ -977,7 +998,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %block_root,
                     %index,
-                    "Received already available column sidecar. Ignoring the column sidecar"
+                    "Received already available column sidecar. Ignoring the partial column sidecar"
                 )
             }
             GossipDataColumnError::FutureSlot { .. }
@@ -986,7 +1007,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = ?err,
                     %block_root,
                     %index,
-                    "Could not verify column sidecar for gossip. Ignoring the column sidecar"
+                    "Could not verify column sidecar for gossip. Ignoring the partial column sidecar"
                 );
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
