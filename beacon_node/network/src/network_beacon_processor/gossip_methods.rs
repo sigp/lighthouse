@@ -540,6 +540,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         aggregate,
                         indexed_attestation,
                         &self.chain.slot_clock,
+                        &self.chain.spec,
                     );
 
                 metrics::inc_counter(
@@ -809,7 +810,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(gossip_verified_blob) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
 
-                if delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                if delay >= self.chain.spec.get_unaggregated_attestation_due() {
                     metrics::inc_counter(&metrics::BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?gossip_verified_blob.block_root(),
@@ -1213,31 +1214,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .verify_block_for_gossip(block.clone())
             .await;
 
-        if verification_result.is_ok() {
+        let block_root = if let Ok(verified_block) = &verification_result {
             metrics::set_gauge(
                 &metrics::BEACON_BLOCK_DELAY_GOSSIP,
                 block_delay.as_millis() as i64,
             );
-        }
-
-        let block_root = if let Ok(verified_block) = &verification_result {
+            // Write the time the block was observed into delay cache only for gossip
+            // valid blocks.
+            self.chain.block_times_cache.write().set_time_observed(
+                verified_block.block_root,
+                block.slot(),
+                seen_duration,
+                Some(peer_id.to_string()),
+                Some(peer_client.to_string()),
+            );
             verified_block.block_root
         } else {
             block.canonical_root()
         };
 
-        // Write the time the block was observed into delay cache.
-        self.chain.block_times_cache.write().set_time_observed(
-            block_root,
-            block.slot(),
-            seen_duration,
-            Some(peer_id.to_string()),
-            Some(peer_client.to_string()),
-        );
-
         let verified_block = match verification_result {
             Ok(verified_block) => {
-                if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                if block_delay >= self.chain.spec.get_unaggregated_attestation_due() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?verified_block.block_root,
@@ -1358,7 +1356,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
             | Err(e @ BlockError::GenesisBlock)
-            | Err(e @ BlockError::InvalidBlobCount { .. }) => {
+            | Err(e @ BlockError::InvalidBlobCount { .. })
+            | Err(e @ BlockError::BidParentRootMismatch { .. }) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -1492,19 +1491,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
-        let publish_blobs = true;
-        let self_clone = self.clone();
-        let block_clone = block.clone();
-        let current_span = Span::current();
-        self.executor.spawn(
-            async move {
-                self_clone
-                    .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
-                    .await
-            }
-            .instrument(current_span),
-            "fetch_blobs_gossip",
-        );
+        // TODO(gloas) we'll want to use this same optimization, but we need to refactor the
+        // `fetch_and_process_engine_blobs` flow to support gloas.
+        if !block.fork_name_unchecked().gloas_enabled() {
+            let publish_blobs = true;
+            let self_clone = self.clone();
+            let block_clone = block.clone();
+            let current_span = Span::current();
+            self.executor.spawn(
+                async move {
+                    self_clone
+                        .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
+                        .await
+                }
+                .instrument(current_span),
+                "fetch_blobs_gossip",
+            );
+        }
 
         let result = self
             .chain
@@ -1914,6 +1917,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 seen_timestamp,
                 sync_signature.sync_message(),
                 &self.chain.slot_clock,
+                &self.chain.spec,
             );
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL);
@@ -1976,6 +1980,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 sync_contribution.aggregate(),
                 sync_contribution.participant_pubkeys(),
                 &self.chain.slot_clock,
+                &self.chain.spec,
             );
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_VERIFIED_TOTAL);
 
@@ -2413,6 +2418,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     PeerAction::LowToleranceError,
                     "attn_comm_index_non_zero",
+                );
+            }
+            AttnError::CommitteeIndexInvalid => {
+                /*
+                 * The committee index is invalid after Gloas.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                debug!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    ?attestation_type,
+                    "Committee index invalid"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_comm_index_invalid",
                 );
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
@@ -3249,7 +3273,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_bid: SignedExecutionPayloadBid,
+        payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
     ) {
         // TODO(EIP-7732): Implement proper payload bid gossip processing.
         // This should integrate with a payload execution bid verification module once it's implemented.

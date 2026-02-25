@@ -36,6 +36,9 @@ mod validator_inclusion;
 mod validators;
 mod version;
 
+use crate::beacon::execution_payload_envelope::{
+    post_beacon_execution_payload_envelope, post_beacon_execution_payload_envelope_ssz,
+};
 use crate::beacon::pool::*;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::utils::{AnyVersionFilter, EthV1Filter};
@@ -50,7 +53,6 @@ use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
 use directory::DEFAULT_ROOT_DIR;
-use eth2::StatusCode;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
@@ -69,6 +71,7 @@ use parking_lot::RwLock;
 pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -90,8 +93,9 @@ use tokio_stream::{
 use tracing::{debug, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, Slot,
+    SignedBlindedBeaconBlock,
 };
+use validator::execution_payload_envelope::get_validator_execution_payload_envelope;
 use version::{
     ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
@@ -1190,7 +1194,28 @@ pub fn serve<T: BeaconChainTypes>(
                     Priority::P1
                 };
                 task_spawner.blocking_json_task(priority, move || {
-                    let (block_root, execution_optimistic, finalized) = block_id.root(&chain)?;
+                    // Fast-path for the head block root. We read from the early attester cache
+                    // so that we can produce sync committee messages for the new head prior
+                    // to it being fully imported (written to the DB/etc). We also check that the
+                    // cache is not stale or out of date by comparing against the cached head
+                    // prior to using it.
+                    //
+                    // See: https://github.com/sigp/lighthouse/issues/8667
+                    let (block_root, execution_optimistic, finalized) =
+                        if let BlockId(eth2::types::BlockId::Head) = block_id
+                            && let Some((head_block_slot, head_block_root)) =
+                                chain.early_attester_cache.get_head_block_root()
+                            && head_block_slot >= chain.canonical_head.cached_head().head_slot()
+                        {
+                            // We know execution is NOT optimistic if the block is from the early
+                            // attester cache because only properly validated blocks are added.
+                            // Similarly we know it is NOT finalized.
+                            let execution_optimistic = false;
+                            let finalized = false;
+                            (head_block_root, execution_optimistic, finalized)
+                        } else {
+                            block_id.root(&chain)?
+                        };
                     Ok(
                         api_types::GenericResponse::from(api_types::RootData::from(block_root))
                             .add_execution_optimistic_finalized(execution_optimistic, finalized),
@@ -1464,6 +1489,22 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/bls_to_execution_changes
     let post_beacon_pool_bls_to_execution_changes =
         post_beacon_pool_bls_to_execution_changes(&network_tx_filter, &beacon_pool_path);
+
+    // POST beacon/execution_payload_envelope
+    let post_beacon_execution_payload_envelope = post_beacon_execution_payload_envelope(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
+    // POST beacon/execution_payload_envelope (SSZ)
+    let post_beacon_execution_payload_envelope_ssz = post_beacon_execution_payload_envelope_ssz(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
 
     let beacon_rewards_path = eth_v1
         .clone()
@@ -2119,12 +2160,9 @@ pub fn serve<T: BeaconChainTypes>(
                     let discovery_addresses = enr.multiaddr_p2p_udp();
                     Ok(api_types::GenericResponse::from(api_types::IdentityData {
                         peer_id: network_globals.local_peer_id().to_base58(),
-                        enr: enr.to_base64(),
-                        p2p_addresses: p2p_addresses.iter().map(|a| a.to_string()).collect(),
-                        discovery_addresses: discovery_addresses
-                            .iter()
-                            .map(|a| a.to_string())
-                            .collect(),
+                        enr,
+                        p2p_addresses,
+                        discovery_addresses,
                         metadata: utils::from_meta_data::<T::EthSpec>(
                             &network_globals.local_metadata,
                             &chain.spec,
@@ -2426,7 +2464,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/duties/proposer/{epoch}
     let get_validator_duties_proposer = get_validator_duties_proposer(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2434,7 +2472,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blocks/{slot}
     let get_validator_blocks = get_validator_blocks(
-        any_version.clone().clone(),
+        any_version.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2442,7 +2480,15 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blinded_blocks/{slot}
     let get_validator_blinded_blocks = get_validator_blinded_blocks(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
+    // GET validator/execution_payload_envelope/{slot}/{builder_index}
+    let get_validator_execution_payload_envelope = get_validator_execution_payload_envelope(
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2450,7 +2496,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/attestation_data?slot,committee_index
     let get_validator_attestation_data = get_validator_attestation_data(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2458,7 +2504,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = get_validator_aggregate_attestation(
-        any_version.clone().clone(),
+        any_version.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2466,7 +2512,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/attester/{epoch}
     let post_validator_duties_attester = post_validator_duties_attester(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2474,7 +2520,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/sync/{epoch}
     let post_validator_duties_sync = post_validator_duties_sync(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2482,7 +2528,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/sync_committee_contribution
     let get_validator_sync_committee_contribution = get_validator_sync_committee_contribution(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -2490,7 +2536,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/aggregate_and_proofs
     let post_validator_aggregate_and_proofs = post_validator_aggregate_and_proofs(
-        any_version.clone().clone(),
+        any_version.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2498,7 +2544,7 @@ pub fn serve<T: BeaconChainTypes>(
     );
 
     let post_validator_contribution_and_proofs = post_validator_contribution_and_proofs(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2508,7 +2554,7 @@ pub fn serve<T: BeaconChainTypes>(
     // POST validator/beacon_committee_subscriptions
     let post_validator_beacon_committee_subscriptions =
         post_validator_beacon_committee_subscriptions(
-            eth_v1.clone().clone(),
+            eth_v1.clone(),
             chain_filter.clone(),
             validator_subscription_tx_filter.clone(),
             task_spawner_filter.clone(),
@@ -2516,7 +2562,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/prepare_beacon_proposer
     let post_validator_prepare_beacon_proposer = post_validator_prepare_beacon_proposer(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -2525,13 +2571,13 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/register_validator
     let post_validator_register_validator = post_validator_register_validator(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         task_spawner_filter.clone(),
     );
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = post_validator_sync_committee_subscriptions(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         validator_subscription_tx_filter.clone(),
         task_spawner_filter.clone(),
@@ -2539,7 +2585,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/liveness/{epoch}
     let post_validator_liveness_epoch = post_validator_liveness_epoch(
-        eth_v1.clone().clone(),
+        eth_v1.clone(),
         chain_filter.clone(),
         task_spawner_filter.clone(),
     );
@@ -3080,25 +3126,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/merge_readiness
-    let get_lighthouse_merge_readiness = warp::path("lighthouse")
-        .and(warp::path("merge_readiness"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    let current_slot = chain.slot_clock.now_or_genesis().unwrap_or(Slot::new(0));
-                    let merge_readiness = chain.check_bellatrix_readiness(current_slot).await;
-                    Ok::<_, warp::reject::Rejection>(
-                        warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
-                            .into_response(),
-                    )
-                })
-            },
-        );
-
     let get_events = eth_v1
         .clone()
         .and(warp::path("events"))
@@ -3205,7 +3232,19 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let s = futures::stream::select_all(receivers);
 
-                    Ok(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                    let response = warp::sse::reply(warp::sse::keep_alive().stream(s));
+
+                    // Set headers to bypass nginx caching and buffering, which breaks realtime
+                    // delivery.
+                    let response = warp::reply::with_header(response, "X-Accel-Buffering", "no");
+                    let response = warp::reply::with_header(response, "X-Accel-Expires", "0");
+                    let response = warp::reply::with_header(
+                        response,
+                        "Cache-Control",
+                        "no-cache, no-store, must-revalidate",
+                    );
+
+                    Ok(response)
                 })
             },
         );
@@ -3306,6 +3345,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_validator_duties_proposer)
                 .uor(get_validator_blocks)
                 .uor(get_validator_blinded_blocks)
+                .uor(get_validator_execution_payload_envelope)
                 .uor(get_validator_attestation_data)
                 .uor(get_validator_aggregate_attestation)
                 .uor(get_validator_sync_committee_contribution)
@@ -3329,7 +3369,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_light_client_bootstrap)
                 .uor(get_beacon_light_client_updates)
                 .uor(get_lighthouse_block_packing_efficiency)
-                .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
                 .uor(get_expected_withdrawals)
                 .uor(lighthouse_log_events.boxed())
@@ -3344,7 +3383,8 @@ pub fn serve<T: BeaconChainTypes>(
                         post_beacon_blocks_ssz
                             .uor(post_beacon_blocks_v2_ssz)
                             .uor(post_beacon_blinded_blocks_ssz)
-                            .uor(post_beacon_blinded_blocks_v2_ssz),
+                            .uor(post_beacon_blinded_blocks_v2_ssz)
+                            .uor(post_beacon_execution_payload_envelope_ssz),
                     )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
@@ -3356,6 +3396,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_voluntary_exits)
                     .uor(post_beacon_pool_sync_committees)
                     .uor(post_beacon_pool_bls_to_execution_changes)
+                    .uor(post_beacon_execution_payload_envelope)
                     .uor(post_beacon_state_validators)
                     .uor(post_beacon_state_validator_balances)
                     .uor(post_beacon_state_validator_identities)

@@ -21,7 +21,6 @@ use types::{
     AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
     Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
-    consts::bellatrix::INTERVALS_PER_SLOT,
 };
 
 #[derive(Debug)]
@@ -77,6 +76,7 @@ pub enum Error<T> {
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ValidatorStatuses(BeaconStateError),
+    ChainSpecError(String),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -727,9 +727,10 @@ where
             }));
         }
 
+        let attestation_threshold = spec.get_unaggregated_attestation_due();
+
         // Add proposer score boost if the block is timely.
-        let is_before_attesting_interval =
-            block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
+        let is_before_attesting_interval = block_delay < attestation_threshold;
 
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
         if current_slot == block.slot() && is_before_attesting_interval && is_first_block {

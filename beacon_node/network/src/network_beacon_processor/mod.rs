@@ -448,7 +448,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_payload_bid: Box<SignedExecutionPayloadBid>,
+        execution_payload_bid: Box<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
@@ -526,7 +526,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::RpcBlock { process_fn },
+            work: Work::RpcBlock {
+                process_fn,
+                beacon_block_root: block_root,
+            },
         })
     }
 

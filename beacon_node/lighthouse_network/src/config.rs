@@ -5,8 +5,8 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
+use if_addrs::get_if_addrs;
 use libp2p::{Multiaddr, gossipsub};
-use local_ip_address::local_ipv6;
 use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -262,13 +262,13 @@ impl Config {
     /// A helper function to check if the local host has a globally routeable IPv6 address. If so,
     /// returns true.
     pub fn is_ipv6_supported() -> bool {
-        // If IPv6 is supported
-        let Ok(std::net::IpAddr::V6(local_ip)) = local_ipv6() else {
+        let Ok(addrs) = get_if_addrs() else {
             return false;
         };
 
-        // If its globally routable, return true
-        is_global_ipv6(&local_ip)
+        addrs.iter().any(
+            |iface| matches!(iface.addr, if_addrs::IfAddr::V6(ref v6) if is_global_ipv6(&v6.ip)),
+        )
     }
 
     pub fn listen_addrs(&self) -> &ListenAddress {
@@ -443,7 +443,7 @@ pub fn gossipsub_config(
     network_load: u8,
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
-    seconds_per_slot: u64,
+    slot_duration: Duration,
     slots_per_epoch: u64,
     idontwant_message_size_threshold: usize,
 ) -> gossipsub::Config {
@@ -487,7 +487,7 @@ pub fn gossipsub_config(
     // To accommodate the increase, we should increase the duplicate cache time to filter older seen messages.
     // 2 epochs is quite sane for pre-deneb network parameters as well.
     // Hence we keep the same parameters for pre-deneb networks as well to avoid switching at the fork.
-    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * seconds_per_slot * 2);
+    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * slot_duration.as_secs() * 2);
 
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossipsub_config_params.gossipsub_max_transmit_size)

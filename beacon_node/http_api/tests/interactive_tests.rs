@@ -450,13 +450,7 @@ pub async fn proposer_boost_re_org_test(
     let execution_ctx = mock_el.server.ctx.clone();
     let slot_clock = &harness.chain.slot_clock;
 
-    // Move to terminal block.
     mock_el.server.all_payloads_valid();
-    execution_ctx
-        .execution_block_generator
-        .write()
-        .move_to_terminal_block()
-        .unwrap();
 
     // Send proposer preparation data for all validators.
     let proposer_preparation_data = all_validators
@@ -634,7 +628,7 @@ pub async fn proposer_boost_re_org_test(
     assert_eq!(state_b.slot(), slot_b);
     let pre_advance_withdrawals = get_expected_withdrawals(&state_b, &harness.chain.spec)
         .unwrap()
-        .0
+        .withdrawals()
         .to_vec();
     complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
 
@@ -724,7 +718,7 @@ pub async fn proposer_boost_re_org_test(
         get_expected_withdrawals(&state_b, &harness.chain.spec)
     }
     .unwrap()
-    .0
+    .withdrawals()
     .to_vec();
     let payload_attribs_withdrawals = payload_attribs.withdrawals().unwrap();
     assert_eq!(expected_withdrawals, *payload_attribs_withdrawals);

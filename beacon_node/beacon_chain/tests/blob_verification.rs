@@ -29,7 +29,7 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec)
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
