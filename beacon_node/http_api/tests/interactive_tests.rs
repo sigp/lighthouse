@@ -450,13 +450,7 @@ pub async fn proposer_boost_re_org_test(
     let execution_ctx = mock_el.server.ctx.clone();
     let slot_clock = &harness.chain.slot_clock;
 
-    // Move to terminal block.
     mock_el.server.all_payloads_valid();
-    execution_ctx
-        .execution_block_generator
-        .write()
-        .move_to_terminal_block()
-        .unwrap();
 
     // Send proposer preparation data for all validators.
     let proposer_preparation_data = all_validators

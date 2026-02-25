@@ -93,7 +93,7 @@ use tokio_stream::{
 use tracing::{debug, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, Slot,
+    SignedBlindedBeaconBlock,
 };
 use validator::execution_payload_envelope::get_validator_execution_payload_envelope;
 use version::{
@@ -3126,25 +3126,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/merge_readiness
-    let get_lighthouse_merge_readiness = warp::path("lighthouse")
-        .and(warp::path("merge_readiness"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    let current_slot = chain.slot_clock.now_or_genesis().unwrap_or(Slot::new(0));
-                    let merge_readiness = chain.check_bellatrix_readiness(current_slot).await;
-                    Ok::<_, warp::reject::Rejection>(
-                        warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
-                            .into_response(),
-                    )
-                })
-            },
-        );
-
     let get_events = eth_v1
         .clone()
         .and(warp::path("events"))
@@ -3388,7 +3369,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_light_client_bootstrap)
                 .uor(get_beacon_light_client_updates)
                 .uor(get_lighthouse_block_packing_efficiency)
-                .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
                 .uor(get_expected_withdrawals)
                 .uor(lighthouse_log_events.boxed())
