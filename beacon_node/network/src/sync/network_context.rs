@@ -520,12 +520,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
-        debug!(
-            ?failed_columns,
-            ?id,
-            ?requester,
-            "Retrying only failed column requests from other peers"
-        );
+        parent_request_span.in_scope(|| {
+            debug!(
+                ?failed_columns,
+                ?id,
+                ?requester,
+                "Retrying only failed column requests from other peers"
+            );
+        });
 
         // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = self
@@ -537,12 +539,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             )
             .map_err(|e| {
                 // Clean up the components_by_range_requests entry before returning error
-                debug!(
-                    id,
-                    reason = "retry_peer_selection_failed",
-                    map_len = self.components_by_range_requests.len() - 1,
-                    "components_by_range: entry removed"
-                );
+                parent_request_span.in_scope(|| {
+                    debug!(
+                        id,
+                        reason = "retry_peer_selection_failed",
+                        map_len = self.components_by_range_requests.len() - 1,
+                        "components_by_range: entry removed"
+                    );
+                });
                 self.components_by_range_requests
                     .retain(|key, _| key.id != id);
                 format!("{:?}", e)
@@ -573,12 +577,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
                 // Clean up the components_by_range_requests entry before returning error
-                debug!(
-                    entry = ?id,
-                    reason = "retry_send_failed",
-                    map_len = self.components_by_range_requests.len() - 1,
-                    "components_by_range: entry removed"
-                );
+                parent_request_span.in_scope(|| {
+                    debug!(
+                        entry = ?id,
+                        reason = "retry_send_failed",
+                        map_len = self.components_by_range_requests.len() - 1,
+                        "components_by_range: entry removed"
+                    );
+                });
                 self.components_by_range_requests
                     .retain(|key, _| key != &id);
                 format!("{:?}", e)
@@ -732,10 +738,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }),
             range_request_span,
         );
-        let status = info.pending_status();
         debug!(
-            entry = ?id,
-            %status,
             map_len = self.components_by_range_requests.len() + 1,
             "components_by_range: entry created"
         );
@@ -842,14 +845,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             }
         } {
-            let status = entry.get().pending_status();
-            debug!(
-                entry = ?entry.key(),
-                %status,
-                reason = "add_component_error",
-                map_len = map_len - 1,
-                "components_by_range: entry removed"
-            );
+            entry.get().request_span.in_scope(|| {
+                debug!(reason = "add_component_error", map_len = map_len - 1,
+                    "components_by_range: entry removed");
+            });
             entry.remove();
             return Some(Err(e));
         }
@@ -867,25 +866,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             {
                 // Remove the entry if it's a peer failure **and** retry counter is exceeded
                 if *exceeded_retries {
-                    let status = entry.get().pending_status();
-                    debug!(
-                        entry = ?entry.key(),
-                        %status,
-                        msg = error,
-                        reason = "exceeded_retries",
-                        map_len = map_len - 1,
-                        "components_by_range: entry removed"
-                    );
+                    entry.get().request_span.in_scope(|| {
+                        debug!(msg = error, reason = "exceeded_retries",
+                            map_len = map_len - 1,
+                            "components_by_range: entry removed");
+                    });
                     entry.remove();
                 } else {
-                    let status = entry.get().pending_status();
-                    debug!(
-                        entry = ?entry.key(),
-                        %status,
-                        reason = "data_column_peer_failure_retry",
-                        map_len,
-                        "components_by_range: entry kept for retry"
-                    );
+                    entry.get().request_span.in_scope(|| {
+                        debug!(reason = "data_column_peer_failure_retry", map_len,
+                            "components_by_range: entry kept for retry");
+                    });
                 };
             } else {
                 let reason = if blocks_result.is_ok() {
@@ -893,14 +884,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 } else {
                     "coupling_error"
                 };
-                let status = entry.get().pending_status();
-                debug!(
-                    entry = ?entry.key(),
-                    %status,
-                    reason,
-                    map_len = map_len - 1,
-                    "components_by_range: entry removed"
-                );
+                entry.get().request_span.in_scope(|| {
+                    debug!(reason, map_len = map_len - 1,
+                        "components_by_range: entry removed");
+                });
                 entry.remove();
             }
             // If the request is finished, dequeue everything
@@ -1928,13 +1915,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         for (key, entry) in &self.components_by_range_requests {
             let age = entry.created_at.elapsed();
             if age > stale_threshold {
-                let status = entry.pending_status();
-                warn!(
-                    entry = ?key,
-                    %status,
-                    map_len = self.components_by_range_requests.len(),
-                    "components_by_range: stale entry detected"
-                );
+                entry.request_span.in_scope(|| {
+                    warn!(
+                        entry = ?key,
+                        age_secs = age.as_secs(),
+                        map_len = self.components_by_range_requests.len(),
+                        "components_by_range: stale entry detected"
+                    );
+                });
             }
         }
     }

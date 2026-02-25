@@ -75,35 +75,6 @@ pub(crate) enum CouplingError {
     BlobPeerFailure(String),
 }
 
-/// Diagnostic snapshot of a `RangeBlockComponentsRequest`'s progress.
-pub(crate) struct PendingStatus {
-    pub blocks_complete: bool,
-    pub data_type: &'static str,
-    pub total_data_reqs: usize,
-    pub complete_data_reqs: usize,
-    pub attempt: usize,
-    pub age: std::time::Duration,
-}
-
-impl std::fmt::Display for PendingStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "blocks={} data={}({}/{}) attempt={} age={:.1}s",
-            if self.blocks_complete {
-                "done"
-            } else {
-                "pending"
-            },
-            self.data_type,
-            self.complete_data_reqs,
-            self.total_data_reqs,
-            self.attempt,
-            self.age.as_secs_f64(),
-        )
-    }
-}
-
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// Creates a new range request for blocks and their associated data (blobs or data columns).
     ///
@@ -166,36 +137,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 Ok(())
             }
             _ => Err("not a column request".to_string()),
-        }
-    }
-
-    /// Returns a summary of pending sub-request state for diagnostics.
-    pub fn pending_status(&self) -> PendingStatus {
-        let blocks_complete = self.blocks_request.to_finished().is_some();
-        let (data_type, total, complete, attempt) = match &self.block_data_request {
-            RangeBlockDataRequest::NoData => ("none", 0, 0, 0),
-            RangeBlockDataRequest::Blobs(req) => {
-                let complete = if req.to_finished().is_some() { 1 } else { 0 };
-                ("blobs", 1, complete, 0)
-            }
-            RangeBlockDataRequest::DataColumns {
-                requests, attempt, ..
-            } => {
-                let total = requests.len();
-                let complete = requests
-                    .values()
-                    .filter(|r| r.to_finished().is_some())
-                    .count();
-                ("columns", total, complete, *attempt)
-            }
-        };
-        PendingStatus {
-            blocks_complete,
-            data_type,
-            total_data_reqs: total,
-            complete_data_reqs: complete,
-            attempt,
-            age: self.created_at.elapsed(),
         }
     }
 
