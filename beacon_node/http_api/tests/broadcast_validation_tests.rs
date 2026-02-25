@@ -1975,14 +1975,11 @@ pub async fn duplicate_block_status_code() {
     let num_initial: u64 = 31;
     let duplicate_block_status_code = StatusCode::IM_A_TEAPOT;
 
-    // First create a basic tester to check if deneb is enabled, which is required for blobs.
-    let tester_check = InteractiveTester::<E>::new(None, validator_count).await;
-    let state = tester_check.harness.get_current_state();
-    let fork_name = state.fork_name(&tester_check.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Check if deneb is enabled, which is required for blobs.
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).deneb_enabled() {
         return;
     }
-    drop(tester_check);
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         None,
