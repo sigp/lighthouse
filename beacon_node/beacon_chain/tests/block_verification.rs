@@ -20,10 +20,9 @@ use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
-    BlockProcessingError, ConsensusContext, VerifyBlockRoot,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
     common::{attesting_indices_base, attesting_indices_electra},
-    per_block_processing::{BlockSignatureStrategy, per_block_processing},
-    per_slot_processing,
+    per_block_processing, per_slot_processing,
 };
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
@@ -1849,10 +1848,8 @@ async fn add_altair_block_to_base_chain() {
 // https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]
 async fn import_duplicate_block_unrealized_justification() {
-    let spec = MainnetEthSpec::default_spec();
-
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec.into())
+        .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()

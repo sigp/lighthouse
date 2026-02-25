@@ -12,7 +12,7 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
-use tracing::{debug, instrument};
+use tracing::{debug, debug_span, instrument};
 use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -256,9 +256,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
         // do not exist.
-        self.store.blobs_db.do_atomically(blob_batch)?;
-        self.store.hot_db.do_atomically(hot_batch)?;
-        self.store.cold_db.do_atomically(cold_batch)?;
+        {
+            let _span = debug_span!("backfill_write_blobs_db").entered();
+            self.store.blobs_db.do_atomically(blob_batch)?;
+        }
+        {
+            let _span = debug_span!("backfill_write_hot_db").entered();
+            self.store.hot_db.do_atomically(hot_batch)?;
+        }
+        {
+            let _span = debug_span!("backfill_write_cold_db").entered();
+            self.store.cold_db.do_atomically(cold_batch)?;
+        }
 
         let mut anchor_and_blob_batch = Vec::with_capacity(3);
 
