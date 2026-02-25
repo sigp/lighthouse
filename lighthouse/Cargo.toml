@@ -39,7 +39,7 @@ console-subscriber = ["console-subscriber/default"]
 sysmalloc = ["malloc_utils/sysmalloc"]
 # Use mimalloc as the global allocator (alternative to jemalloc).
 mimalloc = ["malloc_utils/mimalloc"]
-# Use tcmalloc (gperftools) as the global allocator (alternative to jemalloc).
+# Use tcmalloc as the global allocator (alternative to jemalloc).
 tcmalloc = ["malloc_utils/tcmalloc"]
 
 [dependencies]

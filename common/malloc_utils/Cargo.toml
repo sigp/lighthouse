@@ -25,8 +25,9 @@ sysmalloc = []
 jemalloc-unprefixed = ["jemalloc", "tikv-jemallocator/unprefixed_malloc_on_supported_platforms"]
 # Use mimalloc as the global allocator (alternative to jemalloc).
 mimalloc = ["dep:mimalloc"]
-# Use tcmalloc (gperftools) as the global allocator (alternative to jemalloc).
-tcmalloc = ["dep:tcmalloc"]
+# Use tcmalloc as the global allocator (alternative to jemalloc).
+# Uses modern Google TCMalloc (not legacy gperftools).
+tcmalloc = ["dep:tcmalloc-better"]
 
 [dependencies]
 libc = "0.2.79"
@@ -39,12 +40,10 @@ tikv-jemalloc-ctl = { version = "0.6.0", optional = true, features = ["stats"] }
 tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats"] }
 
 # Jemalloc's background_threads feature requires Linux (pthreads).
+# tcmalloc-better also vendors modern Google TCMalloc (Linux only).
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = { version = "0.6.0", optional = true, features = [
     "stats",
     "background_threads",
 ] }
-
-# tcmalloc links to gperftools which requires a UNIX-like system.
-[target.'cfg(unix)'.dependencies]
-tcmalloc = { version = "0.3", optional = true }
+tcmalloc-better = { version = "0.1", optional = true }

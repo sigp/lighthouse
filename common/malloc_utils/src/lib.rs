@@ -36,13 +36,13 @@
 #[cfg(all(feature = "mimalloc", feature = "tcmalloc"))]
 compile_error!("Cannot enable both `mimalloc` and `tcmalloc` allocator features");
 
-// mimalloc and tcmalloc modules are only compiled on unix. Fail loudly rather than
+// mimalloc is compiled on unix, tcmalloc on linux only. Fail loudly rather than
 // silently falling back to the system allocator.
 #[cfg(all(not(unix), feature = "mimalloc"))]
 compile_error!("`mimalloc` feature is only supported on unix targets");
 
-#[cfg(all(not(unix), feature = "tcmalloc"))]
-compile_error!("`tcmalloc` feature is only supported on unix targets");
+#[cfg(all(not(target_os = "linux"), feature = "tcmalloc"))]
+compile_error!("`tcmalloc` feature is only supported on Linux targets");
 
 #[cfg(all(
     any(
@@ -66,7 +66,7 @@ pub mod jemalloc;
 #[cfg(all(unix, not(feature = "sysmalloc"), feature = "mimalloc"))]
 pub mod mimalloc_alloc;
 
-#[cfg(all(unix, not(feature = "sysmalloc"), feature = "tcmalloc"))]
+#[cfg(all(target_os = "linux", not(feature = "sysmalloc"), feature = "tcmalloc"))]
 pub mod tcmalloc_alloc;
 
 pub use interface::*;
@@ -130,8 +130,8 @@ mod interface {
     }
 }
 
-// tcmalloc allocator (via gperftools).
-#[cfg(all(unix, not(feature = "sysmalloc"), feature = "tcmalloc"))]
+// tcmalloc allocator (via modern Google TCMalloc).
+#[cfg(all(target_os = "linux", not(feature = "sysmalloc"), feature = "tcmalloc"))]
 mod interface {
     #[allow(dead_code)]
     pub fn configure_memory_allocator() -> Result<(), String> {
