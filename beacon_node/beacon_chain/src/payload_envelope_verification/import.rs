@@ -10,7 +10,7 @@ use types::{BeaconState, BlockImportSource, Hash256, SignedBeaconBlock, Slot};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
-    ExecutedEnvelope, IntoExecutionPendingEnvelope,
+    ExecutedEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -25,25 +25,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(block_root)` if the given `unverified_envelope` was successfully verified and
     /// imported into the chain.
     ///
-    /// Items that implement `IntoExecutionPendingEnvelope` include:
-    ///
-    /// - `GossipVerifiedEnvelope`
-    /// - TODO(gloas) implement for envelopes recieved over RPC
-    ///
     /// ## Errors
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
     #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source))]
-    pub async fn process_execution_payload_envelope<P: IntoExecutionPendingEnvelope<T>>(
+    pub async fn process_execution_payload_envelope(
         self: &Arc<Self>,
         block_root: Hash256,
-        unverified_envelope: P,
+        unverified_envelope: GossipVerifiedEnvelope<T>,
         notify_execution_layer: NotifyExecutionLayer,
         block_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
-        let block_slot = unverified_envelope.envelope().slot();
+        let block_slot = unverified_envelope.signed_envelope.slot();
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).

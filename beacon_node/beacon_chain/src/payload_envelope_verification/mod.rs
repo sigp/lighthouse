@@ -3,27 +3,18 @@
 //! types, starting at a `SignedExecutionPayloadEnvelope` and finishing with an `AvailableExecutedEnvelope` (see
 //! diagram below).
 //!
-//! // TODO(gloas) we might want to update this diagram to include `AvailabelExecutedEnvelope`
 //! ```ignore
-//!            START
-//!              |
-//!              ▼
 //! SignedExecutionPayloadEnvelope
 //!              |
-//!              |---------------
-//!              |              |
-//!              |              ▼
-//!              |    GossipVerifiedEnvelope
-//!              |              |
-//!              |---------------
+//!              ▼
+//!    GossipVerifiedEnvelope
 //!              |
 //!              ▼
 //!  ExecutionPendingEnvelope
 //!              |
 //!            await
-//!              |
 //!              ▼
-//!             END
+//!      ExecutedEnvelope
 //!
 //! ```
 
@@ -48,7 +39,7 @@ pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
 
-pub use execution_pending_envelope::{ExecutionPendingEnvelope, IntoExecutionPendingEnvelope};
+pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
