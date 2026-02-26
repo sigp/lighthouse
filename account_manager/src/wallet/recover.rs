@@ -1,4 +1,4 @@
-use crate::wallet::cli::NewWallet;
+use crate::wallet::create::NewWallet;
 use account_utils::{STDIN_INPUTS_FLAG, read_mnemonic_from_cli};
 use clap::ArgMatches;
 use std::path::PathBuf;

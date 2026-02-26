@@ -1,18 +1,18 @@
+use crate::WALLETS_DIR_FLAG;
+use crate::common::read_wallet_name_from_cli;
 use account_utils::{
-    is_password_sufficiently_complex, read_password_from_user, strip_off_newlines,
+    PlainText, STDIN_INPUTS_FLAG, is_password_sufficiently_complex, random_password,
+    read_password_from_user, strip_off_newlines,
 };
 use clap::ArgMatches;
-use eth2_wallet::{
-    PlainText,
-    bip39::{Language, Mnemonic, MnemonicType},
-};
+use eth2_wallet::bip39::{Language, Mnemonic, MnemonicType};
+use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use filesystem::create_with_600_perms;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::wallet::cli::NewWallet;
-
-use super::cli::Create;
+use super::cli::{Create, Recover};
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -134,5 +134,82 @@ pub fn validate_mnemonic_length(len: &str) -> Result<usize, String> {
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
+    }
+}
+
+pub trait NewWallet {
+    fn get_name(&self) -> Option<String>;
+    fn get_password(&self) -> Option<PathBuf>;
+    fn get_type(&self) -> WalletType;
+    fn create_wallet_from_mnemonic(
+        &self,
+        wallet_base_dir: &Path,
+        matches: &ArgMatches,
+        mnemonic: &Mnemonic,
+    ) -> Result<LockedWallet, String> {
+        let name: Option<String> = self.get_name();
+        let wallet_password_path: Option<PathBuf> = self.get_password();
+        let wallet_type: WalletType = self.get_type();
+        let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
+
+        let mgr = WalletManager::open(wallet_base_dir)
+            .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
+
+        let wallet_password: PlainText = match wallet_password_path {
+            Some(path) => {
+                // Create a random password if the file does not exist.
+                if !path.exists() {
+                    // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
+                    // create a file with that name, we require that the password has a .pass suffix.
+                    if path.extension() != Some(OsStr::new("pass")) {
+                        return Err(format!(
+                            "Only creates a password file if that file ends in .pass: {:?}",
+                            path
+                        ));
+                    }
+
+                    create_with_600_perms(&path, random_password().as_bytes())
+                        .map_err(|e| format!("Unable to write to {:?}: {:?}", path, e))?;
+                }
+                read_new_wallet_password_from_cli(Some(path), stdin_inputs)?
+            }
+            None => read_new_wallet_password_from_cli(None, stdin_inputs)?,
+        };
+
+        let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
+
+        let wallet = mgr
+            .create_wallet(
+                wallet_name,
+                wallet_type,
+                mnemonic,
+                wallet_password.as_bytes(),
+            )
+            .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
+        Ok(wallet)
+    }
+}
+
+impl NewWallet for Create {
+    fn get_name(&self) -> Option<String> {
+        self.name.clone()
+    }
+    fn get_password(&self) -> Option<PathBuf> {
+        self.password_file.clone()
+    }
+    fn get_type(&self) -> WalletType {
+        self.r#type
+    }
+}
+
+impl NewWallet for Recover {
+    fn get_name(&self) -> Option<String> {
+        self.name.clone()
+    }
+    fn get_password(&self) -> Option<PathBuf> {
+        self.password_file.clone()
+    }
+    fn get_type(&self) -> WalletType {
+        self.r#type
     }
 }
