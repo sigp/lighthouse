@@ -1,4 +1,4 @@
-version: v1.7.0-alpha.1
+version: v1.7.0-alpha.2
 style: full
 
 specrefs:
@@ -152,7 +152,6 @@ exceptions:
     - g1_lincomb#deneb
     - hash_to_bls_field#deneb
     - is_power_of_two#deneb
-    - multi_exp#deneb
     - reverse_bits#deneb
     - validate_kzg_g1#deneb
     - verify_blob_kzg_proof#deneb
@@ -396,7 +395,6 @@ exceptions:
     - get_attestation_due_ms#gloas
     - get_attestation_participation_flag_indices#gloas
     - get_attestation_score#gloas
-    - get_builder_from_deposit#gloas
     - get_builder_payment_quorum_threshold#gloas
     - get_builder_withdrawals#gloas
     - get_builders_sweep_withdrawals#gloas
@@ -431,6 +429,7 @@ exceptions:
     - is_attestation_same_slot#gloas
     - is_builder_index#gloas
     - is_builder_withdrawal_credential#gloas
+    - is_data_available#gloas
     - is_head_late#gloas
     - is_head_weak#gloas
     - is_merge_transition_complete#gloas
@@ -445,6 +444,7 @@ exceptions:
     - on_block#gloas
     - on_execution_payload#gloas
     - on_payload_attestation_message#gloas
+    - onboard_builders_from_pending_deposits#gloas
     - prepare_execution_payload#gloas
     - process_attestation#gloas
     - process_block#gloas
@@ -470,5 +470,6 @@ exceptions:
     - validate_on_attestation#gloas
     - verify_data_column_sidecar#gloas
     - verify_data_column_sidecar_inclusion_proof#gloas
+    - verify_data_column_sidecar_kzg_proofs#gloas
     - verify_execution_payload_bid_signature#gloas
     - verify_execution_payload_envelope_signature#gloas

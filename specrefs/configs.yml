@@ -613,8 +613,8 @@
     - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
       search: MIN_BUILDER_WITHDRAWABILITY_DELAY:
   spec: |
-    <spec config_var="MIN_BUILDER_WITHDRAWABILITY_DELAY" fork="gloas" hash="d378428f">
-    MIN_BUILDER_WITHDRAWABILITY_DELAY: uint64 = 4096
+    <spec config_var="MIN_BUILDER_WITHDRAWABILITY_DELAY" fork="gloas" hash="be7f8473">
+    MIN_BUILDER_WITHDRAWABILITY_DELAY: uint64 = 64
     </spec>
 
 - name: MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS#deneb
