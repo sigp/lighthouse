@@ -208,7 +208,7 @@ pub struct List {}
 
 #[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Modify validator status in validator_definitions.yml.")]
-#[clap(rename_all = "snake_case")]
+#[clap(rename_all = "kebab-case")]
 pub enum Modify {
     Enable(Enable),
     Disable(Disable),
