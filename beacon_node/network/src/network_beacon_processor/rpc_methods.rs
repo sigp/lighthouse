@@ -977,7 +977,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // remove all skip slots i.e. duplicated roots
-        Ok(block_roots.into_iter().unique().collect::<Vec<_>>())
+        Ok(block_roots
+            .into_iter()
+            .unique_by(|(root, _)| *root)
+            .collect::<Vec<_>>())
     }
 
     /// Handle a `BlobsByRange` request from the peer.

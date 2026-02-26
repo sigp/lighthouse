@@ -29,10 +29,7 @@ use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
     auth::JwtKey,
-    test_utils::{
-        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, ExecutionBlockGenerator, MockBuilder,
-        MockExecutionLayer,
-    },
+    test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
 use fixed_bytes::FixedBytesExtended;
 use futures::channel::mpsc::Receiver;
@@ -52,7 +49,11 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz_types::{RuntimeVariableList, VariableList};
+use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
+use state_processing::per_block_processing::{
+    BlockSignatureStrategy, VerifyBlockRoot, per_block_processing,
+};
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -202,11 +203,12 @@ pub fn fork_name_from_env() -> Option<ForkName> {
 /// Return a `ChainSpec` suitable for test usage.
 ///
 /// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
-/// variable. Otherwise use the default spec.
+/// variable. Otherwise we default to Bellatrix as the minimum fork (we no longer support
+/// starting test networks prior to Bellatrix).
 pub fn test_spec<E: EthSpec>() -> ChainSpec {
     let mut spec = fork_name_from_env()
         .map(|fork| fork.make_genesis_spec(E::default_spec()))
-        .unwrap_or_else(|| E::default_spec());
+        .unwrap_or_else(|| ForkName::Bellatrix.make_genesis_spec(E::default_spec()));
 
     // Set target aggregators to a high value by default.
     spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
@@ -277,16 +279,25 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec(), false);
+            let spec = builder.get_spec();
+            let header = generate_genesis_header::<E>(spec);
             let genesis_state = genesis_state_builder
-                .set_opt_execution_payload_header(header)
+                .set_opt_execution_payload_header(header.clone())
                 .build_genesis_state(
                     &validator_keypairs,
                     HARNESS_GENESIS_TIME,
                     Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                    builder.get_spec(),
+                    spec,
                 )
                 .expect("should generate interop state");
+            // For post-Bellatrix forks, verify the merge is complete at genesis
+            if header.is_some() {
+                assert!(
+                    state_processing::per_block_processing::is_merge_transition_complete(
+                        &genesis_state
+                    )
+                );
+            }
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
@@ -344,7 +355,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
         });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec(), false);
+            let header = generate_genesis_header::<E>(builder.get_spec());
             let genesis_state = genesis_state_builder
                 .set_opt_execution_payload_header(header)
                 .build_genesis_state(
@@ -688,7 +699,6 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
 
     MockExecutionLayer::new(
         task_executor,
-        DEFAULT_TERMINAL_BLOCK,
         shanghai_time,
         cancun_time,
         prague_time,
@@ -1176,6 +1186,94 @@ where
             state.genesis_validators_root(),
             &self.spec,
         )
+    }
+
+    /// Build a Bellatrix block with the given execution payload, compute the
+    /// correct state root, sign it, and import it into the chain.
+    ///
+    /// This bypasses the normal block production pipeline, which always requests
+    /// a payload from the execution layer. That makes it possible to construct
+    /// blocks with **default (zeroed) payloads** — something the EL-backed flow
+    /// cannot do — which is needed to simulate the pre-merge portion of a chain
+    /// that starts at Bellatrix genesis with `is_merge_transition_complete = false`.
+    ///
+    /// `state` is expected to be the head state *before* `slot`. It will be
+    /// advanced to `slot` in-place via `complete_state_advance`, then used to
+    /// derive the proposer, RANDAO reveal, and parent root. After processing,
+    /// the caller should typically replace `state` with the chain's new head
+    /// state (`self.get_current_state()`).
+    pub async fn build_and_import_block_with_payload(
+        &self,
+        state: &mut BeaconState<E>,
+        slot: Slot,
+        execution_payload: ExecutionPayloadBellatrix<E>,
+    ) {
+        complete_state_advance(state, None, slot, &self.spec).expect("should advance state");
+        state.build_caches(&self.spec).expect("should build caches");
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+        let randao_reveal = self.sign_randao_reveal(state, proposer_index, slot);
+        let parent_root = state.latest_block_header().canonical_root();
+
+        let mut block = BeaconBlock::Bellatrix(BeaconBlockBellatrix {
+            slot,
+            proposer_index: proposer_index as u64,
+            parent_root,
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyBellatrix {
+                randao_reveal,
+                eth1_data: state.eth1_data().clone(),
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::new(),
+                execution_payload: FullPayloadBellatrix { execution_payload },
+            },
+        });
+
+        // Run per_block_processing on a clone to compute the post-state root.
+        let signed_tmp = block.clone().sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+        let mut ctxt = ConsensusContext::new(slot).set_proposer_index(proposer_index as u64);
+        let mut post_state = state.clone();
+        per_block_processing(
+            &mut post_state,
+            &signed_tmp,
+            BlockSignatureStrategy::NoVerification,
+            VerifyBlockRoot::False,
+            &mut ctxt,
+            &self.spec,
+        )
+        .unwrap_or_else(|e| panic!("per_block_processing failed at slot {}: {e:?}", slot));
+
+        let state_root = post_state.update_tree_hash_cache().unwrap();
+        *block.state_root_mut() = state_root;
+
+        let signed_block = self.sign_beacon_block(block, state);
+        let block_root = signed_block.canonical_root();
+        let rpc_block = RpcBlock::BlockOnly {
+            block_root,
+            block: Arc::new(signed_block),
+        };
+        self.chain.slot_clock.set_slot(slot.as_u64());
+        self.chain
+            .process_block(
+                block_root,
+                rpc_block,
+                NotifyExecutionLayer::No,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("import failed at slot {}: {e:?}", slot));
+        self.chain.recompute_head_at_current_slot().await;
     }
 
     #[allow(clippy::too_many_arguments)]

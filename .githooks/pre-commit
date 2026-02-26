@@ -1,0 +1,5 @@
+#!/bin/sh
+# Pre-commit hook: runs cargo fmt --check
+# Install with: make install-hooks
+
+exec cargo fmt --check

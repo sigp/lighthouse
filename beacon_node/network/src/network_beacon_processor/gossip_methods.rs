@@ -1494,7 +1494,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
-        // GLOAS blocks don't carry blobs; the execution payload arrives separately.
+        // TODO(gloas) we'll want to use this same optimization, but we need to refactor the
+        // `fetch_and_process_engine_blobs` flow to support gloas.
         if !block.fork_name_unchecked().gloas_enabled() {
             let publish_blobs = true;
             let self_clone = self.clone();
@@ -3271,7 +3272,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Span::current().record("beacon_block_root", beacon_block_root.to_string());
 
             // TODO(gloas) in process_gossip_block here we check_and_insert on the duplicate cache
-            // before calling gossip_verified_block
+            // before calling gossip_verified_block. We need this to ensure we dont try to execute the
+            // payload multiple times.
 
             self.process_gossip_verified_execution_payload_envelope(
                 peer_id,

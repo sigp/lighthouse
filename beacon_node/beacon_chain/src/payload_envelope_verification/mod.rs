@@ -39,31 +39,16 @@ use types::{
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError,
-    NotifyExecutionLayer, PayloadVerificationOutcome,
-    block_verification::PayloadVerificationHandle,
-    payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope,
+    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
+    PayloadVerificationOutcome, canonical_head::CanonicalHead,
 };
 
+pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
 
-pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
-    fn into_execution_pending_envelope(
-        self,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError>;
-
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>;
-}
-
-pub struct ExecutionPendingEnvelope<E: EthSpec> {
-    pub signed_envelope: MaybeAvailableEnvelope<E>,
-    pub import_data: EnvelopeImportData<E>,
-    pub payload_verification_handle: PayloadVerificationHandle,
-}
+pub use execution_pending_envelope::{ExecutionPendingEnvelope, IntoExecutionPendingEnvelope};
 
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
@@ -222,6 +207,11 @@ pub enum EnvelopeError {
         committed_bid: ExecutionBlockHash,
         envelope: ExecutionBlockHash,
     },
+    // The block's proposer_index does not match the locally computed proposer
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     // The slot belongs to a block that is from a slot prior than
     // the most recently finalized slot
     PriorToFinalization {
@@ -302,39 +292,20 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
 }
 
 #[allow(clippy::type_complexity)]
-#[instrument(skip_all, level = "debug", fields(beacon_block_root = %envelope.beacon_block_root()))]
-pub(crate) fn load_snapshot<T: BeaconChainTypes>(
-    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
-    chain: &BeaconChain<T>,
+#[instrument(skip_all, level = "debug", fields(beacon_block_root = %beacon_block_root))]
+/// Load state from store given a known state root and block root.
+/// Use this when the proto block has already been looked up from fork choice.
+pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
+    beacon_block_root: Hash256,
+    block_state_root: Hash256,
+    store: &BeaconStore<T>,
 ) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
-    // Reject any envelope if its block is not known to fork choice.
-    //
-    // A block that is not in fork choice is either:
-    //
-    //  - Not yet imported: we should reject this envelope because we should only import it after its parent block
-    //  has been fully imported.
-    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore the envelope
-    //  because it will revert finalization. Note that the finalized block is stored in fork
-    //  choice, so we will not reject any child of the finalized block (this is relevant during
-    //  genesis).
-
-    let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
-    let beacon_block_root = envelope.beacon_block_root();
-    let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
-        return Err(EnvelopeError::BlockRootUnknown {
-            block_root: beacon_block_root,
-        });
-    };
-    drop(fork_choice_read_lock);
-
     // TODO(EIP-7732): add metrics here
 
-    let block_state_root = proto_beacon_block.state_root;
     // We can use `get_hot_state` here rather than `get_advanced_hot_state` because the envelope
     // must be from the same slot as its block (so no advance is required).
     let cache_state = true;
-    let state = chain
-        .store
+    let state = store
         .get_hot_state(&block_state_root, cache_state)
         .map_err(EnvelopeError::from)?
         .ok_or_else(|| {
@@ -350,19 +321,31 @@ pub(crate) fn load_snapshot<T: BeaconChainTypes>(
     })
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
-    for Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>
-{
-    fn into_execution_pending_envelope(
-        self,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
-        GossipVerifiedEnvelope::new(self, chain)?
-            .into_execution_pending_envelope(chain, notify_execution_layer)
-    }
+#[instrument(skip_all, level = "debug", fields(beacon_block_root = %envelope.beacon_block_root()))]
+pub(crate) fn load_snapshot<T: BeaconChainTypes>(
+    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
+    canonical_head: &CanonicalHead<T>,
+    store: &BeaconStore<T>,
+) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
+    // Reject any envelope if its block is not known to fork choice.
+    //
+    // A block that is not in fork choice is either:
+    //
+    //  - Not yet imported: we should reject this envelope because we should only import it after
+    //    its parent block has been fully imported.
+    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore the
+    //    envelope because it will revert finalization. Note that the finalized block is stored in
+    //    fork choice, so we will not reject any child of the finalized block (this is relevant
+    //    during genesis).
 
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
-        self
-    }
+    let fork_choice_read_lock = canonical_head.fork_choice_read_lock();
+    let beacon_block_root = envelope.beacon_block_root();
+    let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
+        return Err(EnvelopeError::BlockRootUnknown {
+            block_root: beacon_block_root,
+        });
+    };
+    drop(fork_choice_read_lock);
+
+    load_snapshot_from_state_root::<T>(beacon_block_root, proto_beacon_block.state_root, store)
 }

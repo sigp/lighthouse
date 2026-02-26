@@ -147,15 +147,6 @@ impl ApiTester {
             .node_custody_type(config.node_custody_type)
             .build();
 
-        harness
-            .mock_execution_layer
-            .as_ref()
-            .unwrap()
-            .server
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
-
         harness.advance_slot();
 
         for _ in 0..CHAIN_LENGTH {

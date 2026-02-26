@@ -422,7 +422,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             .iter()
             .filter(|&(_epoch, batch)| in_buffer(batch))
             .count()
-            > BACKFILL_BATCH_BUFFER_SIZE as usize
+            >= BACKFILL_BATCH_BUFFER_SIZE as usize
         {
             return None;
         }

@@ -398,13 +398,6 @@ impl ProtoArray {
             node.payload_status = PAYLOAD_STATUS_FULL;
         }
 
-        // Mark the execution status as valid now that the payload has been verified.
-        // This is critical for Gloas blocks which start as Optimistic(block_hash).
-        if let ExecutionStatus::Optimistic(block_hash) = node.execution_status {
-            node.execution_status = ExecutionStatus::Valid(block_hash);
-            self.propagate_execution_payload_validation_by_index(index)?;
-        }
-
         Ok(())
     }
 

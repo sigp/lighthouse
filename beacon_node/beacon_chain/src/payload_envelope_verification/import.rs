@@ -10,13 +10,14 @@ use types::{BeaconState, BlockImportSource, Hash256, SignedBeaconBlock, Slot};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
-    ExecutedEnvelope, IntoExecutionPendingEnvelope,
+    ExecutedEnvelope, IntoExecutionPendingEnvelope, MaybeAvailableEnvelope,
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
     NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
     metrics,
+    payload_envelope_verification::ExecutionPendingEnvelope,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
 };
 use eth2::types::{EventKind, SseExecutionPayloadAvailable};
@@ -28,6 +29,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Items that implement `IntoExecutionPendingEnvelope` include:
     ///
     /// - `GossipVerifiedEnvelope`
+    /// - TODO(gloas) implement for envelopes recieved over RPC
     ///
     /// ## Errors
     ///
@@ -158,6 +160,49 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Accepts a fully-verified payload envelope and awaits on its payload verification handle to
+    /// get a fully `ExecutedEnvelope`.
+    ///
+    /// An error is returned if the verification handle couldn't be awaited.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn into_executed_payload_envelope(
+        self: Arc<Self>,
+        pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
+    ) -> Result<ExecutedEnvelope<T::EthSpec>, EnvelopeError> {
+        let ExecutionPendingEnvelope {
+            signed_envelope,
+            import_data,
+            payload_verification_handle,
+        } = pending_envelope;
+
+        let payload_verification_outcome = payload_verification_handle
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
+            .ok_or(BeaconChainError::RuntimeShutdown)??;
+
+        // TODO(gloas): implement data column availability checking.
+        // For now, treat all envelopes as available after EL verification with empty columns.
+        let signed_envelope = match signed_envelope {
+            available @ MaybeAvailableEnvelope::Available(_) => available,
+            MaybeAvailableEnvelope::AvailabilityPending {
+                block_hash,
+                envelope,
+            } => MaybeAvailableEnvelope::Available(AvailableEnvelope::new(
+                block_hash,
+                envelope,
+                vec![],
+                None,
+                self.spec.clone(),
+            )),
+        };
+
+        Ok(ExecutedEnvelope::new(
+            signed_envelope,
+            import_data,
+            payload_verification_outcome,
+        ))
+    }
+
     #[instrument(skip_all)]
     pub async fn import_available_execution_payload_envelope(
         self: &Arc<Self>,
@@ -214,11 +259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         _payload_verification_status: PayloadVerificationStatus,
         parent_block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<Hash256, EnvelopeError> {
-        // ----------------------------- ENVELOPE NOT YET ATTESTABLE ----------------------------------
-        // Everything in this initial section is on the hot path between processing the envelope and
-        // being able to attest to it. DO NOT add any extra processing in this initial section
-        // unless it must run before fork choice.
-        // -----------------------------------------------------------------------------------------
+        // Everything in this initial section is on the hot path for processing the envelope.
 
         let post_exec_timer =
             metrics::start_timer(&metrics::ENVELOPE_PROCESSING_POST_EXEC_PROCESSING);
@@ -253,12 +294,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO(gloas) emit SSE event if the payload became the new head payload
         drop(post_exec_timer);
 
-        // ---------------------------- ENVELOPE PROBABLY ATTESTABLE ----------------------------------
         // It is important NOT to return errors here before the database commit, because the envelope
         // has already been added to fork choice and the database would be left in an inconsistent
         // state if we returned early without committing. In other words, an error here would
         // corrupt the node's database permanently.
-        // -----------------------------------------------------------------------------------------
 
         // Store the envelope and its state, and execute the confirmation batch for the intermediate
         // states, which will delete their temporary flags.

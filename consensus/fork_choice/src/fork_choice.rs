@@ -894,18 +894,8 @@ where
                     }
                 }
             }
-        } else if let Ok(bid) = block.body().signed_execution_payload_bid() {
-            // Gloas (ePBS): the block carries a bid instead of an inline payload.
-            // The execution payload will arrive later via an envelope, so mark as
-            // optimistic using the committed block hash from the bid.
-            let block_hash = bid.message.block_hash;
-            if block_hash == ExecutionBlockHash::zero() {
-                ExecutionStatus::irrelevant()
-            } else {
-                ExecutionStatus::Optimistic(block_hash)
-            }
         } else {
-            // There is no payload to verify (pre-merge).
+            // There is no payload to verify.
             ExecutionStatus::irrelevant()
         };
 

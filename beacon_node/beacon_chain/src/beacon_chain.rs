@@ -4,12 +4,9 @@ use crate::attestation_verification::{
     batch_verify_unaggregated_attestations,
 };
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-use crate::beacon_proposer_cache::{
-    BeaconProposerCache, EpochBlockProposers, ensure_state_can_determine_proposers_for_epoch,
-};
+use crate::beacon_proposer_cache::{BeaconProposerCache, EpochBlockProposers};
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
-use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
@@ -57,10 +54,6 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
-use crate::payload_envelope_verification::{
-    AvailableEnvelope, EnvelopeError, ExecutedEnvelope, ExecutionPendingEnvelope,
-    MaybeAvailableEnvelope,
-};
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
@@ -3402,8 +3395,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // GLOAS blocks don't need DA checking - they are always available from the
-        // block's perspective. Skip inserting into the DA cache.
+        // Gloas blocks dont need to be inserted into the DA cache
+        // they are always available.
         if !unverified_block
             .block()
             .fork_name_unchecked()
@@ -3537,72 +3530,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // Log the PoS pandas if a merge transition just occurred.
-        if payload_verification_outcome.is_valid_merge_transition_block {
-            info!("{}", POS_PANDA_BANNER);
-            info!(slot = %block.slot(), "Proof of Stake Activated");
-            info!(
-                terminal_pow_block_hash = ?block
-                .message()
-                .execution_payload()?
-                .parent_hash()
-                .into_root(),
-            );
-            info!(
-                merge_transition_block_root = ?block.message().tree_hash_root(),
-            );
-            info!(
-                merge_transition_execution_hash = ?block
-                .message()
-                .execution_payload()?
-                .block_hash()
-                .into_root(),
-            );
-        }
         Ok(ExecutedBlock::new(
             block,
-            import_data,
-            payload_verification_outcome,
-        ))
-    }
-
-    /// Accepts a fully-verified payload envelope and awaits on its payload verification handle to
-    /// get a fully `ExecutedEnvelope`.
-    ///
-    /// An error is returned if the verification handle couldn't be awaited.
-    #[instrument(skip_all, level = "debug")]
-    pub async fn into_executed_payload_envelope(
-        self: Arc<Self>,
-        pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
-    ) -> Result<ExecutedEnvelope<T::EthSpec>, EnvelopeError> {
-        let ExecutionPendingEnvelope {
-            signed_envelope,
-            import_data,
-            payload_verification_handle,
-        } = pending_envelope;
-
-        let payload_verification_outcome = payload_verification_handle
-            .await
-            .map_err(BeaconChainError::TokioJoin)?
-            .ok_or(BeaconChainError::RuntimeShutdown)??;
-
-        // TODO(gloas): implement data column availability checking.
-        // For now, treat all envelopes as available after EL verification with empty columns.
-        let signed_envelope = match signed_envelope {
-            available @ MaybeAvailableEnvelope::Available(_) => available,
-            MaybeAvailableEnvelope::AvailabilityPending { block_hash, envelope } => {
-                MaybeAvailableEnvelope::Available(AvailableEnvelope::new(
-                    block_hash,
-                    envelope,
-                    vec![],
-                    None,
-                    self.spec.clone(),
-                ))
-            }
-        };
-
-        Ok(ExecutedEnvelope::new(
-            signed_envelope,
             import_data,
             payload_verification_outcome,
         ))
@@ -6144,21 +6073,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         input_params: ForkchoiceUpdateParameters,
         override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
-        let next_slot = current_slot + 1;
-
-        // There is no need to issue a `forkchoiceUpdated` (fcU) message unless the Bellatrix fork
-        // has:
-        //
-        // 1. Already happened.
-        // 2. Will happen in the next slot.
-        //
-        // The reason for a fcU message in the slot prior to the Bellatrix fork is in case the
-        // terminal difficulty has already been reached and a payload preparation message needs to
-        // be issued.
-        if self.slot_is_prior_to_bellatrix(next_slot) {
-            return Ok(());
-        }
-
         let execution_layer = self
             .execution_layer
             .as_ref()
@@ -6206,50 +6120,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .unwrap_or_else(ExecutionBlockHash::zero),
                 )
             } else {
-                // The head block does not have an execution block hash. We must check to see if we
-                // happen to be the proposer of the transition block, in which case we still need to
-                // send forkchoice_updated.
-                if self
-                    .spec
-                    .fork_name_at_slot::<T::EthSpec>(next_slot)
-                    .bellatrix_enabled()
-                {
-                    // We are post-bellatrix
-                    if let Some(payload_attributes) = execution_layer
-                        .payload_attributes(next_slot, params.head_root)
-                        .await
-                    {
-                        // We are a proposer, check for terminal_pow_block_hash
-                        if let Some(terminal_pow_block_hash) = execution_layer
-                            .get_terminal_pow_block_hash(&self.spec, payload_attributes.timestamp())
-                            .await
-                            .map_err(Error::ForkchoiceUpdate)?
-                        {
-                            info!(
-                                slot = %next_slot,
-                                "Prepared POS transition block proposer"
-                            );
-                            (
-                                params.head_root,
-                                terminal_pow_block_hash,
-                                params
-                                    .justified_hash
-                                    .unwrap_or_else(ExecutionBlockHash::zero),
-                                params
-                                    .finalized_hash
-                                    .unwrap_or_else(ExecutionBlockHash::zero),
-                            )
-                        } else {
-                            // TTD hasn't been reached yet, no need to update the EL.
-                            return Ok(());
-                        }
-                    } else {
-                        // We are not a proposer, no need to update the EL.
-                        return Ok(());
-                    }
-                } else {
-                    return Ok(());
-                }
+                // Proposing the block for the merge is no longer supported.
+                return Ok(());
             };
 
         let forkchoice_updated_response = execution_layer
@@ -6602,62 +6474,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
         state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<T::EthSpec>), E>,
     ) -> Result<V, E> {
-        let cache_entry = self
-            .beacon_proposer_cache
-            .lock()
-            .get_or_insert_key(proposal_epoch, shuffling_decision_block);
-
-        // If the cache entry is not initialised, run the code to initialise it inside a OnceCell.
-        // This prevents duplication of work across multiple threads.
-        //
-        // If it is already initialised, then `get_or_try_init` will return immediately without
-        // executing the initialisation code at all.
-        let epoch_block_proposers = cache_entry.get_or_try_init(|| {
-            // Fetch the state on-demand if the required epoch was missing from the cache.
-            // If the caller wants to not compute the state they must return an error here and then
-            // catch it at the call site.
-            let (state_root, mut state) = state_provider()?;
-
-            // Ensure the state can compute proposer duties for `epoch`.
-            ensure_state_can_determine_proposers_for_epoch(
-                &mut state,
-                state_root,
-                proposal_epoch,
-                &self.spec,
-            )?;
-
-            // Sanity check the state.
-            let latest_block_root = state.get_latest_block_root(state_root);
-            let state_decision_block_root = state.proposer_shuffling_decision_root_at_epoch(
-                proposal_epoch,
-                latest_block_root,
-                &self.spec,
-            )?;
-            if state_decision_block_root != shuffling_decision_block {
-                return Err(Error::ProposerCacheIncorrectState {
-                    state_decision_block_root,
-                    requested_decision_block_root: shuffling_decision_block,
-                }
-                .into());
-            }
-
-            let proposers = state.get_beacon_proposer_indices(proposal_epoch, &self.spec)?;
-
-            // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have
-            // advanced the state completely into the new epoch.
-            let fork = self.spec.fork_at_epoch(proposal_epoch);
-
-            debug!(
-                ?shuffling_decision_block,
-                epoch = %proposal_epoch,
-                "Priming proposer shuffling cache"
-            );
-
-            Ok::<_, E>(EpochBlockProposers::new(proposal_epoch, fork, proposers))
-        })?;
-
-        // Run the accessor function on the computed epoch proposers.
-        accessor(epoch_block_proposers).map_err(Into::into)
+        crate::beacon_proposer_cache::with_proposer_cache(
+            &self.beacon_proposer_cache,
+            &self.spec,
+            shuffling_decision_block,
+            proposal_epoch,
+            accessor,
+            state_provider,
+        )
     }
 
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
