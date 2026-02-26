@@ -168,11 +168,9 @@ exceptions:
     - filter_block_tree#phase0
     - get_aggregate_and_proof#phase0
     - get_aggregate_and_proof_signature#phase0
-    - get_aggregate_due_ms#phase0
     - get_aggregate_signature#phase0
     - get_attestation_component_deltas#phase0
     - get_attestation_deltas#phase0
-    - get_attestation_due_ms#phase0
     - get_attestation_score#phase0
     - get_attestation_signature#phase0
     - get_attesting_balance#phase0
@@ -244,7 +242,6 @@ exceptions:
     - finalized_root_gindex_at_slot#altair
     - get_contribution_and_proof#altair
     - get_contribution_and_proof_signature#altair
-    - get_contribution_due_ms#altair
     - get_flag_index_deltas#altair
     - get_inactivity_penalty_deltas#altair
     - get_index_for_new_validator#altair
@@ -253,7 +250,6 @@ exceptions:
     - get_subtree_index#altair
     - get_sync_committee_message#altair
     - get_sync_committee_selection_proof#altair
-    - get_sync_message_due_ms#altair
     - get_sync_subcommittee_pubkeys#altair
     - get_unslashed_participating_indices#altair
     - initialize_light_client_store#altair
@@ -351,11 +347,8 @@ exceptions:
 
     # gloas
     - get_ancestor#gloas
-    - get_aggregate_due_ms#gloas
-    - get_attestation_due_ms#gloas
     - get_attestation_score#gloas
     - get_checkpoint_block#gloas
-    - get_contribution_due_ms#gloas
     - get_forkchoice_store#gloas
     - get_head#gloas
     - get_data_column_sidecars#gloas
@@ -371,7 +364,6 @@ exceptions:
     - get_proposer_preferences_signature#gloas
     - get_weight#gloas
     - get_ptc_assignment#gloas
-    - get_sync_message_due_ms#gloas
     - get_upcoming_proposal_slots#gloas
     - initiate_builder_exit#gloas
     - is_data_available#gloas

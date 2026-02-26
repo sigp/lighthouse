@@ -2339,7 +2339,9 @@
     </spec>
 
 - name: get_aggregate_due_ms#phase0
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_aggregate_attestation_due(
   spec: |
     <spec fn="get_aggregate_due_ms" fork="phase0" hash="0e8d370d">
     def get_aggregate_due_ms(epoch: Epoch) -> uint64:
@@ -2347,7 +2349,9 @@
     </spec>
 
 - name: get_aggregate_due_ms#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_aggregate_attestation_due(
   spec: |
     <spec fn="get_aggregate_due_ms" fork="gloas" hash="33a26a53">
     def get_aggregate_due_ms(epoch: Epoch) -> uint64:
@@ -2462,7 +2466,9 @@
     </spec>
 
 - name: get_attestation_due_ms#phase0
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_unaggregated_attestation_due(
   spec: |
     <spec fn="get_attestation_due_ms" fork="phase0" hash="d3b17e38">
     def get_attestation_due_ms(epoch: Epoch) -> uint64:
@@ -2470,7 +2476,9 @@
     </spec>
 
 - name: get_attestation_due_ms#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_unaggregated_attestation_due(
   spec: |
     <spec fn="get_attestation_due_ms" fork="gloas" hash="b99d28c7">
     def get_attestation_due_ms(epoch: Epoch) -> uint64:
@@ -3190,7 +3198,9 @@
     </spec>
 
 - name: get_contribution_due_ms#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_contribution_message_due(
   spec: |
     <spec fn="get_contribution_due_ms" fork="altair" hash="e647c2b1">
     def get_contribution_due_ms(epoch: Epoch) -> uint64:
@@ -3198,7 +3208,9 @@
     </spec>
 
 - name: get_contribution_due_ms#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_contribution_message_due(
   spec: |
     <spec fn="get_contribution_due_ms" fork="gloas" hash="69183c6c">
     def get_contribution_due_ms(epoch: Epoch) -> uint64:
@@ -4880,7 +4892,9 @@
     </spec>
 
 - name: get_sync_message_due_ms#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_sync_message_due(
   spec: |
     <spec fn="get_sync_message_due_ms" fork="altair" hash="4d86dced">
     def get_sync_message_due_ms(epoch: Epoch) -> uint64:
@@ -4888,7 +4902,9 @@
     </spec>
 
 - name: get_sync_message_due_ms#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: pub fn get_sync_message_due(
   spec: |
     <spec fn="get_sync_message_due_ms" fork="gloas" hash="6af451b5">
     def get_sync_message_due_ms(epoch: Epoch) -> uint64:
