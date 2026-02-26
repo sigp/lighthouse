@@ -51,11 +51,12 @@
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
-use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
+use crate::data_availability_checker::{
+    AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
+};
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
-    AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
-    validate_execution_payload_for_gossip, validate_merge_block,
+    NotifyExecutionLayer, PayloadNotifier, validate_execution_payload_for_gossip,
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
@@ -78,7 +79,7 @@ use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
+use state_processing::per_block_processing::errors::IntoWithIndex;
 use state_processing::{
     AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
     VerifyBlockRoot,
@@ -97,33 +98,9 @@ use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
 };
-
-pub const POS_PANDA_BANNER: &str = r#"
-    ,,,         ,,,                                               ,,,         ,,,
-  ;"   ^;     ;'   ",                                           ;"   ^;     ;'   ",
-  ;    s$$$$$$$s     ;                                          ;    s$$$$$$$s     ;
-  ,  ss$$$$$$$$$$s  ,'  ooooooooo.    .oooooo.   .oooooo..o     ,  ss$$$$$$$$$$s  ,'
-  ;s$$$$$$$$$$$$$$$     `888   `Y88. d8P'  `Y8b d8P'    `Y8     ;s$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$$$     888   .d88'888      888Y88bo.          $$$$$$$$$$$$$$$$$$
- $$$$P""Y$$$Y""W$$$$$    888ooo88P' 888      888 `"Y8888o.     $$$$P""Y$$$Y""W$$$$$
- $$$$  p"LFG"q  $$$$$    888        888      888     `"Y88b    $$$$  p"LFG"q  $$$$$
- $$$$  .$$$$$.  $$$$     888        `88b    d88'oo     .d8P    $$$$  .$$$$$.  $$$$
-  $$DcaU$$$$$$$$$$      o888o        `Y8bood8P' 8""88888P'      $$DcaU$$$$$$$$$$
-    "Y$$$"*"$$$Y"                                                 "Y$$$"*"$$$Y"
-        "$b.$$"                                                       "$b.$$"
-
-       .o.                   .   o8o                         .                 .o8
-      .888.                .o8   `"'                       .o8                "888
-     .8"888.     .ooooo. .o888oooooo oooo    ooo .oooo.  .o888oo .ooooo.  .oooo888
-    .8' `888.   d88' `"Y8  888  `888  `88.  .8' `P  )88b   888  d88' `88bd88' `888
-   .88ooo8888.  888        888   888   `88..8'   .oP"888   888  888ooo888888   888
-  .8'     `888. 888   .o8  888 . 888    `888'   d8(  888   888 .888    .o888   888
- o88o     o8888o`Y8bod8P'  "888"o888o    `8'    `Y888""8o  "888"`Y8bod8P'`Y8bod88P"
-
-"#;
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
@@ -334,6 +311,15 @@ pub enum BlockError {
         max_blobs_at_epoch: usize,
         block: usize,
     },
+    /// The bid's parent_block_root does not match the block's parent_root.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer should be penalized.
+    BidParentRootMismatch {
+        bid_parent_root: Hash256,
+        block_parent_root: Hash256,
+    },
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -381,13 +367,6 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     InvalidPayloadTimestamp { expected: u64, found: u64 },
-    /// The execution payload references an execution block that cannot trigger the merge.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
-    /// but is invalid upon further verification.
-    InvalidTerminalPoWBlock { parent_hash: ExecutionBlockHash },
     /// The `TERMINAL_BLOCK_HASH` is set, but the block has not reached the
     /// `TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH`.
     ///
@@ -398,16 +377,6 @@ pub enum ExecutionPayloadError {
     InvalidActivationEpoch {
         activation_epoch: Epoch,
         epoch: Epoch,
-    },
-    /// The `TERMINAL_BLOCK_HASH` is set, but does not match the value specified by the block.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
-    /// but is invalid upon further verification.
-    InvalidTerminalBlockHash {
-        terminal_block_hash: ExecutionBlockHash,
-        payload_parent_hash: ExecutionBlockHash,
     },
     /// The execution node is syncing but we fail the conditions for optimistic sync
     ///
@@ -433,16 +402,11 @@ impl ExecutionPayloadError {
             // This is a trivial gossip validation condition, there is no reason for an honest peer
             // to propagate a block with an invalid payload time stamp.
             ExecutionPayloadError::InvalidPayloadTimestamp { .. } => true,
-            // An honest optimistic node may propagate blocks with an invalid terminal PoW block, we
-            // should not penalized them.
-            ExecutionPayloadError::InvalidTerminalPoWBlock { .. } => false,
             // This condition is checked *after* gossip propagation, therefore penalizing gossip
             // peers for this block would be unfair. There may be an argument to penalize RPC
             // blocks, since even an optimistic node shouldn't verify this block. We will remove the
             // penalties for all block imports to keep things simple.
             ExecutionPayloadError::InvalidActivationEpoch { .. } => false,
-            // As per `Self::InvalidActivationEpoch`.
-            ExecutionPayloadError::InvalidTerminalBlockHash { .. } => false,
             // Do not penalize the peer since it's not their fault that *we're* optimistic.
             ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
         }
@@ -526,7 +490,6 @@ impl From<ArithError> for BlockError {
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
-    pub is_valid_merge_transition_block: bool,
 }
 
 /// Information about invalid blocks which might still be slashable despite being invalid.
@@ -887,15 +850,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // Do not gossip blocks that claim to contain more blobs than the max allowed
         // at the given block epoch.
-        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
+        if let Some(blob_kzg_commitments_len) = block.message().blob_kzg_commitments_len() {
             let max_blobs_at_epoch = chain
                 .spec
                 .max_blobs_per_block(block.slot().epoch(T::EthSpec::slots_per_epoch()))
                 as usize;
-            if commitments.len() > max_blobs_at_epoch {
+            if blob_kzg_commitments_len > max_blobs_at_epoch {
                 return Err(BlockError::InvalidBlobCount {
                     max_blobs_at_epoch,
-                    block: commitments.len(),
+                    block: blob_kzg_commitments_len,
                 });
             }
         }
@@ -932,6 +895,24 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) =
             verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
+
+        // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid()
+            && bid.message.parent_block_root != block.message().parent_root()
+        {
+            return Err(BlockError::BidParentRootMismatch {
+                bid_parent_root: bid.message.parent_block_root,
+                block_parent_root: block.message().parent_root(),
+            });
+        }
+
+        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
+        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
+        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
+        // once the parent payload is retrieved). If execution_payload verification of block's execution
+        // payload parent by an execution node is complete, verify the block's execution payload
+        // parent (defined by bid.parent_block_hash) passes all validation.
+
         drop(fork_choice_read_lock);
 
         // Track the number of skip slots between the block and its parent.
@@ -1038,8 +1019,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // Validate the block's execution_payload (if any).
-        validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
+        // [New in Gloas]: Skip payload validation checks. The payload now arrives separately
+        // via `ExecutionPayloadEnvelope`.
+        if !chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(block.slot())
+            .gloas_enabled()
+        {
+            validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
+        }
 
         // Beacon API block_gossip events
         if let Some(event_handler) = chain.event_handler.as_ref()
@@ -1211,15 +1199,35 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
         match result {
-            Ok(_) => Ok(Self {
-                block: MaybeAvailableBlock::AvailabilityPending {
+            Ok(_) => {
+                // gloas blocks are always available.
+                let maybe_available = if chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(block.slot())
+                    .gloas_enabled()
+                {
+                    MaybeAvailableBlock::Available(
+                        AvailableBlock::new(
+                            block,
+                            AvailableBlockData::NoData,
+                            &chain.data_availability_checker,
+                            chain.spec.clone(),
+                        )
+                        .map_err(BlockError::AvailabilityCheck)?,
+                    )
+                } else {
+                    MaybeAvailableBlock::AvailabilityPending {
+                        block_root: from.block_root,
+                        block,
+                    }
+                };
+                Ok(Self {
+                    block: maybe_available,
                     block_root: from.block_root,
-                    block,
-                },
-                block_root: from.block_root,
-                parent: Some(parent),
-                consensus_context,
-            }),
+                    parent: Some(parent),
+                    consensus_context,
+                })
+            }
             Err(_) => Err(BlockError::InvalidSignature(
                 InvalidSignature::BlockBodySignatures,
             )),
@@ -1413,26 +1421,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             &parent.pre_state,
             notify_execution_layer,
         )?;
-        let is_valid_merge_transition_block =
-            is_merge_transition_block(&parent.pre_state, block.message().body());
-
         let payload_verification_future = async move {
             let chain = payload_notifier.chain.clone();
             let block = payload_notifier.block.clone();
-
-            // If this block triggers the merge, check to ensure that it references valid execution
-            // blocks.
-            //
-            // The specification defines this check inside `on_block` in the fork-choice specification,
-            // however we perform the check here for two reasons:
-            //
-            // - There's no point in importing a block that will fail fork choice, so it's best to fail
-            //   early.
-            // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
-            //   calls to remote servers.
-            if is_valid_merge_transition_block {
-                validate_merge_block(&chain, block.message(), AllowOptimisticImport::Yes).await?;
-            };
 
             // The specification declares that this should be run *inside* `per_block_processing`,
             // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
@@ -1448,7 +1439,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
             Ok(PayloadVerificationOutcome {
                 payload_verification_status,
-                is_valid_merge_transition_block,
             })
         };
         // Spawn the payload verification future as a new task, but don't wait for it to complete.

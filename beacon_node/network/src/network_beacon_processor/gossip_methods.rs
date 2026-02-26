@@ -1356,7 +1356,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
             | Err(e @ BlockError::GenesisBlock)
-            | Err(e @ BlockError::InvalidBlobCount { .. }) => {
+            | Err(e @ BlockError::InvalidBlobCount { .. })
+            | Err(e @ BlockError::BidParentRootMismatch { .. }) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -1490,19 +1491,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
-        let publish_blobs = true;
-        let self_clone = self.clone();
-        let block_clone = block.clone();
-        let current_span = Span::current();
-        self.executor.spawn(
-            async move {
-                self_clone
-                    .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
-                    .await
-            }
-            .instrument(current_span),
-            "fetch_blobs_gossip",
-        );
+        // TODO(gloas) we'll want to use this same optimization, but we need to refactor the
+        // `fetch_and_process_engine_blobs` flow to support gloas.
+        if !block.fork_name_unchecked().gloas_enabled() {
+            let publish_blobs = true;
+            let self_clone = self.clone();
+            let block_clone = block.clone();
+            let current_span = Span::current();
+            self.executor.spawn(
+                async move {
+                    self_clone
+                        .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
+                        .await
+                }
+                .instrument(current_span),
+                "fetch_blobs_gossip",
+            );
+        }
 
         let result = self
             .chain
