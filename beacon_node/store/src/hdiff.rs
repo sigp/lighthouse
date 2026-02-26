@@ -662,18 +662,14 @@ impl HierarchyModuli {
         &self,
         slot: Slot,
         start_slot: Slot,
-        payload_status: StatePayloadStatus,
+        _payload_status: StatePayloadStatus,
     ) -> Result<StorageStrategy, Error> {
-        // Store all Full states by replaying from their respective Pending state at the same slot.
-        // Make an exception for the genesis state, which "counts as" Full by virtue of having 0x0
-        // in both `latest_block_hash` and `latest_execution_payload_bid.block_hash`.
-        if let StatePayloadStatus::Full = payload_status
-            && slot >= start_slot
-            && slot != 0
-        {
-            return Ok(StorageStrategy::ReplayFrom(slot));
-        }
-
+        // FIXME(sproul): Reverted the idea of using different storage strategies for full and
+        // pending states, this has the consequence of storing double diffs and double snapshots
+        // at full slots. The complexity of managing skipped slots was the main impetus for
+        // reverting the payload-status sensitive design: a Full skipped slot has no same-slot
+        // Pending state to replay from, so has to be handled differently from Full non-skipped
+        // slots.
         match slot.cmp(&start_slot) {
             Ordering::Less => return Err(Error::LessThanStart(slot, start_slot)),
             Ordering::Equal => return Ok(StorageStrategy::Snapshot),

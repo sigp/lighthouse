@@ -5440,26 +5440,66 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
 
 /// Test basic Gloas block + envelope storage and retrieval.
 #[tokio::test]
-async fn test_gloas_block_and_envelope_storage() {
+async fn test_gloas_block_and_envelope_storage_no_skips() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![], false).await
+}
+
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage_some_skips() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![2, 4, 5, 16, 23, 24, 25], false).await
+}
+
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage_no_skips_w_cache() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![], true).await
+}
+
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage_some_skips_w_cache() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![2, 4, 5, 16, 23, 24, 25], true).await
+}
+
+async fn test_gloas_block_and_envelope_storage_generic(
+    num_slots: u64,
+    skipped_slots: Vec<u64>,
+    use_state_cache: bool,
+) {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
 
     let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
+    let store_config = if !use_state_cache {
+        StoreConfig {
+            state_cache_size: new_non_zero_usize(1),
+            ..StoreConfig::default()
+        }
+    } else {
+        StoreConfig::default()
+    };
+    let spec = test_spec::<E>();
+    let store = get_store_generic(&db_path, store_config, spec);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let spec = &harness.chain.spec;
 
-    let num_blocks = 8u64;
-    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
     let mut state = genesis_state;
 
     let mut block_roots = vec![];
-    let mut pending_state_roots = vec![];
-    let mut full_state_roots = vec![];
+    let mut stored_states = vec![(Slot::new(0), StatePayloadStatus::Full, genesis_state_root)];
 
-    for i in 1..=num_blocks {
+    for i in 1..=num_slots {
         let slot = Slot::new(i);
         harness.advance_slot();
+
+        if skipped_slots.contains(&i) {
+            complete_state_advance(&mut state, None, slot, spec)
+                .expect("should be able to advance state to slot");
+
+            let state_root = state.canonical_root().unwrap();
+            store.put_state(&state_root, &state).unwrap();
+            stored_states.push((slot, state.payload_status(), state_root));
+        }
 
         let (block_contents, envelope, mut pending_state) =
             harness.make_block_with_envelope(state, slot).await;
@@ -5472,7 +5512,7 @@ async fn test_gloas_block_and_envelope_storage() {
             .unwrap();
 
         let pending_state_root = pending_state.update_tree_hash_cache().unwrap();
-        pending_state_roots.push(pending_state_root);
+        stored_states.push((slot, StatePayloadStatus::Pending, pending_state_root));
 
         // Process the envelope.
         let envelope = envelope.expect("Gloas block should have envelope");
@@ -5482,13 +5522,13 @@ async fn test_gloas_block_and_envelope_storage() {
             .process_envelope(block_root, envelope, &mut full_state)
             .await;
         assert_eq!(full_state_root, envelope_state_root);
-        full_state_roots.push(full_state_root);
+        stored_states.push((slot, StatePayloadStatus::Full, full_state_root));
 
         block_roots.push(block_root);
         state = full_state;
     }
 
-    // Verify storage.
+    // Verify block storage.
     for (i, block_root) in block_roots.iter().enumerate() {
         // Block can be loaded.
         assert!(
@@ -5504,41 +5544,28 @@ async fn test_gloas_block_and_envelope_storage() {
             "envelope at slot {} should be in DB",
             i + 1
         );
+    }
 
-        // Pending state can be loaded.
-        let pending_state_root = pending_state_roots[i];
-        let loaded_pending_state = store
-            .get_state(&pending_state_root, None, CACHE_STATE_IN_TESTS)
-            .unwrap();
-        assert!(
-            loaded_pending_state.is_some(),
-            "pending state at slot {} should be in DB",
-            i + 1
-        );
-        let loaded_pending_state = loaded_pending_state.unwrap();
+    // Verify state storage.
+    // Iterate in reverse order to frustrate the cache.
+    for (slot, payload_status, state_root) in stored_states.into_iter().rev() {
+        println!("{slot}: {state_root:?}");
+        let Some(mut loaded_state) = store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+        else {
+            panic!("missing {payload_status:?} state at slot {slot} with root {state_root:?}");
+        };
+        assert_eq!(loaded_state.slot(), slot);
         assert_eq!(
-            loaded_pending_state.payload_status_with_skipped_pending(),
-            StatePayloadStatus::Pending,
-            "loaded pending state at slot {} should have Pending status",
-            i + 1
+            loaded_state.payload_status(),
+            payload_status,
+            "slot = {slot}"
         );
-
-        // Full state can be loaded.
-        let full_state_root = full_state_roots[i];
-        let loaded_full_state = store
-            .get_state(&full_state_root, None, CACHE_STATE_IN_TESTS)
-            .unwrap();
-        assert!(
-            loaded_full_state.is_some(),
-            "full state at slot {} should be in DB",
-            i + 1
-        );
-        let loaded_full_state = loaded_full_state.unwrap();
         assert_eq!(
-            loaded_full_state.payload_status_with_skipped_pending(),
-            StatePayloadStatus::Full,
-            "loaded full state at slot {} should have Full status",
-            i + 1
+            loaded_state.canonical_root().unwrap(),
+            state_root,
+            "slot = {slot}"
         );
     }
 }
@@ -5574,7 +5601,7 @@ async fn test_gloas_state_payload_status() {
 
         // Verify the pending state has correct payload status.
         assert_eq!(
-            pending_state.payload_status_with_skipped_pending(),
+            pending_state.payload_status(),
             StatePayloadStatus::Pending,
             "pending state at slot {} should be Pending",
             i
@@ -5588,7 +5615,7 @@ async fn test_gloas_state_payload_status() {
             .await;
 
         assert_eq!(
-            full_state.payload_status_with_skipped_pending(),
+            full_state.payload_status(),
             StatePayloadStatus::Full,
             "full state at slot {} should be Full",
             i
@@ -5600,7 +5627,7 @@ async fn test_gloas_state_payload_status() {
             .unwrap()
             .expect("full state should exist in DB");
         assert_eq!(
-            loaded_full.payload_status_with_skipped_pending(),
+            loaded_full.payload_status(),
             StatePayloadStatus::Full,
             "loaded full state at slot {} should be Full after round-trip",
             i
