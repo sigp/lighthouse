@@ -492,8 +492,18 @@ fn main() {
                         .long("jwt-output-path")
                         .value_name("PATH")
                         .action(ArgAction::Set)
-                        .required(true)
+                        .required_unless_present("jwt-secret-path")
+                        .conflicts_with("jwt-secret-path")
                         .help("Path to write the JWT secret.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("jwt-secret-path")
+                        .long("jwt-secret-path")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .help("Path to an existing hex-encoded JWT secret file. \
+                            When provided, this secret is used instead of the default.")
                         .display_order(0)
                 )
                 .arg(

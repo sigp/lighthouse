@@ -29,6 +29,10 @@ pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
 pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
 pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
+pub const EXECUTION_PAYLOAD: &str = "execution_payload";
+pub const EXECUTION_PAYLOAD_BID: &str = "execution_payload_bid";
+pub const PAYLOAD_ATTESTATION: &str = "payload_attestation_message";
+pub const PROPOSER_PREFERENCES: &str = "proposer_preferences";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
@@ -91,6 +95,13 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
+    if fork_name.gloas_enabled() {
+        topics.push(GossipKind::ExecutionPayload);
+        topics.push(GossipKind::ExecutionPayloadBid);
+        topics.push(GossipKind::PayloadAttestation);
+        topics.push(GossipKind::ProposerPreferences);
+    }
+
     topics
 }
 
@@ -114,6 +125,10 @@ pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool
         | GossipKind::AttesterSlashing
         | GossipKind::SignedContributionAndProof
         | GossipKind::BlsToExecutionChange
+        | GossipKind::ExecutionPayload
+        | GossipKind::ExecutionPayloadBid
+        | GossipKind::PayloadAttestation
+        | GossipKind::ProposerPreferences
         | GossipKind::LightClientFinalityUpdate
         | GossipKind::LightClientOptimisticUpdate => false,
     }
@@ -171,6 +186,14 @@ pub enum GossipKind {
     SyncCommitteeMessage(SyncSubnetId),
     /// Topic for validator messages which change their withdrawal address.
     BlsToExecutionChange,
+    /// Topic for signed execution payload envelopes.
+    ExecutionPayload,
+    /// Topic for payload attestation messages.
+    PayloadAttestation,
+    /// Topic for signed execution payload bids.
+    ExecutionPayloadBid,
+    /// Topic for signed proposer preferences.
+    ProposerPreferences,
     /// Topic for publishing finality updates for light clients.
     LightClientFinalityUpdate,
     /// Topic for publishing optimistic updates for light clients.
@@ -255,6 +278,10 @@ impl GossipTopic {
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
                 BLS_TO_EXECUTION_CHANGE_TOPIC => GossipKind::BlsToExecutionChange,
+                EXECUTION_PAYLOAD => GossipKind::ExecutionPayload,
+                EXECUTION_PAYLOAD_BID => GossipKind::ExecutionPayloadBid,
+                PAYLOAD_ATTESTATION => GossipKind::PayloadAttestation,
+                PROPOSER_PREFERENCES => GossipKind::ProposerPreferences,
                 LIGHT_CLIENT_FINALITY_UPDATE => GossipKind::LightClientFinalityUpdate,
                 LIGHT_CLIENT_OPTIMISTIC_UPDATE => GossipKind::LightClientOptimisticUpdate,
                 topic => match subnet_topic_index(topic) {
@@ -320,6 +347,10 @@ impl std::fmt::Display for GossipTopic {
                 format!("{}{}", DATA_COLUMN_SIDECAR_PREFIX, *column_subnet_id)
             }
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
+            GossipKind::ExecutionPayload => EXECUTION_PAYLOAD.into(),
+            GossipKind::PayloadAttestation => PAYLOAD_ATTESTATION.into(),
+            GossipKind::ExecutionPayloadBid => EXECUTION_PAYLOAD_BID.into(),
+            GossipKind::ProposerPreferences => PROPOSER_PREFERENCES.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
         };

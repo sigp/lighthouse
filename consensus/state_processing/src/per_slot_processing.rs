@@ -14,11 +14,18 @@ pub enum Error {
     EpochProcessingError(EpochProcessingError),
     ArithError(ArithError),
     InconsistentStateFork(InconsistentFork),
+    BitfieldError(ssz::BitfieldError),
 }
 
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Self::ArithError(e)
+    }
+}
+
+impl From<ssz::BitfieldError> for Error {
+    fn from(e: ssz::BitfieldError) -> Self {
+        Self::BitfieldError(e)
     }
 }
 
@@ -47,6 +54,18 @@ pub fn per_slot_processing<E: EthSpec>(
     } else {
         None
     };
+
+    // Unset the next payload availability
+    if state.fork_name_unchecked().gloas_enabled() {
+        let next_slot_index = state
+            .slot()
+            .as_usize()
+            .safe_add(1)?
+            .safe_rem(E::slots_per_historical_root())?;
+        state
+            .execution_payload_availability_mut()?
+            .set(next_slot_index, false)?;
+    }
 
     state.slot_mut().safe_add_assign(1)?;
 
