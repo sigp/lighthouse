@@ -32,6 +32,7 @@ operation_pool = { workspace = true }
 parking_lot = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
+reqwest = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
@@ -54,7 +55,6 @@ warp_utils = { workspace = true }
 genesis = { workspace = true }
 proto_array = { workspace = true }
 regex = { workspace = true }
-reqwest = { workspace = true }
 oas3 = { version = "0.20.1", features = ["yaml-spec"] }
 
 [[test]]

@@ -4195,7 +4195,6 @@ dependencies = [
  "bytes",
  "context_deserialize",
  "directory",
- "either",
  "eth2",
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -4212,10 +4211,12 @@ dependencies = [
  "metrics",
  "network",
  "network_utils",
+ "oas3",
  "operation_pool",
  "parking_lot",
  "proto_array",
  "rand 0.9.2",
+ "regex",
  "reqwest",
  "safe_arith",
  "sensitive_url",
@@ -6308,6 +6309,24 @@ dependencies = [
  "ruint",
  "serde",
  "smallvec",
+]
+
+[[package]]
+name = "oas3"
+version = "0.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16f67c885c7b19aaf652e84102035258ecb4e0425a4f71037e187798e367bd87"
+dependencies = [
+ "derive_more 2.1.0",
+ "http 1.4.0",
+ "log",
+ "once_cell",
+ "regex",
+ "semver 1.0.27",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "url",
 ]
 
 [[package]]
