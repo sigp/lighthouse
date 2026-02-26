@@ -196,6 +196,13 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
             Some(metadata) => {
                 let peer_metadata = PartialDataColumnPartsMetadata::<E>::from_ssz_bytes(metadata)
                     .map_err(|_| PartialError::InvalidFormat)?;
+                let expected_len = self.partial_column.sidecar.cells_present_bitmap.len();
+                if peer_metadata.available.len() != expected_len
+                    || peer_metadata.request.len() != expected_len
+                {
+                    return Err(PartialError::InvalidFormat);
+                }
+
                 let need = !peer_metadata
                     .available
                     .is_subset(&self.partial_column.sidecar.cells_present_bitmap);
@@ -204,7 +211,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                 let send = self
                     .partial_column
                     .sidecar
-                    .with_missing_cells(&want)
+                    .clone_filter(|idx| want.get(idx).expect("Bound checked above"))
                     .map(|sidecar| {
                         debug!(
                             peer=%peer_id,

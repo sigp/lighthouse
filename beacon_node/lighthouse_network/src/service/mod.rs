@@ -36,7 +36,6 @@ use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use network_utils::enr_ext::EnrExt;
-use ssz::Decode;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -44,8 +43,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 use types::{
-    CellBitmap, ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName,
-    PartialDataColumn, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
+    Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -1395,7 +1394,7 @@ impl<E: EthSpec> Network<E> {
                 peer_id,
                 group_id,
                 message,
-                metadata,
+                ..
             } => {
                 let topic = GossipTopic::decode(topic_hash.as_str())
                     .inspect_err(|error| {
@@ -1406,17 +1405,6 @@ impl<E: EthSpec> Network<E> {
                         );
                     })
                     .ok()?;
-
-                // TODO(dknopik): Remove as soon as partial messages stable?
-                if let Some(metadata) = metadata {
-                    if let Ok(metadata) = CellBitmap::<E>::from_ssz_bytes(&metadata) {
-                        debug!(%metadata, %topic, %peer_id, "Got metadata")
-                    } else {
-                        warn!(?metadata, %topic, %peer_id, "Got weird metadata");
-                    }
-                } else {
-                    debug!(%peer_id, "Got no metadata")
-                }
 
                 if let Some(message) = message {
                     match decode_partial::<E>(&topic, &group_id, &message) {
@@ -1435,6 +1423,7 @@ impl<E: EthSpec> Network<E> {
                                 block_root = %column.block_root,
                                 index = column.index,
                                 %peer_id,
+                                cells_present = %column.sidecar.cells_present_bitmap,
                                 "Decoded partial message"
                             );
                             // Notify the network

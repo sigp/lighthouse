@@ -73,13 +73,6 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
         self.cells_present_bitmap.iter().all(|bit| bit)
     }
 
-    pub fn with_missing_cells(&self, bitmap: &CellBitmap<E>) -> Option<Self> {
-        if self.cells_present_bitmap.len() != bitmap.len() {
-            return None;
-        }
-        self.clone_filter(|idx| !bitmap.get(idx).expect("Bounds checked above"))
-    }
-
     /// Creates a new partial data column sidecar containing only the blob indices for which the
     /// passed closure returns `true` and were present in `self`. Will return `None` if there is no
     /// overlap.
