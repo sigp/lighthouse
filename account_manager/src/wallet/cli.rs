@@ -7,6 +7,7 @@ use super::create::validate_mnemonic_length;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Manage wallets, from which validator keys can be derived.")]
+#[command(next_display_order = None)]
 pub struct Wallet {
     #[clap(
         long,
@@ -28,6 +29,7 @@ pub enum WalletSubcommand {
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")]
+#[command(next_display_order = None)]
 pub struct Create {
     #[clap(
         long,
@@ -80,6 +82,7 @@ pub struct List {}
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")]
+#[command(next_display_order = None)]
 pub struct Recover {
     #[clap(
         long,
