@@ -1138,9 +1138,7 @@ where
             && indexed_attestation.data().slot == block.slot
             && indexed_attestation.data().index != 0
         {
-            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot {
-                slot: block.slot,
-            });
+            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot { slot: block.slot });
         }
 
         Ok(())
