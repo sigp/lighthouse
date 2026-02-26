@@ -18,7 +18,9 @@
     </spec>
 
 - name: add_builder_to_registry#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn add_builder_to_registry(
   spec: |
     <spec fn="add_builder_to_registry" fork="gloas" hash="cd0414c9">
     def add_builder_to_registry(
@@ -190,7 +192,9 @@
     </spec>
 
 - name: apply_deposit_for_builder#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
+      search: pub fn apply_deposit_for_builder<
   spec: |
     <spec fn="apply_deposit_for_builder" fork="gloas" hash="e4bc98c7">
     def apply_deposit_for_builder(
@@ -267,7 +271,9 @@
     </spec>
 
 - name: apply_withdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn apply_withdrawals<
   spec: |
     <spec fn="apply_withdrawals" fork="gloas" hash="4231861d">
     def apply_withdrawals(state: BeaconState, withdrawals: Sequence[Withdrawal]) -> None:
@@ -523,7 +529,9 @@
     </spec>
 
 - name: can_builder_cover_bid#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing.rs
+      search: pub fn can_builder_cover_bid<
   spec: |
     <spec fn="can_builder_cover_bid" fork="gloas" hash="9e3f2d7c">
     def can_builder_cover_bid(
@@ -576,7 +584,9 @@
     </spec>
 
 - name: compute_balance_weighted_acceptance#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: fn compute_balance_weighted_acceptance(
   spec: |
     <spec fn="compute_balance_weighted_acceptance" fork="gloas" hash="9954dcd0">
     def compute_balance_weighted_acceptance(
@@ -595,7 +605,9 @@
     </spec>
 
 - name: compute_balance_weighted_selection#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: fn compute_balance_weighted_selection(
   spec: |
     <spec fn="compute_balance_weighted_selection" fork="gloas" hash="2c9f1c23">
     def compute_balance_weighted_selection(
@@ -1349,7 +1361,9 @@
     </spec>
 
 - name: compute_proposer_indices#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: fn compute_proposer_indices(
   spec: |
     <spec fn="compute_proposer_indices" fork="gloas" hash="8aed10df">
     def compute_proposer_indices(
@@ -1775,7 +1789,9 @@
     </spec>
 
 - name: convert_builder_index_to_validator_index#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/builder.rs
+      search: pub fn convert_builder_index_to_validator_index(
   spec: |
     <spec fn="convert_builder_index_to_validator_index" fork="gloas" hash="c416de6c">
     def convert_builder_index_to_validator_index(builder_index: BuilderIndex) -> ValidatorIndex:
@@ -1783,7 +1799,9 @@
     </spec>
 
 - name: convert_validator_index_to_builder_index#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/builder.rs
+      search: pub fn convert_validator_index_to_builder_index(
   spec: |
     <spec fn="convert_validator_index_to_builder_index" fork="gloas" hash="2fea5b47">
     def convert_validator_index_to_builder_index(validator_index: ValidatorIndex) -> BuilderIndex:
@@ -2548,7 +2566,9 @@
     </spec>
 
 - name: get_attestation_participation_flag_indices#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/common/get_attestation_participation.rs
+      search: pub fn get_attestation_participation_flag_indices<
   spec: |
     <spec fn="get_attestation_participation_flag_indices" fork="gloas" hash="aeb30d51">
     def get_attestation_participation_flag_indices(
@@ -2944,7 +2964,9 @@
     </spec>
 
 - name: get_builder_payment_quorum_threshold#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/single_pass.rs
+      search: fn get_builder_payment_quorum_threshold<
   spec: |
     <spec fn="get_builder_payment_quorum_threshold" fork="gloas" hash="a64b7ffb">
     def get_builder_payment_quorum_threshold(state: BeaconState) -> uint64:
@@ -2957,7 +2979,9 @@
     </spec>
 
 - name: get_builder_withdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_builder_withdrawals<
   spec: |
     <spec fn="get_builder_withdrawals" fork="gloas" hash="d54dd146">
     def get_builder_withdrawals(
@@ -2992,7 +3016,9 @@
     </spec>
 
 - name: get_builders_sweep_withdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_builders_sweep_withdrawals<
   spec: |
     <spec fn="get_builders_sweep_withdrawals" fork="gloas" hash="04c1cb10">
     def get_builders_sweep_withdrawals(
@@ -4049,7 +4075,9 @@
     </spec>
 
 - name: get_index_for_new_builder#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn get_index_for_new_builder(
   spec: |
     <spec fn="get_index_for_new_builder" fork="gloas" hash="82dfbdb5">
     def get_index_for_new_builder(state: BeaconState) -> BuilderIndex:
@@ -4091,7 +4119,9 @@
     </spec>
 
 - name: get_indexed_payload_attestation#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/common/get_payload_attesting_indices.rs
+      search: pub fn get_indexed_payload_attestation<
   spec: |
     <spec fn="get_indexed_payload_attestation" fork="gloas" hash="0e516ffb">
     def get_indexed_payload_attestation(
@@ -4358,7 +4388,9 @@
     </spec>
 
 - name: get_next_sync_committee_indices#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: fn get_next_sync_committee_indices(
   spec: |
     <spec fn="get_next_sync_committee_indices" fork="gloas" hash="4078cd19">
     def get_next_sync_committee_indices(state: BeaconState) -> Sequence[ValidatorIndex]:
@@ -4460,7 +4492,9 @@
     </spec>
 
 - name: get_pending_balance_to_withdraw#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn get_pending_balance_to_withdraw(
   spec: |
     <spec fn="get_pending_balance_to_withdraw" fork="gloas" hash="3960d28f">
     def get_pending_balance_to_withdraw(state: BeaconState, validator_index: ValidatorIndex) -> Gwei:
@@ -4472,7 +4506,9 @@
     </spec>
 
 - name: get_pending_balance_to_withdraw_for_builder#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn get_pending_balance_to_withdraw_for_builder(
   spec: |
     <spec fn="get_pending_balance_to_withdraw_for_builder" fork="gloas" hash="a5d10dc1">
     def get_pending_balance_to_withdraw_for_builder(
@@ -4669,7 +4705,9 @@
     </spec>
 
 - name: get_ptc#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn get_ptc(
   spec: |
     <spec fn="get_ptc" fork="gloas" hash="ae15f761">
     def get_ptc(state: BeaconState, slot: Slot) -> Vector[ValidatorIndex, PTC_SIZE]:
@@ -5289,7 +5327,9 @@
     </spec>
 
 - name: has_compounding_withdrawal_credential#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/validator/validator.rs
+      search: pub fn has_compounding_withdrawal_credential(
   spec: |
     <spec fn="has_compounding_withdrawal_credential" fork="gloas" hash="a83f0327">
     def has_compounding_withdrawal_credential(validator: Validator) -> bool:
@@ -5572,7 +5612,9 @@
     </spec>
 
 - name: is_active_builder#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/builder/builder.rs
+      search: pub fn is_active_at_finalized_epoch(
   spec: |
     <spec fn="is_active_builder" fork="gloas" hash="1a599fb2">
     def is_active_builder(state: BeaconState, builder_index: BuilderIndex) -> bool:
@@ -5636,7 +5678,9 @@
     </spec>
 
 - name: is_attestation_same_slot#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn is_attestation_same_slot(
   spec: |
     <spec fn="is_attestation_same_slot" fork="gloas" hash="0a194ce7">
     def is_attestation_same_slot(state: BeaconState, data: AttestationData) -> bool:
@@ -5711,7 +5755,9 @@
     </spec>
 
 - name: is_builder_index#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/builder.rs
+      search: pub fn is_builder_index(
   spec: |
     <spec fn="is_builder_index" fork="gloas" hash="2fbd46e9">
     def is_builder_index(validator_index: ValidatorIndex) -> bool:
@@ -5719,7 +5765,9 @@
     </spec>
 
 - name: is_builder_withdrawal_credential#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/validator/validator.rs
+      search: pub fn is_builder_withdrawal_credential(
   spec: |
     <spec fn="is_builder_withdrawal_credential" fork="gloas" hash="2ae5294b">
     def is_builder_withdrawal_credential(withdrawal_credentials: Bytes32) -> bool:
@@ -6078,7 +6126,9 @@
     </spec>
 
 - name: is_parent_block_full#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn is_parent_block_full(
   spec: |
     <spec fn="is_parent_block_full" fork="gloas" hash="b59640c9">
     def is_parent_block_full(state: BeaconState) -> bool:
@@ -6374,7 +6424,9 @@
     </spec>
 
 - name: is_valid_indexed_payload_attestation#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/is_valid_indexed_payload_attestation.rs
+      search: pub fn is_valid_indexed_payload_attestation<
   spec: |
     <spec fn="is_valid_indexed_payload_attestation" fork="gloas" hash="d76e0f89">
     def is_valid_indexed_payload_attestation(
@@ -7184,7 +7236,9 @@
     </spec>
 
 - name: onboard_builders_from_pending_deposits#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/upgrade/gloas.rs
+      search: fn onboard_builders_from_pending_deposits<
   spec: |
     <spec fn="onboard_builders_from_pending_deposits" fork="gloas" hash="2bd662c7">
     def onboard_builders_from_pending_deposits(state: BeaconState) -> None:
@@ -7399,7 +7453,9 @@
     </spec>
 
 - name: prepare_execution_payload#gloas
-  sources: []
+  sources:
+    - file: beacon_node/beacon_chain/src/block_production/gloas.rs
+      search: async fn prepare_execution_payload<
   spec: |
     <spec fn="prepare_execution_payload" fork="gloas" hash="f3047927">
     def prepare_execution_payload(
@@ -7621,7 +7677,10 @@
     </spec>
 
 - name: process_attestation#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
+      search: 'pub mod gloas.*\n(?:.*\n)*?.*pub fn process_attestation<E: EthSpec>'
+      regex: true
   spec: |
     <spec fn="process_attestation" fork="gloas" hash="2258b5bb">
     def process_attestation(state: BeaconState, attestation: Attestation) -> None:
@@ -7816,7 +7875,9 @@
     </spec>
 
 - name: process_block#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing.rs
+      search: pub fn per_block_processing<
   spec: |
     <spec fn="process_block" fork="gloas" hash="cc0f05ee">
     def process_block(state: BeaconState, block: BeaconBlock) -> None:
@@ -7894,7 +7955,9 @@
     </spec>
 
 - name: process_builder_pending_payments#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/single_pass.rs
+      search: fn process_builder_pending_payments<
   spec: |
     <spec fn="process_builder_pending_payments" fork="gloas" hash="10da48dd">
     def process_builder_pending_payments(state: BeaconState) -> None:
@@ -8288,7 +8351,9 @@
     </spec>
 
 - name: process_epoch#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing.rs
+      search: pub fn process_epoch<
   spec: |
     <spec fn="process_epoch" fork="gloas" hash="393b69ef">
     def process_epoch(state: BeaconState) -> None:
@@ -8606,7 +8671,9 @@
     </spec>
 
 - name: process_execution_payload#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/envelope_processing.rs
+      search: pub fn process_execution_payload_envelope<
   spec: |
     <spec fn="process_execution_payload" fork="gloas" hash="36bd3af3">
     def process_execution_payload(
@@ -8694,7 +8761,9 @@
     </spec>
 
 - name: process_execution_payload_bid#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing.rs
+      search: pub fn process_execution_payload_bid<
   spec: |
     <spec fn="process_execution_payload_bid" fork="gloas" hash="823c9f3a">
     def process_execution_payload_bid(state: BeaconState, block: BeaconBlock) -> None:
@@ -9055,7 +9124,9 @@
     </spec>
 
 - name: process_operations#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
+      search: pub fn process_operations<
   spec: |
     <spec fn="process_operations" fork="gloas" hash="05a7a4ea">
     def process_operations(state: BeaconState, body: BeaconBlockBody) -> None:
@@ -9119,7 +9190,9 @@
     </spec>
 
 - name: process_payload_attestation#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
+      search: pub fn process_payload_attestation<
   spec: |
     <spec fn="process_payload_attestation" fork="gloas" hash="f46bf0b0">
     def process_payload_attestation(
@@ -9285,7 +9358,9 @@
     </spec>
 
 - name: process_proposer_slashing#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
+      search: pub fn process_proposer_slashings<
   spec: |
     <spec fn="process_proposer_slashing" fork="gloas" hash="10bda1c5">
     def process_proposer_slashing(state: BeaconState, proposer_slashing: ProposerSlashing) -> None:
@@ -9627,7 +9702,9 @@
     </spec>
 
 - name: process_slot#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_slot_processing.rs
+      search: pub fn per_slot_processing<
   spec: |
     <spec fn="process_slot" fork="gloas" hash="976fd16f">
     def process_slot(state: BeaconState) -> None:
@@ -9769,8 +9846,8 @@
 
 - name: process_voluntary_exit#phase0
   sources:
-    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
-      search: pub fn process_exits<
+    - file: consensus/state_processing/src/per_block_processing/verify_exit.rs
+      search: pub fn verify_exit<
   spec: |
     <spec fn="process_voluntary_exit" fork="phase0" hash="d867310e">
     def process_voluntary_exit(state: BeaconState, signed_voluntary_exit: SignedVoluntaryExit) -> None:
@@ -9793,7 +9870,9 @@
     </spec>
 
 - name: process_voluntary_exit#deneb
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/verify_exit.rs
+      search: pub fn verify_exit<
   spec: |
     <spec fn="process_voluntary_exit" fork="deneb" hash="f97fd167">
     def process_voluntary_exit(state: BeaconState, signed_voluntary_exit: SignedVoluntaryExit) -> None:
@@ -9819,7 +9898,9 @@
     </spec>
 
 - name: process_voluntary_exit#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/verify_exit.rs
+      search: pub fn verify_exit<
   spec: |
     <spec fn="process_voluntary_exit" fork="electra" hash="51b07d36">
     def process_voluntary_exit(state: BeaconState, signed_voluntary_exit: SignedVoluntaryExit) -> None:
@@ -10630,7 +10711,9 @@
     </spec>
 
 - name: update_builder_pending_withdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: fn update_builder_pending_withdrawals<
   spec: |
     <spec fn="update_builder_pending_withdrawals" fork="gloas" hash="0cbba9bd">
     def update_builder_pending_withdrawals(
@@ -10700,7 +10783,9 @@
     </spec>
 
 - name: update_next_withdrawal_builder_index#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: fn update_next_withdrawal_builder_index<
   spec: |
     <spec fn="update_next_withdrawal_builder_index" fork="gloas" hash="652c72b5">
     def update_next_withdrawal_builder_index(
@@ -10746,7 +10831,9 @@
     </spec>
 
 - name: update_payload_expected_withdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: fn update_payload_expected_withdrawals<
   spec: |
     <spec fn="update_payload_expected_withdrawals" fork="gloas" hash="6a3810b9">
     def update_payload_expected_withdrawals(
@@ -11525,7 +11612,9 @@
     </spec>
 
 - name: upgrade_to_gloas#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/upgrade/gloas.rs
+      search: pub fn upgrade_to_gloas<
   spec: |
     <spec fn="upgrade_to_gloas" fork="gloas" hash="6e66df25">
     def upgrade_to_gloas(pre: fulu.BeaconState) -> BeaconState:
@@ -12154,7 +12243,9 @@
     </spec>
 
 - name: verify_data_column_sidecar#gloas
-  sources: []
+  sources:
+    - file: beacon_node/beacon_chain/src/data_column_verification.rs
+      search: fn verify_data_column_sidecar<
   spec: |
     <spec fn="verify_data_column_sidecar" fork="gloas" hash="71548b68">
     def verify_data_column_sidecar(

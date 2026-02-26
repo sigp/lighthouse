@@ -60,21 +60,30 @@
     </spec>
 
 - name: BUILDER_PAYMENT_THRESHOLD_DENOMINATOR#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: 'pub fn mainnet\(\).*\n(?:.*\n)*?.*builder_payment_threshold_denominator:'
+      regex: true
   spec: |
     <spec constant_var="BUILDER_PAYMENT_THRESHOLD_DENOMINATOR" fork="gloas" hash="2b5e020f">
     BUILDER_PAYMENT_THRESHOLD_DENOMINATOR: uint64 = 10
     </spec>
 
 - name: BUILDER_PAYMENT_THRESHOLD_NUMERATOR#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: 'pub fn mainnet\(\).*\n(?:.*\n)*?.*builder_payment_threshold_numerator:'
+      regex: true
   spec: |
     <spec constant_var="BUILDER_PAYMENT_THRESHOLD_NUMERATOR" fork="gloas" hash="f7d031d3">
     BUILDER_PAYMENT_THRESHOLD_NUMERATOR: uint64 = 6
     </spec>
 
 - name: BUILDER_WITHDRAWAL_PREFIX#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/chain_spec.rs
+      search: 'pub fn mainnet\(\).*\n(?:.*\n)*?.*builder_withdrawal_prefix_byte:'
+      regex: true
   spec: |
     <spec constant_var="BUILDER_WITHDRAWAL_PREFIX" fork="gloas" hash="1094ce21">
     BUILDER_WITHDRAWAL_PREFIX: Bytes1 = '0x03'
@@ -435,21 +444,27 @@
     </spec>
 
 - name: PAYLOAD_STATUS_EMPTY#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const PAYLOAD_STATUS_EMPTY:
   spec: |
     <spec constant_var="PAYLOAD_STATUS_EMPTY" fork="gloas" hash="b78dfbcf">
     PAYLOAD_STATUS_EMPTY: PayloadStatus = 1
     </spec>
 
 - name: PAYLOAD_STATUS_FULL#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const PAYLOAD_STATUS_FULL:
   spec: |
     <spec constant_var="PAYLOAD_STATUS_FULL" fork="gloas" hash="82f773dc">
     PAYLOAD_STATUS_FULL: PayloadStatus = 2
     </spec>
 
 - name: PAYLOAD_STATUS_PENDING#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const PAYLOAD_STATUS_PENDING:
   spec: |
     <spec constant_var="PAYLOAD_STATUS_PENDING" fork="gloas" hash="640761d7">
     PAYLOAD_STATUS_PENDING: PayloadStatus = 0

@@ -11,7 +11,9 @@
     </spec>
 
 - name: AGGREGATE_DUE_BPS_GLOAS#gloas
-  sources: []
+  sources:
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: AGGREGATE_DUE_BPS_GLOAS:
   spec: |
     <spec config_var="AGGREGATE_DUE_BPS_GLOAS" fork="gloas" hash="34aa3164">
     AGGREGATE_DUE_BPS_GLOAS: uint64 = 5000
@@ -55,7 +57,9 @@
     </spec>
 
 - name: ATTESTATION_DUE_BPS_GLOAS#gloas
-  sources: []
+  sources:
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ATTESTATION_DUE_BPS_GLOAS:
   spec: |
     <spec config_var="ATTESTATION_DUE_BPS_GLOAS" fork="gloas" hash="3863c1ef">
     ATTESTATION_DUE_BPS_GLOAS: uint64 = 2500
@@ -236,7 +240,9 @@
     </spec>
 
 - name: CONTRIBUTION_DUE_BPS_GLOAS#gloas
-  sources: []
+  sources:
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: CONTRIBUTION_DUE_BPS_GLOAS:
   spec: |
     <spec config_var="CONTRIBUTION_DUE_BPS_GLOAS" fork="gloas" hash="0ead2ac1">
     CONTRIBUTION_DUE_BPS_GLOAS: uint64 = 5000
@@ -578,7 +584,9 @@
     </spec>
 
 - name: MAX_REQUEST_PAYLOADS#gloas
-  sources: []
+  sources:
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_REQUEST_PAYLOADS:
   spec: |
     <spec config_var="MAX_REQUEST_PAYLOADS" fork="gloas" hash="23399ee5">
     MAX_REQUEST_PAYLOADS = 128
@@ -726,7 +734,9 @@
     </spec>
 
 - name: PAYLOAD_ATTESTATION_DUE_BPS#gloas
-  sources: []
+  sources:
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: PAYLOAD_ATTESTATION_DUE_BPS:
   spec: |
     <spec config_var="PAYLOAD_ATTESTATION_DUE_BPS" fork="gloas" hash="17307d0e">
     PAYLOAD_ATTESTATION_DUE_BPS: uint64 = 7500
@@ -875,7 +885,9 @@
     </spec>
 
 - name: SYNC_MESSAGE_DUE_BPS_GLOAS#gloas
-  sources: []
+  sources:
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: SYNC_MESSAGE_DUE_BPS_GLOAS:
   spec: |
     <spec config_var="SYNC_MESSAGE_DUE_BPS_GLOAS" fork="gloas" hash="47f14d95">
     SYNC_MESSAGE_DUE_BPS_GLOAS: uint64 = 2500

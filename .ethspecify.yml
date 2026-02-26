@@ -16,15 +16,6 @@ specrefs:
     - specrefs/presets.yml
 
 exceptions:
-  configs:
-    # gloas
-    - AGGREGATE_DUE_BPS_GLOAS#gloas
-    - ATTESTATION_DUE_BPS_GLOAS#gloas
-    - CONTRIBUTION_DUE_BPS_GLOAS#gloas
-    - MAX_REQUEST_PAYLOADS#gloas
-    - PAYLOAD_ATTESTATION_DUE_BPS#gloas
-    - SYNC_MESSAGE_DUE_BPS_GLOAS#gloas
-
   constants:
     # phase0
     - BASIS_POINTS#phase0
@@ -69,14 +60,6 @@ exceptions:
     - RANDOM_CHALLENGE_KZG_CELL_BATCH_DOMAIN#fulu
     - UINT256_MAX#fulu
 
-    # gloas
-    - BUILDER_PAYMENT_THRESHOLD_DENOMINATOR#gloas
-    - BUILDER_PAYMENT_THRESHOLD_NUMERATOR#gloas
-    - BUILDER_WITHDRAWAL_PREFIX#gloas
-    - PAYLOAD_STATUS_EMPTY#gloas
-    - PAYLOAD_STATUS_FULL#gloas
-    - PAYLOAD_STATUS_PENDING#gloas
-
   containers:
     # phase0
     - Eth1Block#phase0
@@ -94,21 +77,8 @@ exceptions:
     - MatrixEntry#fulu
 
     # gloas
-    - BeaconBlockBody#gloas
-    - BeaconState#gloas
-    - DataColumnSidecar#gloas
-    - ExecutionPayloadBid#gloas
-    - ExecutionPayloadEnvelope#gloas
     - ExecutionPayloadHeader#gloas
     - ForkChoiceNode#gloas
-    - IndexedPayloadAttestation#gloas
-    - PayloadAttestation#gloas
-    - PayloadAttestationData#gloas
-    - PayloadAttestationMessage#gloas
-    - ProposerPreferences#gloas
-    - SignedExecutionPayloadBid#gloas
-    - SignedExecutionPayloadEnvelope#gloas
-    - SignedProposerPreferences#gloas
 
   dataclasses:
     # phase0
@@ -128,7 +98,6 @@ exceptions:
     - ExpectedWithdrawals#electra
 
     # gloas
-    - ExpectedWithdrawals#gloas
     - LatestMessage#gloas
     - Store#gloas
 
@@ -338,7 +307,7 @@ exceptions:
     - get_lc_execution_root#deneb
     - get_validator_activation_churn_limit#deneb
     - is_valid_light_client_header#deneb
-    - process_voluntary_exit#deneb
+
     - upgrade_lc_bootstrap_to_deneb#deneb
     - upgrade_lc_finality_update_to_deneb#deneb
     - upgrade_lc_header_to_deneb#deneb
@@ -365,7 +334,7 @@ exceptions:
     - next_sync_committee_gindex_at_slot#electra
     - normalize_merkle_branch#electra
     - process_pending_deposits#electra
-    - process_voluntary_exit#electra
+
     - update_pending_partial_withdrawals#electra
     - upgrade_lc_bootstrap_to_electra#electra
     - upgrade_lc_finality_update_to_electra#electra
@@ -381,94 +350,51 @@ exceptions:
     - get_data_column_sidecars_from_column_sidecar#fulu
 
     # gloas
-    - add_builder_to_registry#gloas
-    - apply_deposit_for_builder#gloas
-    - apply_withdrawals#gloas
-    - can_builder_cover_bid#gloas
-    - compute_balance_weighted_acceptance#gloas
-    - compute_balance_weighted_selection#gloas
-    - compute_proposer_indices#gloas
-    - convert_builder_index_to_validator_index#gloas
-    - convert_validator_index_to_builder_index#gloas
-    - get_aggregate_due_ms#gloas
     - get_ancestor#gloas
+    - get_aggregate_due_ms#gloas
     - get_attestation_due_ms#gloas
-    - get_attestation_participation_flag_indices#gloas
     - get_attestation_score#gloas
-    - get_builder_payment_quorum_threshold#gloas
-    - get_builder_withdrawals#gloas
-    - get_builders_sweep_withdrawals#gloas
     - get_checkpoint_block#gloas
     - get_contribution_due_ms#gloas
+    - get_forkchoice_store#gloas
+    - get_head#gloas
     - get_data_column_sidecars#gloas
     - get_data_column_sidecars_from_block#gloas
     - get_data_column_sidecars_from_column_sidecar#gloas
     - get_execution_payload_bid_signature#gloas
     - get_execution_payload_envelope_signature#gloas
-    - get_forkchoice_store#gloas
-    - get_head#gloas
-    - get_index_for_new_builder#gloas
-    - get_indexed_payload_attestation#gloas
-    - get_next_sync_committee_indices#gloas
     - get_node_children#gloas
     - get_parent_payload_status#gloas
     - get_payload_attestation_due_ms#gloas
     - get_payload_attestation_message_signature#gloas
     - get_payload_status_tiebreaker#gloas
-    - get_pending_balance_to_withdraw#gloas
-    - get_pending_balance_to_withdraw_for_builder#gloas
     - get_proposer_preferences_signature#gloas
-    - get_ptc#gloas
+    - get_weight#gloas
     - get_ptc_assignment#gloas
     - get_sync_message_due_ms#gloas
     - get_upcoming_proposal_slots#gloas
-    - get_weight#gloas
-    - has_compounding_withdrawal_credential#gloas
     - initiate_builder_exit#gloas
-    - is_active_builder#gloas
-    - is_attestation_same_slot#gloas
-    - is_builder_index#gloas
-    - is_builder_withdrawal_credential#gloas
     - is_data_available#gloas
     - is_head_late#gloas
     - is_head_weak#gloas
     - is_merge_transition_complete#gloas
-    - is_parent_block_full#gloas
     - is_parent_node_full#gloas
     - is_parent_strong#gloas
     - is_payload_timely#gloas
     - is_supporting_vote#gloas
-    - is_valid_indexed_payload_attestation#gloas
     - is_valid_proposal_slot#gloas
     - notify_ptc_messages#gloas
     - on_block#gloas
     - on_execution_payload#gloas
-    - on_payload_attestation_message#gloas
-    - onboard_builders_from_pending_deposits#gloas
-    - prepare_execution_payload#gloas
-    - process_attestation#gloas
-    - process_block#gloas
-    - process_builder_pending_payments#gloas
-    - process_epoch#gloas
-    - process_execution_payload#gloas
-    - process_execution_payload_bid#gloas
-    - process_operations#gloas
-    - process_payload_attestation#gloas
-    - process_proposer_slashing#gloas
-    - process_slot#gloas
     - process_voluntary_exit#gloas
+    - on_payload_attestation_message#gloas
     - record_block_timeliness#gloas
     - should_apply_proposer_boost#gloas
     - should_extend_payload#gloas
-    - update_builder_pending_withdrawals#gloas
     - update_latest_messages#gloas
-    - update_next_withdrawal_builder_index#gloas
-    - update_payload_expected_withdrawals#gloas
     - update_proposer_boost_root#gloas
-    - upgrade_to_gloas#gloas
     - validate_merge_block#gloas
     - validate_on_attestation#gloas
-    - verify_data_column_sidecar#gloas
     - verify_data_column_sidecar_inclusion_proof#gloas
     - verify_data_column_sidecar_kzg_proofs#gloas
     - verify_execution_payload_bid_signature#gloas

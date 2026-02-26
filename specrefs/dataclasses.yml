@@ -55,7 +55,9 @@
     </spec>
 
 - name: ExpectedWithdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/types/src/withdrawal/expected_withdrawals.rs
+      search: pub struct ExpectedWithdrawals
   spec: |
     <spec dataclass="ExpectedWithdrawals" fork="gloas" hash="b32cc9c9">
     class ExpectedWithdrawals(object):
