@@ -57,20 +57,6 @@ pub fn parse_hardcoded_network(
     Eth2NetworkConfig::constant(network_name.as_str())
 }
 
-/// If `path` is `Some`, return it, else return the default path
-pub fn parse_path_with_default_in_home_dir_v2(
-    path: Option<PathBuf>,
-    default: PathBuf,
-) -> Result<PathBuf, String> {
-    if let Some(p) = path {
-        Ok(p)
-    } else {
-        dirs::home_dir()
-            .map(|home| home.join(default))
-            .ok_or_else(|| "Unable to locate home directory.".to_string())
-    }
-}
-
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
 /// home directory and appends `default` to it.
 pub fn parse_path_with_default_in_home_dir(
@@ -89,6 +75,20 @@ pub fn parse_path_with_default_in_home_dir(
                 .map(|home| home.join(default))
                 .ok_or_else(|| format!("Unable to locate home directory. Try specifying {}", name))
         })
+}
+
+/// If `path` is `Some`, return it, else return the default path
+pub fn parse_path_with_default_in_home_dir_v2(
+    path: Option<PathBuf>,
+    default: PathBuf,
+) -> Result<PathBuf, String> {
+    if let Some(p) = path {
+        Ok(p)
+    } else {
+        dirs::home_dir()
+            .map(|home| home.join(default))
+            .ok_or_else(|| "Unable to locate home directory.".to_string())
+    }
 }
 
 /// Returns the value of `name` or an error if it is not in `matches` or does not parse
