@@ -18,6 +18,14 @@ fn main() {
         "execution_status_03.yaml",
         get_execution_status_test_definition_03(),
     );
+    write_test_def_to_yaml(
+        "gloas_chain_following.yaml",
+        get_gloas_chain_following_test_definition(),
+    );
+    write_test_def_to_yaml(
+        "gloas_payload_probe.yaml",
+        get_gloas_payload_probe_test_definition(),
+    );
 }
 
 fn write_test_def_to_yaml(filename: &str, def: ForkChoiceTestDefinition) {

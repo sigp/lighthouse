@@ -106,7 +106,6 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(1),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is now 1, because 1 has a vote.
@@ -149,7 +148,6 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(2),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is 2 since 1 and 2 both have a vote
@@ -254,7 +252,6 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(3),
         attestation_slot: Slot::new(3),
-        payload_present: false,
     });
 
     // Ensure that the head is still 2
@@ -357,7 +354,6 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(1),
         attestation_slot: Slot::new(3),
-        payload_present: false,
     });
 
     // Ensure that the head has switched back to 1
@@ -521,7 +517,6 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(1),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is now 1, because 1 has a vote.
@@ -564,7 +559,6 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(2),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is 2 since 1 and 2 both have a vote
@@ -669,7 +663,6 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(3),
         attestation_slot: Slot::new(3),
-        payload_present: false,
     });
 
     // Move validator #1 vote from 2 to 3
@@ -683,7 +676,6 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(3),
         attestation_slot: Slot::new(3),
-        payload_present: false,
     });
 
     // Ensure that the head is now 3.
@@ -898,7 +890,6 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(1),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is now 1, because 1 has a vote.
@@ -941,7 +932,6 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(1),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is 1.

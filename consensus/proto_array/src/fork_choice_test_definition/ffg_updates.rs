@@ -312,7 +312,6 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(1),
         attestation_slot: Slot::new(0),
-        payload_present: false,
     });
 
     // Ensure that if we start at 0 we find 9 (just: 0, fin: 0).
@@ -376,7 +375,6 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(2),
         attestation_slot: Slot::new(0),
-        payload_present: false,
     });
 
     // Ensure that if we start at 0 we find 10 (just: 0, fin: 0).

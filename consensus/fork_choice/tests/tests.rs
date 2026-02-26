@@ -7,9 +7,11 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
+use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
+    AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
+    PayloadVerificationStatus, QueuedAttestation, QueuedPayloadAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::fmt;
@@ -19,8 +21,8 @@ use store::MemoryStore;
 use types::SingleAttestation;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, MainnetEthSpec, RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
-    test_utils::generate_deterministic_keypair,
+    IndexedAttestation, IndexedPayloadAttestation, MainnetEthSpec, PayloadAttestationData,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -150,6 +152,28 @@ impl ForkChoiceTest {
                 .canonical_head
                 .fork_choice_read_lock()
                 .queued_attestations(),
+        );
+        self
+    }
+
+    /// Inspect the queued payload attestations in fork choice.
+    #[allow(dead_code)]
+    pub fn inspect_queued_payload_attestations<F>(self, mut func: F) -> Self
+    where
+        F: FnMut(&[QueuedPayloadAttestation]),
+    {
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .update_time(self.harness.chain.slot().unwrap())
+            .unwrap();
+        func(
+            self.harness
+                .chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .queued_payload_attestations(),
         );
         self
     }
@@ -951,6 +975,119 @@ async fn invalid_attestation_payload_during_same_slot() {
             },
         )
         .await;
+}
+
+/// A payload attestation for block A at slot S should be accepted when processed at slot S+1.
+#[tokio::test]
+async fn payload_attestation_for_previous_slot_is_accepted_at_next_slot() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await;
+
+    let chain = &test.harness.chain;
+    let block_a = chain
+        .block_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
+        .expect("lookup should succeed")
+        .expect("block A should exist");
+    let block_a_root = block_a.canonical_root();
+    let current_slot = block_a.slot().saturating_add(1_u64);
+
+    let payload_attestation = IndexedPayloadAttestation::<E> {
+        attesting_indices: vec![0_u64].try_into().expect("valid attesting indices"),
+        data: PayloadAttestationData {
+            beacon_block_root: block_a_root,
+            slot: Slot::new(1),
+            payload_present: true,
+            blob_data_available: true,
+        },
+        signature: AggregateSignature::empty(),
+    };
+
+    let result = chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .on_payload_attestation(
+            current_slot,
+            &payload_attestation,
+            AttestationFromBlock::True,
+        );
+
+    assert!(
+        result.is_ok(),
+        "payload attestation at slot S should be accepted at S+1, got: {:?}",
+        result
+    );
+
+    let latest_message = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .latest_message(0)
+        .expect("latest message should exist");
+    assert_eq!(latest_message.slot, current_slot);
+    assert!(latest_message.payload_present);
+}
+
+/// Non-block payload attestations at slot S+1 for data.slot S are delayed; they are not applied
+/// until a later slot.
+#[tokio::test]
+async fn non_block_payload_attestation_at_next_slot_is_delayed() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await;
+
+    let chain = &test.harness.chain;
+    let block_a = chain
+        .block_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
+        .expect("lookup should succeed")
+        .expect("block A should exist");
+    let block_a_root = block_a.canonical_root();
+    let s_plus_1 = block_a.slot().saturating_add(1_u64);
+    let s_plus_2 = block_a.slot().saturating_add(2_u64);
+
+    let payload_attestation = IndexedPayloadAttestation::<E> {
+        attesting_indices: vec![0_u64].try_into().expect("valid attesting indices"),
+        data: PayloadAttestationData {
+            beacon_block_root: block_a_root,
+            slot: Slot::new(1),
+            payload_present: true,
+            blob_data_available: true,
+        },
+        signature: AggregateSignature::empty(),
+    };
+
+    let result = chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .on_payload_attestation(s_plus_1, &payload_attestation, AttestationFromBlock::False);
+    assert!(
+        result.is_ok(),
+        "payload attestation should be accepted for queueing"
+    );
+
+    // Vote should not be applied yet; message remains unset.
+    let latest_before = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .latest_message(0);
+    assert!(
+        latest_before.is_none(),
+        "non-block payload attestation at S+1 should not apply immediately"
+    );
+
+    // Advance fork choice time to S+2, queue should now be processed.
+    chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .update_time(s_plus_2)
+        .expect("update_time should succeed");
+
+    let latest_after = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .latest_message(0)
+        .expect("latest message should exist after delay");
+    assert_eq!(latest_after.slot, s_plus_2);
+    assert!(latest_after.payload_present);
 }
 
 /// Specification v0.12.1:

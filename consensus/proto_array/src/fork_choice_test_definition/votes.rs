@@ -106,7 +106,6 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(1),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is now 1, because 1 has a vote.
@@ -136,7 +135,6 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(2),
         attestation_slot: Slot::new(2),
-        payload_present: false,
     });
 
     // Ensure that the head is 2 since 1 and 2 both have a vote
@@ -211,7 +209,6 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(3),
         attestation_slot: Slot::new(3),
-        payload_present: false,
     });
 
     // Ensure that the head is still 2
@@ -246,7 +243,6 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 1,
         block_root: get_root(1),
         attestation_slot: Slot::new(3),
-        payload_present: false,
     });
 
     // Ensure that the head is now 3
@@ -409,13 +405,11 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(5),
         attestation_slot: Slot::new(4),
-        payload_present: false,
     });
     ops.push(Operation::ProcessAttestation {
         validator_index: 1,
         block_root: get_root(5),
         attestation_slot: Slot::new(4),
-        payload_present: false,
     });
 
     // Add blocks 7, 8 and 9. Adding these blocks helps test the `best_descendant`
@@ -570,13 +564,11 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 0,
         block_root: get_root(9),
         attestation_slot: Slot::new(5),
-        payload_present: false,
     });
     ops.push(Operation::ProcessAttestation {
         validator_index: 1,
         block_root: get_root(9),
         attestation_slot: Slot::new(5),
-        payload_present: false,
     });
 
     // Add block 10
@@ -650,13 +642,11 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         validator_index: 2,
         block_root: get_root(10),
         attestation_slot: Slot::new(5),
-        payload_present: false,
     });
     ops.push(Operation::ProcessAttestation {
         validator_index: 3,
         block_root: get_root(10),
         attestation_slot: Slot::new(5),
-        payload_present: false,
     });
 
     // Check the head is now 10.

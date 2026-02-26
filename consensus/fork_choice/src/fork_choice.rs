@@ -249,7 +249,6 @@ pub struct QueuedAttestation {
     attesting_indices: Vec<u64>,
     block_root: Hash256,
     target_epoch: Epoch,
-    payload_present: bool,
 }
 
 impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
@@ -259,9 +258,20 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
             attesting_indices: a.attesting_indices_to_vec(),
             block_root: a.data().beacon_block_root,
             target_epoch: a.data().target.epoch,
-            payload_present: a.data().index == 1,
         }
     }
+}
+
+/// Used for queuing payload attestations (PTC votes) from the current slot.
+/// Payload attestations have different dequeue timing than regular attestations:
+/// non-block payload attestations need an extra slot of delay (slot + 1 < current_slot).
+#[derive(Clone, PartialEq, Encode, Decode)]
+pub struct QueuedPayloadAttestation {
+    slot: Slot,
+    attesting_indices: Vec<u64>,
+    block_root: Hash256,
+    payload_present: bool,
+    blob_data_available: bool,
 }
 
 /// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
@@ -283,6 +293,22 @@ fn dequeue_attestations(
     );
 
     std::mem::replace(queued_attestations, remaining)
+}
+
+/// Returns all values in `queued` that have `slot + 1 < current_slot`.
+/// Payload attestations need an extra slot of delay compared to regular attestations.
+fn dequeue_payload_attestations(
+    current_slot: Slot,
+    queued: &mut Vec<QueuedPayloadAttestation>,
+) -> Vec<QueuedPayloadAttestation> {
+    let remaining = queued.split_off(
+        queued
+            .iter()
+            .position(|a| a.slot.saturating_add(1_u64) >= current_slot)
+            .unwrap_or(queued.len()),
+    );
+
+    std::mem::replace(queued, remaining)
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
@@ -329,6 +355,9 @@ pub struct ForkChoice<T, E> {
     proto_array: ProtoArrayForkChoice,
     /// Attestations that arrived at the current slot and must be queued for later processing.
     queued_attestations: Vec<QueuedAttestation>,
+    /// Payload attestations (PTC votes) that must be queued for later processing.
+    /// These have different dequeue timing than regular attestations.
+    queued_payload_attestations: Vec<QueuedPayloadAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
     _phantom: PhantomData<E>,
@@ -343,6 +372,7 @@ where
         self.fc_store == other.fc_store
             && self.proto_array == other.proto_array
             && self.queued_attestations == other.queued_attestations
+            && self.queued_payload_attestations == other.queued_payload_attestations
     }
 }
 
@@ -414,6 +444,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: vec![],
+            queued_payload_attestations: vec![],
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1120,7 +1151,7 @@ where
             });
         }
 
-        if indexed_payload_attestation.data.slot == block.slot
+        if self.fc_store.get_current_slot() == block.slot
             && indexed_payload_attestation.data.payload_present
         {
             return Err(InvalidAttestation::PayloadAttestationDuringSameSlot { slot: block.slot });
@@ -1177,12 +1208,10 @@ where
 
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
-                let payload_present = attestation.data().index == 1;
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.data().beacon_block_root,
                     attestation.data().slot,
-                    payload_present,
                 )?;
             }
         } else {
@@ -1214,23 +1243,33 @@ where
 
         self.validate_on_payload_attestation(attestation, is_from_block)?;
 
-        if attestation.data.slot < self.fc_store.get_current_slot() {
+        let processing_slot = self.fc_store.get_current_slot();
+        // Payload attestations from blocks can be applied in the next slot (S+1 for data.slot=S),
+        // while non-block payload attestations are delayed one extra slot.
+        let should_process_now = match is_from_block {
+            AttestationFromBlock::True => attestation.data.slot < processing_slot,
+            AttestationFromBlock::False => attestation.data.slot + 1_u64 < processing_slot,
+        };
+
+        if should_process_now {
             for validator_index in attestation.attesting_indices_iter() {
-                self.proto_array.process_attestation(
+                self.proto_array.process_payload_attestation(
                     *validator_index as usize,
                     attestation.data.beacon_block_root,
-                    attestation.data.slot,
+                    processing_slot,
                     attestation.data.payload_present,
+                    attestation.data.blob_data_available,
                 )?;
             }
         } else {
-            self.queued_attestations.push(QueuedAttestation {
-                slot: attestation.data.slot,
-                attesting_indices: attestation.attesting_indices.iter().copied().collect(),
-                block_root: attestation.data.beacon_block_root,
-                target_epoch: attestation.data.slot.epoch(E::slots_per_epoch()),
-                payload_present: attestation.data.payload_present,
-            });
+            self.queued_payload_attestations
+                .push(QueuedPayloadAttestation {
+                    slot: attestation.data.slot,
+                    attesting_indices: attestation.attesting_indices.iter().copied().collect(),
+                    block_root: attestation.data.beacon_block_root,
+                    payload_present: attestation.data.payload_present,
+                    blob_data_available: attestation.data.blob_data_available,
+                });
         }
 
         Ok(())
@@ -1265,6 +1304,7 @@ where
 
         // Process any attestations that might now be eligible.
         self.process_attestation_queue()?;
+        self.process_payload_attestation_queue()?;
 
         Ok(self.fc_store.get_current_slot())
     }
@@ -1339,12 +1379,31 @@ where
             &mut self.queued_attestations,
         ) {
             for validator_index in attestation.attesting_indices.iter() {
-                // FIXME(sproul): backwards compat/fork abstraction
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.block_root,
                     attestation.slot,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Processes and removes from the queue any queued payload attestations which may now be
+    /// eligible for processing. Payload attestations use `slot + 1 < current_slot` timing.
+    fn process_payload_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
+        let current_slot = self.fc_store.get_current_slot();
+        for attestation in
+            dequeue_payload_attestations(current_slot, &mut self.queued_payload_attestations)
+        {
+            for validator_index in attestation.attesting_indices.iter() {
+                self.proto_array.process_payload_attestation(
+                    *validator_index as usize,
+                    attestation.block_root,
+                    current_slot,
                     attestation.payload_present,
+                    attestation.blob_data_available,
                 )?;
             }
         }
@@ -1507,6 +1566,11 @@ where
         &self.queued_attestations
     }
 
+    /// Returns a reference to the currently queued payload attestations.
+    pub fn queued_payload_attestations(&self) -> &[QueuedPayloadAttestation] {
+        &self.queued_payload_attestations
+    }
+
     /// Returns the store's `proposer_boost_root`.
     pub fn proposer_boost_root(&self) -> Hash256 {
         self.fc_store.proposer_boost_root()
@@ -1591,6 +1655,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: persisted.queued_attestations,
+            queued_payload_attestations: persisted.queued_payload_attestations,
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1633,6 +1698,7 @@ where
                 .proto_array()
                 .as_ssz_container(self.justified_checkpoint(), self.finalized_checkpoint()),
             queued_attestations: self.queued_attestations().to_vec(),
+            queued_payload_attestations: self.queued_payload_attestations.clone(),
         }
     }
 
@@ -1658,6 +1724,8 @@ pub struct PersistedForkChoice {
     #[superstruct(only(V29))]
     pub proto_array: proto_array::core::SszContainerV29,
     pub queued_attestations: Vec<QueuedAttestation>,
+    #[superstruct(only(V29))]
+    pub queued_payload_attestations: Vec<QueuedPayloadAttestation>,
 }
 
 pub type PersistedForkChoice = PersistedForkChoiceV29;
@@ -1682,6 +1750,7 @@ impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
         Self {
             proto_array: v28.proto_array_v28.into(),
             queued_attestations: v28.queued_attestations,
+            queued_payload_attestations: vec![],
         }
     }
 }
@@ -1734,7 +1803,6 @@ mod tests {
                 attesting_indices: vec![],
                 block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
-                payload_present: false,
             })
             .collect()
     }

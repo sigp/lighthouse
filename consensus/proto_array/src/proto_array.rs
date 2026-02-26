@@ -357,6 +357,9 @@ impl ProtoArray {
                     apply_delta(node.empty_payload_weight, node_empty_delta, node_index)?;
                 node.full_payload_weight =
                     apply_delta(node.full_payload_weight, node_full_delta, node_index)?;
+                if let Some(payload_tiebreaker) = node_deltas.payload_tiebreaker {
+                    node.payload_tiebreak = payload_tiebreaker;
+                }
             }
 
             // Update the parent delta (if any).
@@ -1052,10 +1055,14 @@ impl ProtoArray {
                     } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
                         // The best child leads to a viable head, but the child doesn't.
                         no_change
+                    } else if child.weight() > best_child.weight() {
+                        // Weight is the primary ordering criterion.
+                        change_to_child
+                    } else if child.weight() < best_child.weight() {
+                        no_change
                     } else {
-                        // Both viable or both non-viable. For V29 parents, prefer the child
-                        // whose parent_payload_status matches the parent's payload preference
-                        // (Full if full_payload_weight >= empty_payload_weight, else Empty).
+                        // Equal weights: for V29 parents, prefer the child whose
+                        // parent_payload_status matches the parent's payload preference.
                         let child_matches = child_matches_parent_payload_preference(parent, child);
                         let best_child_matches =
                             child_matches_parent_payload_preference(parent, best_child);
@@ -1064,20 +1071,11 @@ impl ProtoArray {
                             change_to_child
                         } else if !child_matches && best_child_matches {
                             no_change
-                        } else if child.weight() == best_child.weight() {
-                            // Tie-breaker of equal weights by root.
-                            if *child.root() >= *best_child.root() {
-                                change_to_child
-                            } else {
-                                no_change
-                            }
+                        } else if *child.root() >= *best_child.root() {
+                            // Final tie-breaker of equal weights by root.
+                            change_to_child
                         } else {
-                            // Choose the winner by weight.
-                            if child.weight() > best_child.weight() {
-                                change_to_child
-                            } else {
-                                no_change
-                            }
+                            no_change
                         }
                     }
                 }

@@ -56,8 +56,14 @@ pub enum Operation {
         validator_index: usize,
         block_root: Hash256,
         attestation_slot: Slot,
-        #[serde(default)]
+    },
+    ProcessPayloadAttestation {
+        validator_index: usize,
+        block_root: Hash256,
+        attestation_slot: Slot,
         payload_present: bool,
+        #[serde(default)]
+        blob_data_available: bool,
     },
     Prune {
         finalized_root: Hash256,
@@ -277,18 +283,35 @@ impl ForkChoiceTestDefinition {
                     validator_index,
                     block_root,
                     attestation_slot,
-                    payload_present,
                 } => {
                     fork_choice
-                        .process_attestation(
+                        .process_attestation(validator_index, block_root, attestation_slot)
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "process_attestation op at index {} returned error",
+                                op_index
+                            )
+                        });
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::ProcessPayloadAttestation {
+                    validator_index,
+                    block_root,
+                    attestation_slot,
+                    payload_present,
+                    blob_data_available,
+                } => {
+                    fork_choice
+                        .process_payload_attestation(
                             validator_index,
                             block_root,
                             attestation_slot,
                             payload_present,
+                            blob_data_available,
                         )
                         .unwrap_or_else(|_| {
                             panic!(
-                                "process_attestation op at index {} returned error",
+                                "process_payload_attestation op at index {} returned error",
                                 op_index
                             )
                         });
