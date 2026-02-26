@@ -5790,7 +5790,8 @@ async fn test_gloas_hot_state_hierarchy() {
     // Build enough blocks to span multiple epochs. With MinimalEthSpec (8 slots/epoch),
     // 40 slots covers 5 epochs.
     let num_blocks = E::slots_per_epoch() * 5;
-    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    // TODO(gloas): enable finalisation by increasing this threshold
+    let some_validators = (0..LOW_VALIDATOR_COUNT / 2).collect::<Vec<_>>();
 
     let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
 
@@ -5815,7 +5816,7 @@ async fn test_gloas_hot_state_hierarchy() {
                 state_root,
                 last_block_root.into(),
                 &block_contents.0,
-                &all_validators,
+                &some_validators,
             );
         }
 
@@ -5838,27 +5839,17 @@ async fn test_gloas_hot_state_hierarchy() {
     let _head_state = harness.get_current_state();
     let _head_slot = harness.head_slot();
 
-    // States at some slots should be retrievable.
+    // States at all slots on the canonical chain should be retrievable.
     for slot_num in 1..=num_blocks {
         let slot = Slot::new(slot_num);
         // Get the state root from the block at this slot via the state root iterator.
-        let state_root_result: Option<(Hash256, Slot)> = harness
-            .chain
-            .forwards_iter_state_roots(slot)
-            .expect("should get iter")
-            .map(Result::unwrap)
-            .find(|(_, s)| *s == slot);
+        let state_root = harness.chain.state_root_at_slot(slot).unwrap().unwrap();
 
-        if let Some((state_root, _)) = state_root_result {
-            let loaded_state = store
-                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
-                .unwrap();
-            assert!(
-                loaded_state.is_some(),
-                "state at slot {} should be loadable",
-                slot_num
-            );
-        }
+        let mut loaded_state = store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded_state.canonical_root().unwrap(), state_root);
     }
 
     // Verify chain dump and iterators work with Gloas states.
@@ -5917,7 +5908,9 @@ fn check_chain_dump_from_slot(harness: &TestHarness, from_slot: Slot, expected_l
         );
 
         // Check presence of execution payload on disk.
-        if harness.chain.spec.bellatrix_fork_epoch.is_some() {
+        if harness.chain.spec.bellatrix_fork_epoch.is_some()
+            && !harness.chain.spec.is_gloas_scheduled()
+        {
             assert!(
                 harness
                     .chain
