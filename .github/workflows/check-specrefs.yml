@@ -26,7 +26,7 @@ jobs:
       run: python3 -mpip install ethspecify
 
     - name: Update spec references
-      run: ethspecify process --path=specrefs
+      run: ethspecify
 
     - name: Check for differences
       run: |
@@ -40,4 +40,4 @@ jobs:
         fi
 
     - name: Check spec references
-      run: ethspecify check --path=specrefs
+      run: ethspecify check
