@@ -1511,8 +1511,11 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 /// It's important to note that since there is a 0-epoch look-ahead (i.e., no look-ahead) for block
 /// proposers then it's very likely that a proposal for the first slot of the epoch will need go
 /// through the slow path every time. I.e., the proposal will only happen after we've been able to
-/// download and process the duties from the BN. This means it is very important to ensure this
-/// function is as fast as possible.
+/// download and process the duties from the BN.
+///
+/// To reduce BN load, the HTTP download is skipped when duties for the current epoch are already
+/// cached. This reduces polling from 32 HTTP requests/epoch to 1, since proposer shuffling does
+/// not change within an epoch.
 async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
@@ -1539,6 +1542,18 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
         duties_service.validator_store.as_ref(),
     )
     .await;
+
+    // Skip the HTTP download if we already have proposer duties for the current epoch.
+    // Proposer shuffling is determined at the epoch boundary and does not change within
+    // an epoch, so downloading again would return identical data. The cache notification
+    // above still fires every slot to ensure the block service produces blocks on time.
+    if duties_service.proposers.read().contains_key(&current_epoch) {
+        duties_service
+            .proposers
+            .write()
+            .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
+        return Ok(());
+    }
 
     // Collect *all* pubkeys, even those undergoing doppelganger protection.
     //
