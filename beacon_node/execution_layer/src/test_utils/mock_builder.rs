@@ -29,7 +29,7 @@ use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::ExecutionBlockHash;
-use types::builder_bid::{
+use types::builder::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, SignedBuilderBid,
 };
@@ -245,7 +245,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
     }
 
     fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature {
-        let domain = spec.get_builder_domain();
+        let domain = spec.get_builder_application_domain();
         let message = self.signing_root(domain);
         sk.sign(message)
     }
@@ -860,7 +860,8 @@ impl<E: EthSpec> MockBuilder<E> {
                 .data
                 .genesis_time
         };
-        let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
+        let timestamp =
+            (slots_since_genesis * self.spec.get_slot_duration().as_secs()) + genesis_time;
 
         let head_state: BeaconState<E> = self
             .beacon_client

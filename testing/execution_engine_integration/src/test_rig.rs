@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use types::payload::BlockProductionVersion;
+use types::execution::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ForkName, Hash256, MainnetEthSpec, Slot, Uint256,
@@ -563,7 +563,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
          *
          * Indicate that the payload is the head of the chain, providing payload attributes.
          */
-        let head_block_hash = valid_payload.block_hash();
+        let head_block_hash = second_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         // To save sending proposer preparation data, just set the fee recipient
         // to the fee recipient configured for EE A.

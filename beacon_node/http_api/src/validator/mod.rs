@@ -1,4 +1,6 @@
-use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
+use crate::produce_block::{
+    produce_blinded_block_v2, produce_block_v2, produce_block_v3, produce_block_v4,
+};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{
     AnyVersionFilter, ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter,
@@ -10,7 +12,6 @@ use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
-use eth2::StatusCode;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, EndpointVersion, Failure, GenericResponse,
     StandardLivenessResponseData, StateId as CoreStateId, ValidatorAggregateAttestationQuery,
@@ -18,6 +19,7 @@ use eth2::types::{
 };
 use lighthouse_network::PubsubMessage;
 use network::{NetworkMessage, ValidatorSubscriptionMessage};
+use reqwest::StatusCode;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
@@ -30,6 +32,8 @@ use types::{
 };
 use warp::{Filter, Rejection, Reply};
 use warp_utils::reject::convert_rejection;
+
+pub mod execution_payload_envelope;
 
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
 /// index and then ensures that the validator exists in the given `state`.
@@ -316,7 +320,11 @@ pub fn get_validator_blocks<T: BeaconChainTypes>(
 
                     not_synced_filter?;
 
-                    if endpoint_version == V3 {
+                    // Use V4 block production for Gloas fork
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+                    if fork_name.gloas_enabled() {
+                        produce_block_v4(accept_header, chain, slot, query).await
+                    } else if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
                     } else {
                         produce_block_v2(accept_header, chain, slot, query).await
@@ -662,15 +670,26 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                         )
                         .await;
 
-                    chain
-                        .prepare_beacon_proposer(current_slot)
-                        .await
-                        .map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!(
-                                "error updating proposer preparations: {:?}",
-                                e
-                            ))
-                        })?;
+                    // TODO(gloas): verify this is correct. We skip proposer preparation for
+                    // GLOAS because the execution payload is no longer embedded in the beacon
+                    // block (it's in the payload envelope), so the head block's
+                    // execution_payload() is unavailable.
+                    let next_slot = current_slot + 1;
+                    if !chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(next_slot)
+                        .gloas_enabled()
+                    {
+                        chain
+                            .prepare_beacon_proposer(current_slot)
+                            .await
+                            .map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "error updating proposer preparations: {:?}",
+                                    e
+                                ))
+                            })?;
+                    }
 
                     if chain.spec.is_peer_das_scheduled() {
                         let (finalized_beacon_state, _, _) =
@@ -862,6 +881,7 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
                                         verified_aggregate.aggregate(),
                                         verified_aggregate.indexed_attestation(),
                                         &chain.slot_clock,
+                                        &chain.spec,
                                     );
 
                                 verified_aggregates.push((index, verified_aggregate));

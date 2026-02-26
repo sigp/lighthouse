@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use reqwest::{Client, header::ACCEPT};
 use std::path::PathBuf;
 use std::sync::Arc;
-use task_executor::TaskExecutor;
+use task_executor::{RayonPoolType, TaskExecutor};
 use tracing::instrument;
 use types::*;
 use url::Url;
@@ -49,6 +49,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     SignedContributionAndProof(&'a ContributionAndProof<E>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
     VoluntaryExit(&'a VoluntaryExit),
+    ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
@@ -70,6 +71,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload
             SignableMessage::SignedContributionAndProof(c) => c.signing_root(domain),
             SignableMessage::ValidatorRegistration(v) => v.signing_root(domain),
             SignableMessage::VoluntaryExit(exit) => exit.signing_root(domain),
+            SignableMessage::ExecutionPayloadEnvelope(e) => e.signing_root(domain),
         }
     }
 }
@@ -181,14 +183,16 @@ impl SigningMethod {
                 let voting_keypair = voting_keypair.clone();
                 // Spawn a blocking task to produce the signature. This avoids blocking the core
                 // tokio executor.
+                //
+                // We are using the Rayon high-priority pool which uses up to 80% of available
+                // threads. In future we could consider using 90-100% in the VC, seeing as we have
+                // very little other work to do aside from signing.
                 let signature = executor
-                    .spawn_blocking_handle(
-                        move || voting_keypair.sk.sign(signing_root),
-                        "local_keystore_signer",
-                    )
-                    .ok_or(Error::ShuttingDown)?
+                    .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                        voting_keypair.sk.sign(signing_root)
+                    })
                     .await
-                    .map_err(|e| Error::TokioJoin(e.to_string()))?;
+                    .map_err(|_| Error::ShuttingDown)?;
                 Ok(signature)
             }
             SigningMethod::Web3Signer {
@@ -231,6 +235,9 @@ impl SigningMethod {
                         Web3SignerObject::ValidatorRegistration(v)
                     }
                     SignableMessage::VoluntaryExit(e) => Web3SignerObject::VoluntaryExit(e),
+                    SignableMessage::ExecutionPayloadEnvelope(e) => {
+                        Web3SignerObject::ExecutionPayloadEnvelope(e)
+                    }
                 };
 
                 // Determine the Web3Signer message type.

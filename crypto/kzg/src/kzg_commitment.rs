@@ -114,6 +114,7 @@ impl Debug for KzgCommitment {
     }
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for KzgCommitment {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BYTES_PER_COMMITMENT];

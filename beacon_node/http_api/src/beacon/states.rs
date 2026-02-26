@@ -12,9 +12,7 @@ use eth2::types::{
     ValidatorsRequestBody,
 };
 use std::sync::Arc;
-use types::{
-    AttestationShufflingId, CommitteeCache, Error as BeaconStateError, EthSpec, RelativeEpoch,
-};
+use types::{AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch};
 use warp::filters::BoxedFilter;
 use warp::{Filter, Reply};
 use warp_utils::query::multi_key_query;
@@ -30,7 +28,6 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
 ) -> ResponseFilter {
     beacon_states_path
-        .clone()
         .and(warp::path("pending_consolidations"))
         .and(warp::path::end())
         .then(

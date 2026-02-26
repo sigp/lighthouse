@@ -13,10 +13,11 @@ use test_random_derive::TestRandom;
 use tree_hash::{BYTES_PER_CHUNK, TreeHash};
 use tree_hash_derive::TreeHash;
 
-use crate::payload_attestation::PayloadAttestation;
 use crate::{
     SignedExecutionPayloadBid,
-    attestation::{AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut},
+    attestation::{
+        AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut, PayloadAttestation,
+    },
     core::{EthSpec, Graffiti, Hash256},
     deposit::Deposit,
     execution::{
@@ -166,7 +167,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra, Fulu))]
     pub execution_requests: ExecutionRequests<E>,
     #[superstruct(only(Gloas))]
-    pub signed_execution_payload_bid: SignedExecutionPayloadBid,
+    pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
     #[superstruct(only(Gloas))]
     pub payload_attestations: VariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
     #[superstruct(only(Base, Altair, Gloas))]

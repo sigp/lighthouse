@@ -19,7 +19,7 @@ alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 educe = { workspace = true }
-eth2 = { workspace = true, features = ["lighthouse"] }
+eth2 = { workspace = true, features = ["lighthouse", "network"] }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -34,7 +34,6 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
-lighthouse_tracing = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
 lru = { workspace = true }

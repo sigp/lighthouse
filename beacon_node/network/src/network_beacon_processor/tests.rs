@@ -10,7 +10,7 @@ use crate::{
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::custody_context::NodeCustodyType;
-use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
+use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
@@ -19,8 +19,8 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
-use gossipsub::MessageAcceptance;
 use itertools::Itertools;
+use libp2p::gossipsub::MessageAcceptance;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, MetaDataV3,
@@ -39,12 +39,14 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
-    DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
-    SubnetId,
+    AttesterSlashing, BlobSidecar, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
+    EthSpec, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+};
+use types::{
+    BlobSidecarList,
+    data::{BlobIdentifier, FixedBlobSidecarList},
 };
 
 type E = MainnetEthSpec;
@@ -118,6 +120,39 @@ impl TestRig {
         .await
     }
 
+    pub async fn new_with_skip_slots(chain_length: u64, skip_slots: &HashSet<u64>) -> Self {
+        let mut spec = test_spec::<E>();
+        spec.shard_committee_period = 2;
+        let spec = Arc::new(spec);
+        let beacon_processor_config = BeaconProcessorConfig::default();
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec.clone())
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .node_custody_type(NodeCustodyType::Fullnode)
+            .chain_config(<_>::default())
+            .build();
+
+        harness.advance_slot();
+
+        for slot in 1..=chain_length {
+            if !skip_slots.contains(&slot) {
+                harness
+                    .extend_chain(
+                        1,
+                        BlockStrategy::OnCanonicalHead,
+                        AttestationStrategy::AllValidators,
+                    )
+                    .await;
+            }
+
+            harness.advance_slot();
+        }
+
+        Self::from_harness(harness, beacon_processor_config, spec).await
+    }
+
     pub async fn new_parametric(
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
@@ -148,6 +183,14 @@ impl TestRig {
             harness.advance_slot();
         }
 
+        Self::from_harness(harness, beacon_processor_config, spec).await
+    }
+
+    async fn from_harness(
+        harness: BeaconChainHarness<T>,
+        beacon_processor_config: BeaconProcessorConfig,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
         let head = harness.chain.head_snapshot();
 
         assert_eq!(
@@ -309,7 +352,7 @@ impl TestRig {
                 )
                 .unwrap()
                 .into_iter()
-                .filter(|c| sampling_indices.contains(&c.index))
+                .filter(|c| sampling_indices.contains(c.index()))
                 .collect::<Vec<_>>();
 
                 (None, Some(custody_columns))
@@ -386,7 +429,7 @@ impl TestRig {
                 .send_gossip_data_column_sidecar(
                     junk_message_id(),
                     junk_peer_id(),
-                    DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
+                    DataColumnSubnetId::from_column_index(*data_column.index(), &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
                 )
@@ -399,7 +442,13 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new(
+                    self.next_block.clone(),
+                    None,
+                    &self._harness.chain.data_availability_checker,
+                    self._harness.spec.clone(),
+                )
+                .unwrap(),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
@@ -411,7 +460,13 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new(
+                    self.next_block.clone(),
+                    None,
+                    &self._harness.chain.data_availability_checker,
+                    self._harness.spec.clone(),
+                )
+                .unwrap(),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
@@ -926,20 +981,20 @@ async fn data_column_reconstruction_at_deadline() {
         .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
     let min_columns_for_reconstruction = E::number_of_columns() / 2;
+
+    // Enqueue all columns first - at deadline, reconstruction races with gossip drain
     for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
-            .await;
     }
 
-    // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
-    rig.assert_event_journal_with_timeout(
-        &[WorkType::ColumnReconstruction.into()],
-        Duration::from_millis(50),
-        false,
-        false,
-    )
-    .await;
+    // Expect all gossip events + reconstruction
+    let mut expected_events: Vec<WorkType> = (0..min_columns_for_reconstruction)
+        .map(|_| WorkType::GossipDataColumnSidecar)
+        .collect();
+    expected_events.push(WorkType::ColumnReconstruction);
+
+    rig.assert_event_journal_contains_ordered(&expected_events)
+        .await;
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
@@ -1115,8 +1170,8 @@ async fn accept_processed_gossip_data_columns_without_import() {
         .into_iter()
         .map(|data_column| {
             let subnet_id =
-                DataColumnSubnetId::from_column_index(data_column.index, &rig.chain.spec);
-            validate_data_column_sidecar_for_gossip::<_, DoNotObserve>(
+                DataColumnSubnetId::from_column_index(*data_column.index(), &rig.chain.spec);
+            validate_data_column_sidecar_for_gossip_fulu::<_, DoNotObserve>(
                 data_column,
                 subnet_id,
                 &rig.chain,
@@ -1948,7 +2003,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
         } = next
         {
             if let Some(column) = data_column {
-                received_columns.push(column.index);
+                received_columns.push(*column.index());
             } else {
                 break;
             }
@@ -1970,5 +2025,80 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
     assert!(
         !unique_received.is_empty(),
         "Should have received at least some data columns"
+    );
+}
+
+/// Test that DataColumnsByRange does not return duplicate data columns for skip slots.
+///
+/// When skip slots occur, `forwards_iter_block_roots` returns the same block root for
+/// consecutive slots. The deduplication in `get_block_roots_from_store` must use
+/// `unique_by` on the root (not the full `(root, slot)` tuple) to avoid serving
+/// duplicate data columns for the same block.
+#[tokio::test]
+async fn test_data_columns_by_range_no_duplicates_with_skip_slots() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    // Build a chain of 128 slots (4 epochs) with skip slots at positions 5 and 6.
+    // After 4 epochs, finalized_epoch=2 (finalized_slot=64). Requesting slots 0-9
+    // satisfies req_start_slot + req_count <= finalized_slot (10 <= 64), which routes
+    // through `get_block_roots_from_store` — the code path with the bug.
+    let skip_slots: HashSet<u64> = [5, 6].into_iter().collect();
+    let mut rig = TestRig::new_with_skip_slots(128, &skip_slots).await;
+
+    let all_custody_columns = rig.chain.custody_columns_for_epoch(Some(Epoch::new(0)));
+    let requested_column = vec![all_custody_columns[0]];
+
+    // Request a range that spans the skip slots (slots 0 through 9).
+    let start_slot = 0;
+    let slot_count = 10;
+
+    rig.network_beacon_processor
+        .send_data_columns_by_range_request(
+            PeerId::random(),
+            InboundRequestId::new_unchecked(42, 24),
+            DataColumnsByRangeRequest {
+                start_slot,
+                count: slot_count,
+                columns: requested_column.clone(),
+            },
+        )
+        .unwrap();
+
+    // Collect block roots from all data column responses.
+    let mut block_roots: Vec<Hash256> = Vec::new();
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::DataColumnsByRange(data_column),
+            inbound_request_id: _,
+        } = next
+        {
+            if let Some(column) = data_column {
+                block_roots.push(column.block_root());
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+
+    assert!(
+        !block_roots.is_empty(),
+        "Should have received at least some data columns"
+    );
+
+    // Before the fix, skip slots caused the same block root to appear multiple times
+    // (once per skip slot) because .unique() on (Hash256, Slot) tuples didn't deduplicate.
+    let unique_roots: HashSet<_> = block_roots.iter().collect();
+    assert_eq!(
+        block_roots.len(),
+        unique_roots.len(),
+        "Response contained duplicate block roots: got {} columns but only {} unique roots",
+        block_roots.len(),
+        unique_roots.len(),
     );
 }
