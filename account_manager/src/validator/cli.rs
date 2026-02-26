@@ -11,6 +11,7 @@ use super::exit::DEFAULT_BEACON_NODE;
 pub struct Validator {
     #[clap(
         long,
+        alias = "validators-dir",
         value_name = "VALIDATOR_DIRECTORY",
         conflicts_with = "datadir",
         help = "The path to search for validator directories. \
