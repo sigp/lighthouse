@@ -27,7 +27,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Errors
     ///
-    /// Returns an `Err` if the given block was invalid, or an error was encountered during
+    /// Returns an `Err` if the given payload envelope was invalid, or an error was encountered during
     /// verification.
     #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source))]
     pub async fn process_execution_payload_envelope(
@@ -104,9 +104,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        // Verify and import the block.
+        // Verify and import the payload envelope.
         match import_envelope.await {
-            // The block was successfully verified and imported. Yay.
+            // The payload envelope was successfully verified and imported. Yay.
             Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
                 info!(
                     ?block_root,
@@ -120,7 +120,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Ok(status @ AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                debug!(?block_root, %slot, "Beacon block awaiting blobs");
+                debug!(?block_root, %slot, "Payload envelope awaiting blobs");
 
                 Ok(status)
             }
@@ -133,7 +133,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         );
                     }
                     _ => {
-                        // There was an error whilst attempting to verify and import the block. The block might
+                        // There was an error whilst attempting to verify and import the payload envelope. It might
                         // be partially verified or partially imported.
                         crit!(
                             error = ?e,
@@ -143,7 +143,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
                 Err(EnvelopeError::BeaconChainError(e))
             }
-            // The block failed verification.
+            // The payload envelope failed verification.
             Err(other) => {
                 warn!(
                     reason = other.to_string(),
