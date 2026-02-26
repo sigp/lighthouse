@@ -12,11 +12,11 @@ jobs:
     - name: Check version consistency
       run: |
         MAKEFILE_VERSION=$(grep 'CONSENSUS_SPECS_TEST_VERSION ?=' testing/ef_tests/Makefile | sed 's/.*?= //')
-        ETHSPECIFY_VERSION=$(grep '^version:' specrefs/.ethspecify.yml | sed 's/version: //')
+        ETHSPECIFY_VERSION=$(grep '^version:' .ethspecify.yml | sed 's/version: //')
         if [ "$MAKEFILE_VERSION" != "$ETHSPECIFY_VERSION" ]; then
           echo "Version mismatch between Makefile and ethspecify"
           echo "  testing/ef_tests/Makefile: $MAKEFILE_VERSION"
-          echo "  specrefs/.ethspecify.yml: $ETHSPECIFY_VERSION"
+          echo "  .ethspecify.yml: $ETHSPECIFY_VERSION"
           exit 1
         else
           echo "Versions match: $MAKEFILE_VERSION"
