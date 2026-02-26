@@ -310,12 +310,15 @@ exceptions:
     - get_terminal_pow_block#bellatrix
     - is_execution_block#bellatrix
     - is_optimistic_candidate_block#bellatrix
+    - is_valid_terminal_pow_block#bellatrix
     - latest_verified_ancestor#bellatrix
     - should_override_forkchoice_update#bellatrix
+    - validate_merge_block#bellatrix
 
     # Not implemented: capella
     - apply_withdrawals#capella
     - get_balance_after_withdrawals#capella
+    - get_expected_withdrawals#capella
     - get_lc_execution_root#capella
     - get_validators_sweep_withdrawals#capella
     - is_valid_light_client_header#capella
@@ -345,6 +348,7 @@ exceptions:
 
     # Not implemented: electra
     - apply_pending_deposit#electra
+    - get_expected_withdrawals#electra
     - compute_subnet_for_blob_sidecar#electra
     - compute_weak_subjectivity_period#electra
     - current_sync_committee_gindex_at_slot#electra
@@ -402,7 +406,6 @@ exceptions:
     - get_data_column_sidecars_from_column_sidecar#gloas
     - get_execution_payload_bid_signature#gloas
     - get_execution_payload_envelope_signature#gloas
-    - get_expected_withdrawals#gloas
     - get_forkchoice_store#gloas
     - get_head#gloas
     - get_index_for_new_builder#gloas
@@ -445,7 +448,6 @@ exceptions:
     - process_attestation#gloas
     - process_block#gloas
     - process_builder_pending_payments#gloas
-    - process_deposit_request#gloas
     - process_epoch#gloas
     - process_execution_payload#gloas
     - process_execution_payload_bid#gloas
@@ -454,7 +456,6 @@ exceptions:
     - process_proposer_slashing#gloas
     - process_slot#gloas
     - process_voluntary_exit#gloas
-    - process_withdrawals#gloas
     - record_block_timeliness#gloas
     - should_apply_proposer_boost#gloas
     - should_extend_payload#gloas

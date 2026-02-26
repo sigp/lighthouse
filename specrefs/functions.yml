@@ -3668,9 +3668,7 @@
     </spec>
 
 - name: get_expected_withdrawals#capella
-  sources:
-    - file: consensus/state_processing/src/per_block_processing.rs
-      search: pub fn get_expected_withdrawals<
+  sources: []
   spec: |
     <spec fn="get_expected_withdrawals" fork="capella" hash="12088347">
     def get_expected_withdrawals(state: BeaconState) -> ExpectedWithdrawals:
@@ -3690,9 +3688,7 @@
     </spec>
 
 - name: get_expected_withdrawals#electra
-  sources:
-    - file: consensus/state_processing/src/per_block_processing.rs
-      search: pub fn get_expected_withdrawals<
+  sources: []
   spec: |
     <spec fn="get_expected_withdrawals" fork="electra" hash="254541e3">
     def get_expected_withdrawals(state: BeaconState) -> ExpectedWithdrawals:
@@ -3721,7 +3717,9 @@
     </spec>
 
 - name: get_expected_withdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_expected_withdrawals<
   spec: |
     <spec fn="get_expected_withdrawals" fork="gloas" hash="8d0675cb">
     def get_expected_withdrawals(state: BeaconState) -> ExpectedWithdrawals:
@@ -6521,9 +6519,7 @@
     </spec>
 
 - name: is_valid_terminal_pow_block#bellatrix
-  sources:
-    - file: beacon_node/execution_layer/src/lib.rs
-      search: fn is_valid_terminal_pow_block(
+  sources: []
   spec: |
     <spec fn="is_valid_terminal_pow_block" fork="bellatrix" hash="96a7d581">
     def is_valid_terminal_pow_block(block: PowBlock, parent: PowBlock) -> bool:
@@ -7989,7 +7985,7 @@
 - name: process_deposit_request#electra
   sources:
     - file: consensus/state_processing/src/per_block_processing/process_operations.rs
-      search: pub fn process_deposit_requests<
+      search: pub fn process_deposit_requests_pre_gloas<
   spec: |
     <spec fn="process_deposit_request" fork="electra" hash="547c4a35">
     def process_deposit_request(state: BeaconState, deposit_request: DepositRequest) -> None:
@@ -8010,7 +8006,9 @@
     </spec>
 
 - name: process_deposit_request#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
+      search: pub fn process_deposit_requests_post_gloas<
   spec: |
     <spec fn="process_deposit_request" fork="gloas" hash="50ffbd27">
     def process_deposit_request(state: BeaconState, deposit_request: DepositRequest) -> None:
@@ -9896,8 +9894,8 @@
 
 - name: process_withdrawals#capella
   sources:
-    - file: consensus/state_processing/src/per_block_processing.rs
-      search: pub fn process_withdrawals<
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: "pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>("
   spec: |
     <spec fn="process_withdrawals" fork="capella" hash="47327ef6">
     def process_withdrawals(state: BeaconState, payload: ExecutionPayload) -> None:
@@ -9915,8 +9913,8 @@
 
 - name: process_withdrawals#electra
   sources:
-    - file: consensus/state_processing/src/per_block_processing.rs
-      search: pub fn process_withdrawals<
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: "pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>("
   spec: |
     <spec fn="process_withdrawals" fork="electra" hash="24a50daa">
     def process_withdrawals(state: BeaconState, payload: ExecutionPayload) -> None:
@@ -9935,7 +9933,9 @@
     </spec>
 
 - name: process_withdrawals#gloas
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: "pub fn process_withdrawals<E: EthSpec>("
   spec: |
     <spec fn="process_withdrawals" fork="gloas" hash="16d9ad2a">
     def process_withdrawals(
@@ -11621,9 +11621,7 @@
     </spec>
 
 - name: validate_merge_block#bellatrix
-  sources:
-    - file: beacon_node/beacon_chain/src/execution_payload.rs
-      search: pub async fn validate_merge_block<
+  sources: []
   spec: |
     <spec fn="validate_merge_block" fork="bellatrix" hash="d51209cc">
     def validate_merge_block(block: BeaconBlock) -> None:
