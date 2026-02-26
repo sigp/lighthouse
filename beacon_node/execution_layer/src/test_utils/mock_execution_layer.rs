@@ -1,9 +1,4 @@
-use crate::{
-    test_utils::{
-        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, MockServer,
-    },
-    *,
-};
+use crate::{test_utils::DEFAULT_JWT_SECRET, test_utils::MockServer, *};
 use alloy_primitives::B256 as H256;
 use fixed_bytes::FixedBytesExtended;
 use kzg::Kzg;
@@ -20,12 +15,10 @@ pub struct MockExecutionLayer<E: EthSpec> {
 impl<E: EthSpec> MockExecutionLayer<E> {
     pub fn default_params(executor: TaskExecutor) -> Self {
         let mut spec = MainnetEthSpec::default_spec();
-        spec.terminal_total_difficulty = Uint256::from(DEFAULT_TERMINAL_DIFFICULTY);
         spec.terminal_block_hash = ExecutionBlockHash::zero();
         spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(
             executor,
-            DEFAULT_TERMINAL_BLOCK,
             None,
             None,
             None,
@@ -40,7 +33,6 @@ impl<E: EthSpec> MockExecutionLayer<E> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         executor: TaskExecutor,
-        terminal_block: u64,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
@@ -56,9 +48,6 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let server = MockServer::new(
             &handle,
             jwt_key,
-            spec.terminal_total_difficulty,
-            terminal_block,
-            spec.terminal_block_hash,
             shanghai_time,
             cancun_time,
             prague_time,
@@ -292,54 +281,5 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         assert_eq!(head_execution_block.block_number(), block_number);
         assert_eq!(head_execution_block.block_hash(), block_hash);
         assert_eq!(head_execution_block.parent_hash(), parent_hash);
-    }
-
-    pub fn move_to_block_prior_to_terminal_block(self) -> Self {
-        self.server
-            .execution_block_generator()
-            .move_to_block_prior_to_terminal_block()
-            .unwrap();
-        self
-    }
-
-    pub fn move_to_terminal_block(self) -> Self {
-        self.server
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
-        self
-    }
-
-    pub fn produce_forked_pow_block(self) -> (Self, ExecutionBlockHash) {
-        let head_block = self
-            .server
-            .execution_block_generator()
-            .latest_block()
-            .unwrap();
-
-        let block_hash = self
-            .server
-            .execution_block_generator()
-            .insert_pow_block_by_hash(head_block.parent_hash(), 1)
-            .unwrap();
-        (self, block_hash)
-    }
-
-    pub async fn with_terminal_block<U, V>(self, func: U) -> Self
-    where
-        U: Fn(Arc<ChainSpec>, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
-        V: Future<Output = ()>,
-    {
-        let terminal_block_number = self
-            .server
-            .execution_block_generator()
-            .terminal_block_number;
-        let terminal_block = self
-            .server
-            .execution_block_generator()
-            .execution_block_by_number(terminal_block_number);
-
-        func(self.spec.clone(), self.el.clone(), terminal_block).await;
-        self
     }
 }

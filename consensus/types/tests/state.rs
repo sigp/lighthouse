@@ -28,6 +28,7 @@ async fn get_harness<E: EthSpec>(
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     let skip_to_slot = slot - SLOT_OFFSET;
