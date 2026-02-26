@@ -113,6 +113,10 @@ async fn handler() {
 
 ## Review Process
 
+### Do Not Auto-Post Reviews
+
+**Never post review comments to GitHub automatically.** Always present your review to the user in the conversation first. Let the user decide whether and how to post it. Posting to a PR is an external action that affects other people and requires explicit approval.
+
 ### Focus on Actionable Issues
 
 **Limit to 3-5 key comments.** Prioritize:
