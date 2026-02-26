@@ -120,4 +120,3 @@ pub struct Recover {
     )]
     pub r#type: WalletType,
 }
-
