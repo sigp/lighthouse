@@ -499,8 +499,7 @@ async fn test_all_endpoints() {
 
         let result_json: serde_json::Value = client.get(url).await.unwrap();
 
-        // change the result_json content to test type check or regex pattern check
-        // need to modify result_json to mut
+        // change the result_json content for testing, need to modify result_json to mut
         // if endpoint == "/eth/v1/beacon/states/{state_id}/fork" {
         // manually remove one field from the response to test field check
         // result_json.as_object_mut().unwrap().remove("finalized");
@@ -519,10 +518,10 @@ async fn test_all_endpoints() {
         checked_endpoint += 1;
         println!("Checked endpoint: {}", checked_endpoint);
     }
-    // let total_endpoint = object_schema_by_endpoint.len();
+    let total_endpoint = object_schema_by_endpoint.len();
     // /eth/v1/beacon/states/{state_id}/proposer_lookahead hasn't been implemented yet
     // endpoints such as /eth/v1/events is not inserted in the hashmap (i.e., not included in total_endpoint)
-    // assert_eq!(checked_endpoint, total_endpoint - 1);
+    assert_eq!(checked_endpoint, total_endpoint - 1);
 }
 
 // Helper function to return ObjectSchema from ObjectOrReference<ObjectSchema>
