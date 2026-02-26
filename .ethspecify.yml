@@ -2,21 +2,22 @@ version: v1.7.0-alpha.1
 style: full
 
 specrefs:
-  search_root: ..
+  search_root: .
   auto_standardize_names: true
   auto_add_missing_entries: true
+  require_exceptions_have_fork: true
 
   files:
-    - configs.yml
-    - constants.yml
-    - containers.yml
-    - dataclasses.yml
-    - functions.yml
-    - presets.yml
+    - specrefs/configs.yml
+    - specrefs/constants.yml
+    - specrefs/containers.yml
+    - specrefs/dataclasses.yml
+    - specrefs/functions.yml
+    - specrefs/presets.yml
 
 exceptions:
   configs:
-    # Not implemented: gloas
+    # gloas
     - AGGREGATE_DUE_BPS_GLOAS#gloas
     - ATTESTATION_DUE_BPS_GLOAS#gloas
     - CONTRIBUTION_DUE_BPS_GLOAS#gloas
@@ -25,7 +26,7 @@ exceptions:
     - SYNC_MESSAGE_DUE_BPS_GLOAS#gloas
 
   constants:
-    # Not implemented: phase0
+    # phase0
     - BASIS_POINTS#phase0
     - ENDIANNESS#phase0
     - ENDIANNESS#phase0
@@ -39,14 +40,14 @@ exceptions:
     - UINT64_MAX#phase0
     - UINT64_MAX_SQRT#phase0
 
-    # Not implemented: altair
+    # altair
     - G2_POINT_AT_INFINITY#altair
     - MAX_REQUEST_LIGHT_CLIENT_UPDATES#altair
 
-    # Not implemented: bellatrix
+    # bellatrix
     - SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY#bellatrix
 
-    # Not implemented: deneb
+    # deneb
     - BLS_MODULUS#deneb
     - BYTES_PER_COMMITMENT#deneb
     - BYTES_PER_FIELD_ELEMENT#deneb
@@ -59,16 +60,16 @@ exceptions:
     - PRIMITIVE_ROOT_OF_UNITY#deneb
     - RANDOM_CHALLENGE_KZG_BATCH_DOMAIN#deneb
 
-    # Not implemented: electra
+    # electra
     - CONSOLIDATION_REQUEST_TYPE#electra
     - DEPOSIT_REQUEST_TYPE#electra
     - WITHDRAWAL_REQUEST_TYPE#electra
 
-    # Not implemented: fulu
+    # fulu
     - RANDOM_CHALLENGE_KZG_CELL_BATCH_DOMAIN#fulu
     - UINT256_MAX#fulu
 
-    # Not implemented: gloas
+    # gloas
     - BUILDER_PAYMENT_THRESHOLD_DENOMINATOR#gloas
     - BUILDER_PAYMENT_THRESHOLD_NUMERATOR#gloas
     - BUILDER_WITHDRAWAL_PREFIX#gloas
@@ -77,22 +78,22 @@ exceptions:
     - PAYLOAD_STATUS_PENDING#gloas
 
   containers:
-    # Not implemented: phase0
+    # phase0
     - Eth1Block#phase0
 
-    # Not implemented: bellatrix
+    # bellatrix
     - PowBlock#bellatrix
 
-    # Not implemented: capella
+    # capella
     - LightClientBootstrap#capella
     - LightClientFinalityUpdate#capella
     - LightClientOptimisticUpdate#capella
     - LightClientUpdate#capella
 
-    # Not implemented: fulu
+    # fulu
     - MatrixEntry#fulu
 
-    # Not implemented: gloas
+    # gloas
     - BeaconBlockBody#gloas
     - BeaconState#gloas
     - DataColumnSidecar#gloas
@@ -110,23 +111,23 @@ exceptions:
     - SignedProposerPreferences#gloas
 
   dataclasses:
-    # Not implemented: phase0
+    # phase0
     - LatestMessage#phase0
 
-    # Not implemented: altair
+    # altair
     - LightClientStore#altair
 
-    # Not implemented: bellatrix
+    # bellatrix
     - OptimisticStore#bellatrix
 
-    # Not implemented: capella
+    # capella
     - ExpectedWithdrawals#capella
     - LightClientStore#capella
 
-    # Not implemented: electra
+    # electra
     - ExpectedWithdrawals#electra
 
-    # Not implemented: gloas
+    # gloas
     - ExpectedWithdrawals#gloas
     - LatestMessage#gloas
     - Store#gloas
@@ -186,7 +187,7 @@ exceptions:
     - verify_cell_kzg_proof_batch#fulu
     - verify_cell_kzg_proof_batch_impl#fulu
 
-    # Not implemented: phase0
+    # phase0
     - bytes_to_uint64#phase0
     - check_if_validator_active#phase0
     - compute_new_state_root#phase0
@@ -263,7 +264,7 @@ exceptions:
     - voting_period_start_time#phase0
     - xor#phase0
 
-    # Not implemented: altair
+    # altair
     - apply_light_client_update#altair
     - compute_merkle_proof#altair
     - create_light_client_bootstrap#altair
@@ -304,7 +305,7 @@ exceptions:
     - set_or_append_list#altair
     - validate_light_client_update#altair
 
-    # Not implemented: bellatrix
+    # bellatrix
     - get_inactivity_penalty_deltas#bellatrix
     - get_pow_block_at_terminal_total_difficulty#bellatrix
     - get_terminal_pow_block#bellatrix
@@ -315,7 +316,7 @@ exceptions:
     - should_override_forkchoice_update#bellatrix
     - validate_merge_block#bellatrix
 
-    # Not implemented: capella
+    # capella
     - apply_withdrawals#capella
     - get_balance_after_withdrawals#capella
     - get_expected_withdrawals#capella
@@ -331,7 +332,7 @@ exceptions:
     - upgrade_lc_store_to_capella#capella
     - upgrade_lc_update_to_capella#capella
 
-    # Not implemented: deneb
+    # deneb
     - compute_signed_block_header#deneb
     - compute_subnet_for_blob_sidecar#deneb
     - get_blob_sidecars#deneb
@@ -346,7 +347,7 @@ exceptions:
     - upgrade_lc_store_to_deneb#deneb
     - upgrade_lc_update_to_deneb#deneb
 
-    # Not implemented: electra
+    # electra
     - apply_pending_deposit#electra
     - get_expected_withdrawals#electra
     - compute_subnet_for_blob_sidecar#electra
@@ -374,13 +375,13 @@ exceptions:
     - upgrade_lc_store_to_electra#electra
     - upgrade_lc_update_to_electra#electra
 
-    # Not implemented: fulu
+    # fulu
     - compute_matrix#fulu
     - get_data_column_sidecars#fulu
     - get_data_column_sidecars_from_block#fulu
     - get_data_column_sidecars_from_column_sidecar#fulu
 
-    # Not implemented: gloas
+    # gloas
     - add_builder_to_registry#gloas
     - apply_deposit_for_builder#gloas
     - apply_withdrawals#gloas
