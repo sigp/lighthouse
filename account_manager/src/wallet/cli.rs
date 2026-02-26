@@ -55,7 +55,7 @@ pub struct Create {
         value_enum,
         default_value_t = WalletType::Hd,
         help = "The type of wallet to create. Only HD (hierarchical-deterministic) \
-                wallets are supported presently..",
+                wallets are supported presently.",
     )]
     pub r#type: WalletType,
 
@@ -116,7 +116,7 @@ pub struct Recover {
         value_enum,
         default_value_t = WalletType::Hd,
         help = "The type of wallet to create. Only HD (hierarchical-deterministic) \
-                wallets are supported presently..",
+                wallets are supported presently.",
     )]
     pub r#type: WalletType,
 }
