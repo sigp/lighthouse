@@ -256,6 +256,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(EnvelopeError::BlockRootUnknown { block_root });
         }
 
+        // TODO(gloas) when the code below is implemented we can delete this drop
+        drop(fork_choice_reader);
+
         // TODO(gloas) no fork choice logic yet
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
@@ -323,6 +326,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error = ?e,
                 "Database write failed!"
             );
+            return Err(e.into());
             // TODO(gloas) handle db write failure
             // return Err(self
             //    .handle_import_block_db_write_error(fork_choice)

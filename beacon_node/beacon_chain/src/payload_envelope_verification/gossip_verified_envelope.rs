@@ -248,7 +248,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Errors
     ///
-    /// Returns an `Err` if the given envelope was invalid, or an error was encountered during
+    /// Returns an `Err` if the given envelope was invalid, or an error was encountered during verification.
     pub async fn verify_envelope_for_gossip(
         self: &Arc<Self>,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
