@@ -17,6 +17,6 @@ pub mod core {
     pub use super::proto_array::{ProposerBoost, ProtoArray, ProtoNode};
     pub use super::proto_array_fork_choice::VoteTracker;
     pub use super::ssz_container::{
-        SszContainer, SszContainerLegacyV17, SszContainerLegacyV28, SszContainerV29,
+        SszContainer, SszContainerV17, SszContainerV28, SszContainerV29,
     };
 }

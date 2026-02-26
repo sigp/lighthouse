@@ -7,7 +7,6 @@ use crate::{
 use ssz::{Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use superstruct::superstruct;
 use types::{Checkpoint, Hash256};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
@@ -16,16 +15,25 @@ four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 pub type SszContainer = SszContainerV29;
 
-// Legacy containers (V17/V28) for backward compatibility with older schema versions.
-#[superstruct(
-    variants(V17, V28),
-    variant_attributes(derive(Encode, Decode, Clone)),
-    no_enum
-)]
-pub struct SszContainerLegacy {
+/// Proto-array container introduced in schema V17.
+#[derive(Encode, Decode, Clone)]
+pub struct SszContainerV17 {
     pub votes: Vec<VoteTracker>,
-    #[superstruct(only(V17))]
     pub balances: Vec<u64>,
+    pub prune_threshold: usize,
+    // Deprecated, remove in a future schema migration
+    justified_checkpoint: Checkpoint,
+    // Deprecated, remove in a future schema migration
+    finalized_checkpoint: Checkpoint,
+    pub nodes: Vec<ProtoNodeV17>,
+    pub indices: Vec<(Hash256, usize)>,
+    pub previous_proposer_boost: ProposerBoost,
+}
+
+/// Proto-array container introduced in schema V28.
+#[derive(Encode, Decode, Clone)]
+pub struct SszContainerV28 {
+    pub votes: Vec<VoteTracker>,
     pub prune_threshold: usize,
     // Deprecated, remove in a future schema migration
     justified_checkpoint: Checkpoint,
@@ -90,8 +98,8 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
 }
 
 // Convert legacy V17 to V28 by dropping balances.
-impl From<SszContainerLegacyV17> for SszContainerLegacyV28 {
-    fn from(v17: SszContainerLegacyV17) -> Self {
+impl From<SszContainerV17> for SszContainerV28 {
+    fn from(v17: SszContainerV17) -> Self {
         Self {
             votes: v17.votes,
             prune_threshold: v17.prune_threshold,
@@ -105,8 +113,8 @@ impl From<SszContainerLegacyV17> for SszContainerLegacyV28 {
 }
 
 // Convert legacy V28 to V17 by re-adding balances.
-impl From<(SszContainerLegacyV28, JustifiedBalances)> for SszContainerLegacyV17 {
-    fn from((v28, balances): (SszContainerLegacyV28, JustifiedBalances)) -> Self {
+impl From<(SszContainerV28, JustifiedBalances)> for SszContainerV17 {
+    fn from((v28, balances): (SszContainerV28, JustifiedBalances)) -> Self {
         Self {
             votes: v28.votes,
             balances: balances.effective_balances.clone(),
@@ -121,8 +129,8 @@ impl From<(SszContainerLegacyV28, JustifiedBalances)> for SszContainerLegacyV17 
 }
 
 // Convert legacy V28 to current V29.
-impl From<SszContainerLegacyV28> for SszContainerV29 {
-    fn from(v28: SszContainerLegacyV28) -> Self {
+impl From<SszContainerV28> for SszContainerV29 {
+    fn from(v28: SszContainerV28) -> Self {
         Self {
             votes: v28.votes,
             prune_threshold: v28.prune_threshold,
@@ -136,7 +144,7 @@ impl From<SszContainerLegacyV28> for SszContainerV29 {
 }
 
 // Downgrade current V29 to legacy V28 (lossy: V29 nodes lose payload-specific fields).
-impl From<SszContainerV29> for SszContainerLegacyV28 {
+impl From<SszContainerV29> for SszContainerV28 {
     fn from(v29: SszContainerV29) -> Self {
         Self {
             votes: v29.votes,

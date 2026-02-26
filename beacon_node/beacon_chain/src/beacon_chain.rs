@@ -2263,6 +2263,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.slot()?,
                 verified.indexed_attestation().to_ref(),
                 AttestationFromBlock::False,
+                &self.spec,
             )
             .map_err(Into::into)
     }

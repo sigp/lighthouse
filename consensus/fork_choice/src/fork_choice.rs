@@ -407,21 +407,33 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        let execution_status = anchor_block.message().execution_payload().map_or_else(
-            // If the block doesn't have an execution payload then it can't have
-            // execution enabled.
-            |_| ExecutionStatus::irrelevant(),
-            |execution_payload| {
+        let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
+            if let Ok(execution_payload) = anchor_block.message().execution_payload() {
+                // Pre-Gloas forks: hashes come from the execution payload.
                 if execution_payload.is_default_with_empty_roots() {
-                    // A default payload does not have execution enabled.
-                    ExecutionStatus::irrelevant()
+                    (ExecutionStatus::irrelevant(), None, None)
                 } else {
-                    // Assume that this payload is valid, since the anchor should be a trusted block and
-                    // state.
-                    ExecutionStatus::Valid(execution_payload.block_hash())
+                    // Assume that this payload is valid, since the anchor should be a
+                    // trusted block and state.
+                    (
+                        ExecutionStatus::Valid(execution_payload.block_hash()),
+                        Some(execution_payload.parent_hash()),
+                        Some(execution_payload.block_hash()),
+                    )
                 }
-            },
-        );
+            } else if let Ok(signed_bid) =
+                anchor_block.message().body().signed_execution_payload_bid()
+            {
+                // Gloas: hashes come from the execution payload bid.
+                (
+                    ExecutionStatus::irrelevant(),
+                    Some(signed_bid.message.parent_block_hash),
+                    Some(signed_bid.message.block_hash),
+                )
+            } else {
+                // Pre-merge: no execution payload at all.
+                (ExecutionStatus::irrelevant(), None, None)
+            };
 
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
@@ -435,8 +447,8 @@ where
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
-            None,
-            None,
+            execution_payload_parent_hash,
+            execution_payload_block_hash,
             spec,
         )?;
 
@@ -1045,6 +1057,7 @@ where
         &self,
         indexed_attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
+        spec: &ChainSpec,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
         // it immediately.
@@ -1117,11 +1130,17 @@ where
             });
         }
 
-        // Same-slot attestations must have index == 0 (i.e., indicate pending payload status).
-        // Payload-present attestations (index == 1) for the same slot as the block are invalid
-        // because PTC votes should only arrive in subsequent slots.
-        if indexed_attestation.data().slot == block.slot && indexed_attestation.data().index != 0 {
-            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot { slot: block.slot });
+        // Post-GLOAS: same-slot attestations with index != 0 indicate a payload-present vote.
+        // These must go through `on_payload_attestation`, not `on_attestation`.
+        if spec
+            .fork_name_at_slot::<E>(indexed_attestation.data().slot)
+            .gloas_enabled()
+            && indexed_attestation.data().slot == block.slot
+            && indexed_attestation.data().index != 0
+        {
+            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot {
+                slot: block.slot,
+            });
         }
 
         Ok(())
@@ -1182,6 +1201,7 @@ where
         system_time_current_slot: Slot,
         attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
+        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTATION_TIMES);
 
@@ -1204,7 +1224,7 @@ where
             return Ok(());
         }
 
-        self.validate_on_attestation(attestation, is_from_block)?;
+        self.validate_on_attestation(attestation, is_from_block, spec)?;
 
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
@@ -1720,7 +1740,7 @@ pub struct PersistedForkChoice {
     #[superstruct(only(V17))]
     pub proto_array_bytes: Vec<u8>,
     #[superstruct(only(V28))]
-    pub proto_array_v28: proto_array::core::SszContainerLegacyV28,
+    pub proto_array_v28: proto_array::core::SszContainerV28,
     #[superstruct(only(V29))]
     pub proto_array: proto_array::core::SszContainerV29,
     pub queued_attestations: Vec<QueuedAttestation>,
@@ -1735,8 +1755,8 @@ impl TryFrom<PersistedForkChoiceV17> for PersistedForkChoiceV28 {
 
     fn try_from(v17: PersistedForkChoiceV17) -> Result<Self, Self::Error> {
         let container_v17 =
-            proto_array::core::SszContainerLegacyV17::from_ssz_bytes(&v17.proto_array_bytes)?;
-        let container_v28: proto_array::core::SszContainerLegacyV28 = container_v17.into();
+            proto_array::core::SszContainerV17::from_ssz_bytes(&v17.proto_array_bytes)?;
+        let container_v28: proto_array::core::SszContainerV28 = container_v17.into();
 
         Ok(Self {
             proto_array_v28: container_v28,
@@ -1758,7 +1778,7 @@ impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
 impl From<(PersistedForkChoiceV28, JustifiedBalances)> for PersistedForkChoiceV17 {
     fn from((v28, balances): (PersistedForkChoiceV28, JustifiedBalances)) -> Self {
         let container_v17 =
-            proto_array::core::SszContainerLegacyV17::from((v28.proto_array_v28, balances));
+            proto_array::core::SszContainerV17::from((v28.proto_array_v28, balances));
         let proto_array_bytes = container_v17.as_ssz_bytes();
 
         Self {
