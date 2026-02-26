@@ -16,11 +16,6 @@ use super::cli::Create;
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
-pub const NAME_FLAG: &str = "name";
-pub const PASSWORD_FLAG: &str = "password-file";
-pub const TYPE_FLAG: &str = "type";
-pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
-pub const MNEMONIC_LENGTH_FLAG: &str = "mnemonic-length";
 pub const NEW_WALLET_PASSWORD_PROMPT: &str =
     "Enter a password for your new wallet that is at least 12 characters long:";
 pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
