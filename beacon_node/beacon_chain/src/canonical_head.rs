@@ -693,6 +693,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
         // FCR reads proto_array, votes, and checkpoints to compute a confirmed_root that
         // replaces justified_hash as the safe_block_hash sent to the execution layer.
+        // The old cached head state is used for balance source updates at epoch boundaries.
         if let Some(ref mut fcr) = *self.canonical_head.fast_confirmation.lock() {
             let head_root = new_view.head_block_root;
             let finalized_cp = fork_choice_read_lock.finalized_checkpoint();
@@ -711,6 +712,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 proto_array,
                 votes,
                 equivocating_indices,
+                &old_cached_head.snapshot.beacon_state,
             );
 
             // Override justified_hash with the confirmed root's execution block hash.

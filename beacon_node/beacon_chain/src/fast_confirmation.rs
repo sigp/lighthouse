@@ -9,8 +9,8 @@
 
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::BTreeSet;
-use tracing::{debug, debug_span};
-use types::{Checkpoint, EthSpec, Hash256, Slot};
+use tracing::{debug, debug_span, warn};
+use types::{BeaconState, Checkpoint, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// Per-mille adjustment factor for committee weight estimates that don't cover a full epoch.
 const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
@@ -33,6 +33,75 @@ pub struct BalanceSourceData {
     /// `slot_assignments[validator_index]` = the slot the validator is assigned to attest in.
     /// `Slot::new(0)` if not assigned (inactive).
     pub slot_assignments: Vec<Slot>,
+}
+
+impl BalanceSourceData {
+    /// Build a `BalanceSourceData` from a beacon state.
+    ///
+    /// Extracts effective balances and committee slot assignments for the given epoch.
+    /// The committee cache for `relative_epoch` must already be built on `state`.
+    pub fn from_state<E: EthSpec>(
+        state: &BeaconState<E>,
+        checkpoint: Checkpoint,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<Self, String> {
+        let _span = debug_span!("fcr_build_balance_source", epoch = %checkpoint.epoch).entered();
+
+        let validator_count = state.validators().len();
+        let mut effective_balances = Vec::with_capacity(validator_count);
+        let mut slot_assignments = vec![Slot::new(0); validator_count];
+        let mut total_active_balance = 0u64;
+
+        let epoch = match relative_epoch {
+            RelativeEpoch::Current => state.current_epoch(),
+            RelativeEpoch::Previous => state.previous_epoch(),
+            RelativeEpoch::Next => state.next_epoch().map_err(|e| format!("{e:?}"))?,
+        };
+
+        // Build effective balances (same pattern as JustifiedBalances).
+        for validator in state.validators().iter() {
+            if !validator.slashed && validator.is_active_at(epoch) {
+                effective_balances.push(validator.effective_balance);
+                total_active_balance =
+                    total_active_balance.saturating_add(validator.effective_balance);
+            } else {
+                effective_balances.push(0);
+            }
+        }
+
+        // Build per-validator slot assignments from the committee cache.
+        for val_idx in 0..validator_count {
+            match state.get_attestation_duties(val_idx, relative_epoch) {
+                Ok(Some(duty)) => {
+                    slot_assignments[val_idx] = duty.slot;
+                }
+                Ok(None) => {
+                    // Inactive validator, no assignment — leave as Slot(0).
+                }
+                Err(e) => {
+                    warn!(
+                        validator_index = val_idx,
+                        error = ?e,
+                        "FCR: failed to get attestation duties"
+                    );
+                }
+            }
+        }
+
+        debug!(
+            validators = validator_count,
+            active_balance = total_active_balance,
+            epoch = %checkpoint.epoch,
+            "FCR balance source built"
+        );
+
+        Ok(Self {
+            checkpoint,
+            total_active_balance,
+            effective_balances,
+            slot_assignments,
+        })
+    }
 }
 
 /// The Fast Confirmation Rule state machine.
@@ -82,14 +151,39 @@ impl FastConfirmationRule {
         }
     }
 
+    /// Update balance sources from a beacon state.
+    ///
+    /// Called at epoch boundaries when the observed justified checkpoints rotate.
+    /// The state should have committee caches built for both current and previous epochs.
+    pub fn update_balance_sources<E: EthSpec>(&mut self, state: &BeaconState<E>) {
+        let current_cp = self.current_epoch_observed_justified_checkpoint;
+        let previous_cp = self.previous_epoch_observed_justified_checkpoint;
+
+        // Only rebuild if the checkpoint changed.
+        if self.current_balance_source.checkpoint != current_cp {
+            match BalanceSourceData::from_state(state, current_cp, RelativeEpoch::Current) {
+                Ok(bs) => self.current_balance_source = bs,
+                Err(e) => warn!(error = %e, "FCR: failed to build current balance source"),
+            }
+        }
+
+        if self.previous_balance_source.checkpoint != previous_cp {
+            match BalanceSourceData::from_state(state, previous_cp, RelativeEpoch::Previous) {
+                Ok(bs) => self.previous_balance_source = bs,
+                Err(e) => warn!(error = %e, "FCR: failed to build previous balance source"),
+            }
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Top-level entry point: on_fast_confirmation
     // -----------------------------------------------------------------------
 
     /// Spec: `on_fast_confirmation(store)`.
     ///
-    /// Called after head selection, while the fork-choice write lock is held.
-    /// All parameters are borrowed from sibling fields on `ForkChoice`.
+    /// Called after head selection, while the fork-choice read lock is held.
+    /// All parameters are borrowed from fork choice. The `state` is used to
+    /// rebuild balance sources when observed justified checkpoints change.
     #[allow(clippy::too_many_arguments)]
     pub fn on_fast_confirmation<E: EthSpec>(
         &mut self,
@@ -101,6 +195,7 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
+        state: &BeaconState<E>,
     ) {
         let _span = debug_span!("fcr_on_fast_confirmation", slot = %current_slot).entered();
 
@@ -110,6 +205,9 @@ impl FastConfirmationRule {
             current_slot,
             proto_array,
         );
+
+        // Rebuild balance sources if the observed justified checkpoints changed.
+        self.update_balance_sources(state);
 
         self.confirmed_root = self.get_latest_confirmed::<E>(
             head_root,
