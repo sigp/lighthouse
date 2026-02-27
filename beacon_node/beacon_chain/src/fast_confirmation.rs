@@ -379,6 +379,12 @@ impl FastConfirmationRule {
                     equivocating_indices,
                 ))
         {
+            debug!(
+                prev_confirmed = %confirmed_root,
+                finalized = %finalized_checkpoint.root,
+                slot = %current_slot,
+                "FCR reverted to finalized"
+            );
             confirmed_root = finalized_checkpoint.root;
         }
 
@@ -390,6 +396,12 @@ impl FastConfirmationRule {
             && self.block_slot(confirmed_root, proto_array)
                 < self.block_slot(observed_jcp.root, proto_array)
         {
+            debug!(
+                prev_confirmed = %confirmed_root,
+                justified = %observed_jcp.root,
+                justified_epoch = %observed_jcp.epoch,
+                "FCR restarted from observed justified"
+            );
             confirmed_root = observed_jcp.root;
         }
 
