@@ -1,15 +1,13 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::lighthouse::{BlockReward, BlockRewardsQuery};
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use state_processing::BlockReplayer;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, warn};
 use types::block::BlindedBeaconBlock;
-use types::new_non_zero_usize;
 use warp_utils::reject::{beacon_state_error, custom_bad_request, unhandled_error};
 
-const STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(2);
+const STATE_CACHE_SIZE: usize = 2;
 
 /// Fetch block rewards for blocks from the canonical chain.
 pub fn get_block_rewards<T: BeaconChainTypes>(
@@ -158,7 +156,9 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
                 .build_all_committee_caches(&chain.spec)
                 .map_err(beacon_state_error)?;
 
-            state_cache.get_or_insert((parent_root, block.slot()), || state)
+            state_cache
+                .entry((parent_root, block.slot()))
+                .or_insert_with(|| state)
         };
 
         // Compute block reward.

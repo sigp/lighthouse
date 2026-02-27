@@ -12,7 +12,6 @@ use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
@@ -36,7 +35,6 @@ use crate::metrics::{
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
@@ -49,7 +47,7 @@ use types::new_non_zero_usize;
 ///
 /// `PendingComponents` are now never removed from the cache manually are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
+const OVERFLOW_LRU_CAPACITY: usize = 32;
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
@@ -122,7 +120,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
-            OVERFLOW_LRU_CAPACITY_NON_ZERO,
+            OVERFLOW_LRU_CAPACITY,
             custody_context.clone(),
             spec.clone(),
         )?;

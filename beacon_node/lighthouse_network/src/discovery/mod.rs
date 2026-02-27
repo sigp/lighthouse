@@ -18,6 +18,7 @@ use alloy_rlp::bytes::Bytes;
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+use hashlink::lru_cache::LruCache;
 use libp2p::core::transport::PortUse;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::THandlerInEvent;
@@ -31,10 +32,8 @@ pub use libp2p::{
     },
 };
 use logging::crit;
-use lru::LruCache;
 use network_utils::discovery_metrics;
 use ssz::Encode;
-use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -51,7 +50,6 @@ use types::{ChainSpec, EnrForkId, EthSpec};
 mod subnet_predicate;
 use crate::discovery::enr::{NEXT_FORK_DIGEST_ENR_KEY, PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY};
 pub use subnet_predicate::subnet_predicate;
-use types::new_non_zero_usize;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
@@ -74,7 +72,7 @@ pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 /// The capacity of the Discovery ENR cache.
-const ENR_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(50);
+const ENR_CACHE_CAPACITY: usize = 50;
 
 /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
 /// of the peer if it is specified.
@@ -358,7 +356,7 @@ impl<E: EthSpec> Discovery<E> {
 
     /// Removes a cached ENR from the list.
     pub fn remove_cached_enr(&mut self, peer_id: &PeerId) -> Option<Enr> {
-        self.cached_enrs.pop(peer_id)
+        self.cached_enrs.remove(peer_id)
     }
 
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
@@ -394,7 +392,7 @@ impl<E: EthSpec> Discovery<E> {
     /// Add an ENR to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
         // add the enr to seen caches
-        self.cached_enrs.put(enr.peer_id(), enr.clone());
+        self.cached_enrs.insert(enr.peer_id(), enr.clone());
 
         if let Err(e) = self.discv5.add_enr(enr) {
             debug!(
@@ -665,7 +663,7 @@ impl<E: EthSpec> Discovery<E> {
         }
         // Remove the peer from the cached list, to prevent redialing disconnected
         // peers.
-        self.cached_enrs.pop(peer_id);
+        self.cached_enrs.remove(peer_id);
     }
 
     /* Internal Functions */
@@ -875,7 +873,7 @@ impl<E: EthSpec> Discovery<E> {
                             .into_iter()
                             .map(|enr| {
                                 // cache the found ENR's
-                                self.cached_enrs.put(enr.peer_id(), enr.clone());
+                                self.cached_enrs.insert(enr.peer_id(), enr.clone());
                                 (enr, None)
                             })
                             .collect();
@@ -910,7 +908,7 @@ impl<E: EthSpec> Discovery<E> {
 
                         // cache the found ENR's
                         for enr in r.iter().cloned() {
-                            self.cached_enrs.put(enr.peer_id(), enr);
+                            self.cached_enrs.insert(enr.peer_id(), enr);
                         }
 
                         // Map each subnet query's min_ttl to the set of ENR's returned for that subnet.

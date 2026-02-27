@@ -7,11 +7,10 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::{BeaconChainTypes, BlockProcessStatus};
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ssz_types::{RuntimeFixedVector, RuntimeVariableList};
 use std::cmp::Ordering;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::data::BlobIdentifier;
@@ -393,7 +392,7 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
 
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
-        capacity: NonZeroUsize,
+        capacity: usize,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
@@ -593,7 +592,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut write_lock = self.critical.write();
 
         {
-            let pending_components = write_lock.get_or_insert_mut(block_root, || {
+            let pending_components = write_lock.entry(block_root).or_insert_with(|| {
                 PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
             });
             update_fn(pending_components)?
@@ -700,7 +699,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if let Some(BlockProcessStatus::NotValidated(_, _)) = self.get_cached_block(block_root) {
             // If the block is execution invalid, this status is permanent and idempotent to this
             // block_root. We drop its components (e.g. columns) because they will never be useful.
-            self.critical.write().pop(block_root);
+            self.critical.write().remove(block_root);
         }
     }
 
@@ -761,7 +760,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
         // Now remove keys
         for key in keys_to_remove {
-            write_lock.pop(&key);
+            write_lock.remove(&key);
         }
 
         Ok(())
@@ -792,7 +791,6 @@ mod test {
     use tempfile::{TempDir, tempdir};
     use tracing::info;
     use types::MinimalEthSpec;
-    use types::new_non_zero_usize;
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -952,19 +950,14 @@ mod test {
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
-        let capacity_non_zero = new_non_zero_usize(capacity);
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
             &spec,
         ));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(
-                capacity_non_zero,
-                custody_context,
-                spec.clone(),
-            )
-            .expect("should create cache"),
+            DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec.clone())
+                .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }

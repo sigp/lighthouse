@@ -20,13 +20,13 @@ fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
 hash-db = "0.15.2"
 hash256-std-hasher = "0.15.2"
+hashlink = { workspace = true }
 hex = { workspace = true }
 jsonwebtoken = "9"
 keccak-hash = "0.10.0"
 kzg = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-lru = { workspace = true }
 metrics = { workspace = true }
 parking_lot = { workspace = true }
 pretty_reqwest_error = { workspace = true }
