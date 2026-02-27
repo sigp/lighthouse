@@ -116,8 +116,6 @@ exceptions:
     - get_aggregate_and_proof#phase0
     - get_aggregate_and_proof_signature#phase0
     - get_aggregate_signature#phase0
-    - get_attestation_component_deltas#phase0
-    - get_attestation_deltas#phase0
     - get_attestation_score#phase0
     - get_attestation_signature#phase0
     - get_attesting_balance#phase0
@@ -130,26 +128,18 @@ exceptions:
     - get_eth1_vote#phase0
     - get_filtered_block_tree#phase0
     - get_finality_delay#phase0
-    - get_head_deltas#phase0
-    - get_inactivity_penalty_deltas#phase0
-    - get_inclusion_delay_deltas#phase0
     - get_matching_head_attestations#phase0
     - get_matching_source_attestations#phase0
     - get_matching_target_attestations#phase0
-    - get_proposer_head#phase0
     - get_proposer_reorg_cutoff_ms#phase0
-    - get_proposer_reward#phase0
     - get_proposer_score#phase0
     - get_slot_component_duration_ms#phase0
     - get_slot_signature#phase0
     - get_slots_since_genesis#phase0
-    - get_source_deltas#phase0
-    - get_target_deltas#phase0
     - get_unslashed_attesting_indices#phase0
     - get_validator_from_deposit#phase0
     - get_voting_source#phase0
     - get_weight#phase0
-    - initialize_beacon_state_from_eth1#phase0
     - integer_squareroot#phase0
     - is_candidate_block#phase0
     - is_ffg_competitive#phase0
@@ -162,8 +152,6 @@ exceptions:
     - is_proposing_on_time#phase0
     - is_shuffling_stable#phase0
     - is_slashable_attestation_data#phase0
-    - is_valid_genesis_state#phase0
-    - is_valid_merkle_branch#phase0
     - is_within_weak_subjectivity_period#phase0
     - on_tick_per_slot#phase0
     - process_slots#phase0
@@ -200,7 +188,6 @@ exceptions:
     - validate_light_client_update#altair
 
     # bellatrix
-    - get_inactivity_penalty_deltas#bellatrix
     - get_pow_block_at_terminal_total_difficulty#bellatrix
     - get_terminal_pow_block#bellatrix
     - is_execution_block#bellatrix
@@ -211,14 +198,8 @@ exceptions:
     - validate_merge_block#bellatrix
 
     # capella
-    - apply_withdrawals#capella
-    - get_balance_after_withdrawals#capella
-    - get_expected_withdrawals#capella
     - get_lc_execution_root#capella
-    - get_validators_sweep_withdrawals#capella
     - is_valid_light_client_header#capella
-    - update_next_withdrawal_index#capella
-    - update_next_withdrawal_validator_index#capella
     - upgrade_lc_bootstrap_to_capella#capella
     - upgrade_lc_finality_update_to_capella#capella
     - upgrade_lc_header_to_capella#capella

@@ -264,7 +264,9 @@
     </spec>
 
 - name: apply_withdrawals#capella
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn apply_withdrawals<
   spec: |
     <spec fn="apply_withdrawals" fork="capella" hash="fa29f504">
     def apply_withdrawals(state: BeaconState, withdrawals: Sequence[Withdrawal]) -> None:
@@ -2427,7 +2429,9 @@
     </spec>
 
 - name: get_attestation_component_deltas#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: pub fn get_attestation_component_delta(
   spec: |
     <spec fn="get_attestation_component_deltas" fork="phase0" hash="c6d7c444">
     def get_attestation_component_deltas(
@@ -2457,7 +2461,9 @@
     </spec>
 
 - name: get_attestation_deltas#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: fn get_attestation_deltas<
   spec: |
     <spec fn="get_attestation_deltas" fork="phase0" hash="17fcc0d9">
     def get_attestation_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -2766,7 +2772,9 @@
     </spec>
 
 - name: get_balance_after_withdrawals#capella
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_balance_after_withdrawals<
   spec: |
     <spec fn="get_balance_after_withdrawals" fork="capella" hash="d01eedbb">
     def get_balance_after_withdrawals(
@@ -3729,7 +3737,9 @@
     </spec>
 
 - name: get_expected_withdrawals#capella
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_expected_withdrawals<
   spec: |
     <spec fn="get_expected_withdrawals" fork="capella" hash="12088347">
     def get_expected_withdrawals(state: BeaconState) -> ExpectedWithdrawals:
@@ -3993,7 +4003,9 @@
     </spec>
 
 - name: get_head_deltas#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: fn get_head_delta(
   spec: |
     <spec fn="get_head_deltas" fork="phase0" hash="3e9b5111">
     def get_head_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -4005,7 +4017,9 @@
     </spec>
 
 - name: get_inactivity_penalty_deltas#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: pub fn get_inactivity_penalty_delta(
   spec: |
     <spec fn="get_inactivity_penalty_deltas" fork="phase0" hash="11718f1b">
     def get_inactivity_penalty_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -4064,7 +4078,9 @@
     </spec>
 
 - name: get_inactivity_penalty_deltas#bellatrix
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/single_pass.rs
+      search: fn get_inactivity_penalty_delta(
   spec: |
     <spec fn="get_inactivity_penalty_deltas" fork="bellatrix" hash="b289e0cd">
     def get_inactivity_penalty_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -4089,7 +4105,9 @@
     </spec>
 
 - name: get_inclusion_delay_deltas#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: pub fn get_inclusion_delay_delta(
   spec: |
     <spec fn="get_inclusion_delay_deltas" fork="phase0" hash="aa690a2f">
     def get_inclusion_delay_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -4653,7 +4671,9 @@
     </spec>
 
 - name: get_proposer_head#phase0
-  sources: []
+  sources:
+    - file: consensus/proto_array/src/proto_array_fork_choice.rs
+      search: pub fn get_proposer_head<
   spec: |
     <spec fn="get_proposer_head" fork="phase0" hash="99e8fc05">
     def get_proposer_head(store: Store, head_root: Root, slot: Slot) -> Root:
@@ -4734,7 +4754,9 @@
     </spec>
 
 - name: get_proposer_reward#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: fn get_proposer_reward(
   spec: |
     <spec fn="get_proposer_reward" fork="phase0" hash="2ccc4963">
     def get_proposer_reward(state: BeaconState, attesting_index: ValidatorIndex) -> Gwei:
@@ -4868,7 +4890,9 @@
     </spec>
 
 - name: get_source_deltas#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: fn get_source_delta(
   spec: |
     <spec fn="get_source_deltas" fork="phase0" hash="af1e0223">
     def get_source_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -4978,7 +5002,9 @@
     </spec>
 
 - name: get_target_deltas#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/base/rewards_and_penalties.rs
+      search: fn get_target_delta(
   spec: |
     <spec fn="get_target_deltas" fork="phase0" hash="2e16c38d">
     def get_target_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -5190,7 +5216,9 @@
     </spec>
 
 - name: get_validators_sweep_withdrawals#capella
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_validators_sweep_withdrawals<
   spec: |
     <spec fn="get_validators_sweep_withdrawals" fork="capella" hash="59563c2a">
     def get_validators_sweep_withdrawals(
@@ -5471,7 +5499,9 @@
     </spec>
 
 - name: initialize_beacon_state_from_eth1#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/genesis.rs
+      search: pub fn initialize_beacon_state_from_eth1<
   spec: |
     <spec fn="initialize_beacon_state_from_eth1" fork="phase0" hash="d3a0ddd4">
     def initialize_beacon_state_from_eth1(
@@ -6461,7 +6491,9 @@
     </spec>
 
 - name: is_valid_genesis_state#phase0
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/genesis.rs
+      search: pub fn is_valid_genesis_state<
   spec: |
     <spec fn="is_valid_genesis_state" fork="phase0" hash="af8478cd">
     def is_valid_genesis_state(state: BeaconState) -> bool:
@@ -6580,7 +6612,9 @@
     </spec>
 
 - name: is_valid_merkle_branch#phase0
-  sources: []
+  sources:
+    - file: consensus/merkle_proof/src/lib.rs
+      search: pub fn verify_merkle_proof(
   spec: |
     <spec fn="is_valid_merkle_branch" fork="phase0" hash="f754117e">
     def is_valid_merkle_branch(
@@ -10875,7 +10909,9 @@
     </spec>
 
 - name: update_next_withdrawal_index#capella
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: fn update_next_withdrawal_index<
   spec: |
     <spec fn="update_next_withdrawal_index" fork="capella" hash="a9e9baa5">
     def update_next_withdrawal_index(state: BeaconState, withdrawals: Sequence[Withdrawal]) -> None:
@@ -10886,7 +10922,9 @@
     </spec>
 
 - name: update_next_withdrawal_validator_index#capella
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: fn update_next_withdrawal_validator_index<
   spec: |
     <spec fn="update_next_withdrawal_validator_index" fork="capella" hash="4a3ee635">
     def update_next_withdrawal_validator_index(
