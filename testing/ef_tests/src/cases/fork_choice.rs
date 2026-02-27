@@ -1,6 +1,6 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
+use ::fork_choice::{ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::block_verification_types::LookupBlock;
@@ -72,6 +72,13 @@ pub struct Checks {
     proposer_boost_root: Option<Hash256>,
     get_proposer_head: Option<Hash256>,
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
+    // Fast Confirmation Rule (FCR) checks
+    confirmed_root: Option<Hash256>,
+    previous_epoch_observed_justified_checkpoint: Option<Checkpoint>,
+    current_epoch_observed_justified_checkpoint: Option<Checkpoint>,
+    previous_epoch_greatest_unrealized_checkpoint: Option<Checkpoint>,
+    previous_slot_head: Option<Hash256>,
+    current_slot_head: Option<Hash256>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -359,6 +366,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         proposer_boost_root,
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
+                        confirmed_root,
+                        previous_epoch_observed_justified_checkpoint,
+                        current_epoch_observed_justified_checkpoint,
+                        previous_epoch_greatest_unrealized_checkpoint,
+                        previous_slot_head,
+                        current_slot_head,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -404,6 +417,26 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected_proposer_head) = get_proposer_head {
                         tester.check_expected_proposer_head(*expected_proposer_head)?;
+                    }
+
+                    // Fast Confirmation Rule checks
+                    if let Some(expected) = confirmed_root {
+                        tester.check_confirmed_root(*expected)?;
+                    }
+                    if let Some(expected) = previous_epoch_observed_justified_checkpoint {
+                        tester.check_previous_epoch_observed_justified_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = current_epoch_observed_justified_checkpoint {
+                        tester.check_current_epoch_observed_justified_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = previous_epoch_greatest_unrealized_checkpoint {
+                        tester.check_previous_epoch_greatest_unrealized_checkpoint(*expected)?;
+                    }
+                    if let Some(expected) = previous_slot_head {
+                        tester.check_previous_slot_head(*expected)?;
+                    }
+                    if let Some(expected) = current_slot_head {
+                        tester.check_current_slot_head(*expected)?;
                     }
                 }
 
@@ -479,6 +512,14 @@ impl<E: EthSpec> Tester<E> {
             harness.chain.slot_clock.genesis_duration().as_secs(),
             genesis_time
         );
+
+        // Disable FCR auto-confirmation for spec tests. The spec only calls
+        // `on_fast_confirmation` at explicit `with_fast_confirmation` points,
+        // not on every block/attestation import. We trigger confirmation
+        // explicitly in `check_confirmed_root` instead.
+        if let Some(ref mut fcr) = *harness.chain.canonical_head.fast_confirmation.lock() {
+            fcr.set_auto_confirm(false);
+        }
 
         Ok(Self { harness, spec })
     }
@@ -985,6 +1026,113 @@ impl<E: EthSpec> Tester<E> {
             fcu_params != canonical_fcu_params,
             expected_should_override_fcu.result,
         )
+    }
+
+    fn get_fcr_field<T: Clone>(
+        &self,
+        field_name: &str,
+        f: impl FnOnce(&beacon_chain::fast_confirmation::FastConfirmationRule) -> T,
+    ) -> Result<T, Error> {
+        let guard = self.harness.chain.canonical_head.fast_confirmation.lock();
+        let fcr = guard.as_ref().ok_or_else(|| {
+            Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
+        })?;
+        Ok(f(fcr))
+    }
+
+    pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
+        // Trigger head recomputation so fork choice state is up to date.
+        let cached_head = self.find_head()?;
+        let current_slot = self
+            .harness
+            .chain
+            .slot()
+            .map_err(|e| Error::InternalError(format!("Failed to get slot: {e:?}")))?;
+
+        // Explicitly run FCR confirmation. In spec tests, auto_confirm is disabled
+        // so `on_fast_confirmation` only tracks variables. We trigger the full
+        // confirmation step here, matching the spec's `with_fast_confirmation` flag.
+        let fork_choice_lock = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let head_root = cached_head.head_block_root();
+        let finalized_cp = fork_choice_lock.finalized_checkpoint();
+        let justified_cp = fork_choice_lock.justified_checkpoint();
+        let unrealized_justified_cp = fork_choice_lock.unrealized_justified_checkpoint();
+        let proto_array = fork_choice_lock.proto_array().core_proto_array();
+        let votes = fork_choice_lock.proto_array().votes();
+        let equivocating_indices = fork_choice_lock.fc_store().equivocating_indices();
+
+        let mut fcr_guard = self.harness.chain.canonical_head.fast_confirmation.lock();
+        if let Some(ref mut fcr) = *fcr_guard {
+            fcr.run_confirmation::<E>(
+                head_root,
+                &finalized_cp,
+                &justified_cp,
+                &unrealized_justified_cp,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+                &cached_head.snapshot.beacon_state,
+            );
+        }
+        drop(fcr_guard);
+        drop(fork_choice_lock);
+
+        let actual = self.get_fcr_field("confirmed_root", |fcr| fcr.confirmed_root)?;
+        check_equal("confirmed_root", actual, expected)
+    }
+
+    pub fn check_previous_epoch_observed_justified_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self.get_fcr_field("previous_epoch_observed_justified_checkpoint", |fcr| {
+            fcr.previous_epoch_observed_justified_checkpoint
+        })?;
+        check_equal(
+            "previous_epoch_observed_justified_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_current_epoch_observed_justified_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self.get_fcr_field("current_epoch_observed_justified_checkpoint", |fcr| {
+            fcr.current_epoch_observed_justified_checkpoint
+        })?;
+        check_equal(
+            "current_epoch_observed_justified_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_previous_epoch_greatest_unrealized_checkpoint(
+        &self,
+        expected: Checkpoint,
+    ) -> Result<(), Error> {
+        let actual = self
+            .get_fcr_field("previous_epoch_greatest_unrealized_checkpoint", |fcr| {
+                fcr.previous_epoch_greatest_unrealized_checkpoint
+            })?;
+        check_equal(
+            "previous_epoch_greatest_unrealized_checkpoint",
+            actual,
+            expected,
+        )
+    }
+
+    pub fn check_previous_slot_head(&self, expected: Hash256) -> Result<(), Error> {
+        let actual = self.get_fcr_field("previous_slot_head", |fcr| fcr.previous_slot_head)?;
+        check_equal("previous_slot_head", actual, expected)
+    }
+
+    pub fn check_current_slot_head(&self, expected: Hash256) -> Result<(), Error> {
+        let actual = self.get_fcr_field("current_slot_head", |fcr| fcr.current_slot_head)?;
+        check_equal("current_slot_head", actual, expected)
     }
 }
 

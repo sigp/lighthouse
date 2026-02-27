@@ -34,6 +34,11 @@ impl VoteTracker {
     pub fn current_root(&self) -> Hash256 {
         self.current_root
     }
+
+    /// The epoch of this validator's latest message (next_epoch in proto_array parlance).
+    pub fn current_epoch(&self) -> Epoch {
+        self.next_epoch
+    }
 }
 
 /// Represents the verification status of an execution payload.

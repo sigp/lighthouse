@@ -1033,6 +1033,46 @@ fn fork_choice_deposit_with_reorg() {
 }
 
 #[test]
+fn fast_confirmation_basic() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("basic").run();
+}
+
+#[test]
+fn fast_confirmation_current_epoch() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("current_epoch").run();
+}
+
+#[test]
+fn fast_confirmation_empty_slots() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("empty_slots").run();
+}
+
+#[test]
+fn fast_confirmation_is_one_confirmed() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("is_one_confirmed").run();
+}
+
+#[test]
+fn fast_confirmation_reconfirmation() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("reconfirmation").run();
+}
+
+#[test]
+fn fast_confirmation_restart_gu() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("restart_gu").run();
+}
+
+#[test]
+fn fast_confirmation_revert_finality() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("revert_finality").run();
+}
+
+#[test]
+fn fast_confirmation_variables() {
+    FastConfirmationHandler::<MinimalEthSpec>::new("variables").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();

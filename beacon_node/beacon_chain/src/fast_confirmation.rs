@@ -29,10 +29,6 @@ pub struct BalanceSourceData {
     pub total_active_balance: u64,
     /// Effective balance per validator index. 0 for inactive/slashed.
     pub effective_balances: Vec<u64>,
-    /// Per-validator committee slot assignment for the relevant epoch.
-    /// `slot_assignments[validator_index]` = the slot the validator is assigned to attest in.
-    /// `Slot::new(0)` if not assigned (inactive).
-    pub slot_assignments: Vec<Slot>,
 }
 
 impl BalanceSourceData {
@@ -49,7 +45,6 @@ impl BalanceSourceData {
 
         let validator_count = state.validators().len();
         let mut effective_balances = Vec::with_capacity(validator_count);
-        let mut slot_assignments = vec![Slot::new(0); validator_count];
         let mut total_active_balance = 0u64;
 
         let epoch = match relative_epoch {
@@ -69,25 +64,6 @@ impl BalanceSourceData {
             }
         }
 
-        // Build per-validator slot assignments from the committee cache.
-        for val_idx in 0..validator_count {
-            match state.get_attestation_duties(val_idx, relative_epoch) {
-                Ok(Some(duty)) => {
-                    slot_assignments[val_idx] = duty.slot;
-                }
-                Ok(None) => {
-                    // Inactive validator, no assignment — leave as Slot(0).
-                }
-                Err(e) => {
-                    warn!(
-                        validator_index = val_idx,
-                        error = ?e,
-                        "FCR: failed to get attestation duties"
-                    );
-                }
-            }
-        }
-
         debug!(
             validators = validator_count,
             active_balance = total_active_balance,
@@ -99,7 +75,6 @@ impl BalanceSourceData {
             checkpoint,
             total_active_balance,
             effective_balances,
-            slot_assignments,
         })
     }
 }
@@ -127,6 +102,23 @@ pub struct FastConfirmationRule {
 
     // === Config ===
     pub byzantine_threshold: u64,
+
+    // === Committee data from head state ===
+    /// Per-validator slot assignment, covering current and previous epochs.
+    /// Built from the HEAD state each time `on_fast_confirmation` runs.
+    /// Used by `get_block_support_between_slots` and `get_equivocation_score`.
+    head_slot_assignments: Vec<Slot>,
+
+    // === Internal bookkeeping ===
+    /// The last slot at which `update_fast_confirmation_variables` ran.
+    /// Prevents double-rotation when `recompute_head` runs multiple times per slot.
+    last_update_slot: Slot,
+
+    /// When `false`, `on_fast_confirmation` updates tracking variables but skips
+    /// the `get_latest_confirmed` call. Used in spec tests where FCR is only
+    /// triggered at explicit orchestration points (the spec's `with_fast_confirmation`
+    /// flag). In production this should always be `true`.
+    auto_confirm: bool,
 }
 
 impl FastConfirmationRule {
@@ -148,7 +140,56 @@ impl FastConfirmationRule {
             previous_balance_source: BalanceSourceData::default(),
             current_balance_source: BalanceSourceData::default(),
             byzantine_threshold,
+            head_slot_assignments: Vec::new(),
+            last_update_slot: Slot::new(0),
+            auto_confirm: true,
         }
+    }
+
+    /// Disable automatic confirmation finding (for spec tests).
+    /// When disabled, `on_fast_confirmation` still tracks variables but does not
+    /// update `confirmed_root`. Call `run_confirmation` explicitly to trigger it.
+    pub fn set_auto_confirm(&mut self, enabled: bool) {
+        self.auto_confirm = enabled;
+    }
+
+    /// Rebuild committee slot assignments from the head state.
+    ///
+    /// The spec's `get_slot_committee` uses `store.block_states[head]` for shuffling,
+    /// which is separate from the balance source. We store two slot assignments per
+    /// validator (previous epoch and current epoch) so we can check committee membership
+    /// across epoch boundaries.
+    fn rebuild_head_slot_assignments<E: EthSpec>(&mut self, state: &BeaconState<E>) {
+        let validator_count = state.validators().len();
+        // Store pairs: (prev_epoch_slot, curr_epoch_slot). Slot(0) means no assignment.
+        let mut assignments = vec![Slot::new(0); validator_count * 2];
+
+        for val_idx in 0..validator_count {
+            if let Ok(Some(duty)) = state.get_attestation_duties(val_idx, RelativeEpoch::Previous) {
+                assignments[val_idx * 2] = duty.slot;
+            }
+            if let Ok(Some(duty)) = state.get_attestation_duties(val_idx, RelativeEpoch::Current) {
+                assignments[val_idx * 2 + 1] = duty.slot;
+            }
+        }
+
+        self.head_slot_assignments = assignments;
+    }
+
+    /// Check if a validator is assigned to any committee in the slot range [start, end].
+    fn is_in_committee_range(&self, val_idx: usize, start_slot: Slot, end_slot: Slot) -> bool {
+        let prev_slot = self
+            .head_slot_assignments
+            .get(val_idx * 2)
+            .copied()
+            .unwrap_or_else(|| Slot::new(0));
+        let curr_slot = self
+            .head_slot_assignments
+            .get(val_idx * 2 + 1)
+            .copied()
+            .unwrap_or_else(|| Slot::new(0));
+        (prev_slot >= start_slot && prev_slot <= end_slot)
+            || (curr_slot >= start_slot && curr_slot <= end_slot)
     }
 
     /// Update balance sources from a beacon state.
@@ -206,7 +247,51 @@ impl FastConfirmationRule {
             proto_array,
         );
 
+        // Rebuild committee assignments from the head state.
+        self.rebuild_head_slot_assignments::<E>(state);
+
         // Rebuild balance sources if the observed justified checkpoints changed.
+        self.update_balance_sources(state);
+
+        if self.auto_confirm {
+            self.confirmed_root = self.get_latest_confirmed::<E>(
+                head_root,
+                finalized_checkpoint,
+                justified_checkpoint,
+                unrealized_justified_checkpoint,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            );
+        }
+    }
+
+    /// Explicitly trigger the confirmation finding step.
+    ///
+    /// In spec tests, `auto_confirm` is `false` so this must be called manually
+    /// at the orchestration points that correspond to the spec's `with_fast_confirmation`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_confirmation<E: EthSpec>(
+        &mut self,
+        head_root: Hash256,
+        finalized_checkpoint: &Checkpoint,
+        justified_checkpoint: &Checkpoint,
+        unrealized_justified_checkpoint: &Checkpoint,
+        current_slot: Slot,
+        proto_array: &ProtoArray,
+        votes: &[VoteTracker],
+        equivocating_indices: &BTreeSet<u64>,
+        state: &BeaconState<E>,
+    ) {
+        // Ensure variables and committee data are up to date.
+        self.update_fast_confirmation_variables::<E>(
+            head_root,
+            unrealized_justified_checkpoint,
+            current_slot,
+            proto_array,
+        );
+        self.rebuild_head_slot_assignments::<E>(state);
         self.update_balance_sources(state);
 
         self.confirmed_root = self.get_latest_confirmed::<E>(
@@ -234,21 +319,29 @@ impl FastConfirmationRule {
     ) {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
 
-        // Rotate slot heads.
-        self.previous_slot_head = self.current_slot_head;
-        self.current_slot_head = head_root;
+        // The spec's slot-head tracking (previous_slot_head / current_slot_head) records
+        // the head at the *start* of each slot. Mid-slot block processing should NOT update
+        // these values. Only rotate at slot boundaries.
+        if current_slot > self.last_update_slot {
+            // Rotate slot heads: previous captures old current, then current = new head.
+            self.previous_slot_head = self.current_slot_head;
+            self.current_slot_head = head_root;
 
-        // At last slot of epoch: snapshot greatest unrealized justified.
-        if is_start_slot_at_epoch::<E>(current_slot.saturating_add(1u64)) {
-            self.previous_epoch_greatest_unrealized_checkpoint = *unrealized_justified_checkpoint;
-        }
+            // At last slot of epoch: snapshot greatest unrealized justified.
+            if is_start_slot_at_epoch::<E>(current_slot.saturating_add(1u64)) {
+                self.previous_epoch_greatest_unrealized_checkpoint =
+                    *unrealized_justified_checkpoint;
+            }
 
-        // At first slot of epoch: rotate observed justified checkpoints.
-        if is_start_slot_at_epoch::<E>(current_slot) {
-            self.previous_epoch_observed_justified_checkpoint =
-                self.current_epoch_observed_justified_checkpoint;
-            self.current_epoch_observed_justified_checkpoint =
-                self.previous_epoch_greatest_unrealized_checkpoint;
+            // At first slot of epoch: rotate observed justified checkpoints.
+            if is_start_slot_at_epoch::<E>(current_slot) {
+                self.previous_epoch_observed_justified_checkpoint =
+                    self.current_epoch_observed_justified_checkpoint;
+                self.current_epoch_observed_justified_checkpoint =
+                    self.previous_epoch_greatest_unrealized_checkpoint;
+            }
+
+            self.last_update_slot = current_slot;
         }
     }
 
@@ -286,11 +379,6 @@ impl FastConfirmationRule {
                     equivocating_indices,
                 ))
         {
-            debug!(
-                finalized = %finalized_checkpoint.root,
-                prev_confirmed = %confirmed_root,
-                "FCR reverted to finalized"
-            );
             confirmed_root = finalized_checkpoint.root;
         }
 
@@ -302,10 +390,6 @@ impl FastConfirmationRule {
             && self.block_slot(confirmed_root, proto_array)
                 < self.block_slot(observed_jcp.root, proto_array)
         {
-            debug!(
-                justified = %observed_jcp.root,
-                "FCR restarted from observed justified"
-            );
             confirmed_root = observed_jcp.root;
         }
 
@@ -349,28 +433,31 @@ impl FastConfirmationRule {
 
         // --- Loop 1: Previous epoch blocks ---
         let prev_head_voting_source_epoch =
-            self.get_voting_source_epoch(self.previous_slot_head, proto_array);
+            self.get_voting_source_epoch::<E>(self.previous_slot_head, current_slot, proto_array);
 
-        if self
+        let confirmed_epoch_check = self
             .block_epoch::<E>(confirmed_root, proto_array)
-            .is_some_and(|e| e.saturating_add(1u64) == current_epoch)
-            && prev_head_voting_source_epoch
-                .is_some_and(|e| e.saturating_add(2u64) >= current_epoch)
+            .is_some_and(|e| e.saturating_add(1u64) == current_epoch);
+        let voting_source_check =
+            prev_head_voting_source_epoch.is_some_and(|e| e.saturating_add(2u64) >= current_epoch);
+        let no_conflict = self.will_no_conflicting_checkpoint_be_justified::<E>(
+            head_root,
+            unrealized_justified_checkpoint,
+            current_slot,
+            proto_array,
+            votes,
+            equivocating_indices,
+        );
+        let uj_prev_head =
+            self.unrealized_justification_epoch_of(self.previous_slot_head, proto_array);
+        let uj_head = self.unrealized_justification_epoch_of(head_root, proto_array);
+        let loop1_guard = confirmed_epoch_check
+            && voting_source_check
             && (is_epoch_start
-                || (self.will_no_conflicting_checkpoint_be_justified::<E>(
-                    head_root,
-                    unrealized_justified_checkpoint,
-                    current_slot,
-                    proto_array,
-                    votes,
-                    equivocating_indices,
-                ) && (self
-                    .unrealized_justification_epoch_of(self.previous_slot_head, proto_array)
-                    .is_some_and(|e| e.saturating_add(1u64) >= current_epoch)
-                    || self
-                        .unrealized_justification_epoch_of(head_root, proto_array)
-                        .is_some_and(|e| e.saturating_add(1u64) >= current_epoch))))
-        {
+                || (no_conflict
+                    && (uj_prev_head.is_some_and(|e| e.saturating_add(1u64) >= current_epoch)
+                        || uj_head.is_some_and(|e| e.saturating_add(1u64) >= current_epoch))));
+        if loop1_guard {
             let canonical_roots = self.get_ancestor_roots(head_root, confirmed_root, proto_array);
 
             for block_root in &canonical_roots {
@@ -396,11 +483,10 @@ impl FastConfirmationRule {
         }
 
         // --- Loop 2: Current epoch blocks ---
-        if is_epoch_start
-            || self
-                .unrealized_justification_epoch_of(head_root, proto_array)
-                .is_some_and(|e| e.saturating_add(1u64) >= current_epoch)
-        {
+        let uj_epoch = self.unrealized_justification_epoch_of(head_root, proto_array);
+        let loop2_guard =
+            is_epoch_start || uj_epoch.is_some_and(|e| e.saturating_add(1u64) >= current_epoch);
+        if loop2_guard {
             let canonical_roots = self.get_ancestor_roots(head_root, confirmed_root, proto_array);
 
             let mut tentative_confirmed_root = confirmed_root;
@@ -410,17 +496,18 @@ impl FastConfirmationRule {
                 let tentative_epoch = self.block_epoch::<E>(tentative_confirmed_root, proto_array);
 
                 // When crossing into current epoch, check FFG.
-                if block_epoch > tentative_epoch
-                    && !self.will_current_target_be_justified::<E>(
+                if block_epoch > tentative_epoch {
+                    let ffg_ok = self.will_current_target_be_justified::<E>(
                         head_root,
                         unrealized_justified_checkpoint,
                         current_slot,
                         proto_array,
                         votes,
                         equivocating_indices,
-                    )
-                {
-                    break;
+                    );
+                    if !ffg_ok {
+                        break;
+                    }
                 }
 
                 if !self.is_one_confirmed::<E>(
@@ -438,22 +525,26 @@ impl FastConfirmationRule {
 
             // Promote tentative if safe.
             let tentative_epoch = self.block_epoch::<E>(tentative_confirmed_root, proto_array);
-            let tentative_voting_source_epoch =
-                self.get_voting_source_epoch(tentative_confirmed_root, proto_array);
+            let tentative_voting_source_epoch = self.get_voting_source_epoch::<E>(
+                tentative_confirmed_root,
+                current_slot,
+                proto_array,
+            );
 
-            if (tentative_epoch == Some(current_epoch))
-                || (tentative_voting_source_epoch
-                    .is_some_and(|e| e.saturating_add(2u64) >= current_epoch)
-                    && (is_epoch_start
-                        || self.will_no_conflicting_checkpoint_be_justified::<E>(
-                            head_root,
-                            unrealized_justified_checkpoint,
-                            current_slot,
-                            proto_array,
-                            votes,
-                            equivocating_indices,
-                        )))
-            {
+            let promote_check1 = tentative_epoch == Some(current_epoch);
+            let promote_check2 = tentative_voting_source_epoch
+                .is_some_and(|e| e.saturating_add(2u64) >= current_epoch)
+                && (is_epoch_start
+                    || self.will_no_conflicting_checkpoint_be_justified::<E>(
+                        head_root,
+                        unrealized_justified_checkpoint,
+                        current_slot,
+                        proto_array,
+                        votes,
+                        equivocating_indices,
+                    ));
+
+            if promote_check1 || promote_check2 {
                 confirmed_root = tentative_confirmed_root;
             }
         }
@@ -496,8 +587,6 @@ impl FastConfirmationRule {
         let support = self.get_attestation_score(
             balance_source,
             block_root,
-            parent_slot.saturating_add(1u64),
-            current_slot.saturating_sub(1u64),
             proto_array,
             votes,
             equivocating_indices,
@@ -527,8 +616,11 @@ impl FastConfirmationRule {
             equivocating_indices,
         );
 
-        2u128 * support as u128 + support_discount as u128
-            > maximum_support as u128 + proposer_score as u128 + 2u128 * adversarial_weight as u128
+        let lhs = 2u128 * support as u128 + support_discount as u128;
+        let rhs =
+            maximum_support as u128 + proposer_score as u128 + 2u128 * adversarial_weight as u128;
+
+        lhs > rhs
     }
 
     // -----------------------------------------------------------------------
@@ -581,16 +673,16 @@ impl FastConfirmationRule {
     // LMD-GHOST helpers
     // -----------------------------------------------------------------------
 
-    /// Compute the attestation score for `block_root` using votes from validators
-    /// in committees between `start_slot` and `end_slot` (inclusive).
-    #[allow(clippy::too_many_arguments)]
-    fn get_attestation_score(
+    /// Spec: `get_block_support_between_slots`.
+    /// Counts weight of validators whose latest vote is for EXACTLY `block_root`
+    /// (not descendants) and whose committee assignment is in [start_slot, end_slot].
+    /// Committee assignments come from the HEAD state (stored in `head_slot_assignments`).
+    fn get_block_support_between_slots(
         &self,
         balance_source: &BalanceSourceData,
         block_root: Hash256,
         start_slot: Slot,
         end_slot: Slot,
-        _proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> u64 {
@@ -610,15 +702,47 @@ impl FastConfirmationRule {
             if balance == 0 {
                 continue;
             }
-            // Check committee assignment is in range.
-            let assigned_slot = balance_source
-                .slot_assignments
-                .get(val_idx)
-                .copied()
-                .unwrap_or_else(|| Slot::new(0));
-            if assigned_slot >= start_slot && assigned_slot <= end_slot {
+            if self.is_in_committee_range(val_idx, start_slot, end_slot) {
                 score = score.saturating_add(balance);
             }
+        }
+        score
+    }
+
+    /// Spec: `get_attestation_score` (from PR #4746).
+    ///
+    /// Counts the total effective balance of active, unslashed, non-equivocating
+    /// validators whose latest message root has `block_root` as an ancestor.
+    /// Uses ancestor matching:
+    /// `get_ancestor(store, latest_messages[i].root, blocks[root].slot) == root`
+    /// No slot-range filtering — all voters are counted.
+    fn get_attestation_score(
+        &self,
+        balance_source: &BalanceSourceData,
+        block_root: Hash256,
+        proto_array: &ProtoArray,
+        votes: &[VoteTracker],
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> u64 {
+        let mut score = 0u64;
+        for (val_idx, vote) in votes.iter().enumerate() {
+            // Ancestor matching per spec:
+            // get_ancestor(store, latest_messages[i].root, blocks[root].slot) == root
+            if !self.is_ancestor(vote.current_root(), block_root, proto_array) {
+                continue;
+            }
+            if equivocating_indices.contains(&(val_idx as u64)) {
+                continue;
+            }
+            let balance = balance_source
+                .effective_balances
+                .get(val_idx)
+                .copied()
+                .unwrap_or(0);
+            if balance == 0 {
+                continue;
+            }
+            score = score.saturating_add(balance);
         }
         score
     }
@@ -643,7 +767,7 @@ impl FastConfirmationRule {
         parent_root: Hash256,
         parent_slot: Slot,
         current_slot: Slot,
-        proto_array: &ProtoArray,
+        _proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> u64 {
@@ -656,12 +780,13 @@ impl FastConfirmationRule {
         let empty_end = block_slot.saturating_sub(1u64);
 
         // Votes for the parent in the empty slot range.
-        let parent_support = self.get_attestation_score(
+        // Uses exact vote matching (spec's get_block_support_between_slots),
+        // NOT ancestor matching (spec's get_attestation_score).
+        let parent_support = self.get_block_support_between_slots(
             balance_source,
             parent_root,
             empty_start,
             empty_end,
-            proto_array,
             votes,
             equivocating_indices,
         );
@@ -735,6 +860,7 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_equivocation_score`.
+    /// Uses HEAD state committee assignments (via `is_in_committee_range`).
     fn get_equivocation_score(
         &self,
         balance_source: &BalanceSourceData,
@@ -753,12 +879,7 @@ impl FastConfirmationRule {
             if balance == 0 {
                 continue;
             }
-            let assigned_slot = balance_source
-                .slot_assignments
-                .get(idx)
-                .copied()
-                .unwrap_or_else(|| Slot::new(0));
-            if assigned_slot >= start_slot && assigned_slot <= end_slot {
+            if self.is_in_committee_range(idx, start_slot, end_slot) {
                 score = score.saturating_add(balance);
             }
         }
@@ -824,6 +945,10 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_current_target_score` — estimates FFG support for current epoch target.
+    ///
+    /// For each validator with a latest message, computes the checkpoint at the
+    /// **vote's own epoch** for the vote's root, and checks if it matches the
+    /// current target. This ensures only votes from the current epoch count.
     fn get_current_target_score<E: EthSpec>(
         &self,
         head_root: Hash256,
@@ -837,6 +962,10 @@ impl FastConfirmationRule {
         let mut score = 0u64;
 
         for (val_idx, vote) in votes.iter().enumerate() {
+            // Skip validators without a vote (spec: `i in store.latest_messages`).
+            if vote.current_root().is_zero() {
+                continue;
+            }
             if equivocating_indices.contains(&(val_idx as u64)) {
                 continue;
             }
@@ -844,12 +973,12 @@ impl FastConfirmationRule {
             if balance == 0 {
                 continue;
             }
-            // Check if the vote's target matches the current target.
-            let vote_target = self.get_checkpoint_for_block::<E>(
-                vote.current_root(),
-                current_target.epoch,
-                proto_array,
-            );
+            // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
+            //        get_latest_message_epoch(latest_messages[i]))
+            // Use the VOTE's epoch, not the current epoch.
+            let vote_epoch = vote.current_epoch();
+            let vote_target =
+                self.get_checkpoint_for_block::<E>(vote.current_root(), vote_epoch, proto_array);
             if vote_target == current_target {
                 score = score.saturating_add(balance);
             }
@@ -983,17 +1112,26 @@ impl FastConfirmationRule {
             .map(|cp| cp.epoch)
     }
 
-    /// Approximate `get_voting_source` — returns the justified checkpoint epoch of the block.
-    fn get_voting_source_epoch(
+    /// Implements `get_voting_source` — returns the checkpoint used for fork choice voting.
+    /// When `current_epoch > block_epoch`, returns unrealized justified checkpoint (pulled-up).
+    /// Otherwise, returns the block's own justified checkpoint.
+    fn get_voting_source_epoch<E: EthSpec>(
         &self,
         root: Hash256,
+        current_slot: Slot,
         proto_array: &ProtoArray,
     ) -> Option<types::Epoch> {
-        proto_array
+        let node = proto_array
             .indices
             .get(&root)
-            .and_then(|&idx| proto_array.nodes.get(idx))
-            .map(|n| n.justified_checkpoint.epoch)
+            .and_then(|&idx| proto_array.nodes.get(idx))?;
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let block_epoch = node.slot.epoch(E::slots_per_epoch());
+        if current_epoch > block_epoch {
+            node.unrealized_justified_checkpoint.map(|cp| cp.epoch)
+        } else {
+            Some(node.justified_checkpoint.epoch)
+        }
     }
 
     /// Get current epoch target checkpoint.

@@ -264,7 +264,7 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// Updated inside `recompute_head_at_slot_internal` after `get_head` completes, while
     /// the fork-choice write lock is still held. The Mutex is only locked briefly during
     /// FCR computation, which is already serialized by `recompute_head_lock`.
-    fast_confirmation: Mutex<Option<FastConfirmationRule>>,
+    pub fast_confirmation: Mutex<Option<FastConfirmationRule>>,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
@@ -675,25 +675,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        // Exit early if the head or justified/finalized checkpoints have not changed, there's
-        // nothing to do.
-        if new_view == old_view {
-            debug!(
-                head = ?new_view.head_block_root,
-                "No change in canonical head"
-            );
-            return Ok(None);
-        }
-
-        // Get the parameters to update the execution layer since either the head or some finality
-        // parameters have changed.
-        let mut new_forkchoice_update_parameters =
-            fork_choice_read_lock.get_forkchoice_update_parameters();
-
         // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
-        // FCR reads proto_array, votes, and checkpoints to compute a confirmed_root that
-        // replaces justified_hash as the safe_block_hash sent to the execution layer.
-        // The old cached head state is used for balance source updates at epoch boundaries.
+        // FCR must run even when the head hasn't changed, because new attestations may advance
+        // the confirmed_root without changing the head/justified/finalized view.
         if let Some(ref mut fcr) = *self.canonical_head.fast_confirmation.lock() {
             let head_root = new_view.head_block_root;
             let finalized_cp = fork_choice_read_lock.finalized_checkpoint();
@@ -714,8 +698,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 equivocating_indices,
                 &old_cached_head.snapshot.beacon_state,
             );
+        }
 
-            // Override justified_hash with the confirmed root's execution block hash.
+        // Exit early if the head or justified/finalized checkpoints have not changed, there's
+        // nothing to do.
+        if new_view == old_view {
+            debug!(
+                head = ?new_view.head_block_root,
+                "No change in canonical head"
+            );
+            return Ok(None);
+        }
+
+        // Get the parameters to update the execution layer since either the head or some finality
+        // parameters have changed.
+        let mut new_forkchoice_update_parameters =
+            fork_choice_read_lock.get_forkchoice_update_parameters();
+
+        // Override justified_hash with FCR's confirmed root if available.
+        if let Some(ref fcr) = *self.canonical_head.fast_confirmation.lock() {
             let confirmed_hash = fork_choice_read_lock
                 .get_block(&fcr.confirmed_root)
                 .and_then(|b| b.execution_status.block_hash());

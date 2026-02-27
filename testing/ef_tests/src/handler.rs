@@ -732,6 +732,49 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 }
 
+pub struct FastConfirmationHandler<E> {
+    handler_name: String,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec> FastConfirmationHandler<E> {
+    pub fn new(handler_name: &str) -> Self {
+        Self {
+            handler_name: handler_name.into(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for FastConfirmationHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fast_confirmation"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.clone()
+    }
+
+    fn use_rayon() -> bool {
+        false
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name.fulu_enabled() && cfg!(not(feature = "fake_crypto"))
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas fast confirmation tests
+        vec![ForkName::Gloas]
+    }
+}
+
 #[derive(Educe)]
 #[educe(Default)]
 pub struct OptimisticSyncHandler<E>(PhantomData<E>);
