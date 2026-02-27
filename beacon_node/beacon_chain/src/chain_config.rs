@@ -123,6 +123,10 @@ pub struct ChainConfig {
     pub disable_get_blobs: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
     pub node_custody_type: NodeCustodyType,
+    /// Enable the Fast Confirmation Rule (FCR) which provides faster block confirmation
+    /// (~12s vs ~13min finalization) by feeding `confirmed_root` into the EL's
+    /// `safe_block_hash`.
+    pub enable_fast_confirmation: bool,
 }
 
 impl Default for ChainConfig {
@@ -165,6 +169,7 @@ impl Default for ChainConfig {
             ignore_ws_check: false,
             disable_get_blobs: false,
             node_custody_type: NodeCustodyType::Fullnode,
+            enable_fast_confirmation: true,
         }
     }
 }

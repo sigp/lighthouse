@@ -273,6 +273,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
         spec: &ChainSpec,
+        enable_fast_confirmation: bool,
     ) -> Self {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
@@ -285,16 +286,20 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
-        let fcr = FastConfirmationRule::new(
-            fork_choice_view.finalized_checkpoint,
-            spec.confirmation_byzantine_threshold,
-        );
+        let fcr = if enable_fast_confirmation {
+            Some(FastConfirmationRule::new(
+                fork_choice_view.finalized_checkpoint,
+                spec.confirmation_byzantine_threshold,
+            ))
+        } else {
+            None
+        };
 
         Self {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
-            fast_confirmation: Mutex::new(Some(fcr)),
+            fast_confirmation: Mutex::new(fcr),
         }
     }
 
