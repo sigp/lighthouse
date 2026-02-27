@@ -22,8 +22,6 @@ exceptions:
     - ETH_TO_GWEI#phase0
     - GENESIS_EPOCH#phase0
     - JUSTIFICATION_BITS_LENGTH#phase0
-    - MAX_CONCURRENT_REQUESTS#phase0
-    - NODE_ID_BITS#phase0
     - UINT64_MAX#phase0
     - UINT64_MAX_SQRT#phase0
 
@@ -61,12 +59,6 @@ exceptions:
 
     # bellatrix
     - PowBlock#bellatrix
-
-    # capella
-    - LightClientBootstrap#capella
-    - LightClientFinalityUpdate#capella
-    - LightClientOptimisticUpdate#capella
-    - LightClientUpdate#capella
 
     # fulu
     - MatrixEntry#fulu

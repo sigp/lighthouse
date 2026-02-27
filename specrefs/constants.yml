@@ -407,7 +407,9 @@
     </spec>
 
 - name: MAX_CONCURRENT_REQUESTS#phase0
-  sources: []
+  sources:
+    - file: beacon_node/lighthouse_network/src/rpc/mod.rs
+      search: const MAX_CONCURRENT_REQUESTS:
   spec: |
     <spec constant_var="MAX_CONCURRENT_REQUESTS" fork="phase0" hash="f5ff241b">
     MAX_CONCURRENT_REQUESTS = 2
@@ -423,7 +425,9 @@
     </spec>
 
 - name: NODE_ID_BITS#phase0
-  sources: []
+  sources:
+    - file: consensus/types/src/attestation/subnet_id.rs
+      search: const NODE_ID_BITS:
   spec: |
     <spec constant_var="NODE_ID_BITS" fork="phase0" hash="57dab5f1">
     NODE_ID_BITS = 256

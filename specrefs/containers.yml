@@ -1158,7 +1158,9 @@
     </spec>
 
 - name: LightClientBootstrap#capella
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_bootstrap.rs
+      search: pub struct LightClientBootstrap
   spec: |
     <spec container="LightClientBootstrap" fork="capella" hash="85f4f5fe">
     class LightClientBootstrap(Container):
@@ -1187,7 +1189,9 @@
     </spec>
 
 - name: LightClientFinalityUpdate#capella
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_finality_update.rs
+      search: pub struct LightClientFinalityUpdate
   spec: |
     <spec container="LightClientFinalityUpdate" fork="capella" hash="9d2b55dd">
     class LightClientFinalityUpdate(Container):
@@ -1240,7 +1244,9 @@
     </spec>
 
 - name: LightClientOptimisticUpdate#capella
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_optimistic_update.rs
+      search: pub struct LightClientOptimisticUpdate
   spec: |
     <spec container="LightClientOptimisticUpdate" fork="capella" hash="bdce7b1d">
     class LightClientOptimisticUpdate(Container):
@@ -1272,7 +1278,9 @@
     </spec>
 
 - name: LightClientUpdate#capella
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_update.rs
+      search: pub struct LightClientUpdate
   spec: |
     <spec container="LightClientUpdate" fork="capella" hash="8d215165">
     class LightClientUpdate(Container):
