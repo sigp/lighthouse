@@ -29,6 +29,13 @@ pub struct VoteTracker {
     next_epoch: Epoch,
 }
 
+impl VoteTracker {
+    /// The block root this validator most recently voted for.
+    pub fn current_root(&self) -> Hash256 {
+        self.current_root
+    }
+}
+
 /// Represents the verification status of an execution payload.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
@@ -978,6 +985,13 @@ impl ProtoArrayForkChoice {
     /// Should only be used during database schema migrations.
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
+    }
+
+    /// Read-only access to the per-validator votes.
+    ///
+    /// Used by the fast confirmation rule to compute attestation support.
+    pub fn votes(&self) -> &[VoteTracker] {
+        &self.votes.0
     }
 
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.

@@ -151,6 +151,12 @@ pub struct ChainSpec {
     pub reorg_parent_weight_threshold: Option<u64>,
 
     /*
+     * Fast confirmation rule
+     */
+    /// Maximum assumed percentage of Byzantine validators (0-25).
+    pub confirmation_byzantine_threshold: u64,
+
+    /*
      * Eth1
      */
     pub eth1_follow_distance: u64,
@@ -1113,6 +1119,11 @@ impl ChainSpec {
             reorg_parent_weight_threshold: Some(160),
 
             /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
+
+            /*
              * Eth1
              */
             eth1_follow_distance: 2048,
@@ -1504,6 +1515,11 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+
+            /*
+             * Fast confirmation rule
+             */
+            confirmation_byzantine_threshold: 25,
 
             /*
              * Eth1
@@ -1931,6 +1947,10 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
+    #[serde(default = "default_confirmation_byzantine_threshold")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    confirmation_byzantine_threshold: u64,
+
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2142,6 +2162,10 @@ fn compute_attestation_subnet_prefix_bits(
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
+}
+
+const fn default_confirmation_byzantine_threshold() -> u64 {
+    25
 }
 
 const fn default_gas_limit_adjustment_factor() -> u64 {
@@ -2462,6 +2486,8 @@ impl Config {
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
+            confirmation_byzantine_threshold: spec.confirmation_byzantine_threshold,
+
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
@@ -2597,6 +2623,7 @@ impl Config {
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            confirmation_byzantine_threshold,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2642,6 +2669,7 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
+            confirmation_byzantine_threshold,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
