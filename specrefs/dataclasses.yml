@@ -35,7 +35,9 @@
     </spec>
 
 - name: ExpectedWithdrawals#capella
-  sources: []
+  sources:
+    - file: consensus/types/src/withdrawal/expected_withdrawals.rs
+      search: pub struct ExpectedWithdrawals
   spec: |
     <spec dataclass="ExpectedWithdrawals" fork="capella" hash="73becb4c">
     class ExpectedWithdrawals(object):
@@ -44,7 +46,9 @@
     </spec>
 
 - name: ExpectedWithdrawals#electra
-  sources: []
+  sources:
+    - file: consensus/types/src/withdrawal/expected_withdrawals.rs
+      search: pub struct ExpectedWithdrawals
   spec: |
     <spec dataclass="ExpectedWithdrawals" fork="electra" hash="a3827f01">
     class ExpectedWithdrawals(object):

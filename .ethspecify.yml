@@ -18,22 +18,17 @@ specrefs:
 exceptions:
   constants:
     # phase0
-    - BASIS_POINTS#phase0
     - ENDIANNESS#phase0
-    - ENDIANNESS#phase0
-    - ETH_TO_GWEI#phase0
     - ETH_TO_GWEI#phase0
     - GENESIS_EPOCH#phase0
     - JUSTIFICATION_BITS_LENGTH#phase0
     - MAX_CONCURRENT_REQUESTS#phase0
     - NODE_ID_BITS#phase0
-    - SAFETY_DECAY#phase0
     - UINT64_MAX#phase0
     - UINT64_MAX_SQRT#phase0
 
     # altair
     - G2_POINT_AT_INFINITY#altair
-    - MAX_REQUEST_LIGHT_CLIENT_UPDATES#altair
 
     # bellatrix
     - SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY#bellatrix
@@ -91,11 +86,7 @@ exceptions:
     - OptimisticStore#bellatrix
 
     # capella
-    - ExpectedWithdrawals#capella
     - LightClientStore#capella
-
-    # electra
-    - ExpectedWithdrawals#electra
 
     # gloas
     - LatestMessage#gloas

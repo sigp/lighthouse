@@ -18,7 +18,9 @@
     </spec>
 
 - name: BASIS_POINTS#phase0
-  sources: []
+  sources:
+    - file: consensus/types/src/core/consts.rs
+      search: pub const BASIS_POINTS:
   spec: |
     <spec constant_var="BASIS_POINTS" fork="phase0" hash="cb0c8561">
     BASIS_POINTS: uint64 = 10000
@@ -412,7 +414,9 @@
     </spec>
 
 - name: MAX_REQUEST_LIGHT_CLIENT_UPDATES#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/consts.rs
+      search: pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES:
   spec: |
     <spec constant_var="MAX_REQUEST_LIGHT_CLIENT_UPDATES" fork="altair" hash="aa7e3917">
     MAX_REQUEST_LIGHT_CLIENT_UPDATES = 2**7
@@ -510,7 +514,9 @@
     </spec>
 
 - name: SAFETY_DECAY#phase0
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: const SAFETY_DECAY:
   spec: |
     <spec constant_var="SAFETY_DECAY" fork="phase0" hash="298e03fe">
     SAFETY_DECAY: uint64 = 10
