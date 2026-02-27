@@ -91,7 +91,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "8.1.0"
+version = "8.1.1"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
