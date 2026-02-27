@@ -12,7 +12,9 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 use superstruct::superstruct;
 use types::state::HistoricalSummary;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, Validator};
+use types::{
+    BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, Validator, execution::StatePayloadStatus,
+};
 
 static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
 
@@ -653,7 +655,21 @@ impl HierarchyModuli {
     ///   exponents [5,13,21], to reconstruct state at slot 3,000,003: if start = 3,000,002
     ///   layer 2 diff will point to the start snapshot instead of the layer 1 diff at
     ///   2998272.
-    pub fn storage_strategy(&self, slot: Slot, start_slot: Slot) -> Result<StorageStrategy, Error> {
+    /// * `payload_status` - whether the state is `Full` (came from processing a payload), or
+    ///   `Pending` (came from processing a block). Prior to Gloas all states are `Pending`.
+    ///   Skipped slots post-Gloas should also use a `Pending` status.
+    pub fn storage_strategy(
+        &self,
+        slot: Slot,
+        start_slot: Slot,
+        _payload_status: StatePayloadStatus,
+    ) -> Result<StorageStrategy, Error> {
+        // FIXME(sproul): Reverted the idea of using different storage strategies for full and
+        // pending states, this has the consequence of storing double diffs and double snapshots
+        // at full slots. The complexity of managing skipped slots was the main impetus for
+        // reverting the payload-status sensitive design: a Full skipped slot has no same-slot
+        // Pending state to replay from, so has to be handled differently from Full non-skipped
+        // slots.
         match slot.cmp(&start_slot) {
             Ordering::Less => return Err(Error::LessThanStart(slot, start_slot)),
             Ordering::Equal => return Ok(StorageStrategy::Snapshot),
@@ -809,33 +825,42 @@ mod tests {
         let sslot = Slot::new(0);
 
         let moduli = config.to_moduli().unwrap();
+        let payload_status = StatePayloadStatus::Pending;
 
         // Full snapshots at multiples of 2^21.
         let snapshot_freq = Slot::new(1 << 21);
         assert_eq!(
-            moduli.storage_strategy(Slot::new(0), sslot).unwrap(),
+            moduli
+                .storage_strategy(Slot::new(0), sslot, payload_status)
+                .unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
-            moduli.storage_strategy(snapshot_freq, sslot).unwrap(),
+            moduli
+                .storage_strategy(snapshot_freq, sslot, payload_status)
+                .unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
-            moduli.storage_strategy(snapshot_freq * 3, sslot).unwrap(),
+            moduli
+                .storage_strategy(snapshot_freq * 3, sslot, payload_status)
+                .unwrap(),
             StorageStrategy::Snapshot
         );
 
         // Diffs should be from the previous layer (the snapshot in this case), and not the previous diff in the same layer.
         let first_layer = Slot::new(1 << 18);
         assert_eq!(
-            moduli.storage_strategy(first_layer * 2, sslot).unwrap(),
+            moduli
+                .storage_strategy(first_layer * 2, sslot, payload_status)
+                .unwrap(),
             StorageStrategy::DiffFrom(Slot::new(0))
         );
 
         let replay_strategy_slot = first_layer + 1;
         assert_eq!(
             moduli
-                .storage_strategy(replay_strategy_slot, sslot)
+                .storage_strategy(replay_strategy_slot, sslot, payload_status)
                 .unwrap(),
             StorageStrategy::ReplayFrom(first_layer)
         );

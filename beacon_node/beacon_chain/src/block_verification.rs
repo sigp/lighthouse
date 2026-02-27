@@ -95,11 +95,12 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
+use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument, warn};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
+    data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -1499,7 +1500,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {
-            let state_root = if parent.beacon_block.slot() == state.slot() {
+            // TODO(gloas): could do a similar optimisation here for Full blocks if we have access
+            // to the parent envelope and its `state_root`.
+            let state_root = if parent.beacon_block.slot() == state.slot()
+                && state.payload_status() == StatePayloadStatus::Pending
+            {
                 // If it happens that `pre_state` has *not* already been advanced forward a single
                 // slot, then there is no need to compute the state root for this
                 // `per_slot_processing` call since that state root is already stored in the parent
@@ -1934,9 +1939,42 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Retrieve any state that is advanced through to at most `block.slot()`: this is
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
+        //
+        // Post-Gloas we must also fetch a state with the correct payload status. If the current
+        // block builds upon the payload of its parent block, then we know the parent block is FULL
+        // and we need to load the full state.
+        let (payload_status, parent_state_root) =
+            if block.as_block().fork_name_unchecked().gloas_enabled()
+                && let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
+            {
+                if block.as_block().is_parent_block_full(parent_bid_block_hash) {
+                    // TODO(gloas): loading the envelope here is not very efficient.
+                    // The envelope may not have arrived yet, so we retry after a short delay.
+                    let envelope = match chain.store.get_payload_envelope(&root)? {
+                        Some(envelope) => envelope,
+                        None => {
+                            warn!(
+                                parent_block_root = ?root,
+                                "Parent block envelope not yet available, waiting 1s for arrival"
+                            );
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                            chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
+                                BeaconChainError::DBInconsistent(format!(
+                                    "Missing envelope for parent block {root:?}",
+                                ))
+                            })?
+                        }
+                    };
+                    (StatePayloadStatus::Full, envelope.message.state_root)
+                } else {
+                    (StatePayloadStatus::Pending, parent_block.state_root())
+                }
+            } else {
+                (StatePayloadStatus::Pending, parent_block.state_root())
+            };
         let (parent_state_root, state) = chain
             .store
-            .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
+            .get_advanced_hot_state(root, payload_status, block.slot(), parent_state_root)?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),
@@ -1959,7 +1997,9 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             );
         }
 
-        let beacon_state_root = if state.slot() == parent_block.slot() {
+        let beacon_state_root = if state.slot() == parent_block.slot()
+            && let StatePayloadStatus::Pending = payload_status
+        {
             // Sanity check.
             if parent_state_root != parent_block.state_root() {
                 return Err(BeaconChainError::DBInconsistent(format!(

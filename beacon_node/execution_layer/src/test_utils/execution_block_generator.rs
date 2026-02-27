@@ -932,8 +932,14 @@ pub fn generate_genesis_header<E: EthSpec>(spec: &ChainSpec) -> Option<Execution
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
-        // TODO(EIP-7732): need to look into this
-        ForkName::Gloas => None,
+        ForkName::Gloas => {
+            // TODO(gloas): we are using a Fulu header for now, but this gets fixed up by the
+            // genesis builder anyway which translates it to bid/latest_block_hash.
+            let mut header = ExecutionPayloadHeader::Fulu(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
+            Some(header)
+        }
     }
 }
 

@@ -6,6 +6,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{debug, warn};
 use types::block::BlindedBeaconBlock;
+use types::execution::StatePayloadStatus;
 use types::new_non_zero_usize;
 use warp_utils::reject::{beacon_state_error, custom_bad_request, unhandled_error};
 
@@ -32,9 +33,14 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .map_err(unhandled_error)?
         .ok_or_else(|| custom_bad_request(format!("block at end slot {} unknown", end_slot)))?;
 
-    let blocks = chain
+    let (blocks, envelopes) = chain
         .store
-        .load_blocks_to_replay(start_slot, end_slot, end_block_root)
+        .load_blocks_to_replay(
+            start_slot,
+            end_slot,
+            end_block_root,
+            StatePayloadStatus::Pending,
+        )
         .map_err(|e| unhandled_error(BeaconChainError::from(e)))?;
 
     let state_root = chain
@@ -78,7 +84,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         )
         .no_signature_verification()
         .minimal_block_root_verification()
-        .apply_blocks(blocks, None)
+        .apply_blocks(blocks, envelopes, None)
         .map_err(unhandled_error)?;
 
     if block_replayer.state_root_miss() {
@@ -138,11 +144,12 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
                     ))
                 })?;
 
+            // TODO(gloas): handle payloads?
             let block_replayer = BlockReplayer::new(parent_state, &chain.spec)
                 .no_signature_verification()
                 .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
                 .minimal_block_root_verification()
-                .apply_blocks(vec![], Some(block.slot()))
+                .apply_blocks(vec![], vec![], Some(block.slot()))
                 .map_err(unhandled_error::<BeaconChainError>)?;
 
             if block_replayer.state_root_miss() {
