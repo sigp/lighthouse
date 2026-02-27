@@ -679,6 +679,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // FCR must run even when the head hasn't changed, because new attestations may advance
         // the confirmed_root without changing the head/justified/finalized view.
         if let Some(ref mut fcr) = *self.canonical_head.fast_confirmation.lock() {
+            let _fcr_timer = metrics::start_timer(&metrics::FCR_TIMES);
+            let old_confirmed = fcr.confirmed_root;
+
             let head_root = new_view.head_block_root;
             let finalized_cp = fork_choice_read_lock.finalized_checkpoint();
             let justified_cp = fork_choice_read_lock.justified_checkpoint();
@@ -698,6 +701,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 equivocating_indices,
                 &old_cached_head.snapshot.beacon_state,
             );
+
+            if fcr.confirmed_root != old_confirmed {
+                metrics::inc_counter(&metrics::FCR_CONFIRMED_ROOT_CHANGES);
+            }
+            if let Some(confirmed_slot) = proto_array
+                .indices
+                .get(&fcr.confirmed_root)
+                .and_then(|&idx| proto_array.nodes.get(idx))
+                .map(|n| n.slot)
+            {
+                metrics::set_gauge(
+                    &metrics::FCR_CONFIRMED_ROOT_SLOT,
+                    confirmed_slot.as_u64() as i64,
+                );
+            }
         }
 
         // Exit early if the head or justified/finalized checkpoints have not changed, there's

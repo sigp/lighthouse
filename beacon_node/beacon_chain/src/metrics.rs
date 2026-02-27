@@ -613,6 +613,28 @@ pub static FORK_CHOICE_COMPRESS_TIMES: LazyLock<Result<Histogram>> = LazyLock::n
         "Time taken to compress the persisted fork choice data",
     )
 });
+/*
+ * Fast Confirmation Rule (FCR)
+ */
+pub static FCR_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_fcr_seconds",
+        "Runtime of the fast confirmation rule computation",
+    )
+});
+pub static FCR_CONFIRMED_ROOT_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_fcr_confirmed_root_slot",
+        "Slot of the current FCR confirmed root",
+    )
+});
+pub static FCR_CONFIRMED_ROOT_CHANGES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_fcr_confirmed_root_changes_total",
+        "Count of times the FCR confirmed root has changed",
+    )
+});
+
 pub static BALANCES_CACHE_HITS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_balances_cache_hits_total",
