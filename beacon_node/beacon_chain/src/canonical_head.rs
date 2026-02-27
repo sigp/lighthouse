@@ -8,11 +8,14 @@
 //!
 //! ## Deadlock safety
 //!
-//! This module contains three locks:
+//! This module contains four locks:
 //!
 //! 1. `RwLock<BeaconForkChoice>`: Contains `proto_array` fork choice.
 //! 2. `RwLock<CachedHead>`: Contains a cached block/state from the last run of `proto_array`.
 //! 3. `Mutex<()>`: Is used to prevent concurrent execution of `BeaconChain::recompute_head`.
+//! 4. `Mutex<Option<FastConfirmationRule>>`: FCR state, only locked inside
+//!    `recompute_head_at_slot_internal` while the fork choice read lock (1) is held and
+//!    `recompute_head_lock` (3) serializes access.
 //!
 //! This module has to take great efforts to avoid causing a deadlock with these three methods. Any
 //! developers working in this module should tread carefully and seek a detailed review.
@@ -31,6 +34,7 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
+use crate::fast_confirmation::FastConfirmationRule;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
@@ -255,6 +259,12 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     ///
     /// This lock **should not be made public**, it should only be used inside this module.
     recompute_head_lock: Mutex<()>,
+    /// Fast Confirmation Rule state. `None` = FCR disabled.
+    ///
+    /// Updated inside `recompute_head_at_slot_internal` after `get_head` completes, while
+    /// the fork-choice write lock is still held. The Mutex is only locked briefly during
+    /// FCR computation, which is already serialized by `recompute_head_lock`.
+    fast_confirmation: Mutex<Option<FastConfirmationRule>>,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
@@ -262,6 +272,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn new(
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
+        spec: &ChainSpec,
     ) -> Self {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
@@ -274,10 +285,16 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
+        let fcr = FastConfirmationRule::new(
+            fork_choice_view.finalized_checkpoint,
+            spec.confirmation_byzantine_threshold,
+        );
+
         Self {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
+            fast_confirmation: Mutex::new(Some(fcr)),
         }
     }
 
@@ -337,6 +354,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // Avoid interleaving the fork choice and cached head locks.
         drop(fork_choice_write_lock);
         *self.cached_head.write() = cached_head;
+
+        // Reset FCR to the restored finalized checkpoint so it doesn't carry stale state.
+        if let Some(ref mut fcr) = *self.fast_confirmation.lock() {
+            *fcr = FastConfirmationRule::new(
+                fork_choice_view.finalized_checkpoint,
+                spec.confirmation_byzantine_threshold,
+            );
+        }
 
         Ok(())
     }
@@ -662,8 +687,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Get the parameters to update the execution layer since either the head or some finality
         // parameters have changed.
-        let new_forkchoice_update_parameters =
+        let mut new_forkchoice_update_parameters =
             fork_choice_read_lock.get_forkchoice_update_parameters();
+
+        // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
+        // FCR reads proto_array, votes, and checkpoints to compute a confirmed_root that
+        // replaces justified_hash as the safe_block_hash sent to the execution layer.
+        if let Some(ref mut fcr) = *self.canonical_head.fast_confirmation.lock() {
+            let head_root = new_view.head_block_root;
+            let finalized_cp = fork_choice_read_lock.finalized_checkpoint();
+            let justified_cp = fork_choice_read_lock.justified_checkpoint();
+            let unrealized_justified_cp = fork_choice_read_lock.unrealized_justified_checkpoint();
+            let proto_array = fork_choice_read_lock.proto_array().core_proto_array();
+            let votes = fork_choice_read_lock.proto_array().votes();
+            let equivocating_indices = fork_choice_read_lock.fc_store().equivocating_indices();
+
+            fcr.on_fast_confirmation::<T::EthSpec>(
+                head_root,
+                &finalized_cp,
+                &justified_cp,
+                &unrealized_justified_cp,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            );
+
+            // Override justified_hash with the confirmed root's execution block hash.
+            let confirmed_hash = fork_choice_read_lock
+                .get_block(&fcr.confirmed_root)
+                .and_then(|b| b.execution_status.block_hash());
+            if let Some(hash) = confirmed_hash {
+                new_forkchoice_update_parameters.justified_hash = Some(hash);
+            } else {
+                debug!(
+                    confirmed_root = %fcr.confirmed_root,
+                    "FCR confirmed root has no execution block hash, falling back to justified"
+                );
+            }
+        }
 
         perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock);
 
