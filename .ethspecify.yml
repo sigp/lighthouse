@@ -303,7 +303,6 @@ exceptions:
     - get_lc_execution_root#deneb
     - get_validator_activation_churn_limit#deneb
     - is_valid_light_client_header#deneb
-
     - upgrade_lc_bootstrap_to_deneb#deneb
     - upgrade_lc_finality_update_to_deneb#deneb
     - upgrade_lc_header_to_deneb#deneb
@@ -312,26 +311,13 @@ exceptions:
     - upgrade_lc_update_to_deneb#deneb
 
     # electra
-    - apply_pending_deposit#electra
-    - get_expected_withdrawals#electra
     - compute_subnet_for_blob_sidecar#electra
-    - compute_weak_subjectivity_period#electra
-    - current_sync_committee_gindex_at_slot#electra
-    - finalized_root_gindex_at_slot#electra
     - get_eth1_pending_deposit_count#electra
     - get_eth1_vote#electra
-    - get_execution_requests#electra
     - get_lc_execution_root#electra
-    - get_pending_partial_withdrawals#electra
     - get_validator_from_deposit#electra
-    - get_validators_sweep_withdrawals#electra
-    - is_eligible_for_partial_withdrawals#electra
     - is_within_weak_subjectivity_period#electra
-    - next_sync_committee_gindex_at_slot#electra
     - normalize_merkle_branch#electra
-    - process_pending_deposits#electra
-
-    - update_pending_partial_withdrawals#electra
     - upgrade_lc_bootstrap_to_electra#electra
     - upgrade_lc_finality_update_to_electra#electra
     - upgrade_lc_header_to_electra#electra

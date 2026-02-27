@@ -240,7 +240,9 @@
     </spec>
 
 - name: apply_pending_deposit#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/process_operations.rs
+      search: pub fn apply_deposit<
   spec: |
     <spec fn="apply_pending_deposit" fork="electra" hash="e60b5fed">
     def apply_pending_deposit(state: BeaconState, deposit: PendingDeposit) -> None:
@@ -1735,7 +1737,9 @@
     </spec>
 
 - name: compute_weak_subjectivity_period#electra
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn compute_weak_subjectivity_period_electra(
   spec: |
     <spec fn="compute_weak_subjectivity_period" fork="electra" hash="8d95104c">
     def compute_weak_subjectivity_period(state: BeaconState) -> uint64:
@@ -2027,7 +2031,9 @@
     </spec>
 
 - name: current_sync_committee_gindex_at_slot#electra
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn compute_current_sync_committee_proof(
   spec: |
     <spec fn="current_sync_committee_gindex_at_slot" fork="electra" hash="6f71f075">
     def current_sync_committee_gindex_at_slot(slot: Slot) -> GeneralizedIndex:
@@ -2244,7 +2250,9 @@
     </spec>
 
 - name: finalized_root_gindex_at_slot#electra
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn compute_finalized_root_proof(
   spec: |
     <spec fn="finalized_root_gindex_at_slot" fork="electra" hash="bc7a7fe9">
     def finalized_root_gindex_at_slot(slot: Slot) -> GeneralizedIndex:
@@ -3637,7 +3645,9 @@
     </spec>
 
 - name: get_execution_requests#electra
-  sources: []
+  sources:
+    - file: consensus/types/src/execution/execution_requests.rs
+      search: pub fn get_execution_requests_list(
   spec: |
     <spec fn="get_execution_requests" fork="electra" hash="2c0fb728">
     def get_execution_requests(execution_requests_list: Sequence[bytes]) -> ExecutionRequests:
@@ -3725,7 +3735,9 @@
     </spec>
 
 - name: get_expected_withdrawals#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_expected_withdrawals<
   spec: |
     <spec fn="get_expected_withdrawals" fork="electra" hash="254541e3">
     def get_expected_withdrawals(state: BeaconState) -> ExpectedWithdrawals:
@@ -4538,7 +4550,9 @@
     </spec>
 
 - name: get_pending_partial_withdrawals#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_pending_partial_withdrawals<
   spec: |
     <spec fn="get_pending_partial_withdrawals" fork="electra" hash="306047e9">
     def get_pending_partial_withdrawals(
@@ -5199,7 +5213,9 @@
     </spec>
 
 - name: get_validators_sweep_withdrawals#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: pub fn get_validators_sweep_withdrawals<
   spec: |
     <spec fn="get_validators_sweep_withdrawals" fork="electra" hash="034093ad">
     def get_validators_sweep_withdrawals(
@@ -5926,7 +5942,9 @@
     </spec>
 
 - name: is_eligible_for_partial_withdrawals#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: fn is_eligible_for_partial_withdrawals(
   spec: |
     <spec fn="is_eligible_for_partial_withdrawals" fork="electra" hash="c8d29720">
     def is_eligible_for_partial_withdrawals(validator: Validator, balance: Gwei) -> bool:
@@ -6727,7 +6745,9 @@
     </spec>
 
 - name: next_sync_committee_gindex_at_slot#electra
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn compute_next_sync_committee_proof(
   spec: |
     <spec fn="next_sync_committee_gindex_at_slot" fork="electra" hash="87d7c53a">
     def next_sync_committee_gindex_at_slot(slot: Slot) -> GeneralizedIndex:
@@ -9256,7 +9276,9 @@
     </spec>
 
 - name: process_pending_deposits#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/single_pass.rs
+      search: struct PendingDepositsContext
   spec: |
     <spec fn="process_pending_deposits" fork="electra" hash="f0e7c738">
     def process_pending_deposits(state: BeaconState) -> None:
@@ -10859,7 +10881,9 @@
     </spec>
 
 - name: update_pending_partial_withdrawals#electra
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_block_processing/withdrawals.rs
+      search: fn update_pending_partial_withdrawals<
   spec: |
     <spec fn="update_pending_partial_withdrawals" fork="electra" hash="dcdd6c8f">
     def update_pending_partial_withdrawals(
