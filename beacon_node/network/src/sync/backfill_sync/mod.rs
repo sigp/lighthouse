@@ -447,11 +447,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
         // Set the state
         self.set_state(BackFillState::Failed);
-        // Clean up any orphaned components_by_range entries for backfill.
+
+        // Remove all batches and active requests and participating peers.
         network.remove_components_by_range_requests(|r| {
             matches!(r, RangeRequestId::BackfillSync { .. })
         });
-        // Remove all batches and active requests and participating peers.
         self.batches.clear();
         self.participating_peers.clear();
         self.restart_failed_sync = false;

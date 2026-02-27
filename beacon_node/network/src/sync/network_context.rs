@@ -283,11 +283,6 @@ impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
     pub fn has_components_by_range_entry(&self, id: Id) -> bool {
         self.components_by_range_requests.keys().any(|k| k.id == id)
     }
-
-    /// Returns the number of entries in `components_by_range_requests`.
-    pub fn components_by_range_count(&self) -> usize {
-        self.components_by_range_requests.len()
-    }
 }
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
