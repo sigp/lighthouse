@@ -1485,7 +1485,9 @@
     </spec>
 
 - name: compute_signed_block_header#deneb
-  sources: []
+  sources:
+    - file: consensus/types/src/block/signed_beacon_block.rs
+      search: pub fn signed_block_header(
   spec: |
     <spec fn="compute_signed_block_header" fork="deneb" hash="552442e1">
     def compute_signed_block_header(signed_block: SignedBeaconBlock) -> SignedBeaconBlockHeader:
@@ -1908,7 +1910,9 @@
     </spec>
 
 - name: create_light_client_bootstrap#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_bootstrap.rs
+      search: pub fn from_beacon_state(
   spec: |
     <spec fn="create_light_client_bootstrap" fork="altair" hash="54e41304">
     def create_light_client_bootstrap(
@@ -1931,7 +1935,9 @@
     </spec>
 
 - name: create_light_client_finality_update#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_finality_update.rs
+      search: pub fn new(
   spec: |
     <spec fn="create_light_client_finality_update" fork="altair" hash="21956507">
     def create_light_client_finality_update(update: LightClientUpdate) -> LightClientFinalityUpdate:
@@ -1945,7 +1951,9 @@
     </spec>
 
 - name: create_light_client_optimistic_update#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_optimistic_update.rs
+      search: pub fn new(
   spec: |
     <spec fn="create_light_client_optimistic_update" fork="altair" hash="5a993ad2">
     def create_light_client_optimistic_update(update: LightClientUpdate) -> LightClientOptimisticUpdate:
@@ -1957,7 +1965,9 @@
     </spec>
 
 - name: create_light_client_update#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_update.rs
+      search: pub fn new(
   spec: |
     <spec fn="create_light_client_update" fork="altair" hash="cde7d86c">
     def create_light_client_update(
@@ -3168,7 +3178,9 @@
     </spec>
 
 - name: get_contribution_and_proof#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/sync_committee/contribution_and_proof.rs
+      search: pub fn from_aggregate(
   spec: |
     <spec fn="get_contribution_and_proof" fork="altair" hash="ea4e6980">
     def get_contribution_and_proof(
@@ -3191,7 +3203,9 @@
     </spec>
 
 - name: get_contribution_and_proof_signature#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/sync_committee/signed_contribution_and_proof.rs
+      search: pub fn from_aggregate(
   spec: |
     <spec fn="get_contribution_and_proof_signature" fork="altair" hash="2d842fca">
     def get_contribution_and_proof_signature(
@@ -3836,7 +3850,9 @@
     </spec>
 
 - name: get_flag_index_deltas#altair
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/single_pass.rs
+      search: fn get_flag_index_delta(
   spec: |
     <spec fn="get_flag_index_deltas" fork="altair" hash="efadf009">
     def get_flag_index_deltas(
@@ -4022,7 +4038,9 @@
     </spec>
 
 - name: get_inactivity_penalty_deltas#altair
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/single_pass.rs
+      search: fn get_inactivity_penalty_delta(
   spec: |
     <spec fn="get_inactivity_penalty_deltas" fork="altair" hash="1d27298b">
     def get_inactivity_penalty_deltas(state: BeaconState) -> Tuple[Sequence[Gwei], Sequence[Gwei]]:
@@ -4331,7 +4349,9 @@
     </spec>
 
 - name: get_next_sync_committee#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn get_next_sync_committee(
   spec: |
     <spec fn="get_next_sync_committee" fork="altair" hash="ba4f5d3e">
     def get_next_sync_committee(state: BeaconState) -> SyncCommittee:
@@ -4870,7 +4890,9 @@
     </spec>
 
 - name: get_sync_committee_message#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/sync_committee/sync_committee_message.rs
+      search: "/// Equivalent to `get_sync_committee_message`"
   spec: |
     <spec fn="get_sync_committee_message" fork="altair" hash="f5ff7ff2">
     def get_sync_committee_message(
@@ -4890,7 +4912,9 @@
     </spec>
 
 - name: get_sync_committee_selection_proof#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/sync_committee/sync_selection_proof.rs
+      search: "pub fn new<E: EthSpec>("
   spec: |
     <spec fn="get_sync_committee_selection_proof" fork="altair" hash="fa4e7704">
     def get_sync_committee_selection_proof(
@@ -4929,7 +4953,9 @@
     </spec>
 
 - name: get_sync_subcommittee_pubkeys#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/sync_committee/sync_committee.rs
+      search: pub fn get_subcommittee_pubkeys(
   spec: |
     <spec fn="get_sync_subcommittee_pubkeys" fork="altair" hash="772addda">
     def get_sync_subcommittee_pubkeys(
@@ -5030,7 +5056,9 @@
     </spec>
 
 - name: get_unslashed_participating_indices#altair
-  sources: []
+  sources:
+    - file: consensus/state_processing/src/per_epoch_processing/single_pass.rs
+      search: pub fn is_unslashed_participating_index(
   spec: |
     <spec fn="get_unslashed_participating_indices" fork="altair" hash="8a8aae5f">
     def get_unslashed_participating_indices(
@@ -5069,7 +5097,9 @@
     </spec>
 
 - name: get_validator_activation_churn_limit#deneb
-  sources: []
+  sources:
+    - file: consensus/types/src/state/beacon_state.rs
+      search: pub fn get_activation_churn_limit(
   spec: |
     <spec fn="get_validator_activation_churn_limit" fork="deneb" hash="cfc9e54a">
     def get_validator_activation_churn_limit(state: BeaconState) -> uint64:
@@ -5730,7 +5760,9 @@
     </spec>
 
 - name: is_better_update#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_update.rs
+      search: pub fn is_better_light_client_update(
   spec: |
     <spec fn="is_better_update" fork="altair" hash="b99582ff">
     def is_better_update(new_update: LightClientUpdate, old_update: LightClientUpdate) -> bool:
@@ -5989,7 +6021,9 @@
     </spec>
 
 - name: is_finality_update#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_update.rs
+      search: pub fn is_finality_branch_empty
   spec: |
     <spec fn="is_finality_update" fork="altair" hash="4d0080ac">
     def is_finality_update(update: LightClientUpdate) -> bool:
@@ -6381,7 +6415,9 @@
     </spec>
 
 - name: is_sync_committee_aggregator#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/sync_committee/sync_selection_proof.rs
+      search: "pub fn is_aggregator<E: EthSpec>("
   spec: |
     <spec fn="is_sync_committee_aggregator" fork="altair" hash="13d9d470">
     def is_sync_committee_aggregator(signature: BLSSignature) -> bool:
@@ -6395,7 +6431,9 @@
     </spec>
 
 - name: is_sync_committee_update#altair
-  sources: []
+  sources:
+    - file: consensus/types/src/light_client/light_client_update.rs
+      search: pub fn is_sync_committee_update(
   spec: |
     <spec fn="is_sync_committee_update" fork="altair" hash="af6f8cb0">
     def is_sync_committee_update(update: LightClientUpdate) -> bool:

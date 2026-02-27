@@ -233,32 +233,15 @@ exceptions:
     # altair
     - apply_light_client_update#altair
     - compute_merkle_proof#altair
-    - create_light_client_bootstrap#altair
-    - create_light_client_finality_update#altair
-    - create_light_client_optimistic_update#altair
-    - create_light_client_update#altair
     - current_sync_committee_gindex_at_slot#altair
     - eth_aggregate_pubkeys#altair
     - finalized_root_gindex_at_slot#altair
-    - get_contribution_and_proof#altair
-    - get_contribution_and_proof_signature#altair
-    - get_flag_index_deltas#altair
-    - get_inactivity_penalty_deltas#altair
     - get_index_for_new_validator#altair
-    - get_next_sync_committee#altair
     - get_safety_threshold#altair
     - get_subtree_index#altair
-    - get_sync_committee_message#altair
-    - get_sync_committee_selection_proof#altair
-    - get_sync_subcommittee_pubkeys#altair
-    - get_unslashed_participating_indices#altair
     - initialize_light_client_store#altair
     - is_assigned_to_sync_committee#altair
-    - is_better_update#altair
-    - is_finality_update#altair
     - is_next_sync_committee_known#altair
-    - is_sync_committee_aggregator#altair
-    - is_sync_committee_update#altair
     - is_valid_light_client_header#altair
     - is_valid_normalized_merkle_branch#altair
     - next_sync_committee_gindex_at_slot#altair
@@ -297,11 +280,9 @@ exceptions:
     - upgrade_lc_update_to_capella#capella
 
     # deneb
-    - compute_signed_block_header#deneb
     - compute_subnet_for_blob_sidecar#deneb
     - get_blob_sidecars#deneb
     - get_lc_execution_root#deneb
-    - get_validator_activation_churn_limit#deneb
     - is_valid_light_client_header#deneb
     - upgrade_lc_bootstrap_to_deneb#deneb
     - upgrade_lc_finality_update_to_deneb#deneb
