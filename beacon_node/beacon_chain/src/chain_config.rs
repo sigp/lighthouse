@@ -169,7 +169,7 @@ impl Default for ChainConfig {
             ignore_ws_check: false,
             disable_get_blobs: false,
             node_custody_type: NodeCustodyType::Fullnode,
-            enable_fast_confirmation: true,
+            enable_fast_confirmation: false,
         }
     }
 }

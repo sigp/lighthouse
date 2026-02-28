@@ -192,8 +192,8 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.disable_get_blobs = true;
     }
 
-    if cli_args.get_flag("disable-fast-confirmation") {
-        client_config.chain.enable_fast_confirmation = false;
+    if cli_args.get_flag("enable-fast-confirmation") {
+        client_config.chain.enable_fast_confirmation = true;
     }
 
     if let Some(sync_tolerance_epochs) =

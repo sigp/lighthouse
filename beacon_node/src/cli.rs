@@ -908,9 +908,9 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-fast-confirmation")
-                .long("disable-fast-confirmation")
-                .help("Disable the Fast Confirmation Rule (FCR). When enabled (default), \
+            Arg::new("enable-fast-confirmation")
+                .long("enable-fast-confirmation")
+                .help("Enable the Fast Confirmation Rule (FCR). When enabled, \
                     FCR provides faster block confirmation (~12s) by computing a confirmed \
                     root that is fed into the execution layer's safe_block_hash.")
                 .action(ArgAction::SetTrue)
