@@ -8,7 +8,7 @@
 //! votes, and checkpoints via shared references and writes only its own state.
 
 use proto_array::core::{ProtoArray, VoteTracker};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use tracing::{debug, debug_span, warn};
 use types::{BeaconState, Checkpoint, EthSpec, Hash256, RelativeEpoch, Slot};
 
@@ -151,6 +151,11 @@ impl FastConfirmationRule {
     /// update `confirmed_root`. Call `run_confirmation` explicitly to trigger it.
     pub fn set_auto_confirm(&mut self, enabled: bool) {
         self.auto_confirm = enabled;
+    }
+
+    /// Directly set committee slot assignments (for benchmarks that lack a real BeaconState).
+    pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>) {
+        self.head_slot_assignments = assignments;
     }
 
     /// Rebuild committee slot assignments from the head state.
@@ -350,7 +355,7 @@ impl FastConfirmationRule {
     // -----------------------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
-    fn get_latest_confirmed<E: EthSpec>(
+    pub fn get_latest_confirmed<E: EthSpec>(
         &self,
         head_root: Hash256,
         finalized_checkpoint: &Checkpoint,
@@ -427,7 +432,7 @@ impl FastConfirmationRule {
     // -----------------------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
-    fn find_latest_confirmed_descendant<E: EthSpec>(
+    pub fn find_latest_confirmed_descendant<E: EthSpec>(
         &self,
         latest_confirmed_root: Hash256,
         head_root: Hash256,
@@ -442,6 +447,18 @@ impl FastConfirmationRule {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let mut confirmed_root = latest_confirmed_root;
         let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
+
+        // Precompute attestation scores for the full chain from confirmed → head in one
+        // O(V × depth) pass. Both loops below use these scores instead of calling
+        // get_attestation_score per block (which would be O(B × V × depth) total).
+        let precomputed_scores = self.precompute_chain_attestation_scores(
+            head_root,
+            latest_confirmed_root,
+            &self.current_balance_source,
+            proto_array,
+            votes,
+            equivocating_indices,
+        );
 
         // --- Loop 1: Previous epoch blocks ---
         let prev_head_voting_source_epoch =
@@ -480,9 +497,11 @@ impl FastConfirmationRule {
                 if !self.is_ancestor(self.previous_slot_head, *block_root, proto_array) {
                     break;
                 }
-                if !self.is_one_confirmed::<E>(
+                let score = precomputed_scores.get(block_root).copied().unwrap_or(0);
+                if !self.is_one_confirmed_with_score::<E>(
                     &self.current_balance_source,
                     *block_root,
+                    score,
                     current_slot,
                     proto_array,
                     votes,
@@ -522,9 +541,11 @@ impl FastConfirmationRule {
                     }
                 }
 
-                if !self.is_one_confirmed::<E>(
+                let score = precomputed_scores.get(block_root).copied().unwrap_or(0);
+                if !self.is_one_confirmed_with_score::<E>(
                     &self.current_balance_source,
                     *block_root,
+                    score,
                     current_slot,
                     proto_array,
                     votes,
@@ -579,8 +600,12 @@ impl FastConfirmationRule {
     ///
     /// Returns `true` iff:
     /// `2 * support + support_discount > maximum_support + proposer_score + 2 * adversarial_weight`
+    ///
+    /// Computes the attestation score from scratch by iterating all validators.
+    /// When checking multiple blocks on the same chain, prefer
+    /// `precompute_chain_attestation_scores` + `is_one_confirmed_with_score` instead.
     #[allow(clippy::too_many_arguments)]
-    fn is_one_confirmed<E: EthSpec>(
+    pub fn is_one_confirmed<E: EthSpec>(
         &self,
         balance_source: &BalanceSourceData,
         block_root: Hash256,
@@ -589,50 +614,22 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> bool {
-        let block_slot = self.block_slot(block_root, proto_array);
-        let parent_root = match self.parent_root(block_root, proto_array) {
-            Some(r) => r,
-            None => return false,
-        };
-        let parent_slot = self.block_slot(parent_root, proto_array);
-
-        let support = self.get_attestation_score(
+        let score = self.get_attestation_score(
             balance_source,
             block_root,
             proto_array,
             votes,
             equivocating_indices,
         );
-        let proposer_score = self.compute_proposer_score::<E>(balance_source);
-        let maximum_support = estimate_committee_weight_between_slots::<E>(
-            balance_source.total_active_balance,
-            parent_slot.saturating_add(1u64),
-            current_slot.saturating_sub(1u64),
-        );
-        let support_discount = self.get_support_discount::<E>(
+        self.is_one_confirmed_with_score::<E>(
             balance_source,
             block_root,
-            block_slot,
-            parent_root,
-            parent_slot,
+            score,
             current_slot,
             proto_array,
             votes,
             equivocating_indices,
-        );
-        let adversarial_weight = self.get_adversarial_weight::<E>(
-            balance_source,
-            block_root,
-            current_slot,
-            proto_array,
-            equivocating_indices,
-        );
-
-        let lhs = 2u128 * support as u128 + support_discount as u128;
-        let rhs =
-            maximum_support as u128 + proposer_score as u128 + 2u128 * adversarial_weight as u128;
-
-        lhs > rhs
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -668,11 +665,23 @@ impl FastConfirmationRule {
             }
         };
 
+        // Precompute scores for the confirmed chain in one O(V × depth) pass.
+        let precomputed_scores = self.precompute_chain_attestation_scores(
+            confirmed_root,
+            start_root,
+            &self.previous_balance_source,
+            proto_array,
+            votes,
+            equivocating_indices,
+        );
+
         let chain_roots = self.get_ancestor_roots(confirmed_root, start_root, proto_array);
         chain_roots.iter().all(|root| {
-            self.is_one_confirmed::<E>(
+            let score = precomputed_scores.get(root).copied().unwrap_or(0);
+            self.is_one_confirmed_with_score::<E>(
                 &self.previous_balance_source,
                 *root,
+                score,
                 current_slot,
                 proto_array,
                 votes,
@@ -728,7 +737,7 @@ impl FastConfirmationRule {
     /// Uses ancestor matching:
     /// `get_ancestor(store, latest_messages[i].root, blocks[root].slot) == root`
     /// No slot-range filtering — all voters are counted.
-    fn get_attestation_score(
+    pub fn get_attestation_score(
         &self,
         balance_source: &BalanceSourceData,
         block_root: Hash256,
@@ -825,9 +834,8 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> u64 {
         let block_slot = self.block_slot(block_root, proto_array);
-        let parent_root = match self.parent_root(block_root, proto_array) {
-            Some(r) => r,
-            None => return 0,
+        let Some(parent_root) = self.parent_root(block_root, proto_array) else {
+            return 0;
         };
         let parent_epoch = self.block_epoch::<E>(parent_root, proto_array);
         let block_epoch = self.block_epoch::<E>(block_root, proto_array);
@@ -961,7 +969,7 @@ impl FastConfirmationRule {
     /// For each validator with a latest message, computes the checkpoint at the
     /// **vote's own epoch** for the vote's root, and checks if it matches the
     /// current target. This ensures only votes from the current epoch count.
-    fn get_current_target_score<E: EthSpec>(
+    pub fn get_current_target_score<E: EthSpec>(
         &self,
         head_root: Hash256,
         current_slot: Slot,
@@ -972,6 +980,13 @@ impl FastConfirmationRule {
         let current_target = self.get_current_target::<E>(head_root, current_slot, proto_array);
         let bs = &self.current_balance_source;
         let mut score = 0u64;
+
+        // Cache: most validators vote for the same root+epoch, so cache the last
+        // checkpoint lookup result. Avoids redundant O(depth) walks AND HashMap hashing.
+        let mut cached_root = Hash256::ZERO;
+        let mut cached_epoch = types::Epoch::new(0);
+        let mut cached_target = Checkpoint::default();
+        let mut cached_valid = false;
 
         for (val_idx, vote) in votes.iter().enumerate() {
             // Skip validators without a vote (spec: `i in store.latest_messages`).
@@ -988,9 +1003,19 @@ impl FastConfirmationRule {
             // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
             //        get_latest_message_epoch(latest_messages[i]))
             // Use the VOTE's epoch, not the current epoch.
+            let vote_root = vote.current_root();
             let vote_epoch = vote.current_epoch();
             let vote_target =
-                self.get_checkpoint_for_block::<E>(vote.current_root(), vote_epoch, proto_array);
+                if cached_valid && vote_root == cached_root && vote_epoch == cached_epoch {
+                    cached_target
+                } else {
+                    let cp = self.get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array);
+                    cached_root = vote_root;
+                    cached_epoch = vote_epoch;
+                    cached_target = cp;
+                    cached_valid = true;
+                    cp
+                };
             if vote_target == current_target {
                 score = score.saturating_add(balance);
             }
@@ -1185,6 +1210,172 @@ impl FastConfirmationRule {
             .map(|(root, _)| root)
             .unwrap_or(block_root)
     }
+
+    // -----------------------------------------------------------------------
+    // Batch score precomputation
+    // -----------------------------------------------------------------------
+
+    /// Precompute attestation scores for all blocks along the canonical chain from
+    /// `terminal_root` (exclusive) to `chain_tip` (inclusive) in a single O(V × depth) pass.
+    ///
+    /// This replaces B separate O(V × depth) calls to `get_attestation_score` with one
+    /// pass over all validators, reducing total cost from O(B × V × depth) to O(V × depth + B).
+    pub fn precompute_chain_attestation_scores(
+        &self,
+        chain_tip: Hash256,
+        terminal_root: Hash256,
+        balance_source: &BalanceSourceData,
+        proto_array: &ProtoArray,
+        votes: &[VoteTracker],
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> HashMap<Hash256, u64> {
+        let chain = self.get_ancestor_roots(chain_tip, terminal_root, proto_array);
+        if chain.is_empty() {
+            return HashMap::new();
+        }
+
+        // Build node_index → chain_position map for O(1) membership checks during walks.
+        let mut index_to_position: HashMap<usize, usize> = HashMap::with_capacity(chain.len());
+        for (pos, root) in chain.iter().enumerate() {
+            if let Some(&node_idx) = proto_array.indices.get(root) {
+                index_to_position.insert(node_idx, pos);
+            }
+        }
+
+        let terminal_slot = self.block_slot(terminal_root, proto_array);
+
+        // For each validator, walk from vote_root toward genesis. The first canonical chain
+        // node hit is the deepest block the vote covers. Accumulate balances by position.
+        let chain_len = chain.len();
+        let mut score_at_position = vec![0u64; chain_len];
+
+        // Cache: most validators vote for the same root, so cache the last walk result
+        // to avoid redundant HashMap<Hash256, usize> lookups (hashing 32 bytes is expensive).
+        let mut cached_vote_root = Hash256::ZERO;
+        let mut cached_position: Option<usize> = None;
+
+        for (val_idx, vote) in votes.iter().enumerate() {
+            let vote_root = vote.current_root();
+            if vote_root.is_zero() {
+                continue;
+            }
+            if equivocating_indices.contains(&(val_idx as u64)) {
+                continue;
+            }
+            let balance = balance_source
+                .effective_balances
+                .get(val_idx)
+                .copied()
+                .unwrap_or(0);
+            if balance == 0 {
+                continue;
+            }
+
+            // Fast path: reuse cached walk result for repeated vote roots.
+            if vote_root == cached_vote_root {
+                if let Some(pos) = cached_position {
+                    score_at_position[pos] = score_at_position[pos].saturating_add(balance);
+                }
+                continue;
+            }
+
+            // Slow path: resolve vote root and walk ancestors.
+            let Some(&start_idx) = proto_array.indices.get(&vote_root) else {
+                cached_vote_root = vote_root;
+                cached_position = None;
+                continue;
+            };
+
+            let mut deepest_pos = None;
+            let mut current_idx = start_idx;
+            loop {
+                if let Some(&pos) = index_to_position.get(&current_idx) {
+                    deepest_pos = Some(pos);
+                    break;
+                }
+                let Some(node) = proto_array.nodes.get(current_idx) else {
+                    break;
+                };
+                if node.slot <= terminal_slot {
+                    break;
+                }
+                match node.parent {
+                    Some(parent_idx) => current_idx = parent_idx,
+                    None => break,
+                }
+            }
+
+            cached_vote_root = vote_root;
+            cached_position = deepest_pos;
+
+            if let Some(pos) = deepest_pos {
+                score_at_position[pos] = score_at_position[pos].saturating_add(balance);
+            }
+        }
+
+        // Suffix sum: a vote covering position j also covers all ancestors at positions 0..j.
+        // score[k] = Σ score_at_position[j] for j ∈ [k, chain_len)
+        let mut scores = HashMap::with_capacity(chain_len);
+        let mut running = 0u64;
+        for i in (0..chain_len).rev() {
+            running = running.saturating_add(score_at_position[i]);
+            scores.insert(chain[i], running);
+        }
+
+        scores
+    }
+
+    /// Like `is_one_confirmed` but uses a precomputed attestation score instead of
+    /// iterating all validators.
+    #[allow(clippy::too_many_arguments)]
+    fn is_one_confirmed_with_score<E: EthSpec>(
+        &self,
+        balance_source: &BalanceSourceData,
+        block_root: Hash256,
+        attestation_score: u64,
+        current_slot: Slot,
+        proto_array: &ProtoArray,
+        votes: &[VoteTracker],
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> bool {
+        let block_slot = self.block_slot(block_root, proto_array);
+        let Some(parent_root) = self.parent_root(block_root, proto_array) else {
+            return false;
+        };
+        let parent_slot = self.block_slot(parent_root, proto_array);
+
+        let support = attestation_score;
+        let proposer_score = self.compute_proposer_score::<E>(balance_source);
+        let maximum_support = estimate_committee_weight_between_slots::<E>(
+            balance_source.total_active_balance,
+            parent_slot.saturating_add(1u64),
+            current_slot.saturating_sub(1u64),
+        );
+        let support_discount = self.get_support_discount::<E>(
+            balance_source,
+            block_root,
+            block_slot,
+            parent_root,
+            parent_slot,
+            current_slot,
+            proto_array,
+            votes,
+            equivocating_indices,
+        );
+        let adversarial_weight = self.get_adversarial_weight::<E>(
+            balance_source,
+            block_root,
+            current_slot,
+            proto_array,
+            equivocating_indices,
+        );
+
+        let lhs = 2u128 * support as u128 + support_discount as u128;
+        let rhs =
+            maximum_support as u128 + proposer_score as u128 + 2u128 * adversarial_weight as u128;
+
+        lhs > rhs
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1200,7 +1391,7 @@ pub fn is_start_slot_at_epoch<E: EthSpec>(slot: Slot) -> bool {
 pub fn is_full_validator_set_covered<E: EthSpec>(start_slot: Slot, end_slot: Slot) -> bool {
     let spe = E::slots_per_epoch();
     let start_full_epoch = start_slot.as_u64().div_ceil(spe);
-    let end_full_epoch = (end_slot.as_u64() + 1) / spe;
+    let end_full_epoch = end_slot.as_u64().saturating_add(1) / spe;
     start_full_epoch < end_full_epoch
 }
 
