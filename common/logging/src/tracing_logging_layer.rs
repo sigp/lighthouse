@@ -19,6 +19,7 @@ pub struct LoggingLayer {
     pub non_blocking_writer: NonBlocking,
     _guard: WorkerGuard,
     pub disable_log_timestamp: bool,
+    pub log_timestamp_utc: bool,
     pub log_color: bool,
     pub log_format: Option<String>,
     pub extra_info: bool,
@@ -30,6 +31,7 @@ impl LoggingLayer {
         non_blocking_writer: NonBlocking,
         _guard: WorkerGuard,
         disable_log_timestamp: bool,
+        log_timestamp_utc: bool,
         log_color: bool,
         log_format: Option<String>,
         extra_info: bool,
@@ -38,6 +40,7 @@ impl LoggingLayer {
             non_blocking_writer,
             _guard,
             disable_log_timestamp,
+            log_timestamp_utc,
             log_color,
             log_format,
             extra_info,
@@ -69,7 +72,11 @@ where
         let meta = event.metadata();
         let log_level = meta.level();
         let timestamp = if !self.disable_log_timestamp {
-            Local::now().format("%b %d %H:%M:%S%.3f").to_string()
+            if self.log_timestamp_utc {
+                Utc::now().format("%b %d %H:%M:%S%.3f").to_string()
+            } else {
+                Local::now().format("%b %d %H:%M:%S%.3f").to_string()
+            }
         } else {
             String::new()
         };

@@ -675,6 +675,7 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
                     log_color: true,
                     logfile_color: false,
                     disable_log_timestamp: false,
+                    log_timestamp_utc: false,
                     max_log_size: 0,
                     max_log_number: 0,
                     compression: false,

@@ -259,6 +259,15 @@ fn main() {
             .display_order(0)
         )
         .arg(
+            Arg::new("log-timestamp-utc")
+            .long("log-timestamp-utc")
+            .action(ArgAction::SetTrue)
+            .help_heading(FLAG_HEADER)
+            .help("If present, use UTC for log timestamps instead of local time.")
+            .global(true)
+            .display_order(0)
+        )
+        .arg(
             Arg::new("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
@@ -524,6 +533,7 @@ fn run<E: EthSpec>(
     let logfile_color = matches.get_flag("logfile-color");
 
     let disable_log_timestamp = matches.get_flag("disable-log-timestamp");
+    let log_timestamp_utc = matches.get_flag("log-timestamp-utc");
 
     let extra_info = matches.get_flag("log-extra-info");
     let logfile_debug_level = matches
@@ -600,6 +610,7 @@ fn run<E: EthSpec>(
             log_color,
             logfile_color,
             disable_log_timestamp,
+            log_timestamp_utc,
             max_log_size: logfile_max_size,
             max_log_number: logfile_max_number,
             compression: logfile_compress,

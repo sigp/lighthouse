@@ -115,6 +115,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             log_color: true,
             logfile_color: false,
             disable_log_timestamp: false,
+            log_timestamp_utc: false,
             max_log_size: 200,
             max_log_number: 5,
             compression: false,
