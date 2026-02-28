@@ -242,7 +242,7 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
         state: &BeaconState<E>,
-    ) {
+    ) -> Result<(), String> {
         let _span = debug_span!("fcr_on_fast_confirmation", slot = %current_slot).entered();
 
         self.update_fast_confirmation_variables::<E>(
@@ -270,6 +270,8 @@ impl FastConfirmationRule {
                 equivocating_indices,
             );
         }
+
+        Ok(())
     }
 
     /// Explicitly trigger the confirmation finding step.
@@ -288,7 +290,7 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
         state: &BeaconState<E>,
-    ) {
+    ) -> Result<(), String> {
         // Ensure variables and committee data are up to date.
         self.update_fast_confirmation_variables::<E>(
             head_root,
@@ -309,6 +311,8 @@ impl FastConfirmationRule {
             votes,
             equivocating_indices,
         );
+
+        Ok(())
     }
 
     // -----------------------------------------------------------------------

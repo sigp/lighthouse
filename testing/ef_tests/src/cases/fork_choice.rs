@@ -517,8 +517,8 @@ impl<E: EthSpec> Tester<E> {
         // `on_fast_confirmation` at explicit `with_fast_confirmation` points,
         // not on every block/attestation import. We trigger confirmation
         // explicitly in `check_confirmed_root` instead.
-        if let Some(ref mut fcr) = *harness.chain.canonical_head.fast_confirmation.lock() {
-            fcr.set_auto_confirm(false);
+        if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
+            fcr_mutex.lock().set_auto_confirm(false);
         }
 
         Ok(Self { harness, spec })
@@ -1033,11 +1033,17 @@ impl<E: EthSpec> Tester<E> {
         field_name: &str,
         f: impl FnOnce(&beacon_chain::fast_confirmation::FastConfirmationRule) -> T,
     ) -> Result<T, Error> {
-        let guard = self.harness.chain.canonical_head.fast_confirmation.lock();
-        let fcr = guard.as_ref().ok_or_else(|| {
-            Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
-        })?;
-        Ok(f(fcr))
+        let fcr_mutex = self
+            .harness
+            .chain
+            .canonical_head
+            .fast_confirmation
+            .as_ref()
+            .ok_or_else(|| {
+                Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
+            })?;
+        let guard = fcr_mutex.lock();
+        Ok(f(&guard))
     }
 
     pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
@@ -1061,8 +1067,8 @@ impl<E: EthSpec> Tester<E> {
         let votes = fork_choice_lock.proto_array().votes();
         let equivocating_indices = fork_choice_lock.fc_store().equivocating_indices();
 
-        let mut fcr_guard = self.harness.chain.canonical_head.fast_confirmation.lock();
-        if let Some(ref mut fcr) = *fcr_guard {
+        if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
+            let mut fcr = fcr_mutex.lock();
             fcr.run_confirmation::<E>(
                 head_root,
                 &finalized_cp,
@@ -1073,9 +1079,9 @@ impl<E: EthSpec> Tester<E> {
                 votes,
                 equivocating_indices,
                 &cached_head.snapshot.beacon_state,
-            );
+            )
+            .map_err(|e| Error::InternalError(format!("FCR run_confirmation failed: {e}")))?;
         }
-        drop(fcr_guard);
         drop(fork_choice_lock);
 
         let actual = self.get_fcr_field("confirmed_root", |fcr| fcr.confirmed_root)?;

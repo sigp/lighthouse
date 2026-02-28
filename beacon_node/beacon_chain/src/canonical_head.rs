@@ -13,7 +13,7 @@
 //! 1. `RwLock<BeaconForkChoice>`: Contains `proto_array` fork choice.
 //! 2. `RwLock<CachedHead>`: Contains a cached block/state from the last run of `proto_array`.
 //! 3. `Mutex<()>`: Is used to prevent concurrent execution of `BeaconChain::recompute_head`.
-//! 4. `Mutex<Option<FastConfirmationRule>>`: FCR state, only locked inside
+//! 4. `Option<Mutex<FastConfirmationRule>>`: FCR state (None when disabled), only locked inside
 //!    `recompute_head_at_slot_internal` while the fork choice read lock (1) is held and
 //!    `recompute_head_lock` (3) serializes access.
 //!
@@ -264,7 +264,7 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// Updated inside `recompute_head_at_slot_internal` after `get_head` completes, while
     /// the fork-choice write lock is still held. The Mutex is only locked briefly during
     /// FCR computation, which is already serialized by `recompute_head_lock`.
-    pub fast_confirmation: Mutex<Option<FastConfirmationRule>>,
+    pub fast_confirmation: Option<Mutex<FastConfirmationRule>>,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
@@ -287,10 +287,10 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         };
 
         let fcr = if enable_fast_confirmation {
-            Some(FastConfirmationRule::new(
+            Some(Mutex::new(FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
                 spec.confirmation_byzantine_threshold,
-            ))
+            )))
         } else {
             None
         };
@@ -299,7 +299,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
-            fast_confirmation: Mutex::new(fcr),
+            fast_confirmation: fcr,
         }
     }
 
@@ -361,8 +361,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         *self.cached_head.write() = cached_head;
 
         // Reset FCR to the restored finalized checkpoint so it doesn't carry stale state.
-        if let Some(ref mut fcr) = *self.fast_confirmation.lock() {
-            *fcr = FastConfirmationRule::new(
+        if let Some(ref fcr_mutex) = self.fast_confirmation {
+            *fcr_mutex.lock() = FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
                 spec.confirmation_byzantine_threshold,
             );
@@ -683,7 +683,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
         // FCR must run even when the head hasn't changed, because new attestations may advance
         // the confirmed_root without changing the head/justified/finalized view.
-        if let Some(ref mut fcr) = *self.canonical_head.fast_confirmation.lock() {
+        // FCR is a read-only observer and errors must never affect consensus.
+        if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation {
+            let mut fcr = fcr_mutex.lock();
             let _fcr_timer = metrics::start_timer(&metrics::FCR_TIMES);
             let old_confirmed = fcr.confirmed_root;
 
@@ -695,7 +697,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let votes = fork_choice_read_lock.proto_array().votes();
             let equivocating_indices = fork_choice_read_lock.fc_store().equivocating_indices();
 
-            fcr.on_fast_confirmation::<T::EthSpec>(
+            if let Err(e) = fcr.on_fast_confirmation::<T::EthSpec>(
                 head_root,
                 &finalized_cp,
                 &justified_cp,
@@ -705,21 +707,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 votes,
                 equivocating_indices,
                 &old_cached_head.snapshot.beacon_state,
-            );
-
-            if fcr.confirmed_root != old_confirmed {
-                metrics::inc_counter(&metrics::FCR_CONFIRMED_ROOT_CHANGES);
-            }
-            if let Some(confirmed_slot) = proto_array
-                .indices
-                .get(&fcr.confirmed_root)
-                .and_then(|&idx| proto_array.nodes.get(idx))
-                .map(|n| n.slot)
-            {
-                metrics::set_gauge(
-                    &metrics::FCR_CONFIRMED_ROOT_SLOT,
-                    confirmed_slot.as_u64() as i64,
-                );
+            ) {
+                error!(error = %e, "Fast Confirmation Rule error, continuing without FCR");
+            } else {
+                if fcr.confirmed_root != old_confirmed {
+                    metrics::inc_counter(&metrics::FCR_CONFIRMED_ROOT_CHANGES);
+                }
+                if let Some(confirmed_slot) = proto_array
+                    .indices
+                    .get(&fcr.confirmed_root)
+                    .and_then(|&idx| proto_array.nodes.get(idx))
+                    .map(|n| n.slot)
+                {
+                    metrics::set_gauge(
+                        &metrics::FCR_CONFIRMED_ROOT_SLOT,
+                        confirmed_slot.as_u64() as i64,
+                    );
+                }
             }
         }
 
@@ -739,7 +743,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             fork_choice_read_lock.get_forkchoice_update_parameters();
 
         // Override justified_hash with FCR's confirmed root if available.
-        if let Some(ref fcr) = *self.canonical_head.fast_confirmation.lock() {
+        if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation {
+            let fcr = fcr_mutex.lock();
             let confirmed_hash = fork_choice_read_lock
                 .get_block(&fcr.confirmed_root)
                 .and_then(|b| b.execution_status.block_hash());
