@@ -59,7 +59,6 @@ use eth2::types::{
     ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
-use health_metrics::observe::Observe;
 use lighthouse_network::Enr;
 use lighthouse_network::NetworkGlobals;
 use lighthouse_network::PeerId;
@@ -2754,9 +2753,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
-        .then(|task_spawner: TaskSpawner<T::EthSpec>| {
+        .and(data_dir_filter.clone())
+        .then(|task_spawner: TaskSpawner<T::EthSpec>, data_dir: PathBuf| {
             task_spawner.blocking_json_task(Priority::P0, move || {
-                eth2::lighthouse::Health::observe()
+                health_metrics::observe::observe_health_with_data_dir(&data_dir)
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })

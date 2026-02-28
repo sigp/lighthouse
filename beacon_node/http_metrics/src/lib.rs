@@ -41,6 +41,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub chain: Option<Arc<BeaconChain<T>>>,
     pub db_path: Option<PathBuf>,
     pub freezer_db_path: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
     pub gossipsub_registry: Option<std::sync::Mutex<Registry>>,
 }
 

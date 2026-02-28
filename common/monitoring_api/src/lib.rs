@@ -4,7 +4,7 @@ use std::{path::PathBuf, time::Duration};
 
 use eth2::lighthouse::SystemHealth;
 use gather::{gather_beacon_metrics, gather_validator_metrics};
-use health_metrics::observe::Observe;
+use health_metrics::observe::{Observe, observe_system_health_with_data_dir};
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
 use sensitive_url::SensitiveUrl;
@@ -56,6 +56,8 @@ pub struct Config {
     /// Path for the cold database required for fetching beacon db size metrics.
     /// Note: not relevant for validator and system metrics.
     pub freezer_db_path: Option<PathBuf>,
+    /// Data directory path used for reporting disk usage of the correct filesystem.
+    pub data_dir: Option<PathBuf>,
     /// User-defined update period in seconds.
     pub update_period_secs: Option<u64>,
 }
@@ -67,6 +69,8 @@ pub struct MonitoringHttpClient {
     db_path: Option<PathBuf>,
     /// Path to the freezer database.
     freezer_db_path: Option<PathBuf>,
+    /// Data directory path used for reporting disk usage of the correct filesystem.
+    data_dir: Option<PathBuf>,
     update_period: Duration,
     monitoring_endpoint: SensitiveUrl,
 }
@@ -77,6 +81,7 @@ impl MonitoringHttpClient {
             client: reqwest::Client::new(),
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
+            data_dir: config.data_dir.clone(),
             update_period: Duration::from_secs(
                 config.update_period_secs.unwrap_or(DEFAULT_UPDATE_DURATION),
             ),
@@ -158,8 +163,13 @@ impl MonitoringHttpClient {
     }
 
     /// Gets system metrics by observing capturing the SystemHealth metrics.
+    /// Reports disk usage for the datadir filesystem when available.
     pub fn get_system_metrics(&self) -> Result<MonitoringMetrics, Error> {
-        let system_health = SystemHealth::observe().map_err(Error::SystemMetricsFailed)?;
+        let system_health = match &self.data_dir {
+            Some(dir) => observe_system_health_with_data_dir(dir),
+            None => SystemHealth::observe(),
+        }
+        .map_err(Error::SystemMetricsFailed)?;
         Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::System),
             process_metrics: Process::System(system_health.into()),

@@ -362,6 +362,7 @@ impl Config {
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
+                data_dir: Some(config.validator_dir.clone()),
                 update_period_secs,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
             });

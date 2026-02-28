@@ -250,6 +250,7 @@ pub fn get_config<E: EthSpec>(
         client_config.monitoring_api = Some(monitoring_api::Config {
             db_path: None,
             freezer_db_path: None,
+            data_dir: Some(client_config.data_dir().clone()),
             update_period_secs,
             monitoring_endpoint: monitoring_endpoint.to_string(),
         });

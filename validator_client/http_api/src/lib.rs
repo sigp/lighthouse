@@ -226,6 +226,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    // Optional data_dir filter for health endpoints that should not reject when validator_dir
+    // is unavailable. Falls back to root filesystem disk reporting.
+    let inner_data_dir = ctx.validator_dir.clone();
+    let data_dir_filter = warp::any().map(move || inner_data_dir.clone());
+
     let inner_secrets_dir = ctx.secrets_dir.clone();
     let secrets_dir_filter = warp::any().map(move || inner_secrets_dir.clone()).and_then(
         |secrets_dir: Option<_>| async move {
@@ -301,9 +306,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
         .and(warp::path::end())
-        .then(|| {
+        .and(data_dir_filter.clone())
+        .then(|data_dir: Option<PathBuf>| {
             blocking_json_task(move || {
-                eth2::lighthouse::Health::observe()
+                let health = match data_dir {
+                    Some(ref dir) => health_metrics::observe::observe_health_with_data_dir(dir),
+                    None => eth2::lighthouse::Health::observe(),
+                };
+                health
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })

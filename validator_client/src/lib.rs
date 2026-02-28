@@ -143,6 +143,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 Arc::new(validator_http_metrics::Context {
                     config: config.http_metrics.clone(),
                     shared: RwLock::new(shared),
+                    data_dir: Some(config.validator_dir.clone()),
                 });
 
             let exit = context.executor.exit();

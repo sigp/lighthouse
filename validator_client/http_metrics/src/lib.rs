@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
@@ -51,6 +52,7 @@ pub struct Shared<E> {
 pub struct Context<E> {
     pub config: Config,
     pub shared: RwLock<Shared<E>>,
+    pub data_dir: Option<PathBuf>,
 }
 
 /// Configuration for the HTTP server.
@@ -206,7 +208,10 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
         scrape_allocator_metrics();
     }
 
-    health_metrics::metrics::scrape_health_metrics();
+    match ctx.data_dir.as_ref() {
+        Some(data_dir) => health_metrics::metrics::scrape_health_metrics_for_data_dir(data_dir),
+        None => health_metrics::metrics::scrape_health_metrics(),
+    };
 
     encoder
         .encode(&metrics::gather(), &mut buffer)

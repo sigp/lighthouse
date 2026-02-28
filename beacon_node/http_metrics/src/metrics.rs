@@ -39,7 +39,10 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
 
     network_utils::discovery_metrics::scrape_discovery_metrics();
 
-    health_metrics::metrics::scrape_health_metrics();
+    match ctx.data_dir.as_ref() {
+        Some(data_dir) => health_metrics::metrics::scrape_health_metrics_for_data_dir(data_dir),
+        None => health_metrics::metrics::scrape_health_metrics(),
+    };
 
     // It's important to ensure these metrics are explicitly enabled in the case that users aren't
     // using glibc and this function causes panics.

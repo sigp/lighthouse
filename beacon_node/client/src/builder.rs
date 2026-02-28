@@ -668,6 +668,7 @@ where
                 chain: self.beacon_chain.clone(),
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
+                data_dir: Some(self.http_api_config.data_dir.clone()),
                 gossipsub_registry: self.libp2p_registry.take().map(std::sync::Mutex::new),
             });
 

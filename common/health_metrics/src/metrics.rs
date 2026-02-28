@@ -1,6 +1,7 @@
-use crate::observe::Observe;
+use crate::observe::{Observe, observe_system_health_with_data_dir};
 use eth2::lighthouse::{ProcessHealth, SystemHealth};
 use metrics::*;
+use std::path::Path;
 use std::sync::LazyLock;
 
 pub static PROCESS_NUM_THREADS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
@@ -124,7 +125,12 @@ pub static BOOT_TIME: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
 
 pub fn scrape_health_metrics() {
     scrape_process_health_metrics();
-    scrape_system_health_metrics();
+    scrape_system_health_metrics(None);
+}
+
+pub fn scrape_health_metrics_for_data_dir(data_dir: &Path) {
+    scrape_process_health_metrics();
+    scrape_system_health_metrics(Some(data_dir));
 }
 
 pub fn scrape_process_health_metrics() {
@@ -139,10 +145,14 @@ pub fn scrape_process_health_metrics() {
     }
 }
 
-pub fn scrape_system_health_metrics() {
+pub fn scrape_system_health_metrics(data_dir: Option<&Path>) {
     // This will silently fail if we are unable to observe the health. This is desired behaviour
     // since we don't support `Health` for all platforms.
-    if let Ok(health) = SystemHealth::observe() {
+    let health_result = match data_dir {
+        Some(dir) => observe_system_health_with_data_dir(dir),
+        None => SystemHealth::observe(),
+    };
+    if let Ok(health) = health_result {
         set_gauge(&SYSTEM_VIRT_MEM_TOTAL, health.sys_virt_mem_total as i64);
         set_gauge(
             &SYSTEM_VIRT_MEM_AVAILABLE,
