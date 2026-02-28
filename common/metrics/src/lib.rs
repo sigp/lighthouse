@@ -308,6 +308,21 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
     }
 }
 
+/// Update a counter from an observed absolute value.
+///
+/// Computes the delta between the new observed value and the current counter
+/// value, then increments the counter by that delta. This is useful for
+/// converting monotonically increasing system metrics (reported as absolute
+/// values by the OS) into Prometheus counters.
+pub fn set_counter_from_absolute(counter: &Result<IntCounter>, value: u64) {
+    if let Ok(counter) = counter {
+        let current = counter.get();
+        if value > current {
+            counter.inc_by(value - current);
+        }
+    }
+}
+
 pub fn set_gauge_vec(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str], value: i64) {
     if let Some(gauge) = get_int_gauge(int_gauge_vec, name) {
         gauge.set(value);

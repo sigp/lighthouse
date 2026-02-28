@@ -27,8 +27,8 @@ pub static PROCESS_SHR_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
         "Shared memory used by the current process",
     )
 });
-pub static PROCESS_SECONDS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
+pub static PROCESS_SECONDS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
         "process_cpu_seconds_total",
         "Total cpu time taken by the current process",
     )
@@ -135,7 +135,7 @@ pub fn scrape_process_health_metrics() {
         set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
         set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
         set_gauge(&PROCESS_SHR_MEM, health.pid_mem_shared_memory_size as i64);
-        set_gauge(&PROCESS_SECONDS, health.pid_process_seconds_total as i64);
+        set_counter_from_absolute(&PROCESS_SECONDS, health.pid_process_seconds_total);
     }
 }
 
