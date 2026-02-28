@@ -168,61 +168,6 @@ fn build_chain(num_validators: usize) -> BenchData {
 // Benchmarks
 // ---------------------------------------------------------------------------
 
-/// The O(V × depth) bottleneck: counts support weight via ancestor walks.
-fn bench_get_attestation_score(c: &mut Criterion) {
-    let mut group = c.benchmark_group("get_attestation_score");
-
-    for &n in &[64, 16_000, 100_000, 500_000] {
-        let data = build_chain(n);
-        let block_root = data.block_roots[NUM_BLOCKS / 2];
-
-        if n >= 100_000 {
-            group.sample_size(10);
-        }
-
-        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
-            b.iter(|| {
-                data.fcr.get_attestation_score(
-                    &data.balance_source,
-                    block_root,
-                    &data.proto_array,
-                    &data.votes,
-                    &data.equivocating_indices,
-                )
-            })
-        });
-    }
-    group.finish();
-}
-
-/// The core safety predicate for a single block.
-fn bench_is_one_confirmed(c: &mut Criterion) {
-    let mut group = c.benchmark_group("is_one_confirmed");
-
-    for &n in &[64, 16_000, 100_000, 500_000] {
-        let data = build_chain(n);
-        let block_root = data.block_roots[NUM_BLOCKS / 2];
-
-        if n >= 100_000 {
-            group.sample_size(10);
-        }
-
-        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
-            b.iter(|| {
-                data.fcr.is_one_confirmed::<E>(
-                    &data.balance_source,
-                    block_root,
-                    data.current_slot,
-                    &data.proto_array,
-                    &data.votes,
-                    &data.equivocating_indices,
-                )
-            })
-        });
-    }
-    group.finish();
-}
-
 /// FFG scoring function: counts target checkpoint support.
 fn bench_get_current_target_score(c: &mut Criterion) {
     let mut group = c.benchmark_group("get_current_target_score");
@@ -277,7 +222,7 @@ fn bench_precompute_chain_scores(c: &mut Criterion) {
     group.finish();
 }
 
-/// Full confirmation algorithm: walks the chain calling is_one_confirmed per block.
+/// Full confirmation algorithm: the complete production code path.
 fn bench_get_latest_confirmed(c: &mut Criterion) {
     let mut group = c.benchmark_group("get_latest_confirmed");
 
@@ -308,8 +253,6 @@ fn bench_get_latest_confirmed(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_get_attestation_score,
-    bench_is_one_confirmed,
     bench_get_current_target_score,
     bench_precompute_chain_scores,
     bench_get_latest_confirmed,

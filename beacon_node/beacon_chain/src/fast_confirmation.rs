@@ -6,6 +6,31 @@
 //!
 //! This module has **zero dependency on fork-choice internals**. It reads proto_array,
 //! votes, and checkpoints via shared references and writes only its own state.
+//!
+//! ## Spec divergences (performance optimizations)
+//!
+//! The spec's `is_one_confirmed` calls `get_attestation_score` per block, each of which
+//! iterates all validators and walks ancestors — O(B × V × depth) total. This is too
+//! expensive at mainnet scale (500k+ validators).
+//!
+//! We diverge in three ways, all behaviorally equivalent:
+//!
+//! 1. **Batch score precomputation** (`precompute_chain_attestation_scores`): iterates
+//!    validators once, walks each vote to the deepest canonical chain block, then builds
+//!    a suffix-sum score array. Reduces cost from O(B × V × depth) to O(V × depth + B).
+//!    Used by `find_latest_confirmed_descendant` and `is_confirmed_chain_safe`.
+//!
+//! 2. **`is_one_confirmed_with_score`**: variant of `is_one_confirmed` that takes a
+//!    precomputed attestation score instead of calling `get_attestation_score`. The rest
+//!    of the logic (proposer score, support discount, adversarial weight) is identical.
+//!
+//! 3. **Vote-root and checkpoint caches**: inside `precompute_chain_attestation_scores`
+//!    and `get_current_target_score`, we cache the result of the most recent vote root /
+//!    checkpoint walk. Since most validators vote for the same root, this avoids
+//!    redundant HashMap lookups and ancestor walks.
+//!
+//! The original spec functions (`is_one_confirmed`, `get_attestation_score`) are not
+//! present — only the optimized equivalents are used.
 
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::{BTreeSet, HashMap};
@@ -319,6 +344,9 @@ impl FastConfirmationRule {
     // Spec: update_fast_confirmation_variables
     // -----------------------------------------------------------------------
 
+    /// Spec: `update_fast_confirmation_variables`.
+    ///
+    /// `_proto_array` is unused but kept to match the spec function signature.
     fn update_fast_confirmation_variables<E: EthSpec>(
         &mut self,
         head_root: Hash256,
@@ -358,6 +386,7 @@ impl FastConfirmationRule {
     // Spec: get_latest_confirmed
     // -----------------------------------------------------------------------
 
+    /// `_justified_checkpoint` is unused but kept to match the spec function signature.
     #[allow(clippy::too_many_arguments)]
     pub fn get_latest_confirmed<E: EthSpec>(
         &self,
@@ -433,6 +462,11 @@ impl FastConfirmationRule {
 
     // -----------------------------------------------------------------------
     // Spec: find_latest_confirmed_descendant
+    //
+    // DIVERGENCE: The spec calls `is_one_confirmed` per block, which calls
+    // `get_attestation_score` each time — O(B × V × depth). We precompute
+    // all scores once via `precompute_chain_attestation_scores` and use
+    // `is_one_confirmed_with_score` per block instead — O(V × depth + B).
     // -----------------------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
@@ -600,44 +634,11 @@ impl FastConfirmationRule {
     // Spec: is_one_confirmed
     // -----------------------------------------------------------------------
 
-    /// The core LMD-GHOST safety predicate.
-    ///
-    /// Returns `true` iff:
-    /// `2 * support + support_discount > maximum_support + proposer_score + 2 * adversarial_weight`
-    ///
-    /// Computes the attestation score from scratch by iterating all validators.
-    /// When checking multiple blocks on the same chain, prefer
-    /// `precompute_chain_attestation_scores` + `is_one_confirmed_with_score` instead.
-    #[allow(clippy::too_many_arguments)]
-    pub fn is_one_confirmed<E: EthSpec>(
-        &self,
-        balance_source: &BalanceSourceData,
-        block_root: Hash256,
-        current_slot: Slot,
-        proto_array: &ProtoArray,
-        votes: &[VoteTracker],
-        equivocating_indices: &BTreeSet<u64>,
-    ) -> bool {
-        let score = self.get_attestation_score(
-            balance_source,
-            block_root,
-            proto_array,
-            votes,
-            equivocating_indices,
-        );
-        self.is_one_confirmed_with_score::<E>(
-            balance_source,
-            block_root,
-            score,
-            current_slot,
-            proto_array,
-            votes,
-            equivocating_indices,
-        )
-    }
-
     // -----------------------------------------------------------------------
     // Spec: is_confirmed_chain_safe
+    //
+    // DIVERGENCE: Same optimization as find_latest_confirmed_descendant —
+    // precomputes scores once and uses `is_one_confirmed_with_score`.
     // -----------------------------------------------------------------------
 
     fn is_confirmed_chain_safe<E: EthSpec>(
@@ -734,44 +735,6 @@ impl FastConfirmationRule {
         score
     }
 
-    /// Spec: `get_attestation_score` (from PR #4746).
-    ///
-    /// Counts the total effective balance of active, unslashed, non-equivocating
-    /// validators whose latest message root has `block_root` as an ancestor.
-    /// Uses ancestor matching:
-    /// `get_ancestor(store, latest_messages[i].root, blocks[root].slot) == root`
-    /// No slot-range filtering — all voters are counted.
-    pub fn get_attestation_score(
-        &self,
-        balance_source: &BalanceSourceData,
-        block_root: Hash256,
-        proto_array: &ProtoArray,
-        votes: &[VoteTracker],
-        equivocating_indices: &BTreeSet<u64>,
-    ) -> u64 {
-        let mut score = 0u64;
-        for (val_idx, vote) in votes.iter().enumerate() {
-            // Ancestor matching per spec:
-            // get_ancestor(store, latest_messages[i].root, blocks[root].slot) == root
-            if !self.is_ancestor(vote.current_root(), block_root, proto_array) {
-                continue;
-            }
-            if equivocating_indices.contains(&(val_idx as u64)) {
-                continue;
-            }
-            let balance = balance_source
-                .effective_balances
-                .get(val_idx)
-                .copied()
-                .unwrap_or(0);
-            if balance == 0 {
-                continue;
-            }
-            score = score.saturating_add(balance);
-        }
-        score
-    }
-
     /// Spec: `compute_proposer_score(balance_source)`.
     fn compute_proposer_score<E: EthSpec>(&self, balance_source: &BalanceSourceData) -> u64 {
         let committee_weight = balance_source
@@ -783,6 +746,8 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_support_discount`.
+    ///
+    /// `_block_root` and `_proto_array` are unused but kept to match the spec function signature.
     #[allow(clippy::too_many_arguments)]
     fn get_support_discount<E: EthSpec>(
         &self,
@@ -862,6 +827,8 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `compute_adversarial_weight`.
+    ///
+    /// `_current_slot` is unused but kept to match the spec function signature.
     fn compute_adversarial_weight<E: EthSpec>(
         &self,
         balance_source: &BalanceSourceData,
@@ -1329,8 +1296,8 @@ impl FastConfirmationRule {
         scores
     }
 
-    /// Like `is_one_confirmed` but uses a precomputed attestation score instead of
-    /// iterating all validators.
+    /// Spec: `is_one_confirmed` — uses a precomputed attestation score from
+    /// `precompute_chain_attestation_scores` instead of iterating all validators.
     #[allow(clippy::too_many_arguments)]
     fn is_one_confirmed_with_score<E: EthSpec>(
         &self,
