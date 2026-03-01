@@ -83,7 +83,7 @@ async fn new() -> (
 
 // Extract the full ObjectSchema for each endpoint, this ObjectSchema contains all the info that we want to check
 async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
-    // Obtain the complete Beacon APIs yaml file, this will parse the yaml file as a String
+    // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev versino)
     let yaml = reqwest::get(
         "https://github.com/ethereum/beacon-APIs/releases/download/v4.0.0/beacon-node-oapi.yaml",
     )
@@ -157,7 +157,11 @@ async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
 }
 
 // Recursively check the required field of each ObjectSchema
-fn check_field(result_json: &serde_json::Value, object_schema: &ObjectSchema, endpoint: &str) {
+fn check_field(
+    result_json: &serde_json::Value,
+    object_schema: &ObjectSchema,
+    endpoint: &str,
+) -> Result<(), String> {
     // if there is anyOf, we select the first index [0] of the Vec<ObjectOrReference<ObjectSchema>>
     // i.e., the first ObjectSchema, which is usually the latest fork version
     // Example of anyOf: /eth/v2/beacon/blocks/{block_id}
@@ -165,7 +169,7 @@ fn check_field(result_json: &serde_json::Value, object_schema: &ObjectSchema, en
     if !object_schema.any_of.is_empty() {
         let oor = &object_schema.any_of[0];
         let object_schema_any = return_object_schema(oor);
-        check_field(result_json, object_schema_any, endpoint);
+        check_field(result_json, object_schema_any, endpoint)?;
     }
 
     // extract the required fields from the object_schema
@@ -177,36 +181,17 @@ fn check_field(result_json: &serde_json::Value, object_schema: &ObjectSchema, en
         println!("Required fields: {:?}", object_schema.required);
         println!("Result fields:   {:?}", result_fields);
         // check the name of each required field
-        // checking this way will guarantee that all fields in required_fields in the spec are present in result
-        // this implies that having more fields in result than required_fields will not fail the test
+        // checking this way will guarantee that required_fields in the spec is a subset of result
+        // this implies that having more fields in result than required_fields is ok, and will not fail the test
         // (e.g., extra_data in /eth/v1/debug/fork_choice appears in result but not in required_fields)
+        // (e.g., syncnets and custody_group_count in /eth/v1/node/identity are optional in the spec)
         for field in &required_fields {
-            assert!(
-                result.contains_key(field),
-                "Endpoint {} missing required field `{}`",
-                endpoint,
-                field,
-            );
-        }
-
-        // complement the check above to check the total number of required fields are the same
-        // result may contain more fields in some endpoints (e.g., extra_data in /eth/v1/debug/fork_choice)
-        // missing proposer_lookahead in the response for /eth/v2/debug/beacon/states/{state_id}
-        if endpoint == "/eth/v2/debug/beacon/states/{state_id}"
-            || endpoint == "/eth/v1/debug/fork_choice"
-            || endpoint == "/eth/v1/node/identity"
-        {
-        } else {
-            assert_eq!(
-                result.len(),
-                required_fields.len(),
-                "Total number of fields in result is not the same as required fields for endpoint {}. \n \
-                result: {:?} \n \
-                required: {:?}",
-                endpoint,
-                result_fields,
-                required_fields
-            );
+            if !result.contains_key(field) {
+                return Err(format!(
+                    "Endpoint {} missing required field `{}`",
+                    endpoint, field
+                ));
+            }
         }
     }
 
@@ -228,7 +213,7 @@ fn check_field(result_json: &serde_json::Value, object_schema: &ObjectSchema, en
             );
             continue;
         };
-        check_field(result_json_inner, object_schema_inner, endpoint);
+        check_field(result_json_inner, object_schema_inner, endpoint)?;
     }
 
     // if type is Array, check each Object in the Array
@@ -248,7 +233,7 @@ fn check_field(result_json: &serde_json::Value, object_schema: &ObjectSchema, en
             _ => panic!("Should be an Object"),
         };
         for object in result_array.iter() {
-            check_field(object, object_schema_items, endpoint);
+            check_field(object, object_schema_items, endpoint)?;
         }
     }
 
@@ -262,11 +247,13 @@ fn check_field(result_json: &serde_json::Value, object_schema: &ObjectSchema, en
         println!("type_set is: {:?}", type_set);
         match type_set {
             SchemaTypeSet::Single(schema_type) => {
-                check_type(result_json, schema_type, object_schema, endpoint)
+                check_type(result_json, schema_type, object_schema, endpoint)?;
             }
             SchemaTypeSet::Multiple(_) => panic!("Should be Single TypeSet"),
         }
     }
+
+    return Ok(());
 }
 
 // Check the type of each result_json
@@ -275,37 +262,41 @@ fn check_type(
     schema_type: &SchemaType,
     object_schema: &ObjectSchema,
     endpoint: &str,
-) {
+) -> Result<(), String> {
     // if result_json is null, we skip the type check
     // this is because, e.g., in /eth/v1/debug/fork_choice, the first/parent fork_choice_node always has parent_root: null
     // but the spec has parent_root: https://github.com/ethereum/beacon-APIs/blob/d8c98590a4380720252f64c1042a178f7c1d3940/types/fork_choice.yaml#L12-L14
     // with the Root defined as type String: https://github.com/ethereum/beacon-APIs/blob/d8c98590a4380720252f64c1042a178f7c1d3940/types/primitive.yaml#L64
     // this causes the type check to fail
-    if result_json.is_null() {
-        return;
+    if endpoint == "/eth/v1/debug/fork_choice" && result_json.is_null() {
+        return Ok(());
     }
 
     // List of schema_type available: https://docs.rs/oas3/latest/oas3/spec/enum.SchemaType.html
     match schema_type {
-        SchemaType::Boolean => assert!(
-            result_json.is_boolean(),
-            "Type check failed for endpoint {}. Expected boolean, got {}.",
-            endpoint,
-            result_json,
-        ),
-        SchemaType::Integer | SchemaType::Number => assert!(
-            result_json.is_number(),
-            "Type check failed for endpoint {} Expected number, got {}.",
-            endpoint,
-            result_json,
-        ),
+        SchemaType::Boolean => {
+            if !result_json.is_boolean() {
+                return Err(format!(
+                    "Type check failed for endpoint {}. Expected boolean, got {}.",
+                    endpoint, result_json
+                ));
+            }
+        }
+        SchemaType::Integer | SchemaType::Number => {
+            if !result_json.is_number() {
+                return Err(format!(
+                    "Type check failed for endpoint {}. Expected number, got {}.",
+                    endpoint, result_json
+                ));
+            }
+        }
         SchemaType::String => {
-            assert!(
-                result_json.is_string(),
-                "Type check failed for endpoint {}. Expected string, got {}.",
-                endpoint,
-                result_json,
-            );
+            if !result_json.is_string() {
+                return Err(format!(
+                    "Type check failed for endpoint {}. Expected string, got {}.",
+                    endpoint, result_json
+                ));
+            }
             // For String type, we can further check the result_json against the regex pattern defined in the spec
             if let Some(ref pattern) = object_schema.pattern {
                 //let regex = Regex::new(pattern).unwrap();
@@ -316,34 +307,41 @@ fn check_type(
                     .build()
                     .unwrap();
                 let result = result_json.as_str().unwrap();
-                assert!(
-                    regex.is_match(result),
-                    "Regex pattern check failed for endpoint {}. Regex pattern is {}, result is {}",
-                    endpoint,
-                    regex,
-                    result
-                );
+                if !regex.is_match(result) {
+                    return Err(format!(
+                        "Regex pattern check failed for endpoint {}. Regex pattern is {}, result is {}",
+                        endpoint, regex, result
+                    ));
+                }
             }
         }
-        SchemaType::Array => assert!(
-            result_json.is_array(),
-            "Type check failed for endpoint {}. Expected array, got {}.",
-            endpoint,
-            result_json,
-        ),
-        SchemaType::Object => assert!(
-            result_json.is_object(),
-            "Type check failed for endpoint {}. Expected object, got {}.",
-            endpoint,
-            result_json,
-        ),
-        SchemaType::Null => assert!(
-            result_json.is_null(),
-            "Type check failed for endpoint {}. Expected null, got {}.",
-            endpoint,
-            result_json,
-        ),
+        SchemaType::Array => {
+            if !result_json.is_array() {
+                return Err(format!(
+                    "Type check failed for endpoint {}. Expected array, got {}.",
+                    endpoint, result_json
+                ));
+            }
+        }
+        SchemaType::Object => {
+            if !result_json.is_object() {
+                return Err(format!(
+                    "Type check failed for endpoint {}. Expected object, got {}.",
+                    endpoint, result_json
+                ));
+            }
+        }
+        SchemaType::Null => {
+            if !result_json.is_null() {
+                return Err(format!(
+                    "Type check failed for endpoint {}. Expected null, got {}.",
+                    endpoint, result_json
+                ));
+            }
+        }
     }
+
+    return Ok(());
 }
 
 // Used to replace parameters such as {block_id} with actual values so that a valid HTTP request is made
@@ -388,7 +386,7 @@ fn replace_parameter(
 }
 
 #[tokio::test]
-async fn test_all_endpoints() {
+async fn test_all_endpoints() -> Result<(), String> {
     let (harness, client, port, peer_id) = new().await;
 
     let head = harness.chain.head_snapshot();
@@ -445,6 +443,7 @@ async fn test_all_endpoints() {
     for (endpoint, object_schema) in &object_schema_by_endpoint {
         // Temporarily ignore the following endpoint
         if endpoint == "/eth/v1/beacon/states/{state_id}/proposer_lookahead" {
+            checked_endpoint += 1;
             continue;
         }
         // Test a single endpoint
@@ -464,31 +463,44 @@ async fn test_all_endpoints() {
         println!("Testing endpoint: {}", endpoint);
         println!("URL is: {}", url);
 
-        let result_json: serde_json::Value = client.get(url).await.unwrap();
-
-        // change the result_json content for testing, need to modify result_json to mut
-        // if endpoint == "/eth/v1/beacon/states/{state_id}/fork" {
-        // manually remove one field from the response to test field check
-        // result_json.as_object_mut().unwrap().remove("finalized");
-        // manually change the type from Boolean to String to test type check
-        // result_json["execution_optimistic"] = serde_json::Value::String("true".to_string());
-        // manually change the current_version (e.g., 0x01000000) to 9 characters instead of 8 to test Regex pattern check
-        // result_json["data"]["current_version"] =
-        //     serde_json::Value::String("0x123456789".to_string());
-        // }
+        let result_json: serde_json::Value = client.get(url.clone()).await.unwrap();
 
         println!("Response is: {:?}", result_json);
 
-        check_field(&result_json, object_schema, endpoint);
+        check_field(&result_json, object_schema, endpoint)?;
 
         println!("Test passed for endpoint: {}", endpoint);
         checked_endpoint += 1;
         println!("Checked endpoint: {}", checked_endpoint);
+
+        // NOt all endpoints have "finalized" field, so we test a single endpoint modification
+        if endpoint == "/eth/v1/beacon/states/{state_id}/fork" {
+            // modify to remove one field from the response to test field check
+            let mut result_json_modify: serde_json::Value = client.get(url.clone()).await.unwrap();
+            result_json_modify
+                .as_object_mut()
+                .unwrap()
+                .remove("finalized");
+            assert!(check_field(&result_json_modify, object_schema, endpoint).is_err());
+
+            // modify the type from Boolean to String to test type check
+            let mut result_json_modify: serde_json::Value = client.get(url.clone()).await.unwrap();
+            result_json_modify["execution_optimistic"] =
+                serde_json::Value::String("true".to_string());
+            assert!(check_field(&result_json_modify, object_schema, endpoint).is_err());
+
+            // manually modify the current_version (e.g., 0x01000000) to 9 characters instead of 8 to test Regex pattern check
+            let mut result_json_modify: serde_json::Value = client.get(url).await.unwrap();
+            result_json_modify["data"]["current_version"] =
+                serde_json::Value::String("0x123456789".to_string());
+            assert!(check_field(&result_json_modify, object_schema, endpoint).is_err());
+        }
     }
     let total_endpoint = object_schema_by_endpoint.len();
     // /eth/v1/beacon/states/{state_id}/proposer_lookahead hasn't been implemented yet
     // endpoints such as /eth/v1/events is not inserted in the hashmap (i.e., not included in total_endpoint)
-    assert_eq!(checked_endpoint, total_endpoint - 1);
+    assert_eq!(checked_endpoint, total_endpoint);
+    Ok(())
 }
 
 // Helper function to return ObjectSchema from ObjectOrReference<ObjectSchema>
