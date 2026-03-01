@@ -263,6 +263,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
                 .or_else(|| starts_with("v1/validator/contribution_and_proofs"))
                 .or_else(|| starts_with("v1/validator/duties/attester"))
                 .or_else(|| starts_with("v1/validator/duties/proposer"))
+                .or_else(|| starts_with("v2/validator/duties/proposer"))
                 .or_else(|| starts_with("v1/validator/duties/sync"))
                 .or_else(|| starts_with("v1/validator/liveness"))
                 .or_else(|| starts_with("v1/validator/prepare_beacon_proposer"))
@@ -2464,7 +2465,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/duties/proposer/{epoch}
     let get_validator_duties_proposer = get_validator_duties_proposer(
-        eth_v1.clone(),
+        any_version.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),

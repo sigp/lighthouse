@@ -3392,6 +3392,82 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_duties_proposer_v2(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+
+        for epoch in 0..=self.chain.epoch().unwrap().as_u64() + 1 {
+            let epoch = Epoch::from(epoch);
+
+            let mut state = self
+                .chain
+                .state_at_slot(
+                    epoch.start_slot(E::slots_per_epoch()),
+                    StateSkipConfig::WithStateRoots,
+                )
+                .unwrap();
+
+            state
+                .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                .unwrap();
+
+            // Compute the true dependent root via `proposer_shuffling_decision_root_at_epoch`.
+            let dependent_root = state
+                .proposer_shuffling_decision_root_at_epoch(
+                    epoch,
+                    self.chain.head_beacon_block_root(),
+                    &self.chain.spec,
+                )
+                .unwrap();
+
+            let result = self
+                .client
+                .get_validator_duties_proposer_v2(epoch)
+                .await
+                .unwrap();
+
+            let expected_duties = epoch
+                .slot_iter(E::slots_per_epoch())
+                .map(|slot| {
+                    let index = state
+                        .get_beacon_proposer_index(slot, &self.chain.spec)
+                        .unwrap();
+                    let pubkey = state.validators().get(index).unwrap().pubkey;
+
+                    ProposerData {
+                        pubkey,
+                        validator_index: index as u64,
+                        slot,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let expected = DutiesResponse {
+                data: expected_duties,
+                execution_optimistic: Some(false),
+                dependent_root,
+            };
+
+            assert_eq!(result, expected);
+
+            // Pre-Fulu, v1 and v2 should return the same dependent_root and data.
+            let v1_result = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap();
+            assert_eq!(result.dependent_root, v1_result.dependent_root);
+            assert_eq!(result.data, v1_result.data);
+        }
+
+        // Requests to the epochs after the next epoch should fail.
+        self.client
+            .get_validator_duties_proposer_v2(current_epoch + 2)
+            .await
+            .unwrap_err();
+
+        self
+    }
+
     pub async fn test_get_validator_duties_early(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
         let next_epoch = current_epoch + 1;
@@ -7614,6 +7690,23 @@ async fn get_validator_duties_proposer_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_proposer()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_proposer_v2() {
+    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
+        .await
+        .test_get_validator_duties_proposer_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_proposer_v2_with_skip_slots() {
+    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_get_validator_duties_proposer_v2()
         .await;
 }
 
