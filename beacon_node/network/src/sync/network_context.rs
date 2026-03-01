@@ -1682,7 +1682,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let columns_by_range_peers_to_request = {
             let column_indexes = self
                 .chain
-                .sampling_columns_for_epoch(batch_id.epoch)
+                .custody_columns_for_epoch(Some(batch_id.epoch))
                 .iter()
                 .cloned()
                 .collect();
