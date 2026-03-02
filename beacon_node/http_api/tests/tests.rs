@@ -3460,7 +3460,7 @@ impl ApiTester {
                 // Pre-Fulu the dependent root should be identical to v1.
                 assert_eq!(result.dependent_root, v1_result.dependent_root);
             } else {
-                // Post-Fulu the dependnent root should be distinct for all cases tested.
+                // Post-Fulu the dependent root should be distinct for all cases tested.
                 // It would take a whole epoch of skipped slots for this to diverge.
                 assert_ne!(result.dependent_root, v1_result.dependent_root);
             }
