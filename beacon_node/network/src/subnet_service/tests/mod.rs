@@ -339,7 +339,8 @@ mod test {
 
         // If permanently subscribed, no Subscribe/Unsubscribe events will be generated
         if subnet_service.is_subscribed_permanent(&subnet) {
-            let _ = get_events_until_num_slots(&mut subnet_service, None, 3).await;
+            let events = get_events_until_num_slots(&mut subnet_service, None, 3).await;
+            assert!(events.is_empty());
         } else {
             // Wait for exactly 2 events (Subscribe + Unsubscribe) with a generous timeout
             let expected = [
