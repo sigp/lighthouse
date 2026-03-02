@@ -707,8 +707,11 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                             })
                             .collect::<Vec<_>>();
 
-                        let current_slot =
-                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
+                        let current_slot = chain
+                            .slot_clock
+                            .now_or_genesis()
+                            .ok_or(BeaconChainError::UnableToReadSlot)
+                            .map_err(warp_utils::reject::unhandled_error)?;
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
