@@ -427,6 +427,22 @@ jobs:
         cache-target: release
     - name: Run Makefile to trigger the bash script
       run: make cli-local
+  cargo-hack:
+    name: cargo-hack
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+    - uses: taiki-e/install-action@cargo-hack
+    - name: Check types feature powerset
+      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable
+    - name: Check eth2 feature powerset
+      run: cargo hack check -p eth2 --feature-powerset --no-dev-deps
   cargo-sort:
     name: cargo-sort
     needs: [check-labels]
@@ -470,6 +486,7 @@ jobs:
       'compile-with-beta-compiler',
       'cli-check',
       'lockbud',
+      'cargo-hack',
       'cargo-sort',
     ]
     steps:
