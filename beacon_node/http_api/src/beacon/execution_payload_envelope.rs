@@ -5,6 +5,7 @@ use crate::version::{
     ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
 };
+use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer,
     payload_envelope_verification::EnvelopeError,
@@ -128,11 +129,19 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         })
     };
 
+    let ctx = chain.gossip_verification_context();
+    let Ok(gossip_verifed_envelope) = GossipVerifiedEnvelope::new(signed_envelope, &ctx) else {
+        warn!(%slot, %beacon_block_root, "Execution payload envelope rejected");
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "execution payload envelope rejected, gossip verification"
+        )))
+    };
+
     // Import the envelope locally (runs state transition and notifies the EL).
     chain
         .process_execution_payload_envelope(
             beacon_block_root,
-            signed_envelope,
+            gossip_verifed_envelope,
             NotifyExecutionLayer::Yes,
             BlockImportSource::HttpApi,
             publish_fn,
