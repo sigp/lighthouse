@@ -257,9 +257,7 @@ struct ReprocessQueue<S> {
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Column reconstruction per block root.
-    /// `Some(key)` = active timer in the delay queue.
-    /// `None` = reconstruction already fired, reject late messages.
-    queued_column_reconstructions: HashMap<Hash256, Option<DelayKey>>,
+    queued_column_reconstructions: HashMap<Hash256, DelayKey>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
 
@@ -272,6 +270,10 @@ struct ReprocessQueue<S> {
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
+    /// Block root of the most recently fired column reconstruction. Prevents late
+    /// `DelayColumnReconstruction` messages from re-queuing after the timer has
+    /// already fired (race between delay queue and message channel polling order).
+    last_fired_column_reconstruction: Option<Hash256>,
     slot_clock: Arc<S>,
 }
 
@@ -439,6 +441,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
             next_backfill_batch_event: None,
+            last_fired_column_reconstruction: None,
             slot_clock,
         }
     }
@@ -775,17 +778,20 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
                 match self.queued_column_reconstructions.entry(request.block_root) {
                     Entry::Occupied(entry) => {
-                        if let Some(delay_key) = entry.get() {
-                            self.column_reconstructions_delay_queue
-                                .reset(delay_key, reconstruction_delay);
-                        }
-                        // None → reconstruction already fired, skip
+                        self.column_reconstructions_delay_queue
+                            .reset(entry.get(), reconstruction_delay);
                     }
                     Entry::Vacant(vacant) => {
+                        // Skip if reconstruction already fired for this block root.
+                        // This prevents a race where poll_next() fires the delay queue
+                        // entry before remaining channel messages are drained.
+                        if self.last_fired_column_reconstruction == Some(request.block_root) {
+                            return;
+                        }
                         let delay_key = self
                             .column_reconstructions_delay_queue
                             .insert(request, reconstruction_delay);
-                        vacant.insert(Some(delay_key));
+                        vacant.insert(delay_key);
                     }
                 }
             }
@@ -926,12 +932,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
-                let block_root = column_reconstruction.block_root;
-                // Prune old fired entries before marking current
                 self.queued_column_reconstructions
-                    .retain(|_, v| v.is_some());
-                // Mark as fired (prevents duplicate reconstruction from late messages)
-                self.queued_column_reconstructions.insert(block_root, None);
+                    .remove(&column_reconstruction.block_root);
+                self.last_fired_column_reconstruction = Some(column_reconstruction.block_root);
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::ColumnReconstruction(column_reconstruction))
