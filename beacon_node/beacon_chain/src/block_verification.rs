@@ -71,7 +71,7 @@ use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
-pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+pub use fork_choice::PayloadVerificationStatus;
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -1664,7 +1664,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             match fork_choice.on_attestation(
                 current_slot,
                 indexed_attestation,
-                AttestationFromBlock::True,
+                true,
                 &chain.spec,
             ) {
                 Ok(()) => Ok(()),
@@ -1685,7 +1685,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 match fork_choice.on_payload_attestation(
                     current_slot,
                     indexed_payload_attestation,
-                    AttestationFromBlock::True,
+                    true,
                 ) {
                     Ok(()) => Ok(()),
                     // Ignore invalid payload attestations whilst importing from a block.

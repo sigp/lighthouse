@@ -130,7 +130,6 @@ pub struct ProtoNode {
     #[superstruct(only(V29), partial_getter(copy))]
     pub execution_payload_block_hash: ExecutionBlockHash,
     /// Tiebreaker for payload preference when full_payload_weight == empty_payload_weight.
-    /// Per spec: prefer Full if block was timely and data is available; otherwise prefer Empty.
     #[superstruct(only(V29), partial_getter(copy))]
     pub payload_tiebreak: PayloadTiebreak,
 }
@@ -1152,7 +1151,7 @@ impl ProtoArray {
             return false;
         }
 
-        let genesis_epoch = Epoch::new(1);
+        let genesis_epoch = Epoch::new(0);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let node_epoch = node.slot().epoch(E::slots_per_epoch());
         let node_justified_checkpoint = node.justified_checkpoint();

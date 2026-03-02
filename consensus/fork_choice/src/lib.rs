@@ -3,7 +3,7 @@ mod fork_choice_store;
 mod metrics;
 
 pub use crate::fork_choice::{
-    AttestationFromBlock, Error, ForkChoice, ForkChoiceView, ForkchoiceUpdateParameters,
+    Error, ForkChoice, ForkChoiceView, ForkchoiceUpdateParameters,
     InvalidAttestation, InvalidBlock, PayloadVerificationStatus, PersistedForkChoice,
     PersistedForkChoiceV17, PersistedForkChoiceV28, PersistedForkChoiceV29, QueuedAttestation,
     QueuedPayloadAttestation, ResetPayloadStatuses,

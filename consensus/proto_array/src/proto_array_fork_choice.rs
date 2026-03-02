@@ -530,6 +530,8 @@ impl ProtoArrayForkChoice {
         if attestation_slot > vote.next_slot || *vote == VoteTracker::default() {
             vote.next_root = block_root;
             vote.next_slot = attestation_slot;
+            vote.next_payload_present = false;
+            vote.next_blob_data_available = false;
         }
 
         Ok(())

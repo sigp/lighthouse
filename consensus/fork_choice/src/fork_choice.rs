@@ -312,14 +312,6 @@ fn dequeue_payload_attestations(
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
-/// Equivalent to the `is_from_block` `bool` in:
-///
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#validate_on_attestation
-#[derive(Clone, Copy)]
-pub enum AttestationFromBlock {
-    True,
-    False,
-}
 
 /// Parameters which are cached between calls to `ForkChoice::get_head`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1056,7 +1048,7 @@ where
     fn validate_on_attestation(
         &self,
         indexed_attestation: IndexedAttestationRef<E>,
-        is_from_block: AttestationFromBlock,
+        is_from_block: bool,
         spec: &ChainSpec,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -1070,7 +1062,7 @@ where
 
         let target = indexed_attestation.data().target;
 
-        if matches!(is_from_block, AttestationFromBlock::False) {
+        if !is_from_block {
             self.validate_target_epoch_against_current_time(target.epoch)?;
         }
 
@@ -1148,7 +1140,7 @@ where
     fn validate_on_payload_attestation(
         &self,
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
-        _is_from_block: AttestationFromBlock,
+        _is_from_block: bool,
     ) -> Result<(), InvalidAttestation> {
         if indexed_payload_attestation.attesting_indices.is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
@@ -1198,7 +1190,7 @@ where
         &mut self,
         system_time_current_slot: Slot,
         attestation: IndexedAttestationRef<E>,
-        is_from_block: AttestationFromBlock,
+        is_from_block: bool,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTATION_TIMES);
@@ -1251,7 +1243,7 @@ where
         &mut self,
         system_time_current_slot: Slot,
         attestation: &IndexedPayloadAttestation<E>,
-        is_from_block: AttestationFromBlock,
+        is_from_block: bool,
     ) -> Result<(), Error<T::Error>> {
         self.update_time(system_time_current_slot)?;
 
@@ -1264,9 +1256,10 @@ where
         let processing_slot = self.fc_store.get_current_slot();
         // Payload attestations from blocks can be applied in the next slot (S+1 for data.slot=S),
         // while non-block payload attestations are delayed one extra slot.
-        let should_process_now = match is_from_block {
-            AttestationFromBlock::True => attestation.data.slot < processing_slot,
-            AttestationFromBlock::False => attestation.data.slot + 1_u64 < processing_slot,
+        let should_process_now = if is_from_block {
+            attestation.data.slot < processing_slot
+        } else {
+            attestation.data.slot.saturating_add(1_u64) < processing_slot
         };
 
         if should_process_now {

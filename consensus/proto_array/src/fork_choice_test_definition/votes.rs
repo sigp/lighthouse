@@ -339,7 +339,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         execution_payload_block_hash: None,
     });
 
-    // Ensure that 5 becomes the head.
+    // Ensure that 5 is filtered out and the head stays at 4.
     //
     //          0
     //         / \
@@ -347,9 +347,9 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     //            |
     //            3
     //            |
-    //            4
+    //            4 <- head
     //           /
-    // head->   5
+    //          5
     ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(1),
@@ -360,7 +360,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             root: get_root(0),
         },
         justified_state_balances: balances.clone(),
-        expected_head: get_root(5),
+        expected_head: get_root(4),
     });
 
     // Add block 6, which has a justified epoch of 0.
@@ -476,8 +476,8 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         execution_payload_block_hash: None,
     });
 
-    // Ensure that 9 is the head. The branch rooted at 5 remains viable and its best descendant
-    // is selected.
+    // Ensure that 6 is the head, even though 5 has all the votes. This is testing to ensure
+    // that 5 is filtered out due to a differing justified epoch.
     //
     //          0
     //         / \
@@ -487,13 +487,13 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     //            |
     //            4
     //           / \
-    //          5   6
+    //          5   6 <- head
     //          |
     //          7
     //          |
     //          8
     //         /
-    // head->  9
+    //         9
     ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(1),
@@ -504,7 +504,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             root: get_root(0),
         },
         justified_state_balances: balances.clone(),
-        expected_head: get_root(9),
+        expected_head: get_root(6),
     });
 
     // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is

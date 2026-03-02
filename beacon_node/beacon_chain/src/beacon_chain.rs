@@ -85,7 +85,7 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
+    ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
@@ -2262,7 +2262,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .on_attestation(
                 self.slot()?,
                 verified.indexed_attestation().to_ref(),
-                AttestationFromBlock::False,
+                false,
                 &self.spec,
             )
             .map_err(Into::into)

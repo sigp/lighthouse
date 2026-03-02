@@ -10,7 +10,7 @@ use beacon_chain::{
 use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
+    ForkChoiceStore, InvalidAttestation, InvalidBlock,
     PayloadVerificationStatus, QueuedAttestation, QueuedPayloadAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
@@ -1033,7 +1033,7 @@ async fn payload_attestation_for_previous_slot_is_accepted_at_next_slot() {
         .on_payload_attestation(
             current_slot,
             &payload_attestation,
-            AttestationFromBlock::True,
+            true,
         );
 
     assert!(
@@ -1082,7 +1082,7 @@ async fn non_block_payload_attestation_at_next_slot_is_delayed() {
     let result = chain
         .canonical_head
         .fork_choice_write_lock()
-        .on_payload_attestation(s_plus_1, &payload_attestation, AttestationFromBlock::False);
+        .on_payload_attestation(s_plus_1, &payload_attestation, false);
     assert!(
         result.is_ok(),
         "payload attestation should be accepted for queueing"
