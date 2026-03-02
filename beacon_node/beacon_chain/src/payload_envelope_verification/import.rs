@@ -159,7 +159,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the verification handle couldn't be awaited.
     #[instrument(skip_all, level = "debug")]
-    pub async fn into_executed_payload_envelope(
+    async fn into_executed_payload_envelope(
         self: Arc<Self>,
         pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
     ) -> Result<ExecutedEnvelope<T::EthSpec>, EnvelopeError> {
