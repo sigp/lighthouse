@@ -414,7 +414,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         let in_buffer = |batch: &CustodyBackFillBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
-                BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
+                BatchState::AwaitingDownload
+                    | BatchState::Downloading(..)
+                    | BatchState::AwaitingProcessing(..)
             )
         };
         if self

@@ -763,6 +763,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let mut prune_requests = tokio::time::interval(Duration::from_secs(15));
 
+        // Periodically retry AwaitingDownload batches and check for stalled chains, as a safety
+        // net in case UpdatedPeerCgc events are missed.
+        let mut resume_range_sync_interval = tokio::time::interval(Duration::from_secs(15));
+
         let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
 
         // Trigger a sync state update every epoch. This helps check if we need to trigger a custody backfill sync.
@@ -784,6 +788,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = prune_requests.tick() => {
                     self.prune_requests();
+                }
+                _ = resume_range_sync_interval.tick() => {
+                    if !self.range_sync.is_idle() {
+                        self.range_sync.resume(&mut self.network);
+                    }
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();

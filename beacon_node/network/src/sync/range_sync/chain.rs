@@ -16,6 +16,7 @@ use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
+use std::time::Duration;
 use strum::IntoStaticStr;
 use tracing::{Span, debug, error, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
@@ -49,6 +50,10 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 /// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
+
+/// Maximum duration a batch can remain in `AwaitingDownload` state before the chain is considered
+/// stalled and removed. The chain will be recreated when peers re-announce themselves via STATUS.
+const CHAIN_MAX_STALL_DURATION: Duration = Duration::from_secs(600);
 
 pub struct RangeSyncBatchConfig<E: EthSpec> {
     marker: PhantomData<E>,
@@ -1027,6 +1032,33 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 );
             }
         }
+
+        // After all send attempts, check if any batch has been stuck in AwaitingDownload
+        // beyond the stall timeout. This catches both NoPeer from the network layer and no
+        // peers on sampling subnets.
+        self.check_stalled_batches()
+    }
+
+    /// Fail the chain if any batch has been stuck in `AwaitingDownload` longer than
+    /// [`CHAIN_MAX_STALL_DURATION`]. The chain will be recreated when peers re-announce
+    /// themselves via STATUS.
+    fn check_stalled_batches(&self) -> ProcessingResult {
+        for (batch_id, batch) in &self.batches {
+            if matches!(batch.state(), BatchState::AwaitingDownload)
+                && batch.elapsed_since_created() > CHAIN_MAX_STALL_DURATION
+            {
+                debug!(
+                    %batch_id,
+                    elapsed = ?batch.elapsed_since_created(),
+                    "Range sync batch stalled with no peers, failing chain"
+                );
+                metrics::inc_counter(&metrics::SYNCING_CHAIN_FAILED_NO_PEERS);
+                return Err(RemoveChain::ChainFailed {
+                    blacklist: false,
+                    failing_batch: *batch_id,
+                });
+            }
+        }
         Ok(KeepChain)
     }
 
@@ -1082,16 +1114,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     return Ok(KeepChain);
                 }
                 Err(e) => match e {
-                    // TODO(das): Handle the NoPeer case explicitly and don't drop the batch. For
-                    // sync to work properly it must be okay to have "stalled" batches in
-                    // AwaitingDownload state. Currently it will error with invalid state if
-                    // that happens. Sync manager must periodicatlly prune stalled batches like
-                    // we do for lookup sync. Then we can deprecate the redundant
-                    // `good_peers_on_sampling_subnets` checks.
-                    e
-                    @ (RpcRequestSendError::NoPeer(_) | RpcRequestSendError::InternalError(_)) => {
+                    RpcRequestSendError::NoPeer(err) => {
+                        debug!(error = ?err, "Did not send batch request due to insufficient peers");
+                    }
+                    RpcRequestSendError::InternalError(err) => {
                         // NOTE: under normal conditions this shouldn't happen but we handle it anyway
-                        warn!(%batch_id, error = ?e, "batch_id" = %batch_id, %batch, "Could not send batch request");
+                        warn!(%batch_id, error = ?err, "batch_id" = %batch_id, %batch, "Could not send batch request");
                         // register the failed download and check if the batch can be retried
                         batch.start_downloading(1)?; // fake request_id = 1 is not relevant
                         match batch.download_failed(None)? {
@@ -1269,7 +1297,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let in_buffer = |batch: &RangeSyncBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
-                BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
+                BatchState::AwaitingDownload
+                    | BatchState::Downloading(..)
+                    | BatchState::AwaitingProcessing(..)
             )
         };
         if self

@@ -96,6 +96,8 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig, D: Hash> {
     state: BatchState<D>,
     /// Whether this batch contains all blocks or all blocks and blobs.
     batch_type: ByRangeRequestType,
+    /// Timestamp when this batch was created.
+    created_at: Instant,
     /// Pin the generic
     #[educe(Debug(ignore))]
     marker: std::marker::PhantomData<(E, B)>,
@@ -169,8 +171,14 @@ impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
             non_faulty_processing_attempts: 0,
             state: BatchState::<D>::AwaitingDownload,
             batch_type,
+            created_at: Instant::now(),
             marker: std::marker::PhantomData,
         }
+    }
+
+    /// Returns the elapsed time since this batch was created.
+    pub fn elapsed_since_created(&self) -> Duration {
+        self.created_at.elapsed()
     }
 
     /// Gives a list of peers from which this batch has had a failed download or processing

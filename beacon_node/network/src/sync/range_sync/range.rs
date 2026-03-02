@@ -107,6 +107,11 @@ where
         self.chains.state()
     }
 
+    /// Returns true if there are no active syncing chains.
+    pub fn is_idle(&self) -> bool {
+        matches!(self.chains.state(), Ok(None))
+    }
+
     /// A useful peer has been added. The SyncManager has identified this peer as needing either
     /// a finalized or head chain sync. This processes the peer and starts/resumes any chain that
     /// may need to be synced as a result. A new peer, may increase the peer pool of a finalized
