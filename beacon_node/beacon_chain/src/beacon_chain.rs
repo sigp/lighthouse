@@ -662,7 +662,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .as_ref()
             .into();
-        debug!(?custody_context, "Persisting custody context to store");
+
+        // Pattern match to avoid accidentally missing fields and to ignore deprecated fields.
+        let CustodyContextSsz {
+            validator_custody_at_head,
+            epoch_validator_custody_requirements,
+            persisted_is_supernode: _,
+        } = &custody_context;
+        debug!(
+            validator_custody_at_head,
+            ?epoch_validator_custody_requirements,
+            "Persisting custody context to store"
+        );
 
         persist_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(
             self.store.clone(),
