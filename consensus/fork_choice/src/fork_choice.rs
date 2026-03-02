@@ -178,6 +178,11 @@ pub enum InvalidAttestation {
     /// A same-slot attestation has a non-zero index, indicating a payload attestation during the
     /// same slot as the block. Payload attestations must only arrive in subsequent slots.
     PayloadAttestationDuringSameSlot { slot: Slot },
+    /// A gossip payload attestation must be for the current slot.
+    PayloadAttestationNotCurrentSlot {
+        attestation_slot: Slot,
+        current_slot: Slot,
+    },
 }
 
 impl<T> From<String> for Error<T> {
@@ -1139,7 +1144,7 @@ where
     fn validate_on_payload_attestation(
         &self,
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
-        _is_from_block: bool,
+        is_from_block: bool,
     ) -> Result<(), InvalidAttestation> {
         if indexed_payload_attestation.attesting_indices.is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
@@ -1156,6 +1161,17 @@ where
             return Err(InvalidAttestation::AttestsToFutureBlock {
                 block: block.slot,
                 attestation: indexed_payload_attestation.data.slot,
+            });
+        }
+
+        // Gossip payload attestations must be for the current slot.
+        // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md
+        if !is_from_block
+            && indexed_payload_attestation.data.slot != self.fc_store.get_current_slot()
+        {
+            return Err(InvalidAttestation::PayloadAttestationNotCurrentSlot {
+                attestation_slot: indexed_payload_attestation.data.slot,
+                current_slot: self.fc_store.get_current_slot(),
             });
         }
 

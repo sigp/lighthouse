@@ -659,7 +659,7 @@ impl ProtoArrayForkChoice {
         )?;
 
         // Only re-org a single slot. This prevents cascading failures during asynchrony.
-        let head_slot_ok = info.head_node.slot() + 1 == current_slot;
+        let head_slot_ok = info.head_node.slot().saturating_add(1_u64) == current_slot;
         if !head_slot_ok {
             return Err(DoNotReOrg::HeadDistance.into());
         }

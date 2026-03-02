@@ -1047,10 +1047,10 @@ async fn payload_attestation_for_previous_slot_is_accepted_at_next_slot() {
     assert!(latest_message.payload_present);
 }
 
-/// Non-block payload attestations at slot S+1 for data.slot S are delayed; they are not applied
-/// until a later slot.
+/// Gossip payload attestations must be for the current slot. A payload attestation for slot S
+/// received at slot S+1 should be rejected per the spec.
 #[tokio::test]
-async fn non_block_payload_attestation_at_next_slot_is_delayed() {
+async fn non_block_payload_attestation_for_previous_slot_is_rejected() {
     let test = ForkChoiceTest::new()
         .apply_blocks_without_new_attestations(1)
         .await;
@@ -1062,7 +1062,6 @@ async fn non_block_payload_attestation_at_next_slot_is_delayed() {
         .expect("block A should exist");
     let block_a_root = block_a.canonical_root();
     let s_plus_1 = block_a.slot().saturating_add(1_u64);
-    let s_plus_2 = block_a.slot().saturating_add(2_u64);
 
     let payload_attestation = IndexedPayloadAttestation::<E> {
         attesting_indices: vec![0_u64].try_into().expect("valid attesting indices"),
@@ -1080,34 +1079,15 @@ async fn non_block_payload_attestation_at_next_slot_is_delayed() {
         .fork_choice_write_lock()
         .on_payload_attestation(s_plus_1, &payload_attestation, false);
     assert!(
-        result.is_ok(),
-        "payload attestation should be accepted for queueing"
+        matches!(
+            result,
+            Err(ForkChoiceError::InvalidAttestation(
+                InvalidAttestation::PayloadAttestationNotCurrentSlot { .. }
+            ))
+        ),
+        "gossip payload attestation for previous slot should be rejected, got: {:?}",
+        result
     );
-
-    // Vote should not be applied yet; message remains unset.
-    let latest_before = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .latest_message(0);
-    assert!(
-        latest_before.is_none(),
-        "non-block payload attestation at S+1 should not apply immediately"
-    );
-
-    // Advance fork choice time to S+2, queue should now be processed.
-    chain
-        .canonical_head
-        .fork_choice_write_lock()
-        .update_time(s_plus_2)
-        .expect("update_time should succeed");
-
-    let latest_after = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .latest_message(0)
-        .expect("latest message should exist after delay");
-    assert_eq!(latest_after.slot, s_plus_2);
-    assert!(latest_after.payload_present);
 }
 
 /// Specification v0.12.1:
