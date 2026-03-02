@@ -94,9 +94,10 @@ async fn new() -> (
     (harness, client, port, external_peer_id)
 }
 
-// Extract the full ObjectSchema for each endpoint, this ObjectSchema contains all the info that we want to check
+// Extract the full ObjectSchema for each endpoint, this ObjectSchema contains all info that we need for the check
 async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
     // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev versino)
+    // TODO: switch to latest release before the Gloas upgrade
     let yaml = reqwest::get(
         "https://github.com/ethereum/beacon-APIs/releases/download/v4.0.0/beacon-node-oapi.yaml",
     )
@@ -147,8 +148,8 @@ async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
             // media_type is of type MediaType struct
             let Some(media_type) = response.content.get("application/json") else {
                 // eth/v1/events does not have application/json, only application/octet-stream
-                // /eth/v1/node/health does not have application/json in the response: https://github.com/ethereum/beacon-APIs/blob/master/apis/node/health.yaml
-                // these endpoints are ignored for now
+                // /eth/v1/node/health does not have application/json in the response
+                // these endpoints are ignored
                 println!(
                     "No application/json content found for endpoint {}",
                     endpoint
@@ -177,8 +178,6 @@ fn check_field(
 ) -> Result<(), String> {
     // if there is anyOf, we select the first index [0] of the Vec<ObjectOrReference<ObjectSchema>>
     // i.e., the first ObjectSchema, which is usually the latest fork version
-    // Example of anyOf: /eth/v2/beacon/blocks/{block_id}
-    // https://github.com/ethereum/beacon-APIs/blob/d8c98590a4380720252f64c1042a178f7c1d3940/apis/beacon/blocks/block.v2.yaml#L36-L43
     if !object_schema.any_of.is_empty() {
         let oor = &object_schema.any_of[0];
         let object_schema_any = return_object_schema(oor);
@@ -187,7 +186,7 @@ fn check_field(
 
     // extract the required fields from the object_schema
     if !object_schema.required.is_empty() {
-        // schema.required is a Vec<String>, containing the required fields
+        // object_schema.required is a Vec<String>, containing the required fields
         let required_fields = object_schema.required.clone();
         let result = result_json.as_object().unwrap();
         let result_fields = result.keys().collect::<Vec<_>>();
@@ -209,18 +208,19 @@ fn check_field(
     }
 
     // Recursively look into object_schema.properties as each properties may contain sub-level required fields
-    // example: /eth/v1/beacon/states/{state_id}/validators/{validator_id}: https://github.com/ethereum/beacon-APIs/blob/d8c98590a4380720252f64c1042a178f7c1d3940/apis/beacon/states/validator.yaml#L24-L34
-    // the first schema.required returns the top-level required fields: required: [execution_optimistic, finalized, data]
-    // and we have more fields under "data", and "data" is under object_schema.properties
-    // so it iterates over all name/field in object_schema.properties and for each schema.properties, we call this function again to check the field
-    // if the name is "execution_optimistic", then schema.required is empty, when it reaches this for loop, there will be no for loop, so the recursive call stops
+    // object_schema.properties will also be of type ObjectSchema, i.e, it is ObjectSchema under ObjectSchema
+    // this will look into the ObjectSchema each level deeper until object_schema.properties is empty which will break the recursive call
+    // example: /eth/v1/beacon/states/{state_id}/validators/{validator_id}
+    // the first object_schema.required returns the top-level required fields: required: [execution_optimistic, finalized, data]
+    // if the name is "data", this will go one level deeper into it to extract the required field under object_schema_inner, and this will be repeated
+    // if the name is "execution_optimistic", then object_schema.required is empty, when it reaches this for loop, there will be no for loop, so the recursive call stops
     for (name, object_schema_inner_ref) in &object_schema.properties {
         let object_schema_inner = return_object_schema(object_schema_inner_ref);
         // extract the corresponding result_json.get(name) so that the field is checked with the required field
         // e.g., if name is data, then result_json.get(data) will extract the data field from the result_json
         let Some(result_json_inner) = result_json.get(name) else {
             println!(
-                // for endpoint /eth/v1/debug/fork_choice where the field `extra_data` is not in schema.required, but appears in schema.properties
+                // for endpoint /eth/v1/debug/fork_choice where the field `extra_data` is not in object_schema.required, but appears in object_schema.properties
                 "result_json for endpoint {} does not contain the field `{}`, continue anyway as it will be checked if it is a required field later",
                 endpoint, name
             );
@@ -229,8 +229,7 @@ fn check_field(
         check_field(result_json_inner, object_schema_inner, endpoint)?;
     }
 
-    // if type is Array, check each Object in the Array
-    // example: https://github.com/ethereum/beacon-APIs/blob/master/apis/beacon/light_client/updates.yaml
+    // if the type is Array, check each Object in the Array
     if let Some(type_set) = &object_schema.schema_type
         && type_set.is_array_or_nullable_array()
     {
@@ -276,8 +275,8 @@ fn check_type(
     object_schema: &ObjectSchema,
     endpoint: &str,
 ) -> Result<(), String> {
-    // if result_json is null, we skip the type check
-    // this is because, e.g., in /eth/v1/debug/fork_choice, the first/parent fork_choice_node always has parent_root: null
+    // For endpoint /eth/v1/debug/fork_choice, if result_json is null, we skip the type check
+    // because the first/parent fork_choice_node always has parent_root: null
     // but the spec has parent_root: https://github.com/ethereum/beacon-APIs/blob/d8c98590a4380720252f64c1042a178f7c1d3940/types/fork_choice.yaml#L12-L14
     // with the Root defined as type String: https://github.com/ethereum/beacon-APIs/blob/d8c98590a4380720252f64c1042a178f7c1d3940/types/primitive.yaml#L64
     // this causes the type check to fail
@@ -312,7 +311,6 @@ fn check_type(
             }
             // For String type, we can further check the result_json against the regex pattern defined in the spec
             if let Some(ref pattern) = object_schema.pattern {
-                //let regex = Regex::new(pattern).unwrap();
                 // Using Regex::new(pattern) would error: CompiledTooBig(10485760)
                 // Resize the regex limit to enable the pattern check for blob: ^0x[a-fA-F0-9]{262144}$
                 let regex = RegexBuilder::new(pattern)
@@ -449,7 +447,7 @@ async fn test_all_endpoints() -> Result<(), String> {
         }
     }
 
-    // Create BLS to execution change so /eth/v1/beacon/pool/bls_to_execution_changes contains data
+    // Create BLS to execution change so that /eth/v1/beacon/pool/bls_to_execution_changes contains data
     let bls_to_execution_change = harness.make_bls_to_execution_change(0, Address::zero());
     let ObservationOutcome::New(verified_bls_change) = harness
         .chain
@@ -463,7 +461,7 @@ async fn test_all_endpoints() -> Result<(), String> {
         operation_pool::ReceivedPreCapella::No,
     );
 
-    // Exit validator so that /eth/v1/beacon/pool/voluntary_exits contains data
+    // Create voluntary exit so that /eth/v1/beacon/pool/voluntary_exits contains data
     let voluntary_exit = harness.make_voluntary_exit(0, harness.chain.epoch().unwrap());
     let ObservationOutcome::New(verified_exit) = harness
         .chain
@@ -517,7 +515,7 @@ async fn test_all_endpoints() -> Result<(), String> {
         .unwrap()
         .unwrap();
 
-    // Populate the state with deposits, consolidations, and partial_withdrawals do that the endpoints contain data
+    // Populate the state with deposits, consolidations, and partial_withdrawals so that these endpoints contain data
     finalized_state
         .pending_deposits_mut()
         .unwrap()
@@ -564,22 +562,11 @@ async fn test_all_endpoints() -> Result<(), String> {
 
     let object_schema_by_endpoint = extract_all_endpoints().await;
 
-    let mut checked_endpoint = 0;
-
     for (endpoint, object_schema) in &object_schema_by_endpoint {
         // Temporarily ignore the following endpoint
         if endpoint == "/eth/v1/beacon/states/{state_id}/proposer_lookahead" {
-            checked_endpoint += 1;
             continue;
         }
-        // Test a single endpoint
-        // endpoint != "/eth/v1/beacon/states/{state_id}/fork"
-        //if endpoint != "/eth/v3/validator/blocks/{slot}" {
-        //endpoint != "/eth/v1/beacon/states/{state_id}/pending_consolidations" {
-        //     //endpoint != "/eth/v1/beacon/states/{state_id}/validators/{validator_id}" {
-        //     // endpoint != "/eth/v1/beacon/headers" {
-        // continue;
-        //}
 
         let url = format!(
             "http://127.0.0.1:{}{}",
@@ -602,10 +589,6 @@ async fn test_all_endpoints() -> Result<(), String> {
         {
             return Err(format!("Empty data array for endpoint {}.", endpoint));
         }
-
-        println!("Test passed for endpoint: {}", endpoint);
-        checked_endpoint += 1;
-        println!("Checked endpoint: {}", checked_endpoint);
 
         // NOt all endpoints have "finalized" field, so we test a single endpoint modification
         if endpoint == "/eth/v1/beacon/states/{state_id}/fork" {
@@ -630,10 +613,6 @@ async fn test_all_endpoints() -> Result<(), String> {
             assert!(check_field(&result_json_modify, object_schema, endpoint).is_err());
         }
     }
-    let total_endpoint = object_schema_by_endpoint.len();
-    // /eth/v1/beacon/states/{state_id}/proposer_lookahead hasn't been implemented yet
-    // endpoints such as /eth/v1/events is not inserted in the hashmap (i.e., not included in total_endpoint)
-    assert_eq!(checked_endpoint, total_endpoint);
     Ok(())
 }
 
