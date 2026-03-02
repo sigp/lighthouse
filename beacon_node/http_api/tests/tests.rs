@@ -3395,8 +3395,22 @@ impl ApiTester {
     pub async fn test_get_validator_duties_proposer_v2(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
 
-        for epoch in 0..=self.chain.epoch().unwrap().as_u64() + 1 {
+        for epoch in 0..=current_epoch.as_u64() + 1 {
             let epoch = Epoch::from(epoch);
+
+            // Compute the true dependent root using the spec's decision slot.
+            let decision_slot = self.chain.spec.proposer_shuffling_decision_slot::<E>(epoch);
+            let dependent_root = self
+                .chain
+                .block_root_at_slot(decision_slot, WhenSlotSkipped::Prev)
+                .unwrap()
+                .unwrap_or(self.chain.head_beacon_block_root());
+
+            let result = self
+                .client
+                .get_validator_duties_proposer_v2(epoch)
+                .await
+                .unwrap();
 
             let mut state = self
                 .chain
@@ -3408,21 +3422,6 @@ impl ApiTester {
 
             state
                 .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
-                .unwrap();
-
-            // Compute the true dependent root via `proposer_shuffling_decision_root_at_epoch`.
-            let dependent_root = state
-                .proposer_shuffling_decision_root_at_epoch(
-                    epoch,
-                    self.chain.head_beacon_block_root(),
-                    &self.chain.spec,
-                )
-                .unwrap();
-
-            let result = self
-                .client
-                .get_validator_duties_proposer_v2(epoch)
-                .await
                 .unwrap();
 
             let expected_duties = epoch
@@ -3449,14 +3448,22 @@ impl ApiTester {
 
             assert_eq!(result, expected);
 
-            // Pre-Fulu, v1 and v2 should return the same dependent_root and data.
+            // v1 and v2 should return the same data.
             let v1_result = self
                 .client
                 .get_validator_duties_proposer(epoch)
                 .await
                 .unwrap();
-            assert_eq!(result.dependent_root, v1_result.dependent_root);
             assert_eq!(result.data, v1_result.data);
+
+            if !self.chain.spec.fork_name_at_epoch(epoch).fulu_enabled() {
+                // Pre-Fulu the dependent root should be identical to v1.
+                assert_eq!(result.dependent_root, v1_result.dependent_root);
+            } else {
+                // Post-Fulu the dependnent root should be distinct for all cases tested.
+                // It would take a whole epoch of skipped slots for this to diverge.
+                assert_ne!(result.dependent_root, v1_result.dependent_root);
+            }
         }
 
         // Requests to the epochs after the next epoch should fail.
