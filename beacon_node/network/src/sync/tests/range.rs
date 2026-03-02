@@ -25,7 +25,7 @@ use lighthouse_network::{PeerId, SyncInfo};
 use std::collections::HashSet;
 use std::time::Duration;
 use types::{
-    BlobSidecarList, BlockImportSource, DataColumnSubnetId, Epoch, EthSpec, Hash256,
+    BlobSidecarList, BlockImportSource, Epoch, EthSpec, Hash256,
     MinimalEthSpec as E, SignedBeaconBlock, SignedBeaconBlockHash, Slot,
 };
 
