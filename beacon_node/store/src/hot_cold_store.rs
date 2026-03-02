@@ -38,7 +38,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
 use typenum::Unsigned;
 use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
@@ -721,14 +721,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         })
     }
 
-    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
-        self.get_block_with(block_root, SignedBeaconBlock::any_from_ssz_bytes)
-    }
-
     /// Fetch a block from the store using a custom decode function.
     ///
     /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
@@ -743,6 +735,32 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
+    }
+
+    pub fn get_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+        let key = block_root.as_slice();
+
+        match self
+            .hot_db
+            .get_bytes(SignedExecutionPayloadEnvelope::<E>::db_column(), key)?
+        {
+            Some(bytes) => {
+                let envelope = SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)?;
+                Ok(Some(envelope))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if the payload envelope for a block exists on disk.
+    pub fn payload_envelope_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+        self.hot_db.key_exists(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+        )
     }
 
     /// Load the execution payload for a block from disk.
@@ -1027,6 +1045,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    // TODO(gloas) we should store the execution payload separately like we do for blocks.
+    /// Prepare a signed execution payload envelope for storage in the database.
+    pub fn payload_envelope_as_kv_store_ops(
+        &self,
+        key: &Hash256,
+        payload: &SignedExecutionPayloadEnvelope<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            key.as_slice().into(),
+            payload.as_ssz_bytes(),
+        ));
+    }
+
+    pub fn put_payload_envelope(
+        &self,
+        block_root: &Hash256,
+        payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    ) -> Result<(), Error> {
+        self.hot_db.put_bytes(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+            &payload_envelope.as_ssz_bytes(),
+        )
+    }
+
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         let mut ops: Vec<KeyValueStoreOp> = Vec::new();
@@ -1283,6 +1328,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     );
                 }
 
+                StoreOp::PutPayloadEnvelope(block_root, payload_envelope) => {
+                    self.payload_envelope_as_kv_store_ops(
+                        &block_root,
+                        &payload_envelope,
+                        &mut key_value_batch,
+                    );
+                }
+
                 StoreOp::PutStateSummary(state_root, summary) => {
                     key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
@@ -1307,6 +1360,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         key_value_batch
                             .push(KeyValueStoreOp::DeleteKey(DBColumn::BeaconDataColumn, key));
                     }
+                }
+
+                StoreOp::DeletePayloadEnvelope(block_root) => {
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        SignedExecutionPayloadEnvelope::<E>::db_column(),
+                        block_root.as_slice().to_vec(),
+                    ))
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
@@ -1450,14 +1510,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
-        self.blobs_db
-            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
+        let kv_blob_ops = self.convert_to_kv_batch(blobs_ops)?;
+        {
+            let _span = debug_span!("write_blobs_db").entered();
+            self.blobs_db.do_atomically(kv_blob_ops)?;
+        }
 
         let hot_db_cache_ops = hot_db_ops.clone();
         // Try to execute hot db store ops.
-        let tx_res = match self.convert_to_kv_batch(hot_db_ops) {
-            Ok(kv_store_ops) => self.hot_db.do_atomically(kv_store_ops),
-            Err(e) => Err(e),
+        let tx_res = {
+            let _convert_span = debug_span!("convert_hot_db_ops").entered();
+            match self.convert_to_kv_batch(hot_db_ops) {
+                Ok(kv_store_ops) => {
+                    drop(_convert_span);
+                    let _span = debug_span!("write_hot_db").entered();
+                    self.hot_db.do_atomically(kv_store_ops)
+                }
+                Err(e) => Err(e),
+            }
         };
         // Rollback on failure
         if let Err(e) = tx_res {
@@ -1528,6 +1598,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                     StoreOp::PutDataColumns(_, _) => (),
 
+                    StoreOp::PutPayloadEnvelope(_, _) => (),
+
                     StoreOp::PutState(_, _) => (),
 
                     StoreOp::PutStateSummary(_, _) => (),
@@ -1535,6 +1607,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     StoreOp::DeleteBlock(block_root) => {
                         guard.delete_block(&block_root);
                     }
+
+                    StoreOp::DeletePayloadEnvelope(_) => (),
 
                     StoreOp::DeleteState(_, _) => (),
 

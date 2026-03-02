@@ -573,6 +573,7 @@ impl<E: EthSpec> Network<E> {
         };
 
         // attempt to connect to user-input libp2p nodes
+        // DEPRECATED: can be removed in v8.2.0./v9.0.0
         for multiaddr in &config.libp2p_nodes {
             dial(multiaddr.clone());
         }
@@ -1860,8 +1861,6 @@ impl<E: EthSpec> Network<E> {
                     self.inject_upnp_event(e);
                     None
                 }
-                #[allow(unreachable_patterns)]
-                BehaviourEvent::ConnectionLimits(le) => libp2p::core::util::unreachable(le),
             },
             SwarmEvent::ConnectionEstablished { .. } => None,
             SwarmEvent::ConnectionClosed { .. } => None,

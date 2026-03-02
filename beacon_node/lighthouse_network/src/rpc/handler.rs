@@ -13,7 +13,8 @@ use futures::prelude::*;
 use libp2p::PeerId;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
-    FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
+    FullyNegotiatedInbound, FullyNegotiatedOutbound, ListenUpgradeError, StreamUpgradeError,
+    SubstreamProtocol,
 };
 use libp2p::swarm::{ConnectionId, Stream};
 use logging::crit;
@@ -888,6 +889,16 @@ where
             ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
                 self.on_dial_upgrade_error(info, error)
             }
+            ConnectionEvent::ListenUpgradeError(ListenUpgradeError {
+                error: (proto, error),
+                ..
+            }) => {
+                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                    id: self.current_inbound_substream_id,
+                    proto,
+                    error,
+                }));
+            }
             _ => {
                 // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
                 // release notes more than compiler feedback
@@ -924,7 +935,7 @@ where
                             request.count()
                         )),
                     }));
-                    return self.shutdown(None);
+                    return;
                 }
             }
             RequestType::BlobsByRange(request) => {
@@ -940,7 +951,7 @@ where
                             max_allowed, max_requested_blobs
                         )),
                     }));
-                    return self.shutdown(None);
+                    return;
                 }
             }
             _ => {}

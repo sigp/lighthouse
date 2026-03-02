@@ -77,6 +77,14 @@ impl Quota {
             max_tokens: n,
         }
     }
+
+    #[cfg(test)]
+    pub const fn n_every_millis(n: NonZeroU64, millis: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_millis(millis),
+            max_tokens: n,
+        }
+    }
 }
 
 /// Manages rate limiting of requests per peer, with differentiated rates per protocol.

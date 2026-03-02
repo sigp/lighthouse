@@ -686,7 +686,6 @@ mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
-    use execution_layer::test_utils::Block;
     use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
     use std::sync::LazyLock;
@@ -720,7 +719,7 @@ mod tests {
     async fn check_all_blocks_from_altair_to_fulu() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
         let num_epochs = 12;
-        let bellatrix_fork_epoch = 2usize;
+        let bellatrix_fork_epoch = 0usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
         let electra_fork_epoch = 8usize;
@@ -737,32 +736,8 @@ mod tests {
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());
-        // go to bellatrix fork
-        harness
-            .extend_slots(bellatrix_fork_epoch * slots_per_epoch)
-            .await;
-        // extend half an epoch
-        harness.extend_slots(slots_per_epoch / 2).await;
-        // trigger merge
-        harness
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .expect("should move to terminal block");
-        let timestamp =
-            harness.get_timestamp_at_slot() + harness.spec.get_slot_duration().as_secs();
-        harness
-            .execution_block_generator()
-            .modify_last_block(|block| {
-                if let Block::PoW(terminal_block) = block {
-                    terminal_block.timestamp = timestamp;
-                }
-            });
-        // finish out merge epoch
-        harness.extend_slots(slots_per_epoch / 2).await;
         // finish rest of epochs
-        harness
-            .extend_slots((num_epochs - 1 - bellatrix_fork_epoch) * slots_per_epoch)
-            .await;
+        harness.extend_slots(num_epochs * slots_per_epoch).await;
 
         let head = harness.chain.head_snapshot();
         let state = &head.beacon_state;

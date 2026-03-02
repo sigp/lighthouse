@@ -20,10 +20,9 @@ use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
-    BlockProcessingError, ConsensusContext, VerifyBlockRoot,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
     common::{attesting_indices_base, attesting_indices_electra},
-    per_block_processing::{BlockSignatureStrategy, per_block_processing},
-    per_slot_processing,
+    per_block_processing, per_slot_processing,
 };
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
@@ -119,7 +118,7 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -285,7 +284,7 @@ fn update_data_column_signed_header<E: EthSpec>(
         let new_column_sidecar = Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: *old_column_sidecar.index(),
             column: old_column_sidecar.column().clone(),
-            kzg_commitments: old_column_sidecar.kzg_commitments().clone(),
+            kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
             kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
             signed_block_header: signed_block.signed_block_header(),
             kzg_commitments_inclusion_proof: signed_block
@@ -1849,10 +1848,8 @@ async fn add_altair_block_to_base_chain() {
 // https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]
 async fn import_duplicate_block_unrealized_justification() {
-    let spec = MainnetEthSpec::default_spec();
-
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec.into())
+        .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()

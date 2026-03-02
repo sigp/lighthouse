@@ -1,8 +1,6 @@
+use crate::execution::{ExecutionPayloadGloas, ExecutionRequests};
 use crate::test_utils::TestRandom;
-use crate::{
-    EthSpec, ExecutionPayloadGloas, ExecutionRequests, ForkName, Hash256, KzgCommitments,
-    SignedRoot, Slot,
-};
+use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
@@ -21,7 +19,6 @@ pub struct ExecutionPayloadEnvelope<E: EthSpec> {
     pub builder_index: u64,
     pub beacon_block_root: Hash256,
     pub slot: Slot,
-    pub blob_kzg_commitments: KzgCommitments<E>,
     pub state_root: Hash256,
 }
 

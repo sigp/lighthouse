@@ -5,6 +5,7 @@ use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WE
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
+use tracing::debug;
 
 pub const GENERIC_ERROR_CODE: i64 = -1234;
 pub const BAD_PARAMS_ERROR_CODE: i64 = -32602;
@@ -27,6 +28,8 @@ pub async fn handle_rpc<E: EthSpec>(
         .get("params")
         .ok_or_else(|| "missing/invalid params field".to_string())
         .map_err(|s| (s, GENERIC_ERROR_CODE))?;
+
+    debug!(method, "Mock execution engine");
 
     match method {
         ETH_SYNCING => ctx
@@ -465,6 +468,35 @@ pub async fn handle_rpc<E: EthSpec>(
                 _ => unreachable!(),
             }
         }
+        ENGINE_GET_BLOBS_V1 => {
+            let versioned_hashes =
+                get_param::<Vec<Hash256>>(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let generator = ctx.execution_block_generator.read();
+            // V1: per-element nullable array, positionally matching the request.
+            let response: Vec<Option<BlobAndProofV1<E>>> = versioned_hashes
+                .iter()
+                .map(|hash| match generator.get_blob_and_proof(hash) {
+                    Some(BlobAndProof::V1(v1)) => Some(v1),
+                    _ => None,
+                })
+                .collect();
+            Ok(serde_json::to_value(response).unwrap())
+        }
+        ENGINE_GET_BLOBS_V2 => {
+            let versioned_hashes =
+                get_param::<Vec<Hash256>>(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let generator = ctx.execution_block_generator.read();
+            // V2: all-or-nothing — null if any blob is missing.
+            let results: Vec<Option<BlobAndProofV2<E>>> = versioned_hashes
+                .iter()
+                .map(|hash| match generator.get_blob_and_proof(hash) {
+                    Some(BlobAndProof::V2(v2)) => Some(v2),
+                    _ => None,
+                })
+                .collect();
+            let response: Option<Vec<BlobAndProofV2<E>>> = results.into_iter().collect();
+            Ok(serde_json::to_value(response).unwrap())
+        }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
         | ENGINE_FORKCHOICE_UPDATED_V3 => {
@@ -516,6 +548,12 @@ pub async fn handle_rpc<E: EthSpec>(
                 }
                 _ => unreachable!(),
             };
+
+            debug!(
+                ?payload_attributes,
+                ?forkchoice_state,
+                "ENGINE_FORKCHOICE_UPDATED"
+            );
 
             // validate method called correctly according to fork time
             if let Some(pa) = payload_attributes.as_ref() {

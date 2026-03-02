@@ -200,11 +200,23 @@ pub fn build_enr<E: EthSpec>(
         builder.ip6(*ip);
     }
 
-    if let Some(udp4_port) = config.enr_udp4_port {
+    // If the ENR port is not set, and we are listening over that ip version, use the listening
+    // discovery port instead.
+    if let Some(udp4_port) = config.enr_udp4_port.or_else(|| {
+        config
+            .listen_addrs()
+            .v4()
+            .and_then(|v4_addr| v4_addr.disc_port.try_into().ok())
+    }) {
         builder.udp4(udp4_port.get());
     }
 
-    if let Some(udp6_port) = config.enr_udp6_port {
+    if let Some(udp6_port) = config.enr_udp6_port.or_else(|| {
+        config
+            .listen_addrs()
+            .v6()
+            .and_then(|v6_addr| v6_addr.disc_port.try_into().ok())
+    }) {
         builder.udp6(udp6_port.get());
     }
 

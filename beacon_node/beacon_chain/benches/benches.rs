@@ -1,8 +1,9 @@
+use std::hint::black_box;
 use std::sync::Arc;
 
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
 use beacon_chain::test_utils::get_kzg;
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};

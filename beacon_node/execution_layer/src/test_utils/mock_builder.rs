@@ -245,7 +245,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
     }
 
     fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature {
-        let domain = spec.get_builder_domain();
+        let domain = spec.get_builder_application_domain();
         let message = self.signing_root(domain);
         sk.sign(message)
     }
