@@ -125,7 +125,7 @@ async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
                 Some(get) => get.clone(),
                 None => {
                     println!(
-                        "{} is not a GET endpoint, continue with the next endpoint",
+                        "{} is not a GET endpoint, ignoring this endpoint and continue to the next",
                         endpoint
                     );
                     continue;
@@ -189,9 +189,7 @@ fn check_field(
         // object_schema.required is a Vec<String>, containing the required fields
         let required_fields = object_schema.required.clone();
         let result = result_json.as_object().unwrap();
-        let result_fields = result.keys().collect::<Vec<_>>();
-        println!("Required fields: {:?}", object_schema.required);
-        println!("Result fields:   {:?}", result_fields);
+
         // check the name of each required field
         // checking this way will guarantee that required_fields in the spec is a subset of result
         // this implies that having more fields in result than required_fields is ok, and will not fail the test
@@ -254,9 +252,6 @@ fn check_field(
     if let Some(ref type_set) = object_schema.schema_type {
         // object_schema.schema_type returns type: Option<TypeSet> where TypeSet is an enum: https://docs.rs/oas3/latest/oas3/spec/enum.SchemaTypeSet.html
         // all TypeSets (under schema_type in ObjctSchema) in the beacon API spec are Single
-        println!("object_schema is: {:?}", object_schema);
-        println!("result_json is: {:?}", result_json);
-        println!("type_set is: {:?}", type_set);
         match type_set {
             SchemaTypeSet::Single(schema_type) => {
                 check_type(result_json, schema_type, object_schema, endpoint)?;
@@ -573,12 +568,8 @@ async fn test_all_endpoints() -> Result<(), String> {
             port,
             replace_parameter(endpoint, &harness, peer_id, attestation_data_root)
         );
-        println!("Testing endpoint: {}", endpoint);
-        println!("URL is: {}", url);
 
         let result_json: serde_json::Value = client.get(url.clone()).await.unwrap();
-
-        println!("Response is: {:?}", result_json);
 
         check_field(&result_json, object_schema, endpoint)?;
 
