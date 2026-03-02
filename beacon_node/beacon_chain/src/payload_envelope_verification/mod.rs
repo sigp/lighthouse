@@ -3,27 +3,18 @@
 //! types, starting at a `SignedExecutionPayloadEnvelope` and finishing with an `AvailableExecutedEnvelope` (see
 //! diagram below).
 //!
-//! // TODO(gloas) we might want to update this diagram to include `AvailabelExecutedEnvelope`
 //! ```ignore
-//!            START
-//!              |
-//!              ▼
 //! SignedExecutionPayloadEnvelope
 //!              |
-//!              |---------------
-//!              |              |
-//!              |              ▼
-//!              |    GossipVerifiedEnvelope
-//!              |              |
-//!              |---------------
+//!              ▼
+//!    GossipVerifiedEnvelope
 //!              |
 //!              ▼
 //!  ExecutionPendingEnvelope
 //!              |
 //!            await
-//!              |
 //!              ▼
-//!             END
+//!      ExecutedEnvelope
 //!
 //! ```
 
@@ -48,7 +39,7 @@ pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
 
-pub use execution_pending_envelope::{ExecutionPendingEnvelope, IntoExecutionPendingEnvelope};
+pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
@@ -63,7 +54,7 @@ pub struct AvailableEnvelope<E: EthSpec> {
     execution_block_hash: ExecutionBlockHash,
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     columns: DataColumnSidecarList<E>,
-    /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
+    /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
     columns_available_timestamp: Option<std::time::Duration>,
     pub spec: Arc<ChainSpec>,
 }
@@ -111,7 +102,7 @@ pub enum MaybeAvailableEnvelope<E: EthSpec> {
     },
 }
 
-/// This snapshot is to be used for verifying a envelope of the block.
+/// This snapshot is to be used for verifying a payload envelope.
 #[derive(Debug, Clone)]
 pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     /// This state is equivalent to the `self.beacon_block.state_root()` before applying the envelope.
@@ -183,54 +174,41 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 #[derive(Debug)]
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
-    BlockRootUnknown {
-        block_root: Hash256,
-    },
+    BlockRootUnknown { block_root: Hash256 },
     /// The signature is invalid.
     BadSignature,
     /// The builder index doesn't match the committed bid
-    BuilderIndexMismatch {
-        committed_bid: u64,
-        envelope: u64,
-    },
-    // The envelope slot doesn't match the block
-    SlotMismatch {
-        block: Slot,
-        envelope: Slot,
-    },
-    // The validator index is unknown
-    UnknownValidator {
-        builder_index: u64,
-    },
-    // The block hash doesn't match the committed bid
+    BuilderIndexMismatch { committed_bid: u64, envelope: u64 },
+    /// The envelope slot doesn't match the block
+    SlotMismatch { block: Slot, envelope: Slot },
+    /// The validator index is unknown
+    UnknownValidator { builder_index: u64 },
+    /// The block hash doesn't match the committed bid
     BlockHashMismatch {
         committed_bid: ExecutionBlockHash,
         envelope: ExecutionBlockHash,
     },
-    // The block's proposer_index does not match the locally computed proposer
-    IncorrectBlockProposer {
-        block: u64,
-        local_shuffling: u64,
-    },
-    // The slot belongs to a block that is from a slot prior than
-    // the most recently finalized slot
+    /// The block's proposer_index does not match the locally computed proposer
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    /// The slot belongs to a block that is from a slot prior than
+    /// to most recently finalized slot
     PriorToFinalization {
         payload_slot: Slot,
         latest_finalized_slot: Slot,
     },
-    // Some Beacon Chain Error
+    /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
-    // Some Beacon State error
+    /// Some Beacon State error
     BeaconStateError(BeaconStateError),
-    // Some BlockProcessingError (for electra operations)
+    /// Some BlockProcessingError (for electra operations)
     BlockProcessingError(BlockProcessingError),
-    // Some EnvelopeProcessingError
+    /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
-    // Error verifying the execution payload
+    /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    // An error from block-level checks reused during envelope import
+    /// An error from block-level checks reused during envelope import
     BlockError(BlockError),
-    // Internal error
+    /// Internal error
     InternalError(String),
 }
 

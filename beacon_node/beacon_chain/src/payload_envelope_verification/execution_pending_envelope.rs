@@ -5,7 +5,7 @@ use state_processing::{
     VerifySignatures,
     envelope_processing::{VerifyStateRoot, process_execution_payload_envelope},
 };
-use types::{EthSpec, SignedExecutionPayloadEnvelope};
+use types::EthSpec;
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
@@ -18,24 +18,14 @@ use crate::{
     },
 };
 
-pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
-    fn into_execution_pending_envelope(
-        self,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError>;
-
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>;
-}
-
 pub struct ExecutionPendingEnvelope<E: EthSpec> {
     pub signed_envelope: MaybeAvailableEnvelope<E>,
     pub import_data: EnvelopeImportData<E>,
     pub payload_verification_handle: PayloadVerificationHandle,
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnvelope<T> {
-    fn into_execution_pending_envelope(
+impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
+    pub fn into_execution_pending_envelope(
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
@@ -115,26 +105,5 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
             },
             payload_verification_handle,
         })
-    }
-
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
-        &self.signed_envelope
-    }
-}
-
-impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
-    for Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>
-{
-    fn into_execution_pending_envelope(
-        self,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
-        GossipVerifiedEnvelope::new(self, &chain.gossip_verification_context())?
-            .into_execution_pending_envelope(chain, notify_execution_layer)
-    }
-
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
-        self
     }
 }
