@@ -85,8 +85,8 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
-    InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
+    ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters, InvalidationOperation,
+    PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
 use itertools::Itertools;

@@ -312,7 +312,6 @@ fn dequeue_payload_attestations(
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
-
 /// Parameters which are cached between calls to `ForkChoice::get_head`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForkchoiceUpdateParameters {
