@@ -1,7 +1,10 @@
+use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     RelativeSyncCommittee,
 };
+use bls::FixedBytesExtended;
 use bls::{Signature, SignatureBytes};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::test_utils::{ApiServer, create_api_server};
@@ -13,7 +16,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
-use types::{Epoch, EthSpec, Hash256, MainnetEthSpec, SyncCommitteeContribution};
+use types::{
+    Address, Epoch, EthSpec, Hash256, MainnetEthSpec, PendingConsolidation, PendingDeposit,
+    PendingPartialWithdrawal, Slot, SyncCommitteeContribution,
+};
 
 type E = MainnetEthSpec;
 
@@ -36,13 +42,20 @@ async fn new() -> (
     spec.deneb_fork_epoch = Some(Epoch::new(0));
     spec.electra_fork_epoch = Some(Epoch::new(0));
     spec.fulu_fork_epoch = Some(Epoch::new(0));
+    // Allow voluntary exits without waiting
+    spec.shard_committee_period = 0;
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec.into())
         .deterministic_keypairs(VALIDATOR_COUNT)
+        .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()
+        .node_custody_type(NodeCustodyType::Supernode)
         .build();
+
+    // Ensure blocks to have blob data so that /eth/v1/beacon/blob_sidecars/{block_id} contains data
+    harness.execution_block_generator().set_min_blob_count(1);
 
     harness.advance_slot();
 
@@ -253,7 +266,7 @@ fn check_field(
         }
     }
 
-    return Ok(());
+    Ok(())
 }
 
 // Check the type of each result_json
@@ -341,7 +354,7 @@ fn check_type(
         }
     }
 
-    return Ok(());
+    Ok(())
 }
 
 // Used to replace parameters such as {block_id} with actual values so that a valid HTTP request is made
@@ -436,6 +449,119 @@ async fn test_all_endpoints() -> Result<(), String> {
         }
     }
 
+    // Create BLS to execution change so /eth/v1/beacon/pool/bls_to_execution_changes contains data
+    let bls_to_execution_change = harness.make_bls_to_execution_change(0, Address::zero());
+    let ObservationOutcome::New(verified_bls_change) = harness
+        .chain
+        .verify_bls_to_execution_change_for_gossip(bls_to_execution_change)
+        .unwrap()
+    else {
+        panic!("bls to execution change should verify")
+    };
+    harness.chain.import_bls_to_execution_change(
+        verified_bls_change,
+        operation_pool::ReceivedPreCapella::No,
+    );
+
+    // Exit validator so that /eth/v1/beacon/pool/voluntary_exits contains data
+    let voluntary_exit = harness.make_voluntary_exit(0, harness.chain.epoch().unwrap());
+    let ObservationOutcome::New(verified_exit) = harness
+        .chain
+        .verify_voluntary_exit_for_gossip(voluntary_exit)
+        .unwrap()
+    else {
+        panic!("exit should verify")
+    };
+    harness.chain.import_voluntary_exit(verified_exit);
+
+    // Create proposer slashing data so that /eth/v1/beacon/pool/proposer_slashings contains data
+    let proposer_slashing = harness.make_proposer_slashing(0);
+    let ObservationOutcome::New(verified_proposer_slashing) = harness
+        .chain
+        .verify_proposer_slashing_for_gossip(proposer_slashing)
+        .unwrap()
+    else {
+        panic!("proposer slashing should verify")
+    };
+    harness
+        .chain
+        .import_proposer_slashing(verified_proposer_slashing);
+
+    // Create attester slashing so that /eth/v1/beacon/pool/attester_slashings contains data
+    let attester_slashing = harness.make_attester_slashing(vec![0]);
+    let ObservationOutcome::New(verified_attester_slashing) = harness
+        .chain
+        .verify_attester_slashing_for_gossip(attester_slashing)
+        .unwrap()
+    else {
+        panic!("attester slashing should verify")
+    };
+    harness
+        .chain
+        .import_attester_slashing(verified_attester_slashing);
+
+    let finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint();
+    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
+    let finalized_state_root = harness
+        .chain
+        .state_root_at_slot(finalized_slot)
+        .unwrap()
+        .unwrap();
+    let mut finalized_state = harness
+        .chain
+        .get_state(&finalized_state_root, Some(finalized_slot), false)
+        .unwrap()
+        .unwrap();
+
+    // Populate the state with deposits, consolidations, and partial_withdrawals do that the endpoints contain data
+    finalized_state
+        .pending_deposits_mut()
+        .unwrap()
+        .push(PendingDeposit {
+            pubkey: harness.validator_keypairs[0].pk.compress(),
+            withdrawal_credentials: Hash256::zero(),
+            amount: 32_000_000_000,
+            signature: Signature::infinity().unwrap().into(),
+            slot: Slot::new(0),
+        })
+        .unwrap();
+
+    finalized_state
+        .pending_consolidations_mut()
+        .unwrap()
+        .push(PendingConsolidation {
+            source_index: 0,
+            target_index: 1,
+        })
+        .unwrap();
+
+    finalized_state
+        .pending_partial_withdrawals_mut()
+        .unwrap()
+        .push(PendingPartialWithdrawal {
+            validator_index: 0,
+            amount: 1_000_000_000,
+            withdrawable_epoch: Epoch::new(0),
+        })
+        .unwrap();
+
+    harness
+        .chain
+        .store
+        .state_cache
+        .lock()
+        .update_finalized_state(
+            finalized_state_root,
+            finalized_checkpoint.root,
+            finalized_state,
+            &[],
+        )
+        .unwrap();
+
     let object_schema_by_endpoint = extract_all_endpoints().await;
 
     let mut checked_endpoint = 0;
@@ -468,6 +594,14 @@ async fn test_all_endpoints() -> Result<(), String> {
         println!("Response is: {:?}", result_json);
 
         check_field(&result_json, object_schema, endpoint)?;
+
+        // Check that top-level data arrays are non-empty to ensure item schemas are validated.
+        if let Some(data) = result_json.get("data")
+            && let Some(data_array) = data.as_array()
+            && data_array.is_empty()
+        {
+            return Err(format!("Empty data array for endpoint {}.", endpoint));
+        }
 
         println!("Test passed for endpoint: {}", endpoint);
         checked_endpoint += 1;
