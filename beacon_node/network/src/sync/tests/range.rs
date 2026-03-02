@@ -25,8 +25,8 @@ use lighthouse_network::{PeerId, SyncInfo};
 use std::collections::HashSet;
 use std::time::Duration;
 use types::{
-    BlobSidecarList, BlockImportSource, Epoch, EthSpec, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, SignedBeaconBlockHash, Slot,
+    BlobSidecarList, BlockImportSource, Epoch, EthSpec, Hash256, MinimalEthSpec as E,
+    SignedBeaconBlock, SignedBeaconBlockHash, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
