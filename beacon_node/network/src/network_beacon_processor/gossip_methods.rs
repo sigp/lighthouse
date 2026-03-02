@@ -49,8 +49,8 @@ use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
-        ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedGossipEnvelope, QueuedLightClientUpdate,
+        QueuedUnaggregate, ReprocessQueueMessage,
     },
 };
 
@@ -3347,7 +3347,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // TODO(gloas) update metrics to note how early the envelope arrived
 
                 let inner_self = self.clone();
-                let _process_fn = Box::pin(async move {
+                let process_fn = Box::pin(async move {
                     inner_self
                         .process_gossip_verified_execution_payload_envelope(
                             peer_id,
@@ -3356,7 +3356,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         .await;
                 });
 
-                // TODO(gloas) send to reprocess queue
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::UnknownBlockEnvelope(
+                            QueuedGossipEnvelope {
+                                beacon_block_slot: envelope_slot,
+                                beacon_block_root,
+                                process_fn,
+                            },
+                        )),
+                    })
+                    .is_err()
+                {
+                    error!(
+                        %envelope_slot,
+                        ?beacon_block_root,
+                        location = "envelope gossip",
+                        "Failed to defer envelope import"
+                    );
+                }
                 None
             }
             Ok(_) => Some(verified_envelope),
