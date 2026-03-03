@@ -5,7 +5,7 @@ use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BeaconState, BlockImportSource, Hash256, SignedBeaconBlock, Slot};
+use types::{BeaconState, BlockImportSource, Hash256, Slot};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
@@ -14,11 +14,13 @@ use super::{
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
     NotifyExecutionLayer,
-    block_verification_types::{AsBlock, AvailableBlockData},
+    block_verification_types::AvailableBlockData,
     metrics,
     payload_envelope_verification::ExecutionPendingEnvelope,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
 };
+
+const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u32 = 64;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(block_root)` if the given `unverified_envelope` was successfully verified and
@@ -186,7 +188,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let EnvelopeImportData {
             block_root,
-            block,
+            block: _,
             post_state,
         } = import_data;
 
@@ -342,7 +344,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Do not write to the cache for envelopes older than 2 epochs, this helps reduce writes
         // to the cache during sync.
-        if envelope_delay_total < self.slot_clock.slot_duration().saturating_mul(64) {
+        if envelope_delay_total < self.slot_clock.slot_duration().saturating_mul(ENVELOPE_METRICS_CACHE_SLOT_LIMIT) {
             self.envelope_times_cache.write().set_time_imported(
                 block_root,
                 envelope_slot,
