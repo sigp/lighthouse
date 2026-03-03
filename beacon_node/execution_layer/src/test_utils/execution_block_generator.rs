@@ -989,7 +989,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use kzg::{Bytes48, CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
+    use kzg::{CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
     use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
@@ -1028,8 +1028,8 @@ mod test {
             load_test_blobs_bundle_v2::<E>().map(|(commitment, proofs, blob)| {
                 let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
                 (
-                    vec![Bytes48::from(commitment); proofs.len()],
-                    proofs.into_iter().map(|p| p.into()).collect::<Vec<_>>(),
+                    vec![commitment.0; proofs.len()],
+                    proofs.into_iter().map(|p| p.0).collect::<Vec<_>>(),
                     kzg.compute_cells(kzg_blob).unwrap(),
                 )
             })?;

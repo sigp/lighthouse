@@ -1,3 +1,4 @@
+mod blob;
 mod kzg_commitment;
 mod kzg_proof;
 pub mod trusted_setup;
@@ -7,15 +8,17 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 pub use crate::{
+    blob::Blob,
     kzg_commitment::{KzgCommitment, VERSIONED_HASH_VERSION_KZG},
     kzg_proof::KzgProof,
     trusted_setup::TrustedSetup,
 };
 
-pub use c_kzg::{
-    Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
-    BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
+pub use rust_eth_kzg::constants::{
+    BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_FIELD_ELEMENT, FIELD_ELEMENTS_PER_BLOB,
 };
+
+pub const BYTES_PER_PROOF: usize = 48;
 
 use crate::trusted_setup::load_trusted_setup;
 use rayon::prelude::*;
@@ -25,13 +28,6 @@ pub use rust_eth_kzg::{
 };
 use tracing::{instrument, Span};
 
-/// Disables the fixed-base multi-scalar multiplication optimization for computing
-/// cell KZG proofs, because `rust-eth-kzg` already handles the precomputation.
-///
-/// Details about `precompute` parameter can be found here:
-/// <https://github.com/ethereum/c-kzg-4844/pull/545/files>
-pub const NO_PRECOMPUTE: u64 = 0;
-
 // Note: Both `NUMBER_OF_COLUMNS` and `CELLS_PER_EXT_BLOB` are preset values - however this
 // is a constant in the KZG library - be aware that overriding `NUMBER_OF_COLUMNS` will break KZG
 // operations.
@@ -39,16 +35,21 @@ pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_E
 
 pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
 
+type Bytes32 = [u8; 32];
+type Bytes48 = [u8; 48];
+
 #[derive(Debug)]
 pub enum Error {
     /// An error from initialising the trusted setup.
     TrustedSetupError(String),
-    /// An error from the underlying kzg library.
-    Kzg(c_kzg::Error),
+    /// An error from the rust-eth-kzg library.
+    Kzg(rust_eth_kzg::Error),
     /// A prover/verifier error from the rust-eth-kzg library.
     PeerDASKZG(rust_eth_kzg::Error),
     /// The kzg verification failed
     KzgVerificationFailed,
+    /// Wrong number of bytes.
+    InvalidBytesLength(String),
     /// Misc indexing error
     InconsistentArrayLength(String),
     /// Error reconstructing data columns.
@@ -57,38 +58,29 @@ pub enum Error {
     DASContextUninitialized,
 }
 
-impl From<c_kzg::Error> for Error {
-    fn from(value: c_kzg::Error) -> Self {
+impl From<rust_eth_kzg::Error> for Error {
+    fn from(value: rust_eth_kzg::Error) -> Self {
         Error::Kzg(value)
     }
 }
 
-/// A wrapper over a kzg library that holds the trusted setup parameters.
+/// A wrapper over the rust-eth-kzg library that holds the trusted setup parameters.
 #[derive(Debug)]
 pub struct Kzg {
-    trusted_setup: KzgSettings,
     context: DASContext,
 }
 
 impl Kzg {
     pub fn new_from_trusted_setup_no_precomp(trusted_setup: &[u8]) -> Result<Self, Error> {
-        let (ckzg_trusted_setup, rkzg_trusted_setup) = load_trusted_setup(trusted_setup)?;
+        let rkzg_trusted_setup = load_trusted_setup(trusted_setup)?;
         let context = DASContext::new(&rkzg_trusted_setup, rust_eth_kzg::UsePrecomp::No);
 
-        Ok(Self {
-            trusted_setup: KzgSettings::load_trusted_setup(
-                &ckzg_trusted_setup.g1_monomial(),
-                &ckzg_trusted_setup.g1_lagrange(),
-                &ckzg_trusted_setup.g2_monomial(),
-                NO_PRECOMPUTE,
-            )?,
-            context,
-        })
+        Ok(Self { context })
     }
 
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: &[u8]) -> Result<Self, Error> {
-        let (ckzg_trusted_setup, rkzg_trusted_setup) = load_trusted_setup(trusted_setup)?;
+        let rkzg_trusted_setup = load_trusted_setup(trusted_setup)?;
 
         // It's not recommended to change the config parameter for precomputation as storage
         // grows exponentially, but the speedup is exponential - after a while the speedup
@@ -100,15 +92,7 @@ impl Kzg {
             },
         );
 
-        Ok(Self {
-            trusted_setup: KzgSettings::load_trusted_setup(
-                &ckzg_trusted_setup.g1_monomial(),
-                &ckzg_trusted_setup.g1_lagrange(),
-                &ckzg_trusted_setup.g2_monomial(),
-                NO_PRECOMPUTE,
-            )?,
-            context,
-        })
+        Ok(Self { context })
     }
 
     fn context(&self) -> &DASContext {
@@ -121,10 +105,11 @@ impl Kzg {
         blob: &Blob,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
-        self.trusted_setup
-            .compute_blob_kzg_proof(blob, &kzg_commitment.into())
-            .map(|proof| KzgProof(proof.to_bytes().into_inner()))
-            .map_err(Into::into)
+        let proof = self
+            .context()
+            .compute_blob_kzg_proof(blob, &kzg_commitment.0)
+            .map_err(Error::Kzg)?;
+        Ok(KzgProof(proof))
     }
 
     /// Verify a kzg proof given the blob, kzg commitment and kzg proof.
@@ -137,15 +122,15 @@ impl Kzg {
         if cfg!(feature = "fake_crypto") {
             return Ok(());
         }
-        if !self.trusted_setup.verify_blob_kzg_proof(
-            blob,
-            &kzg_commitment.into(),
-            &kzg_proof.into(),
-        )? {
-            Err(Error::KzgVerificationFailed)
-        } else {
-            Ok(())
-        }
+        self.context()
+            .verify_blob_kzg_proof(blob, &kzg_commitment.0, &kzg_proof.0)
+            .map_err(|e| {
+                if e.is_proof_invalid() {
+                    Error::KzgVerificationFailed
+                } else {
+                    Error::Kzg(e)
+                }
+            })
     }
 
     /// Verify a batch of blob commitment proof triplets.
@@ -161,33 +146,28 @@ impl Kzg {
         if cfg!(feature = "fake_crypto") {
             return Ok(());
         }
-        let commitments_bytes = kzg_commitments
-            .iter()
-            .map(|comm| Bytes48::from(*comm))
-            .collect::<Vec<_>>();
+        let blob_refs: Vec<&[u8; BYTES_PER_BLOB]> = blobs.iter().map(|b| b.as_ref()).collect();
+        let commitment_refs: Vec<&[u8; 48]> = kzg_commitments.iter().map(|c| &c.0).collect();
+        let proof_refs: Vec<&[u8; 48]> = kzg_proofs.iter().map(|p| &p.0).collect();
 
-        let proofs_bytes = kzg_proofs
-            .iter()
-            .map(|proof| Bytes48::from(*proof))
-            .collect::<Vec<_>>();
-
-        if !self.trusted_setup.verify_blob_kzg_proof_batch(
-            blobs,
-            &commitments_bytes,
-            &proofs_bytes,
-        )? {
-            Err(Error::KzgVerificationFailed)
-        } else {
-            Ok(())
-        }
+        self.context()
+            .verify_blob_kzg_proof_batch(blob_refs, commitment_refs, proof_refs)
+            .map_err(|e| {
+                if e.is_proof_invalid() {
+                    Error::KzgVerificationFailed
+                } else {
+                    Error::Kzg(e)
+                }
+            })
     }
 
     /// Converts a blob to a kzg commitment.
     pub fn blob_to_kzg_commitment(&self, blob: &Blob) -> Result<KzgCommitment, Error> {
-        self.trusted_setup
+        let commitment = self
+            .context()
             .blob_to_kzg_commitment(blob)
-            .map(|commitment| KzgCommitment(commitment.to_bytes().into_inner()))
-            .map_err(Into::into)
+            .map_err(Error::Kzg)?;
+        Ok(KzgCommitment(commitment))
     }
 
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
@@ -196,10 +176,11 @@ impl Kzg {
         blob: &Blob,
         z: &Bytes32,
     ) -> Result<(KzgProof, Bytes32), Error> {
-        self.trusted_setup
-            .compute_kzg_proof(blob, z)
-            .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
-            .map_err(Into::into)
+        let (proof, y) = self
+            .context()
+            .compute_kzg_proof(blob, *z)
+            .map_err(Error::Kzg)?;
+        Ok((KzgProof(proof), y))
     }
 
     /// Verifies a `kzg_proof` for a `kzg_commitment` that evaluating a polynomial at `z` results in `y`
@@ -213,9 +194,14 @@ impl Kzg {
         if cfg!(feature = "fake_crypto") {
             return Ok(true);
         }
-        self.trusted_setup
-            .verify_kzg_proof(&kzg_commitment.into(), z, y, &kzg_proof.into())
-            .map_err(Into::into)
+        match self
+            .context()
+            .verify_kzg_proof(&kzg_commitment.0, *z, *y, &kzg_proof.0)
+        {
+            Ok(()) => Ok(true),
+            Err(e) if e.is_proof_invalid() => Ok(false),
+            Err(e) => Err(Error::Kzg(e)),
+        }
     }
 
     /// Computes the cells and associated proofs for a given `blob`.
@@ -228,9 +214,8 @@ impl Kzg {
             .compute_cells_and_kzg_proofs(blob)
             .map_err(Error::PeerDASKZG)?;
 
-        // Convert the proof type to a c-kzg proof type
-        let c_kzg_proof = proofs.map(KzgProof);
-        Ok((cells, c_kzg_proof))
+        let kzg_proofs = proofs.map(KzgProof);
+        Ok((cells, kzg_proofs))
     }
 
     /// Computes the cells for a given `blob`.
@@ -291,8 +276,8 @@ impl Kzg {
 
                 for (cell, proof, commitment) in &column_data {
                     cells.push(*cell);
-                    proofs.push(proof.as_ref());
-                    commitments.push(commitment.as_ref());
+                    proofs.push(proof);
+                    commitments.push(commitment);
                 }
 
                 // Create per-chunk tracing span for visualizing parallel processing.
@@ -337,8 +322,7 @@ impl Kzg {
             .recover_cells_and_kzg_proofs(cell_ids.to_vec(), cells.to_vec())
             .map_err(Error::PeerDASKZG)?;
 
-        // Convert the proof type to a c-kzg proof type
-        let c_kzg_proof = proofs.map(KzgProof);
-        Ok((cells, c_kzg_proof))
+        let kzg_proofs = proofs.map(KzgProof);
+        Ok((cells, kzg_proofs))
     }
 }

@@ -1,6 +1,6 @@
 use kzg::{
-    Blob as KzgBlob, Bytes48, Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs,
-    Error as KzgError, Kzg, KzgBlobRef,
+    Blob as KzgBlob, Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs, Error as KzgError,
+    Kzg, KzgBlobRef,
 };
 use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
@@ -18,7 +18,7 @@ use types::{
 /// Converts a blob ssz List object to an array to be used with the kzg
 /// crypto library.
 fn ssz_blob_to_crypto_blob<E: EthSpec>(blob: &Blob<E>) -> Result<KzgBlob, KzgError> {
-    KzgBlob::from_bytes(blob.as_ref()).map_err(Into::into)
+    KzgBlob::from_bytes(blob.as_ref())
 }
 
 fn ssz_blob_to_crypto_blob_boxed<E: EthSpec>(blob: &Blob<E>) -> Result<Box<KzgBlob>, KzgError> {
@@ -72,7 +72,7 @@ where
         }
 
         for &proof in data_column.kzg_proofs() {
-            proofs.push(Bytes48::from(proof));
+            proofs.push(proof.0);
         }
 
         // In Gloas, commitments come from the block's ExecutionPayloadBid, not the sidecar.
@@ -90,7 +90,7 @@ where
         };
 
         for &commitment in kzg_commitments.iter() {
-            commitments.push(Bytes48::from(commitment));
+            commitments.push(commitment.0);
         }
 
         let expected_len = column_indices.len();
@@ -151,10 +151,9 @@ pub fn compute_kzg_proof<E: EthSpec>(
     blob: &Blob<E>,
     z: Hash256,
 ) -> Result<(KzgProof, Hash256), KzgError> {
-    let z = z.0.into();
     let kzg_blob = ssz_blob_to_crypto_blob_boxed::<E>(blob)?;
-    kzg.compute_kzg_proof(&kzg_blob, &z)
-        .map(|(proof, z)| (proof, Hash256::from_slice(&z.to_vec())))
+    kzg.compute_kzg_proof(&kzg_blob, &z.0)
+        .map(|(proof, z)| (proof, Hash256::from_slice(&z)))
 }
 
 /// Verify a `kzg_proof` for a `kzg_commitment` that evaluating a polynomial at `z` results in `y`
@@ -165,7 +164,7 @@ pub fn verify_kzg_proof<E: EthSpec>(
     z: Hash256,
     y: Hash256,
 ) -> Result<bool, KzgError> {
-    kzg.verify_kzg_proof(kzg_commitment, &z.0.into(), &y.0.into(), kzg_proof)
+    kzg.verify_kzg_proof(kzg_commitment, &z.0, &y.0, kzg_proof)
 }
 
 /// Build data column sidecars from a signed beacon block and its blobs.

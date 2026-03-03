@@ -4834,7 +4834,6 @@ name = "kzg"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "c-kzg",
  "criterion",
  "educe",
  "ethereum_hashing",
