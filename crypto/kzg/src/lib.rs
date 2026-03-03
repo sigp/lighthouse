@@ -1,4 +1,3 @@
-mod blob;
 mod kzg_commitment;
 mod kzg_proof;
 pub mod trusted_setup;
@@ -8,7 +7,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 pub use crate::{
-    blob::Blob,
     kzg_commitment::{KzgCommitment, VERSIONED_HASH_VERSION_KZG},
     kzg_proof::KzgProof,
     trusted_setup::TrustedSetup,
@@ -48,8 +46,6 @@ pub enum Error {
     PeerDASKZG(rust_eth_kzg::Error),
     /// The kzg verification failed
     KzgVerificationFailed,
-    /// Wrong number of bytes.
-    InvalidBytesLength(String),
     /// Misc indexing error
     InconsistentArrayLength(String),
     /// Error reconstructing data columns.
@@ -102,7 +98,7 @@ impl Kzg {
     /// Compute the kzg proof given a blob and its kzg commitment.
     pub fn compute_blob_kzg_proof(
         &self,
-        blob: &Blob,
+        blob: KzgBlobRef<'_>,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
         let proof = self
@@ -115,7 +111,7 @@ impl Kzg {
     /// Verify a kzg proof given the blob, kzg commitment and kzg proof.
     pub fn verify_blob_kzg_proof(
         &self,
-        blob: &Blob,
+        blob: KzgBlobRef<'_>,
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<(), Error> {
@@ -139,14 +135,14 @@ impl Kzg {
     /// TODO(pawan): test performance against a parallelized rayon impl.
     pub fn verify_blob_kzg_proof_batch(
         &self,
-        blobs: &[Blob],
+        blobs: &[KzgBlobRef<'_>],
         kzg_commitments: &[KzgCommitment],
         kzg_proofs: &[KzgProof],
     ) -> Result<(), Error> {
         if cfg!(feature = "fake_crypto") {
             return Ok(());
         }
-        let blob_refs: Vec<&[u8; BYTES_PER_BLOB]> = blobs.iter().map(|b| b.as_ref()).collect();
+        let blob_refs: Vec<&[u8; BYTES_PER_BLOB]> = blobs.to_vec();
         let commitment_refs: Vec<&[u8; 48]> = kzg_commitments.iter().map(|c| &c.0).collect();
         let proof_refs: Vec<&[u8; 48]> = kzg_proofs.iter().map(|p| &p.0).collect();
 
@@ -162,7 +158,7 @@ impl Kzg {
     }
 
     /// Converts a blob to a kzg commitment.
-    pub fn blob_to_kzg_commitment(&self, blob: &Blob) -> Result<KzgCommitment, Error> {
+    pub fn blob_to_kzg_commitment(&self, blob: KzgBlobRef<'_>) -> Result<KzgCommitment, Error> {
         let commitment = self
             .context()
             .blob_to_kzg_commitment(blob)
@@ -173,7 +169,7 @@ impl Kzg {
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
     pub fn compute_kzg_proof(
         &self,
-        blob: &Blob,
+        blob: KzgBlobRef<'_>,
         z: &Bytes32,
     ) -> Result<(KzgProof, Bytes32), Error> {
         let (proof, y) = self
