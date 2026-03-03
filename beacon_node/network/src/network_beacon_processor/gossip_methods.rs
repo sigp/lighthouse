@@ -3404,15 +3404,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(_block_root)) => {
-                // TODO(gloas) do we need to send a `PayloadImported` event to the reprocess queue?
-                // TODO(gloas) do we need to recompute head?
-                // should canonical_head return the block and the payload now?
-                self.chain.recompute_head_at_current_slot().await;
-
-                // TODO(gloas) metrics
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+            Ok(AvailabilityProcessingStatus::Imported(_))
+            | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 // Nothing to do
             }
             Err(_) => {
