@@ -165,7 +165,7 @@ pub enum EnvelopeError {
     /// The envelope slot doesn't match the block
     SlotMismatch { block: Slot, envelope: Slot },
     /// The validator index is unknown
-    UnknownValidator { builder_index: u64 },
+    UnknownValidator { proposer_index: u64 },
     /// The block hash doesn't match the committed bid
     BlockHashMismatch {
         committed_bid: ExecutionBlockHash,

@@ -189,7 +189,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| EnvelopeError::UnknownValidator {
-                    builder_index: block.message().proposer_index(),
+                    proposer_index: block.message().proposer_index(),
                 })?;
             let is_valid = signed_envelope.verify_signature(
                 pubkey,
