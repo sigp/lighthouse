@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fork_choice::PayloadVerificationStatus;
-use logging::crit;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
