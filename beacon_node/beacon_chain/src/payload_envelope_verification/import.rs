@@ -203,7 +203,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_root,
                         *post_state,
                         payload_verification_outcome.payload_verification_status,
-                        block,
                     )
                 },
                 "payload_verification_handle",
@@ -227,19 +226,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         state: BeaconState<T::EthSpec>,
         _payload_verification_status: PayloadVerificationStatus,
-        parent_block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
 
         let post_exec_timer =
             metrics::start_timer(&metrics::ENVELOPE_PROCESSING_POST_EXEC_PROCESSING);
-
-        // Check the payloads parent block against weak subjectivity checkpoint.
-        self.check_block_against_weak_subjectivity_checkpoint(
-            parent_block.message(),
-            block_root,
-            &state,
-        )?;
 
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
