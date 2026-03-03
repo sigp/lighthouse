@@ -147,9 +147,10 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // For external builder envelopes, we must load the state to access the builder registry.
         let builder_index = envelope.builder_index;
         let block_slot = envelope.slot;
-        let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
+        let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
+        // TODO(gloas) verify correctness of this, or it might be useful to introduce a clearer function here.
         let proposer_shuffling_decision_block =
-            proto_block.proposer_shuffling_root_for_child_block(block_epoch, ctx.spec);
+            proto_block.proposer_shuffling_root_for_child_block(envelope_epoch, ctx.spec);
 
         let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
             // Fast path: self-built envelopes can be verified without loading the state.
@@ -158,7 +159,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 ctx.beacon_proposer_cache,
                 ctx.spec,
                 proposer_shuffling_decision_block,
-                block_epoch,
+                envelope_epoch,
                 |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
                 || {
                     debug!(

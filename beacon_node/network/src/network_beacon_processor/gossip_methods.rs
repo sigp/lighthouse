@@ -3251,6 +3251,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = "lh_process_execution_payload_enveloe",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(beaconblock_root = tracing::field::Empty),
+    )]
     pub async fn process_gossip_execution_payload_envelope(
         self: Arc<Self>,
         message_id: MessageId,
