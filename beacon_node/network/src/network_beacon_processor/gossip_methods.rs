@@ -3253,7 +3253,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = "lh_process_execution_payload_enveloe",
+        name = "lh_process_execution_payload_envelope",
         parent = None,
         level = "debug",
         skip_all,
