@@ -35,8 +35,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let payload = &envelope.payload;
 
         // TODO(gloas)
+        // We migh want to make some cursory checks to see if its worth
+        // validating the payload against the execution engine
+        // e.g `check_block_relevancy(block.as_block(), block_root, chain)?;`
 
-        // Verify the execution payload is valid
+        // Define a future that will verify the execution payload with an execution engine.
+        //
+        // We do this as early as possible so that later parts of this function can run in parallel
+        // with the payload verification.
         let payload_notifier = PayloadNotifier::new(
             chain.clone(),
             signed_envelope.clone(),
