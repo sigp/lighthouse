@@ -285,26 +285,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut ops = vec![];
 
-        match self.get_blobs_or_columns_store_op(
+        if let Some(blobs_or_columns_store_op) = self.get_blobs_or_columns_store_op(
             block_root,
             signed_envelope.slot(),
             AvailableBlockData::DataColumns(columns),
         ) {
-            Ok(Some(blobs_or_columns_store_op)) => {
-                ops.push(blobs_or_columns_store_op);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                error!(
-                    msg = "Restoring fork choice from disk",
-                    error = &e,
-                    ?block_root,
-                    "Failed to store data columns into the database"
-                );
-                // TODO(gloas) implement failed write handling to fork choice
-                // let _ = self.handle_import_block_db_write_error(fork_choice);
-                return Err(EnvelopeError::InternalError(e));
-            }
+            ops.push(blobs_or_columns_store_op);
         }
 
         let db_write_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_DB_WRITE);

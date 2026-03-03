@@ -4043,23 +4043,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, block_data) = signed_block.deconstruct();
 
-        match self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data) {
-            Ok(Some(blobs_or_columns_store_op)) => {
-                ops.push(blobs_or_columns_store_op);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                error!(
-                    msg = "Restoring fork choice from disk",
-                    error = &e,
-                    ?block_root,
-                    "Failed to store data columns into the database"
-                );
-                return Err(self
-                    .handle_import_block_db_write_error(fork_choice)
-                    .err()
-                    .unwrap_or(BlockError::InternalError(e)));
-            }
+        if let Some(blobs_or_columns_store_op) =
+            self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data)
+        {
+            ops.push(blobs_or_columns_store_op);
         }
 
         let block = signed_block.message();
@@ -7151,16 +7138,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         block_slot: Slot,
         block_data: AvailableBlockData<T::EthSpec>,
-    ) -> Result<Option<StoreOp<'_, T::EthSpec>>, String> {
+    ) -> Option<StoreOp<'_, T::EthSpec>> {
         match block_data {
-            AvailableBlockData::NoData => Ok(None),
+            AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(blobs) => {
                 debug!(
                     %block_root,
                     count = blobs.len(),
                     "Writing blobs to store"
                 );
-                Ok(Some(StoreOp::PutBlobs(block_root, blobs)))
+                Some(StoreOp::PutBlobs(block_root, blobs))
             }
             AvailableBlockData::DataColumns(mut data_columns) => {
                 let columns_to_custody = self.custody_columns_for_epoch(Some(
@@ -7176,7 +7163,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     count = data_columns.len(),
                     "Writing data columns to store"
                 );
-                Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)))
+                Some(StoreOp::PutDataColumns(block_root, data_columns))
             }
         }
     }
