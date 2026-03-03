@@ -239,6 +239,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(EnvelopeError::BlockRootUnknown { block_root });
         }
 
+        // TODO(gloas) add defensive check to see if payload envelope is already in fork choice
+        // Note that a duplicate cache/payload status table should prevent this from happening
+        // but it doesnt hurt to be defensive.
+
         // TODO(gloas) when the code below is implemented we can delete this drop
         drop(fork_choice_reader);
 
