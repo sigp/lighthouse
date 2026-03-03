@@ -276,8 +276,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // state if we returned early without committing. In other words, an error here would
         // corrupt the node's database permanently.
 
-        // Store the envelope and its state, and execute the confirmation batch for the intermediate
-        // states, which will delete their temporary flags.
+        // Store the envelope, its post-state, and any data columns.
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with envelopes in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
