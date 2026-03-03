@@ -180,7 +180,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
             if block.message().proposer_index() != expected_proposer as u64 {
                 return Err(EnvelopeError::IncorrectBlockProposer {
-                    block: block.message().proposer_index(),
+                    proposer_index: block.message().proposer_index(),
                     local_shuffling: expected_proposer as u64,
                 });
             }

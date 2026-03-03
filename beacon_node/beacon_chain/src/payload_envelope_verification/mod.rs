@@ -172,7 +172,10 @@ pub enum EnvelopeError {
         envelope: ExecutionBlockHash,
     },
     /// The block's proposer_index does not match the locally computed proposer
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    IncorrectBlockProposer {
+        proposer_index: u64,
+        local_shuffling: u64,
+    },
     /// The slot belongs to a block that is from a slot prior than
     /// to most recently finalized slot
     PriorToFinalization {
