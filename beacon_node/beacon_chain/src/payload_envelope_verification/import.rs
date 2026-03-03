@@ -106,7 +106,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Verify and import the payload envelope.
         match import_envelope.await {
-            // The payload envelope was successfully verified and imported. Yay.
+            // The payload envelope was successfully verified and imported.
             Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
                 info!(
                     ?block_root,
@@ -349,7 +349,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // we might need to do some light client related computations here
 
         metrics::stop_timer(db_write_timer);
-        metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_SUCCESSES);
 
         self.import_envelope_update_metrics_and_events(
             block_root,
