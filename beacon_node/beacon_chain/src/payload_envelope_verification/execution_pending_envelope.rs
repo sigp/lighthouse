@@ -35,7 +35,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let payload = &envelope.payload;
 
         // TODO(gloas)
-        // We might want to make some cursory checks to see if its worth
+        // We might want to make some cursory checks to see if it's worth
         // validating the payload against the execution engine
         // e.g `check_block_relevancy(block.as_block(), block_root, chain)?;`
 
