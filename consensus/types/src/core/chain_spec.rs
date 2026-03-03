@@ -295,6 +295,7 @@ pub struct ChainSpec {
     /*
      * Networking Gloas
      */
+    pub max_request_payloads: u64,
 
     /*
      * Networking Derived
@@ -698,6 +699,10 @@ impl ChainSpec {
         } else {
             self.max_request_blocks as usize
         }
+    }
+
+    pub fn max_request_payloads(&self) -> usize {
+        self.max_request_payloads as usize
     }
 
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
@@ -1228,6 +1233,7 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(4096),
+            max_request_payloads: 128,
 
             /*
              * Network specific
@@ -1622,7 +1628,8 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(4096),
-
+            max_request_payloads: 128,
+            
             /*
              * Network specific
              */

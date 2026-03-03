@@ -423,6 +423,12 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
+        if fork_context.fork_exists(ForkName::Gloas) {
+            supported.extend_from_slice(&[
+                ProtocolId::new(SupportedProtocol::PayloadEnvelopesByRangeV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::PayloadEnvelopesByRootV1, Encoding::SSZSnappy),
+            ]);
+        }
         supported
     }
 }
