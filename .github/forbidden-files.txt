@@ -1,0 +1,7 @@
+# Files that have been intentionally deleted and should not be re-added.
+# This prevents accidentally reviving files during botched merges.
+# Add one file path per line (relative to repo root).
+
+beacon_node/beacon_chain/src/otb_verification_service.rs
+beacon_node/store/src/partial_beacon_state.rs
+beacon_node/store/src/consensus_context.rs
