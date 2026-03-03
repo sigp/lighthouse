@@ -3418,9 +3418,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 )
             }
 
-            Err(_) => {
+            Err(e) => {
                 // TODO(gloas) implement peer penalties
-                warn!("process_gossip_verified_execution_payload_envelope_failed")
+                warn!(
+                    "process_gossip_verified_execution_payload_envelope_failed {:?}",
+                    e
+                )
             }
         }
     }

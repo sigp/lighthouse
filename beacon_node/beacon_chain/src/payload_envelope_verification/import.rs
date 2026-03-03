@@ -125,25 +125,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Err(EnvelopeError::BeaconChainError(e)) => {
-                match e.as_ref() {
-                    BeaconChainError::TokioJoin(e) => {
-                        debug!(
-                            error = ?e,
-                            "Envelope processing cancelled"
-                        );
-                    }
-                    _ => {
-                        // There was an error whilst attempting to verify and import the payload envelope. It might
-                        // be partially verified or partially imported.
-                        crit!(
-                            error = ?e,
-                            "Envelope processing error"
-                        );
-                    }
-                };
+                if matches!(e.as_ref(), BeaconChainError::TokioJoin(_)) {
+                    debug!(error = ?e, "Envelope processing cancelled");
+                } else {
+                    warn!(error = ?e, "Execution payload envelope rejected");
+                }
                 Err(EnvelopeError::BeaconChainError(e))
             }
-            // The payload envelope failed verification.
             Err(other) => {
                 warn!(
                     reason = other.to_string(),
