@@ -6457,11 +6457,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<V, E> {
         crate::beacon_proposer_cache::with_proposer_cache(
             &self.beacon_proposer_cache,
-            &self.spec,
             shuffling_decision_block,
             proposal_epoch,
             accessor,
             state_provider,
+
+            &self.spec,
         )
     }
 

@@ -188,7 +188,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let EnvelopeImportData {
             block_root,
-            block: _,
             post_state,
         } = import_data;
 
@@ -344,7 +343,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Do not write to the cache for envelopes older than 2 epochs, this helps reduce writes
         // to the cache during sync.
-        if envelope_delay_total < self.slot_clock.slot_duration().saturating_mul(ENVELOPE_METRICS_CACHE_SLOT_LIMIT) {
+        if envelope_delay_total
+            < self
+                .slot_clock
+                .slot_duration()
+                .saturating_mul(ENVELOPE_METRICS_CACHE_SLOT_LIMIT)
+        {
             self.envelope_times_cache.write().set_time_imported(
                 block_root,
                 envelope_slot,

@@ -157,7 +157,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             let mut opt_snapshot = None;
             let proposer = beacon_proposer_cache::with_proposer_cache(
                 ctx.beacon_proposer_cache,
-                ctx.spec,
                 proposer_shuffling_decision_block,
                 envelope_epoch,
                 |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
@@ -174,6 +173,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     opt_snapshot = Some(Box::new(snapshot.clone()));
                     Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
+                ctx.spec,
             )?;
             let expected_proposer = proposer.index;
             let fork = proposer.fork;

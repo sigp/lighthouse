@@ -106,7 +106,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             },
             import_data: EnvelopeImportData {
                 block_root,
-                block: self.block,
                 post_state: Box::new(state),
             },
             payload_verification_handle,
