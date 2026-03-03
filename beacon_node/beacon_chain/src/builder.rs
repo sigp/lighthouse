@@ -1083,6 +1083,11 @@ where
             let cgc_change_effective_slot =
                 cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
             beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
+
+            // Persist change to disk.
+            beacon_chain
+                .persist_custody_context()
+                .map_err(|e| format!("Failed writing updated CGC: {e:?}"))?;
         }
 
         info!(
