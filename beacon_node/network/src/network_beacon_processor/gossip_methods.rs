@@ -3333,8 +3333,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let envelope_slot = verified_envelope.signed_envelope.slot();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
         match self.chain.slot() {
-            // We only need to do a simple check about the envelope slot vs the current slot beacuse
-            // `verify_envelope_for_gossip` already ensuresthat the envelope slot is within tolerance
+            // We only need to do a simple check about the envelope slot vs the current slot because
+            // `verify_envelope_for_gossip` already ensures that the envelope slot is within tolerance
             // for envelope imports.
             Ok(current_slot) if envelope_slot > current_slot => {
                 warn!(
@@ -3397,7 +3397,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                // TODO(gloas) do we need to send a `PayloadImported` event to the reporcess queue?
+                // TODO(gloas) do we need to send a `PayloadImported` event to the reprocess queue?
                 debug!(
                     ?block_root,
                     %peer_id,

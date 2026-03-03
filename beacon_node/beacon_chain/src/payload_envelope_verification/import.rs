@@ -267,7 +267,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO(gloas) Do we need this check? Do not import a block that doesn't descend from the finalized root.
         // let signed_block = check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
 
-        // TODO(gloas) Do we want to use an early attester cache like mechanism for payload enevelopes?
+        // TODO(gloas) Do we want to use an early attester cache like mechanism for payload envelopes?
         // TODO(gloas) emit SSE event if the payload became the new head payload
         drop(post_exec_timer);
 

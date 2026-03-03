@@ -100,7 +100,7 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 ///
 ///
 /// It contains 2 variants:
-/// 1. `Available`: This enelope has been executed and also contains all data to consider it
+/// 1. `Available`: This envelope has been executed and also contains all data to consider it
 ///    fully available.
 /// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
 ///    fully available.
