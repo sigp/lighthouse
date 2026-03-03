@@ -71,67 +71,6 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
         .boxed()
 }
 
-// GET beacon/states/{state_id}/proposer_lookahead
-pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
-    beacon_states_path: BeaconStatesPath<T>,
-) -> ResponseFilter {
-    beacon_states_path
-        .clone()
-        .and(warp::path("proposer_lookahead"))
-        .and(warp::path::end())
-        .and(warp::header::optional::<eth2::types::Accept>("accept"))
-        .then(
-            |state_id: StateId,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             accept_header: Option<eth2::types::Accept>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
-                    let (data, execution_optimistic, finalized, fork_name) = state_id
-                        .map_state_and_execution_optimistic_and_finalized(
-                            &chain,
-                            |state, execution_optimistic, finalized| {
-                                let Ok(lookahead) = state.proposer_lookahead() else {
-                                    return Err(warp_utils::reject::custom_bad_request(
-                                        "Proposer lookahead is not available for pre-Fulu states"
-                                            .to_string(),
-                                    ));
-                                };
-
-                                Ok((
-                                    lookahead.to_vec(),
-                                    execution_optimistic,
-                                    finalized,
-                                    state.fork_name_unchecked(),
-                                ))
-                            },
-                        )?;
-
-                    match accept_header {
-                        Some(eth2::types::Accept::Ssz) => Response::builder()
-                            .status(200)
-                            .body(data.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "failed to create response: {}",
-                                    e
-                                ))
-                            }),
-                        _ => execution_optimistic_finalized_beacon_response(
-                            ResponseIncludesVersion::Yes(fork_name),
-                            execution_optimistic,
-                            finalized,
-                            data,
-                        )
-                        .map(|res| warp::reply::json(&res).into_response()),
-                    }
-                    .map(|resp| add_consensus_version_header(resp, fork_name))
-                })
-            },
-        )
-        .boxed()
-}
-
 // GET beacon/states/{state_id}/pending_partial_withdrawals
 pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
@@ -217,6 +156,67 @@ pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
                         data,
                     )
                     .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        )
+        .boxed()
+}
+
+// GET beacon/states/{state_id}/proposer_lookahead
+pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("proposer_lookahead"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<eth2::types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<eth2::types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(lookahead) = state.proposer_lookahead() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Proposer lookahead is not available for pre-Fulu states"
+                                            .to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    lookahead.to_vec(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+
+                    match accept_header {
+                        Some(eth2::types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .body(data.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            data,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
