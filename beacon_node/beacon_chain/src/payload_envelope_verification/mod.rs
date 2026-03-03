@@ -26,7 +26,7 @@ use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProces
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
 use crate::{

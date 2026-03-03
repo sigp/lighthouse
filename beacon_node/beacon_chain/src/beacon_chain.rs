@@ -6461,7 +6461,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposal_epoch,
             accessor,
             state_provider,
-
             &self.spec,
         )
     }

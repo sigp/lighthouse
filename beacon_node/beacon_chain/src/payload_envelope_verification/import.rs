@@ -229,10 +229,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         _payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
-
-        let post_exec_timer =
-            metrics::start_timer(&metrics::ENVELOPE_PROCESSING_POST_EXEC_PROCESSING);
-
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -255,9 +251,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO(gloas) Do we need this check? Do not import a block that doesn't descend from the finalized root.
         // let signed_block = check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
 
-        // TODO(gloas) Do we want to use an early attester cache like mechanism for payload envelopes?
         // TODO(gloas) emit SSE event if the payload became the new head payload
-        drop(post_exec_timer);
 
         // It is important NOT to return errors here before the database commit, because the envelope
         // has already been added to fork choice and the database would be left in an inconsistent
