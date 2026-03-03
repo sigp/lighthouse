@@ -462,6 +462,13 @@ pub static SYNCING_CHAIN_BATCH_AWAITING_PROCESSING: LazyLock<Result<Histogram>> 
             ]),
         )
     });
+pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "sync_batches",
+        "Number of batches in sync chains by sync type and state",
+        &["sync_type", "state"],
+    )
+});
 pub static SYNC_SINGLE_BLOCK_LOOKUPS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "sync_single_block_lookups",

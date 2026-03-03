@@ -91,7 +91,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "8.1.0"
+version = "8.1.1"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
@@ -273,7 +273,7 @@ tree_hash_derive = "0.12.0"
 typenum = "1"
 types = { path = "consensus/types", features = ["saturating-arith"] }
 url = "2"
-uuid = { version = "0.8", features = ["serde", "v4"] }
+uuid = { version = "1", features = ["serde", "v4"] }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 validator_http_api = { path = "validator_client/http_api" }
@@ -302,3 +302,4 @@ debug = true
 
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
+yamux = { git = "https://github.com/sigp/rust-yamux", rev = "575b17c0f44f4253079a6bafaa2de74ca1d6dfaa" }

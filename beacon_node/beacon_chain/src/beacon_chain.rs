@@ -9,7 +9,6 @@ use crate::beacon_proposer_cache::{
 };
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
-use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
@@ -663,7 +662,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .as_ref()
             .into();
-        debug!(?custody_context, "Persisting custody context to store");
+
+        // Pattern match to avoid accidentally missing fields and to ignore deprecated fields.
+        let CustodyContextSsz {
+            validator_custody_at_head,
+            epoch_validator_custody_requirements,
+            persisted_is_supernode: _,
+        } = &custody_context;
+        debug!(
+            validator_custody_at_head,
+            ?epoch_validator_custody_requirements,
+            "Persisting custody context to store"
+        );
 
         persist_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(
             self.store.clone(),
@@ -3378,11 +3388,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        self.data_availability_checker.put_pre_execution_block(
-            block_root,
-            unverified_block.block_cloned(),
-            block_source,
-        )?;
+        // Gloas blocks dont need to be inserted into the DA cache
+        // they are always available.
+        if !unverified_block
+            .block()
+            .fork_name_unchecked()
+            .gloas_enabled()
+        {
+            self.data_availability_checker.put_pre_execution_block(
+                block_root,
+                unverified_block.block_cloned(),
+                block_source,
+            )?;
+        }
 
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -3505,28 +3523,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // Log the PoS pandas if a merge transition just occurred.
-        if payload_verification_outcome.is_valid_merge_transition_block {
-            info!("{}", POS_PANDA_BANNER);
-            info!(slot = %block.slot(), "Proof of Stake Activated");
-            info!(
-                terminal_pow_block_hash = ?block
-                .message()
-                .execution_payload()?
-                .parent_hash()
-                .into_root(),
-            );
-            info!(
-                merge_transition_block_root = ?block.message().tree_hash_root(),
-            );
-            info!(
-                merge_transition_execution_hash = ?block
-                .message()
-                .execution_payload()?
-                .block_hash()
-                .into_root(),
-            );
-        }
         Ok(ExecutedBlock::new(
             block,
             import_data,
@@ -6070,21 +6066,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         input_params: ForkchoiceUpdateParameters,
         override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
-        let next_slot = current_slot + 1;
-
-        // There is no need to issue a `forkchoiceUpdated` (fcU) message unless the Bellatrix fork
-        // has:
-        //
-        // 1. Already happened.
-        // 2. Will happen in the next slot.
-        //
-        // The reason for a fcU message in the slot prior to the Bellatrix fork is in case the
-        // terminal difficulty has already been reached and a payload preparation message needs to
-        // be issued.
-        if self.slot_is_prior_to_bellatrix(next_slot) {
-            return Ok(());
-        }
-
         let execution_layer = self
             .execution_layer
             .as_ref()
@@ -6132,50 +6113,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .unwrap_or_else(ExecutionBlockHash::zero),
                 )
             } else {
-                // The head block does not have an execution block hash. We must check to see if we
-                // happen to be the proposer of the transition block, in which case we still need to
-                // send forkchoice_updated.
-                if self
-                    .spec
-                    .fork_name_at_slot::<T::EthSpec>(next_slot)
-                    .bellatrix_enabled()
-                {
-                    // We are post-bellatrix
-                    if let Some(payload_attributes) = execution_layer
-                        .payload_attributes(next_slot, params.head_root)
-                        .await
-                    {
-                        // We are a proposer, check for terminal_pow_block_hash
-                        if let Some(terminal_pow_block_hash) = execution_layer
-                            .get_terminal_pow_block_hash(&self.spec, payload_attributes.timestamp())
-                            .await
-                            .map_err(Error::ForkchoiceUpdate)?
-                        {
-                            info!(
-                                slot = %next_slot,
-                                "Prepared POS transition block proposer"
-                            );
-                            (
-                                params.head_root,
-                                terminal_pow_block_hash,
-                                params
-                                    .justified_hash
-                                    .unwrap_or_else(ExecutionBlockHash::zero),
-                                params
-                                    .finalized_hash
-                                    .unwrap_or_else(ExecutionBlockHash::zero),
-                            )
-                        } else {
-                            // TTD hasn't been reached yet, no need to update the EL.
-                            return Ok(());
-                        }
-                    } else {
-                        // We are not a proposer, no need to update the EL.
-                        return Ok(());
-                    }
-                } else {
-                    return Ok(());
-                }
+                // Proposing the block for the merge is no longer supported.
+                return Ok(());
             };
 
         let forkchoice_updated_response = execution_layer

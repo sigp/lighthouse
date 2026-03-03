@@ -72,6 +72,27 @@ jobs:
     steps:
         - name: Check that the pull request is not targeting the stable branch
           run: test ${{ github.base_ref }} != "stable"
+
+  forbidden-files-check:
+    name: forbidden-files-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for forbidden files
+        run: |
+          if [ -f .github/forbidden-files.txt ]; then
+            status=0
+            while IFS= read -r file || [ -n "$file" ]; do
+              # Skip comments and empty lines
+              [[ "$file" =~ ^#.*$ || -z "$file" ]] && continue
+              if [ -f "$file" ]; then
+                echo "::error::Forbidden file exists: $file"
+                status=1
+              fi
+            done < .github/forbidden-files.txt
+            exit $status
+          fi
+
   release-tests-ubuntu:
     name: release-tests-ubuntu
     needs: [check-labels]
@@ -430,6 +451,7 @@ jobs:
     needs: [
       'check-labels',
       'target-branch-check',
+      'forbidden-files-check',
       'release-tests-ubuntu',
       'beacon-chain-tests',
       'op-pool-tests',

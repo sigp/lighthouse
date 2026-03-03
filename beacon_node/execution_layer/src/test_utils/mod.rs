@@ -35,8 +35,6 @@ pub use hook::Hook;
 pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};
 pub use mock_execution_layer::MockExecutionLayer;
 
-pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
-pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
 pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
@@ -79,9 +77,6 @@ mod mock_execution_layer;
 pub struct MockExecutionConfig {
     pub server_config: Config,
     pub jwt_key: JwtKey,
-    pub terminal_difficulty: Uint256,
-    pub terminal_block: u64,
-    pub terminal_block_hash: ExecutionBlockHash,
     pub shanghai_time: Option<u64>,
     pub cancun_time: Option<u64>,
     pub prague_time: Option<u64>,
@@ -93,9 +88,6 @@ impl Default for MockExecutionConfig {
     fn default() -> Self {
         Self {
             jwt_key: JwtKey::random(),
-            terminal_difficulty: Uint256::from(DEFAULT_TERMINAL_DIFFICULTY),
-            terminal_block: DEFAULT_TERMINAL_BLOCK,
-            terminal_block_hash: ExecutionBlockHash::zero(),
             server_config: Config::default(),
             shanghai_time: None,
             cancun_time: None,
@@ -118,9 +110,6 @@ impl<E: EthSpec> MockServer<E> {
         Self::new(
             &runtime::Handle::current(),
             JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
-            Uint256::from(DEFAULT_TERMINAL_DIFFICULTY),
-            DEFAULT_TERMINAL_BLOCK,
-            ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
             None, // FIXME(deneb): should this be the default?
             None, // FIXME(electra): should this be the default?
@@ -138,9 +127,6 @@ impl<E: EthSpec> MockServer<E> {
         create_test_tracing_subscriber();
         let MockExecutionConfig {
             jwt_key,
-            terminal_difficulty,
-            terminal_block,
-            terminal_block_hash,
             server_config,
             shanghai_time,
             cancun_time,
@@ -151,9 +137,6 @@ impl<E: EthSpec> MockServer<E> {
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator = ExecutionBlockGenerator::new(
-            terminal_difficulty,
-            terminal_block,
-            terminal_block_hash,
             shanghai_time,
             cancun_time,
             prague_time,
@@ -215,9 +198,6 @@ impl<E: EthSpec> MockServer<E> {
     pub fn new(
         handle: &runtime::Handle,
         jwt_key: JwtKey,
-        terminal_difficulty: Uint256,
-        terminal_block: u64,
-        terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
@@ -230,9 +210,6 @@ impl<E: EthSpec> MockServer<E> {
             MockExecutionConfig {
                 server_config: Config::default(),
                 jwt_key,
-                terminal_difficulty,
-                terminal_block,
-                terminal_block_hash,
                 shanghai_time,
                 cancun_time,
                 prague_time,
