@@ -114,6 +114,7 @@ use state_processing::{
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
 };
+use types::consts::gloas::PAYLOAD_STATUS_FULL;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -2011,19 +2012,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(head_timer);
 
         // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
-        match self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block_execution_status(&beacon_block_root)
-        {
-            Some(execution_status) if execution_status.is_valid_or_irrelevant() => (),
-            Some(execution_status) => {
+        // Also grab the block's slot from fork choice for use later.
+        let payload_status = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+            let proto_block = fork_choice
+                .get_block(&beacon_block_root)
+                .ok_or(Error::HeadMissingFromForkChoice(beacon_block_root))?;
+            if !proto_block.execution_status.is_valid_or_irrelevant() {
                 return Err(Error::HeadBlockNotFullyVerified {
                     beacon_block_root,
-                    execution_status,
+                    execution_status: proto_block.execution_status,
                 });
             }
-            None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
+
+            if proto_block.slot < request_slot && proto_block.payload_status == PAYLOAD_STATUS_FULL {
+                1
+            } else {
+                0
+            }
         };
 
         /*
@@ -2068,7 +2074,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
-        Ok(Attestation::<T::EthSpec>::empty_for_signing(
+        let mut attestation = Attestation::<T::EthSpec>::empty_for_signing(
             request_index,
             committee_len,
             request_slot,
@@ -2076,7 +2082,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             justified_checkpoint,
             target,
             &self.spec,
-        )?)
+        )?;
+
+        if self.spec.fork_name_at_slot::<T::EthSpec>(request_slot).gloas_enabled() {
+            attestation.data_mut().index = payload_status
+        }
+
+        Ok(attestation)
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
