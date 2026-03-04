@@ -273,7 +273,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(EnvelopeError::BlockRootUnknown { block_root });
         }
 
-
         // TODO(gloas) no fork choice logic yet
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.

@@ -98,8 +98,8 @@ use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument, warn};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
+    Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
     data::DataColumnSidecarError,
 };
 
@@ -1948,23 +1948,13 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
                 && let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
             {
                 if block.as_block().is_parent_block_full(parent_bid_block_hash) {
-                    // TODO(gloas): loading the envelope here is not very efficient.
-                    // The envelope may not have arrived yet, so we retry after a short delay.
-                    let envelope = match chain.store.get_payload_envelope(&root)? {
-                        Some(envelope) => envelope,
-                        None => {
-                            warn!(
-                                parent_block_root = ?root,
-                                "Parent block envelope not yet available, waiting 1s for arrival"
-                            );
-                            std::thread::sleep(std::time::Duration::from_secs(1));
-                            chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
-                                BeaconChainError::DBInconsistent(format!(
-                                    "Missing envelope for parent block {root:?}",
-                                ))
-                            })?
-                        }
-                    };
+                    // The parent block's envelope must have been imported for us to load the
+                    // full state. If it hasn't arrived yet, return an unknown parent error so
+                    // the block gets sent to the reprocess queue.
+                    let envelope = chain
+                        .store
+                        .get_payload_envelope(&root)?
+                        .ok_or(BlockError::ParentUnknown { parent_root: root })?;
                     (StatePayloadStatus::Full, envelope.message.state_root)
                 } else {
                     (StatePayloadStatus::Pending, parent_block.state_root())

@@ -134,7 +134,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         warn!(%slot, %beacon_block_root, "Execution payload envelope rejected");
         return Err(warp_utils::reject::custom_bad_request(format!(
             "execution payload envelope rejected, gossip verification"
-        )))
+        )));
     };
 
     // Import the envelope locally (runs state transition and notifies the EL).

@@ -49,10 +49,12 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz_types::{RuntimeVariableList, VariableList};
-use state_processing::{BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, per_block_processing};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use state_processing::state_advance::complete_state_advance;
+use state_processing::{
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, per_block_processing,
+};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;

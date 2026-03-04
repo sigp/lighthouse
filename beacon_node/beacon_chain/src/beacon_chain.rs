@@ -115,7 +115,6 @@ use state_processing::{
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
 };
-use types::consts::gloas::PAYLOAD_STATUS_FULL;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -133,6 +132,7 @@ use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
+use types::consts::gloas::PAYLOAD_STATUS_FULL;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
 use types::*;
@@ -2089,7 +2089,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
-            if proto_block.slot < request_slot && proto_block.payload_status == PAYLOAD_STATUS_FULL {
+            if proto_block.slot < request_slot && proto_block.payload_status == PAYLOAD_STATUS_FULL
+            {
                 1
             } else {
                 0
@@ -2148,7 +2149,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         )?;
 
-        if self.spec.fork_name_at_slot::<T::EthSpec>(request_slot).gloas_enabled() {
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_slot)
+            .gloas_enabled()
+        {
             attestation.data_mut().index = payload_status
         }
 
