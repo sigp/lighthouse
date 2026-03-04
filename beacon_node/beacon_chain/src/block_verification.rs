@@ -321,6 +321,13 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The parent block is known but its execution payload envelope has not been received yet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but it cannot be fully verified without the parent's
+    /// execution payload envelope.
+    ParentEnvelopeUnknown { parent_root: Hash256 },
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -1954,7 +1961,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
                     let envelope = chain
                         .store
                         .get_payload_envelope(&root)?
-                        .ok_or(BlockError::ParentUnknown { parent_root: root })?;
+                        .ok_or(BlockError::ParentEnvelopeUnknown { parent_root: root })?;
                     (StatePayloadStatus::Full, envelope.message.state_root)
                 } else {
                     (StatePayloadStatus::Pending, parent_block.state_root())

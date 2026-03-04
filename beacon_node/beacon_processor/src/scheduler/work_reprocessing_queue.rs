@@ -892,15 +892,13 @@ impl<S: SlotClock> ReprocessQueue<S> {
             InboundEvent::ReadyEnvelope(block_root) => {
                 if let Some((envelope, _delay_key)) =
                     self.awaiting_envelopes_per_root.remove(&block_root)
-                {
-                    if self
+                    && self
                         .ready_work_tx
                         .try_send(ReadyWork::Envelope(envelope))
                         .is_err()
                     {
                         error!(?block_root, "Failed to send envelope after timeout");
                     }
-                }
             }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(

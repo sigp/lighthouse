@@ -559,6 +559,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleCustodyColumn(id) => {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
+            BlockProcessType::SinglePayloadEnvelope { id } => {
+                // TODO(EIP-7732): Wire into lookup state machine once envelope lookups are
+                // fully integrated. For now, just log the result.
+                debug!(
+                    %id,
+                    ?result,
+                    "Payload envelope processing result (not yet wired to lookups)"
+                );
+                return;
+            }
         };
         self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
     }
