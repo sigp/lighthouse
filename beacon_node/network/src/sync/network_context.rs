@@ -1705,18 +1705,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: Id,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         seen_timestamp: Duration,
+        block_root: Hash256,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let block_root = envelope.beacon_block_root();
         debug!(?block_root, ?id, "Sending payload envelope for processing");
         beacon_processor
             .send_rpc_payload_envelope(
                 envelope,
                 seen_timestamp,
-                BlockProcessType::SinglePayloadEnvelope { id },
+                BlockProcessType::SinglePayloadEnvelope { id, block_root },
             )
             .map_err(|e| {
                 error!(

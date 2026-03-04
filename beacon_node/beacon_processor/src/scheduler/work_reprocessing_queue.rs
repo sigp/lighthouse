@@ -896,9 +896,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         .ready_work_tx
                         .try_send(ReadyWork::Envelope(envelope))
                         .is_err()
-                    {
-                        error!(?block_root, "Failed to send envelope after timeout");
-                    }
+                {
+                    error!(?block_root, "Failed to send envelope after timeout");
+                }
             }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(

@@ -193,7 +193,7 @@ pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
     SingleCustodyColumn(Id),
-    SinglePayloadEnvelope { id: Id },
+    SinglePayloadEnvelope { id: Id, block_root: Hash256 },
 }
 
 impl BlockProcessType {
@@ -202,7 +202,7 @@ impl BlockProcessType {
             BlockProcessType::SingleBlock { id }
             | BlockProcessType::SingleBlob { id }
             | BlockProcessType::SingleCustodyColumn(id)
-            | BlockProcessType::SinglePayloadEnvelope { id } => *id,
+            | BlockProcessType::SinglePayloadEnvelope { id, .. } => *id,
         }
     }
 }
@@ -1256,8 +1256,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match resp {
                 Ok((envelope, seen_timestamp)) => {
+                    let block_root = envelope.beacon_block_root();
                     debug!(
-                        block_root = ?envelope.beacon_block_root(),
+                        ?block_root,
                         %id,
                         "Downloaded payload envelope, sending for processing"
                     );
@@ -1265,6 +1266,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         id.req_id,
                         envelope,
                         seen_timestamp,
+                        block_root,
                     ) {
                         error!(error = ?e, "Failed to send envelope for processing");
                     }

@@ -70,6 +70,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     peers: Arc<RwLock<HashSet<PeerId>>>,
     block_root: Hash256,
     awaiting_parent: Option<Hash256>,
+    awaiting_envelope: Option<Hash256>,
     created: Instant,
     pub(crate) span: Span,
 }
@@ -104,6 +105,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             peers: Arc::new(RwLock::new(HashSet::from_iter(peers.iter().copied()))),
             block_root: requested_block_root,
             awaiting_parent,
+            awaiting_envelope: None,
             created: Instant::now(),
             span: lookup_span,
         }
@@ -142,6 +144,20 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// processing.
     pub fn resolve_awaiting_parent(&mut self) {
         self.awaiting_parent = None;
+    }
+
+    pub fn awaiting_envelope(&self) -> Option<Hash256> {
+        self.awaiting_envelope
+    }
+
+    /// Mark this lookup as awaiting a parent envelope to be imported before processing.
+    pub fn set_awaiting_envelope(&mut self, parent_root: Hash256) {
+        self.awaiting_envelope = Some(parent_root);
+    }
+
+    /// Mark this lookup as no longer awaiting a parent envelope.
+    pub fn resolve_awaiting_envelope(&mut self) {
+        self.awaiting_envelope = None;
     }
 
     /// Returns the time elapsed since this lookup was created
@@ -185,6 +201,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Returns true if this request is expecting some event to make progress
     pub fn is_awaiting_event(&self) -> bool {
         self.awaiting_parent.is_some()
+            || self.awaiting_envelope.is_some()
             || self.block_request_state.state.is_awaiting_event()
             || match &self.component_requests {
                 // If components are waiting for the block request to complete, here we should
@@ -287,7 +304,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         expected_blobs: usize,
     ) -> Result<(), LookupRequestError> {
         let id = self.id;
-        let awaiting_parent = self.awaiting_parent.is_some();
+        let awaiting_event = self.awaiting_parent.is_some() || self.awaiting_envelope.is_some();
         let request =
             R::request_state_mut(self).map_err(|e| LookupRequestError::BadState(e.to_owned()))?;
 
@@ -331,7 +348,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // Otherwise, attempt to progress awaiting processing
         // If this request is awaiting a parent lookup to be processed, do not send for processing.
         // The request will be rejected with unknown parent error.
-        } else if !awaiting_parent {
+        } else if !awaiting_event {
             // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
             // useful to conditionally access the result data.
             if let Some(result) = request.get_state_mut().maybe_start_processing() {
