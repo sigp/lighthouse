@@ -528,9 +528,7 @@ impl PayloadEnvelopesByRootRequest {
         beacon_block_roots: Vec<Hash256>,
         fork_context: &ForkContext,
     ) -> Result<Self, String> {
-        let max_requests_envelopes = fork_context
-            .spec
-            .max_request_payloads(fork_context.current_fork_name());
+        let max_requests_envelopes = fork_context.spec.max_request_payloads();
 
         let beacon_block_roots =
             RuntimeVariableList::new(beacon_block_roots, max_requests_envelopes).map_err(|e| {

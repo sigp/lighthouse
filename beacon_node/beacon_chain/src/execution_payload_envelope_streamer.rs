@@ -15,7 +15,9 @@ type PayloadEnvelopeResult<E> =
     Result<Option<Arc<SignedExecutionPayloadEnvelope<E>>>, BeaconChainError>;
 
 pub struct PayloadEnvelopeStreamer<T: BeaconChainTypes> {
-    execution_layer: ExecutionLayer<T::EthSpec>,
+    // TODO(gloas) remove _ when we use the execution layer
+    // to load payload envelopes
+    _execution_layer: ExecutionLayer<T::EthSpec>,
     store: BeaconStore<T>,
     task_executor: TaskExecutor,
     _check_caches: CheckCaches,
@@ -36,7 +38,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             .clone();
 
         Ok(Arc::new(Self {
-            execution_layer,
+            _execution_layer: execution_layer,
             store,
             task_executor,
             _check_caches: check_caches,
@@ -53,31 +55,56 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         None
     }
 
-    // used when the execution engine doesn't support the payload bodies methods
-    async fn stream_payload_envelopes_fallback(
+    async fn load_envelopes(
+        self: &Arc<Self>,
+        beacon_block_roots: &[Hash256],
+    ) -> Result<Vec<(Hash256, PayloadEnvelopeResult<T::EthSpec>)>, BeaconChainError> {
+        let streamer = self.clone();
+        let roots = beacon_block_roots.to_vec();
+        // Loading from the DB is slow -> spawn a blocking task
+        self.task_executor
+            .spawn_blocking_and_await(
+                move || {
+                    let mut results = Vec::new();
+                    for root in roots {
+                        if let Some(cached) = streamer.check_payload_envelope_cache(root) {
+                            results.push((root, Ok(Some(cached))));
+                            continue;
+                        }
+                        // TODO(gloas) we'll want to use the execution layer directly to call
+                        //  the engine api method eth_getBlockByHash()
+                        match streamer.store.get_payload_envelope(&root) {
+                            Ok(opt_envelope) => {
+                                results.push((root, Ok(opt_envelope.map(Arc::new))));
+                            }
+                            Err(e) => {
+                                results.push((root, Err(BeaconChainError::DBError(e))));
+                            }
+                        }
+                    }
+                    results
+                },
+                "load_execution_payload_envelopes",
+            )
+            .await
+            .map_err(BeaconChainError::from)
+    }
+
+    async fn stream_payload_envelopes(
         self: Arc<Self>,
         beacon_block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)>,
     ) {
-        debug!("Using slower fallback method of eth_getBlockByHash()");
-        for beacon_block_root in beacon_block_roots {
-            let cached_envelope = self.check_payload_envelope_cache(beacon_block_root);
+        let results = match self.load_envelopes(&beacon_block_roots).await {
+            Ok(results) => results,
+            Err(e) => {
+                send_errors(beacon_block_roots, sender, e).await;
+                return;
+            }
+        };
 
-            let envelope_result = if cached_envelope.is_some() {
-                Ok(cached_envelope)
-            } else {
-                // TODO(gloas) we'll want to use the execution layer directly to call
-                //  the engine api method eth_getBlockByHash()
-                self.store
-                    .get_payload_envelope(&beacon_block_root)
-                    .map(|opt_envelope| opt_envelope.map(Arc::new))
-                    .map_err(BeaconChainError::DBError)
-            };
-
-            if sender
-                .send((beacon_block_root, Arc::new(envelope_result)))
-                .is_err()
-            {
+        for (root, result) in results {
+            if sender.send((root, Arc::new(result))).is_err() {
                 break;
             }
         }
@@ -88,22 +115,8 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         beacon_block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)>,
     ) {
-        match self
-            .execution_layer
-            .get_engine_capabilities(None)
-            .await
-            .map_err(Box::new)
-            .map_err(BeaconChainError::EngineGetCapabilititesFailed)
-        {
-            Ok(_engine_capabilities) => {
-                // TODO(gloas) should check engine capabilities for get_payload_bodies_by_range_v1
-                self.stream_payload_envelopes_fallback(beacon_block_roots, sender)
-                    .await;
-            }
-            Err(e) => {
-                send_errors(beacon_block_roots, sender, e).await;
-            }
-        }
+        self.stream_payload_envelopes(beacon_block_roots, sender)
+            .await;
     }
 
     pub fn launch_stream(

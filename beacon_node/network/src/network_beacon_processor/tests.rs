@@ -2160,7 +2160,7 @@ async fn test_payload_envelopes_by_range() {
     let slot_count = 32;
 
     // Manually store payload envelopes for each block in the range
-    let mut expected_count = 0;
+    let mut expected_roots = Vec::new();
     for slot in start_slot..slot_count {
         if let Some(root) = rig
             .chain
@@ -2172,13 +2172,13 @@ async fn test_payload_envelopes_by_range() {
                 .store
                 .put_payload_envelope(&root, envelope)
                 .unwrap();
-            expected_count += 1;
+            expected_roots.push(root);
         }
     }
 
     rig.enqueue_payload_envelopes_by_range_request(start_slot, slot_count);
 
-    let mut actual_count = 0;
+    let mut actual_roots = Vec::new();
     while let Some(next) = rig.network_rx.recv().await {
         if let NetworkMessage::SendResponse {
             peer_id: _,
@@ -2186,8 +2186,8 @@ async fn test_payload_envelopes_by_range() {
             inbound_request_id: _,
         } = next
         {
-            if envelope.is_some() {
-                actual_count += 1;
+            if let Some(env) = envelope {
+                actual_roots.push(env.beacon_block_root());
             } else {
                 break;
             }
@@ -2198,7 +2198,7 @@ async fn test_payload_envelopes_by_range() {
             panic!("unexpected message {:?}", next);
         }
     }
-    assert_eq!(expected_count, actual_count);
+    assert_eq!(expected_roots, actual_roots);
 }
 
 #[tokio::test]
@@ -2226,7 +2226,7 @@ async fn test_payload_envelopes_by_root() {
     let roots = RuntimeVariableList::new(vec![block_root], 1).unwrap();
     rig.enqueue_payload_envelopes_by_root_request(roots);
 
-    let mut actual_count = 0;
+    let mut actual_roots = Vec::new();
     while let Some(next) = rig.network_rx.recv().await {
         if let NetworkMessage::SendResponse {
             peer_id: _,
@@ -2234,8 +2234,8 @@ async fn test_payload_envelopes_by_root() {
             inbound_request_id: _,
         } = next
         {
-            if envelope.is_some() {
-                actual_count += 1;
+            if let Some(env) = envelope {
+                actual_roots.push(env.beacon_block_root());
             } else {
                 break;
             }
@@ -2243,7 +2243,7 @@ async fn test_payload_envelopes_by_root() {
             panic!("unexpected message {:?}", next);
         }
     }
-    assert_eq!(1, actual_count);
+    assert_eq!(vec![block_root], actual_roots);
 }
 
 #[tokio::test]

@@ -325,6 +325,15 @@ pub enum BlockProductionError {
     GloasNotImplemented(String),
 }
 
+impl From<task_executor::SpawnBlockingError> for BeaconChainError {
+    fn from(e: task_executor::SpawnBlockingError) -> Self {
+        match e {
+            task_executor::SpawnBlockingError::RuntimeShutdown => BeaconChainError::RuntimeShutdown,
+            task_executor::SpawnBlockingError::JoinError(e) => BeaconChainError::TokioJoin(e),
+        }
+    }
+}
+
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);

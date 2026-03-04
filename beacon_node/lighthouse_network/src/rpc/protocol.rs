@@ -22,7 +22,7 @@ use types::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
-    SignedBeaconBlock,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -64,6 +64,12 @@ pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_bellatrix_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET); // Adding the additional ssz offset for the `ExecutionPayload` field
+
+pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN: LazyLock<usize> =
+    LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::min_size);
+
+pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX: LazyLock<usize> =
+    LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::max_size);
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
@@ -145,6 +151,14 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BELLATRIX_MAX, // Bellatrix block is larger than base and altair blocks
         ),
     }
+}
+
+/// Returns the rpc limits for payload_envelope_by_range and payload_envelope_by_root responses.
+pub fn rpc_payload_limits() -> RpcLimits {
+    RpcLimits::new(
+        *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN,
+        *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX,
+    )
 }
 
 fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> RpcLimits {
@@ -425,8 +439,14 @@ impl SupportedProtocol {
         }
         if fork_context.fork_exists(ForkName::Gloas) {
             supported.extend_from_slice(&[
-                ProtocolId::new(SupportedProtocol::PayloadEnvelopesByRangeV1, Encoding::SSZSnappy),
-                ProtocolId::new(SupportedProtocol::PayloadEnvelopesByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(
+                    SupportedProtocol::PayloadEnvelopesByRangeV1,
+                    Encoding::SSZSnappy,
+                ),
+                ProtocolId::new(
+                    SupportedProtocol::PayloadEnvelopesByRootV1,
+                    Encoding::SSZSnappy,
+                ),
             ]);
         }
         supported
@@ -535,7 +555,9 @@ impl ProtocolId {
                 <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
                 <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::PayloadEnvelopesByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
+            Protocol::PayloadEnvelopesByRoot => {
+                RpcLimits::new(0, spec.max_payload_envelopes_by_root_request)
+            }
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
@@ -577,9 +599,7 @@ impl ProtocolId {
             Protocol::PayloadEnvelopesByRange => {
                 rpc_block_limits_by_fork(fork_context.current_fork_name())
             }
-            Protocol::PayloadEnvelopesByRoot => {
-                rpc_block_limits_by_fork(fork_context.current_fork_name())
-            }
+            Protocol::PayloadEnvelopesByRoot => rpc_payload_limits(),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => {
