@@ -8,7 +8,9 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TestRandom, TreeHash, Educe)]
+#[derive(
+    Debug, Default, Clone, Serialize, Encode, Decode, Deserialize, TestRandom, TreeHash, Educe,
+)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]

@@ -12,6 +12,26 @@ use crate::rayon_pool_provider::RayonPoolProvider;
 pub use crate::rayon_pool_provider::RayonPoolType;
 pub use tokio::task::JoinHandle;
 
+/// Error type for spawning a blocking task and awaiting its result.
+#[derive(Debug)]
+pub enum SpawnBlockingError {
+    /// The runtime is shutting down.
+    RuntimeShutdown,
+    /// The blocking task failed (e.g. due to a panic).
+    JoinError(tokio::task::JoinError),
+}
+
+impl std::fmt::Display for SpawnBlockingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpawnBlockingError::RuntimeShutdown => write!(f, "runtime shutdown"),
+            SpawnBlockingError::JoinError(e) => write!(f, "join error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SpawnBlockingError {}
+
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ShutdownReason {
@@ -341,6 +361,26 @@ impl TaskExecutor {
         };
 
         Some(future)
+    }
+
+    /// Spawn a blocking task and await its result.
+    ///
+    /// Maps the `Option` (runtime shutdown) and `tokio::JoinError` into a single
+    /// `SpawnBlockingError`.
+    pub async fn spawn_blocking_and_await<F, R>(
+        &self,
+        task: F,
+        name: &'static str,
+    ) -> Result<R, SpawnBlockingError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let handle = self
+            .spawn_blocking_handle(task, name)
+            .ok_or(SpawnBlockingError::RuntimeShutdown)?;
+
+        handle.await.map_err(SpawnBlockingError::JoinError)
     }
 
     /// Block the current (non-async) thread on the completion of some future.

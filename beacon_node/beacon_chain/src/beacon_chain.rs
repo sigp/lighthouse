@@ -28,6 +28,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
+use crate::execution_payload_envelope_streamer::PayloadEnvelopeStreamer;
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
@@ -664,7 +665,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .as_ref()
             .into();
-        debug!(?custody_context, "Persisting custody context to store");
+
+        // Pattern match to avoid accidentally missing fields and to ignore deprecated fields.
+        let CustodyContextSsz {
+            validator_custody_at_head,
+            epoch_validator_custody_requirements,
+            persisted_is_supernode: _,
+        } = &custody_context;
+        debug!(
+            validator_custody_at_head,
+            ?epoch_validator_custody_requirements,
+            "Persisting custody context to store"
+        );
 
         persist_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(
             self.store.clone(),
@@ -1124,6 +1136,58 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_blobs(*block_root)
             .map(Into::into)
             .map_or_else(|| self.get_blobs(block_root), Ok)
+    }
+
+    /// Returns the execution payload envelopes at the given roots, if any.
+    ///
+    /// Will also check any associated caches. The expected use for this function is *only* for returning blocks requested
+    /// from P2P peers.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    #[allow(clippy::type_complexity)]
+    pub fn get_payload_envelopes_checking_caches(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
+    > {
+        Ok(PayloadEnvelopeStreamer::<T>::new(
+            self.execution_layer.clone(),
+            self.store.clone(),
+            self.task_executor.clone(),
+            CheckCaches::Yes,
+        )?
+        .launch_stream(block_roots))
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn get_payload_envelopes(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
+    > {
+        Ok(PayloadEnvelopeStreamer::<T>::new(
+            self.execution_layer.clone(),
+            self.store.clone(),
+            self.task_executor.clone(),
+            CheckCaches::No,
+        )?
+        .launch_stream(block_roots))
     }
 
     pub fn get_data_columns_checking_all_caches(
