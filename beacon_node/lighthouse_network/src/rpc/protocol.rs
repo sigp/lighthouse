@@ -17,10 +17,10 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecarFulu,
-    DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName,
-    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
-    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockGloas, BlobSidecar, ChainSpec,
+    DataColumnSidecarFulu, DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId,
+    ForkContext, ForkName, LightClientBootstrap, LightClientBootstrapAltair,
+    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
     SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
@@ -64,6 +64,17 @@ pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_bellatrix_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET); // Adding the additional ssz offset for the `ExecutionPayload` field
+
+/// Gloas blocks no longer contain an execution payload (it's in the envelope),
+/// so they are significantly smaller than Bellatrix+ blocks.
+pub static SIGNED_BEACON_BLOCK_GLOAS_MAX: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Gloas(BeaconBlockGloas::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len()
+});
 
 pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN: LazyLock<usize> =
     LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::min_size);
@@ -146,9 +157,18 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ),
         // After the merge the max SSZ size of a block is absurdly big. The size is actually
         // bound by other constants, so here we default to the bellatrix's max value
-        _ => RpcLimits::new(
+        ForkName::Bellatrix
+        | ForkName::Capella
+        | ForkName::Deneb
+        | ForkName::Electra
+        | ForkName::Fulu => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_BELLATRIX_MAX, // Bellatrix block is larger than base and altair blocks
+        ),
+        // Gloas blocks no longer contain the execution payload, so they are much smaller
+        ForkName::Gloas => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN,
+            *SIGNED_BEACON_BLOCK_GLOAS_MAX,
         ),
     }
 }
@@ -596,9 +616,7 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork_name()),
-            Protocol::PayloadEnvelopesByRange => {
-                rpc_block_limits_by_fork(fork_context.current_fork_name())
-            }
+            Protocol::PayloadEnvelopesByRange => rpc_payload_limits(),
             Protocol::PayloadEnvelopesByRoot => rpc_payload_limits(),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),

@@ -668,16 +668,48 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::BlocksByRootV1 => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
-        SupportedProtocol::PayloadEnvelopesByRangeV1 => {
-            Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRange(Arc::new(
-                SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
-            ))))
-        }
-        SupportedProtocol::PayloadEnvelopesByRootV1 => {
-            Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRoot(Arc::new(
-                SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
-            ))))
-        }
+        SupportedProtocol::PayloadEnvelopesByRangeV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.gloas_enabled() {
+                    Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRange(Arc::new(
+                        SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for payload envelopes by range".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::PayloadEnvelopesByRootV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.gloas_enabled() {
+                    Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRoot(Arc::new(
+                        SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for payload envelopes by root".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         SupportedProtocol::BlobsByRangeV1 => match fork_name {
             Some(fork_name) => {
                 if fork_name.deneb_enabled() {
