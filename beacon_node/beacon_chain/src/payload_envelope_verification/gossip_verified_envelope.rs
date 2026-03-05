@@ -148,9 +148,11 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let builder_index = envelope.builder_index;
         let block_slot = envelope.slot;
         let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
-        // TODO(gloas) verify correctness of this, or it might be useful to introduce a clearer function here.
-        let proposer_shuffling_decision_block =
-            proto_block.proposer_shuffling_root_for_child_block(envelope_epoch, ctx.spec);
+        // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
+        // already carries the correct `shuffling_decision_block`.
+        let proposer_shuffling_decision_block = proto_block
+            .current_epoch_shuffling_id
+            .shuffling_decision_block;
 
         let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
             // Fast path: self-built envelopes can be verified without loading the state.
