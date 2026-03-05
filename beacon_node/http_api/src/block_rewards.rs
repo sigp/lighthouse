@@ -1,15 +1,9 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::lighthouse::{BlockReward, BlockRewardsQuery};
-use lru::LruCache;
 use state_processing::BlockReplayer;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{debug, warn};
-use types::block::BlindedBeaconBlock;
-use types::new_non_zero_usize;
+use tracing::warn;
 use warp_utils::reject::{beacon_state_error, custom_bad_request, unhandled_error};
-
-const STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(2);
 
 /// Fetch block rewards for blocks from the canonical chain.
 pub fn get_block_rewards<T: BeaconChainTypes>(
@@ -86,93 +80,6 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
     }
 
     drop(block_replayer);
-
-    Ok(block_rewards)
-}
-
-/// Compute block rewards for blocks passed in as input.
-pub fn compute_block_rewards<T: BeaconChainTypes>(
-    blocks: Vec<BlindedBeaconBlock<T::EthSpec>>,
-    chain: Arc<BeaconChain<T>>,
-) -> Result<Vec<BlockReward>, warp::Rejection> {
-    let mut block_rewards = Vec::with_capacity(blocks.len());
-    let mut state_cache = LruCache::new(STATE_CACHE_SIZE);
-    let mut reward_cache = Default::default();
-
-    for block in blocks {
-        let parent_root = block.parent_root();
-
-        // Check LRU cache for a constructed state from a previous iteration.
-        let state = if let Some(state) = state_cache.get(&(parent_root, block.slot())) {
-            debug!(
-                ?parent_root,
-                slot = %block.slot(),
-                "Re-using cached state for block rewards"
-            );
-            state
-        } else {
-            debug!(
-                ?parent_root,
-                slot = %block.slot(),
-                "Fetching state for block rewards"
-            );
-            let parent_block = chain
-                .get_blinded_block(&parent_root)
-                .map_err(unhandled_error)?
-                .ok_or_else(|| {
-                    custom_bad_request(format!(
-                        "parent block not known or not canonical: {:?}",
-                        parent_root
-                    ))
-                })?;
-
-            // This branch is reached from the HTTP API. We assume the user wants
-            // to cache states so that future calls are faster.
-            let parent_state = chain
-                .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
-                .map_err(unhandled_error)?
-                .ok_or_else(|| {
-                    custom_bad_request(format!(
-                        "no state known for parent block: {:?}",
-                        parent_root
-                    ))
-                })?;
-
-            let block_replayer = BlockReplayer::new(parent_state, &chain.spec)
-                .no_signature_verification()
-                .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
-                .minimal_block_root_verification()
-                .apply_blocks(vec![], Some(block.slot()))
-                .map_err(unhandled_error::<BeaconChainError>)?;
-
-            if block_replayer.state_root_miss() {
-                warn!(
-                    parent_slot = %parent_block.slot(),
-                    slot = %block.slot(),
-                    "Block reward state root miss"
-                );
-            }
-
-            let mut state = block_replayer.into_state();
-            state
-                .build_all_committee_caches(&chain.spec)
-                .map_err(beacon_state_error)?;
-
-            state_cache.get_or_insert((parent_root, block.slot()), || state)
-        };
-
-        // Compute block reward.
-        let block_reward = chain
-            .compute_block_reward(
-                block.to_ref(),
-                block.canonical_root(),
-                state,
-                &mut reward_cache,
-                true,
-            )
-            .map_err(unhandled_error)?;
-        block_rewards.push(block_reward);
-    }
 
     Ok(block_rewards)
 }

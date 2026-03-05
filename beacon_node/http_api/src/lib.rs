@@ -3079,20 +3079,6 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // POST lighthouse/analysis/block_rewards
-    let post_lighthouse_block_rewards = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_rewards"))
-        .and(warp_utils::json::json())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(|blocks, task_spawner: TaskSpawner<T::EthSpec>, chain| {
-            task_spawner.blocking_json_task(Priority::P1, move || {
-                block_rewards::compute_block_rewards(blocks, chain)
-            })
-        });
-
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -3413,7 +3399,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
-                    .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
                     .uor(post_lighthouse_finalize)
