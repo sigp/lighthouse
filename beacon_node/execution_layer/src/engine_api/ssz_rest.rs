@@ -87,13 +87,6 @@ impl From<SszRestError> for Error {
     }
 }
 
-/// A JSON error response from the EL server.
-#[derive(serde::Deserialize)]
-struct JsonErrorResponse {
-    code: i64,
-    message: String,
-}
-
 /// SSZ-REST client for Engine API calls.
 pub struct SszRestClient {
     client: Client,
@@ -120,15 +113,37 @@ impl SszRestClient {
 
     /// Perform a POST request with SSZ body and return the response bytes.
     async fn do_request(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, SszRestError> {
+        self.do_http("POST", path, Some(body)).await
+    }
+
+    /// Perform a GET request (no body) and return the response bytes.
+    async fn do_get_request(&self, path: &str) -> Result<Vec<u8>, SszRestError> {
+        self.do_http("GET", path, None).await
+    }
+
+    /// Common HTTP request implementation for both POST and GET.
+    async fn do_http(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Vec<u8>>,
+    ) -> Result<Vec<u8>, SszRestError> {
         let url = format!("{}{}", self.base_url, path);
 
-        let mut request = self
-            .client
-            .post(&url)
+        let mut request = match method {
+            "GET" => self.client.get(&url),
+            _ => {
+                let b = body.unwrap_or_default();
+                self.client
+                    .post(&url)
+                    .header(CONTENT_TYPE, "application/octet-stream")
+                    .body(b)
+            }
+        };
+
+        request = request
             .timeout(SSZ_REST_TIMEOUT)
-            .header(CONTENT_TYPE, "application/octet-stream")
-            .header("Accept", "application/octet-stream")
-            .body(body);
+            .header("Accept", "application/octet-stream");
 
         // Add JWT auth if configured
         if let Some(auth) = &self.auth {
@@ -152,25 +167,18 @@ impl SszRestClient {
                 .map_err(|e| SszRestError::Network(e.to_string()))?;
             Ok(bytes.to_vec())
         } else {
-            // Try to parse JSON error response
+            // Error responses use text/plain per execution-apis SSZ spec
             let body_bytes = response
                 .bytes()
                 .await
                 .map_err(|e| SszRestError::Network(e.to_string()))?;
 
-            if let Ok(json_err) = serde_json::from_slice::<JsonErrorResponse>(&body_bytes) {
-                Err(SszRestError::ServerError {
-                    code: json_err.code,
-                    message: json_err.message,
-                })
-            } else {
-                let body_str =
-                    String::from_utf8(body_bytes.to_vec()).unwrap_or_else(|_| "<binary>".into());
-                Err(SszRestError::Http {
-                    status: status.as_u16(),
-                    body: body_str,
-                })
-            }
+            let body_str =
+                String::from_utf8(body_bytes.to_vec()).unwrap_or_else(|_| "<binary>".into());
+            Err(SszRestError::Http {
+                status: status.as_u16(),
+                body: body_str,
+            })
         }
     }
 
@@ -187,7 +195,7 @@ impl SszRestClient {
             parent_beacon_block_root,
         );
 
-        let response_bytes = self.do_request("/engine/v3/new_payload", body).await?;
+        let response_bytes = self.do_request("/engine/v3/payloads", body).await?;
         let status = ssz_rest_encoding::decode_payload_status(&response_bytes)?;
         Ok(status)
     }
@@ -207,7 +215,7 @@ impl SszRestClient {
             execution_requests,
         );
 
-        let response_bytes = self.do_request("/engine/v4/new_payload", body).await?;
+        let response_bytes = self.do_request("/engine/v4/payloads", body).await?;
         let status = ssz_rest_encoding::decode_payload_status(&response_bytes)?;
         Ok(status)
     }
@@ -224,7 +232,7 @@ impl SszRestClient {
         );
 
         let response_bytes = self
-            .do_request("/engine/v3/forkchoice_updated", body)
+            .do_request("/engine/v3/forkchoice", body)
             .await?;
         let response = ssz_rest_encoding::decode_forkchoice_updated_response(&response_bytes)?;
         Ok(response)
@@ -243,9 +251,9 @@ impl SszRestClient {
             ForkName::Capella => 2,
             _ => 1,
         };
-        let path = format!("/engine/v{}/get_payload", version);
-        let body = ssz_rest_encoding::encode_get_payload_request(&payload_id);
-        let response_bytes = self.do_request(&path, body).await?;
+        let payload_id_hex = format!("0x{}", hex::encode(payload_id));
+        let path = format!("/engine/v{}/payloads/{}", version, payload_id_hex);
+        let response_bytes = self.do_get_request(&path).await?;
         let resp =
             ssz_rest_encoding::decode_get_payload_response::<E>(&response_bytes, fork_name)?;
         Ok(resp)
@@ -271,7 +279,7 @@ impl SszRestClient {
         let body = ssz_rest_encoding::encode_exchange_capabilities(capabilities);
 
         let response_bytes = self
-            .do_request("/engine/v1/exchange_capabilities", body)
+            .do_request("/engine/v1/capabilities", body)
             .await?;
         let caps = ssz_rest_encoding::decode_exchange_capabilities(&response_bytes)?;
         Ok(caps)
