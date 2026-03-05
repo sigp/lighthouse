@@ -166,20 +166,7 @@ initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.14"
 kzg = { path = "crypto/kzg" }
-libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features = false, features = [
-    "identify",
-    "yamux",
-    "noise",
-    "dns",
-    "tcp",
-    "tokio",
-    "secp256k1",
-    "macros",
-    "metrics",
-    "quic",
-    "upnp",
-    "gossipsub",
-] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "secp256k1", "macros", "metrics", "quic", "upnp", "gossipsub"] }
 libsecp256k1 = "0.7"
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
@@ -219,12 +206,7 @@ r2d2 = "0.8"
 rand = "0.9.0"
 rayon = "1.7"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = [
-    "blocking",
-    "json",
-    "stream",
-    "rustls-tls",
-] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.38", features = ["bundled"] }
@@ -253,12 +235,7 @@ sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
 tempfile = "3"
-tokio = { version = "1", features = [
-    "rt-multi-thread",
-    "sync",
-    "signal",
-    "macros",
-] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal", "macros"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
 tracing = "0.1.40"
