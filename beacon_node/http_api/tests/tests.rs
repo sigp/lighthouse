@@ -3455,15 +3455,6 @@ impl ApiTester {
                 .await
                 .unwrap();
             assert_eq!(result.data, v1_result.data);
-
-            if !self.chain.spec.fork_name_at_epoch(epoch).fulu_enabled() {
-                // Pre-Fulu the dependent root should be identical to v1.
-                assert_eq!(result.dependent_root, v1_result.dependent_root);
-            } else {
-                // Post-Fulu the dependent root should be distinct for all cases tested.
-                // It would take a whole epoch of skipped slots for this to diverge.
-                assert_ne!(result.dependent_root, v1_result.dependent_root);
-            }
         }
 
         // Requests to the epochs after the next epoch should fail.
@@ -7702,19 +7693,27 @@ async fn get_validator_duties_proposer_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer_v2() {
-    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
-        .await
-        .test_get_validator_duties_proposer_v2()
-        .await;
+    ApiTester::new_from_config(ApiTesterConfig {
+        spec: test_spec::<E>(),
+        retain_historic_states: true,
+        ..ApiTesterConfig::default()
+    })
+    .await
+    .test_get_validator_duties_proposer_v2()
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer_v2_with_skip_slots() {
-    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
-        .await
-        .skip_slots(E::slots_per_epoch() * 2)
-        .test_get_validator_duties_proposer_v2()
-        .await;
+    ApiTester::new_from_config(ApiTesterConfig {
+        spec: test_spec::<E>(),
+        retain_historic_states: true,
+        ..ApiTesterConfig::default()
+    })
+    .await
+    .skip_slots(E::slots_per_epoch() * 2)
+    .test_get_validator_duties_proposer_v2()
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

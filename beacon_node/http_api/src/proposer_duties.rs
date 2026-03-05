@@ -266,9 +266,9 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
     };
 
     // Ensure the state lookup was correct.
-    if state.current_epoch() != epoch {
+    if state.current_epoch() != epoch && state.current_epoch() + 1 != epoch {
         return Err(warp_utils::reject::custom_server_error(format!(
-            "state epoch {} not equal to request epoch {}",
+            "state from epoch {} cannot serve request epoch {}",
             state.current_epoch(),
             epoch
         )));
