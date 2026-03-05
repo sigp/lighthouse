@@ -343,22 +343,14 @@ mod test {
             assert!(events.is_empty());
         } else {
             // Wait 1 slot: expect a single Subscribe event (no duplicate for the same subnet).
-            let events = get_events_until_num_slots(
-                &mut subnet_service,
-                None,
-                1,
-            ).await;
+            let events = get_events_until_num_slots(&mut subnet_service, None, 1).await;
             assert_eq!(events, [SubnetServiceMessage::Subscribe(subnet)]);
 
             // Wait for the Unsubscribe event after subscription_slot2 expires.
             // Use a longer timeout because the test doesn't start exactly at a slot
             // boundary, so the previous 1-slot wait may end partway through slot 1,
             // leaving insufficient time to catch the Unsubscribe within another 1 slot.
-            let events = get_events_until_num_slots(
-                &mut subnet_service,
-                Some(1),
-                3,
-            ).await;
+            let events = get_events_until_num_slots(&mut subnet_service, Some(1), 3).await;
             assert_eq!(events, [SubnetServiceMessage::Unsubscribe(subnet)]);
         }
 
