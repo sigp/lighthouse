@@ -13,7 +13,7 @@ logroller = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = [ "time" ] }
+tokio = { workspace = true, features = ["time"] }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-core = { workspace = true }
