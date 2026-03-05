@@ -392,7 +392,7 @@ fn replace_parameter(
 }
 
 #[tokio::test]
-async fn test_all_endpoints() -> Result<(), String> {
+async fn http_api_spec_test() -> Result<(), String> {
     let (harness, client, port, peer_id) = new().await;
 
     let head = harness.chain.head_snapshot();
