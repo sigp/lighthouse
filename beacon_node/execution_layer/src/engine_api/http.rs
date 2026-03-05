@@ -13,6 +13,7 @@ use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
+use tracing::debug;
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
@@ -606,6 +607,10 @@ pub struct HttpJsonRpc {
     pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
     pub engine_version_cache: Mutex<Option<CachedResponse<Vec<ClientVersionV1>>>>,
     auth: Option<Auth>,
+    /// Optional SSZ-REST client for EIP-8161 transport.
+    /// When set, engine methods will try SSZ-REST first and fall back to JSON-RPC
+    /// on network errors.
+    pub ssz_rest_client: Option<crate::engine_api::ssz_rest::SszRestClient>,
 }
 
 impl HttpJsonRpc {
@@ -620,6 +625,7 @@ impl HttpJsonRpc {
             engine_capabilities_cache: Mutex::new(None),
             engine_version_cache: Mutex::new(None),
             auth: None,
+            ssz_rest_client: None,
         })
     }
 
@@ -635,7 +641,16 @@ impl HttpJsonRpc {
             engine_capabilities_cache: Mutex::new(None),
             engine_version_cache: Mutex::new(None),
             auth: Some(auth),
+            ssz_rest_client: None,
         })
+    }
+
+    /// Set the SSZ-REST client for EIP-8161 transport.
+    pub fn set_ssz_rest_client(
+        &mut self,
+        ssz_rest_client: crate::engine_api::ssz_rest::SszRestClient,
+    ) {
+        self.ssz_rest_client = Some(ssz_rest_client);
     }
 
     pub async fn rpc_request<D: DeserializeOwned>(
@@ -803,6 +818,24 @@ impl HttpJsonRpc {
         &self,
         new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
+        // Try SSZ-REST first if configured
+        if let Some(ref ssz) = self.ssz_rest_client {
+            match ssz
+                .new_payload_v3(
+                    types::ExecutionPayloadRef::Deneb(new_payload_request_deneb.execution_payload),
+                    &new_payload_request_deneb.versioned_hashes,
+                    new_payload_request_deneb.parent_beacon_block_root,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) if e.is_network_error() => {
+                    debug!("SSZ-REST new_payload_v3 failed, falling back to JSON-RPC: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let params = json!([
             JsonExecutionPayload::Deneb(
                 new_payload_request_deneb
@@ -829,6 +862,27 @@ impl HttpJsonRpc {
         &self,
         new_payload_request_electra: NewPayloadRequestElectra<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
+        // Try SSZ-REST first if configured
+        if let Some(ref ssz) = self.ssz_rest_client {
+            match ssz
+                .new_payload_v4(
+                    types::ExecutionPayloadRef::Electra(
+                        new_payload_request_electra.execution_payload,
+                    ),
+                    &new_payload_request_electra.versioned_hashes,
+                    new_payload_request_electra.parent_beacon_block_root,
+                    new_payload_request_electra.execution_requests,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) if e.is_network_error() => {
+                    debug!("SSZ-REST new_payload_v4 failed, falling back to JSON-RPC: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let params = json!([
             JsonExecutionPayload::Electra(
                 new_payload_request_electra
@@ -858,6 +912,25 @@ impl HttpJsonRpc {
         &self,
         new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
+        // Try SSZ-REST first if configured
+        if let Some(ref ssz) = self.ssz_rest_client {
+            match ssz
+                .new_payload_v4(
+                    types::ExecutionPayloadRef::Fulu(new_payload_request_fulu.execution_payload),
+                    &new_payload_request_fulu.versioned_hashes,
+                    new_payload_request_fulu.parent_beacon_block_root,
+                    new_payload_request_fulu.execution_requests,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) if e.is_network_error() => {
+                    debug!("SSZ-REST new_payload_v4 failed, falling back to JSON-RPC: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let params = json!([
             JsonExecutionPayload::Fulu(
                 new_payload_request_fulu
@@ -887,6 +960,25 @@ impl HttpJsonRpc {
         &self,
         new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
+        // Try SSZ-REST first if configured
+        if let Some(ref ssz) = self.ssz_rest_client {
+            match ssz
+                .new_payload_v4(
+                    types::ExecutionPayloadRef::Gloas(new_payload_request_gloas.execution_payload),
+                    &new_payload_request_gloas.versioned_hashes,
+                    new_payload_request_gloas.parent_beacon_block_root,
+                    new_payload_request_gloas.execution_requests,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) if e.is_network_error() => {
+                    debug!("SSZ-REST new_payload_v4 failed, falling back to JSON-RPC: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let params = json!([
             JsonExecutionPayload::Gloas(
                 new_payload_request_gloas
@@ -1114,6 +1206,20 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        // Try SSZ-REST first if configured
+        if let Some(ref ssz) = self.ssz_rest_client {
+            match ssz
+                .forkchoice_updated(forkchoice_state, payload_attributes.clone())
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) if e.is_network_error() => {
+                    debug!("SSZ-REST forkchoice_updated_v3 failed, falling back to JSON-RPC: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
             payload_attributes.map(JsonPayloadAttributes::from)
@@ -1183,6 +1289,44 @@ impl HttpJsonRpc {
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
+        // Try SSZ-REST first if configured
+        if let Some(ref ssz) = self.ssz_rest_client {
+            match ssz.exchange_capabilities(LIGHTHOUSE_CAPABILITIES).await {
+                Ok(caps) => {
+                    let capabilities: HashSet<String> = caps.into_iter().collect();
+                    return Ok(EngineCapabilities {
+                        new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
+                        new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+                        new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
+                        new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
+                        forkchoice_updated_v1: capabilities
+                            .contains(ENGINE_FORKCHOICE_UPDATED_V1),
+                        forkchoice_updated_v2: capabilities
+                            .contains(ENGINE_FORKCHOICE_UPDATED_V2),
+                        forkchoice_updated_v3: capabilities
+                            .contains(ENGINE_FORKCHOICE_UPDATED_V3),
+                        get_payload_bodies_by_hash_v1: capabilities
+                            .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
+                        get_payload_bodies_by_range_v1: capabilities
+                            .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
+                        get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
+                        get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+                        get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
+                        get_payload_v4: capabilities.contains(ENGINE_GET_PAYLOAD_V4),
+                        get_payload_v5: capabilities.contains(ENGINE_GET_PAYLOAD_V5),
+                        get_client_version_v1: capabilities
+                            .contains(ENGINE_GET_CLIENT_VERSION_V1),
+                        get_blobs_v1: capabilities.contains(ENGINE_GET_BLOBS_V1),
+                        get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
+                    });
+                }
+                Err(e) if e.is_network_error() => {
+                    debug!("SSZ-REST exchange_capabilities failed, falling back to JSON-RPC: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
         let capabilities: HashSet<String> = self
@@ -1369,6 +1513,17 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<E>, Error> {
+        // Try SSZ-REST first if configured
+        if let Some(ref ssz) = self.ssz_rest_client {
+            match ssz.get_payload::<E>(fork_name, payload_id).await {
+                Ok(result) => return Ok(result),
+                Err(e) if e.is_network_error() => {
+                    debug!("SSZ-REST get_payload failed, falling back to JSON-RPC: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match fork_name {
             ForkName::Bellatrix | ForkName::Capella => {

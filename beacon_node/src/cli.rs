@@ -891,6 +891,18 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("ssz-rest-url")
+                .long("ssz-rest-url")
+                .value_name("SSZ-REST-URL")
+                .help("URL for an SSZ-REST Engine API endpoint (EIP-8161). When set, \
+                       Lighthouse will try SSZ-REST first for engine calls and fall \
+                       back to JSON-RPC on network errors. Uses the same JWT secret \
+                       as --execution-endpoint.")
+                .requires("execution-endpoint")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("execution-timeout-multiplier")
                 .long("execution-timeout-multiplier")
                 .value_name("NUM")

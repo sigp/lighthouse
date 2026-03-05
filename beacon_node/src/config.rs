@@ -334,6 +334,9 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
+    // Parse optional SSZ-REST URL for EIP-8161 transport.
+    el_config.ssz_rest_url = clap_utils::parse_optional(cli_args, "ssz-rest-url")?;
+
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);
 

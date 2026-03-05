@@ -34,6 +34,8 @@ pub mod auth;
 pub mod http;
 pub mod json_structures;
 mod new_payload_request;
+pub mod ssz_rest;
+pub mod ssz_rest_encoding;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,

@@ -467,6 +467,8 @@ pub struct Config {
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
     pub execution_timeout_multiplier: Option<u32>,
+    /// Optional SSZ-REST endpoint URL for EIP-8161 transport.
+    pub ssz_rest_url: Option<String>,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -491,6 +493,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             jwt_version,
             default_datadir,
             execution_timeout_multiplier,
+            ssz_rest_url,
         } = config;
 
         let execution_url = url.ok_or(Error::NoEngine)?;
@@ -528,10 +531,29 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }?;
 
         let engine: Engine = {
-            let auth = Auth::new(jwt_key, jwt_id, jwt_version);
+            let auth = Auth::new(jwt_key.clone(), jwt_id, jwt_version);
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
-            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
-                .map_err(Error::ApiError)?;
+            let mut api =
+                HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
+                    .map_err(Error::ApiError)?;
+
+            // Configure SSZ-REST client if URL is provided (EIP-8161)
+            if let Some(ref ssz_url) = ssz_rest_url {
+                let ssz_auth = Auth::new(jwt_key, None, None);
+                match crate::engine_api::ssz_rest::SszRestClient::new(
+                    ssz_url.clone(),
+                    Some(ssz_auth),
+                ) {
+                    Ok(ssz_client) => {
+                        info!(ssz_rest_url = %ssz_url, "SSZ-REST Engine API transport configured (EIP-8161)");
+                        api.set_ssz_rest_client(ssz_client);
+                    }
+                    Err(e) => {
+                        warn!(ssz_rest_url = %ssz_url, error = %e, "Failed to create SSZ-REST client, continuing with JSON-RPC only");
+                    }
+                }
+            }
+
             Engine::new(api, executor.clone())
         };
 
