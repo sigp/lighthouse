@@ -8,4 +8,12 @@ edition = { workspace = true }
 fnv = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
+hashlink = { workspace = true }
+lru = "0.12"
 mock_instant = "0.3"
+rand = "0.9"
+
+[[bench]]
+name = "lru_comparison"
+harness = false
