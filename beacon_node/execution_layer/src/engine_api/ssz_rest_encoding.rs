@@ -28,8 +28,6 @@ pub enum SszRestCodecError {
     InvalidOffset { offset: usize, len: usize },
     /// Unknown status byte value.
     UnknownStatus(u8),
-    /// Unknown union selector.
-    UnknownSelector(u8),
     /// UTF-8 decoding failed.
     Utf8Error(std::string::FromUtf8Error),
     /// Generic decoding error.
@@ -54,7 +52,6 @@ impl std::fmt::Display for SszRestCodecError {
                 )
             }
             Self::UnknownStatus(s) => write!(f, "SSZ-REST unknown status byte: {}", s),
-            Self::UnknownSelector(s) => write!(f, "SSZ-REST unknown union selector: {}", s),
             Self::Utf8Error(e) => write!(f, "SSZ-REST UTF-8 error: {}", e),
             Self::Other(msg) => write!(f, "SSZ-REST error: {}", msg),
         }
@@ -158,7 +155,7 @@ fn decode_status_byte(b: u8) -> Result<PayloadStatusV1Status, SszRestCodecError>
 ///   - validation_error offset: uint32 LE (4 bytes)
 ///
 /// Variable part:
-///   - latest_valid_hash: Union[None, Hash32] (selector byte + optional 32 bytes)
+///   - latest_valid_hash: List[Hash32, 1] (0 bytes = absent, 32 bytes = present)
 ///   - validation_error: List[uint8, 1024]
 pub fn decode_payload_status(buf: &[u8]) -> Result<PayloadStatusV1, SszRestCodecError> {
     if buf.len() < 9 {
@@ -179,25 +176,12 @@ pub fn decode_payload_status(buf: &[u8]) -> Result<PayloadStatusV1, SszRestCodec
         });
     }
 
+    // List[Hash32, 1]: 0 bytes = absent, 32 bytes = present
     let lvh_data = &buf[lvh_offset..ve_offset];
-    let latest_valid_hash = if lvh_data.is_empty() {
-        None
+    let latest_valid_hash = if lvh_data.len() == 32 {
+        Some(ExecutionBlockHash::from_root(Hash256::from_slice(lvh_data)))
     } else {
-        let selector = lvh_data[0];
-        match selector {
-            0 => None,
-            1 => {
-                if lvh_data.len() < 33 {
-                    return Err(SszRestCodecError::BufferTooShort {
-                        expected: 33,
-                        actual: lvh_data.len(),
-                    });
-                }
-                let hash = Hash256::from_slice(&lvh_data[1..33]);
-                Some(ExecutionBlockHash::from_root(hash))
-            }
-            _ => return Err(SszRestCodecError::UnknownSelector(selector)),
-        }
+        None
     };
 
     let ve_data = &buf[ve_offset..];
@@ -225,7 +209,7 @@ pub fn decode_payload_status(buf: &[u8]) -> Result<PayloadStatusV1, SszRestCodec
 ///   - payload_attributes offset: uint32 LE (4 bytes)
 ///
 /// Variable part:
-///   - payload_attributes: Union[None, PayloadAttributes]
+///   - payload_attributes: List[PayloadAttributes, 1] (empty = absent, offset+data = present)
 pub fn encode_forkchoice_updated_request(
     fcs: &ForkchoiceState,
     payload_attributes: &Option<PayloadAttributes>,
@@ -238,19 +222,16 @@ pub fn encode_forkchoice_updated_request(
     write_execution_block_hash(&mut buf, &fcs.safe_block_hash);
     write_execution_block_hash(&mut buf, &fcs.finalized_block_hash);
 
-    // Offset to payload_attributes
+    // Offset to payload_attributes list
     write_u32_le(&mut buf, fixed_size);
 
-    // Variable: payload_attributes as Union
-    match payload_attributes {
-        None => {
-            buf.push(0); // selector 0 = None
-        }
-        Some(pa) => {
-            buf.push(1); // selector 1 = present
-            encode_payload_attributes_into(&mut buf, pa);
-        }
+    // List[PayloadAttributes, 1]: empty for None, offset(4)+data for present
+    if let Some(pa) = payload_attributes {
+        // PayloadAttributes is variable-size, so the list uses a 4-byte item offset
+        write_u32_le(&mut buf, 4); // offset to element data (past the single offset)
+        encode_payload_attributes_into(&mut buf, pa);
     }
+    // If None, no list data (empty list)
 
     buf
 }
@@ -320,7 +301,7 @@ fn encode_payload_attributes_into(buf: &mut Vec<u8>, pa: &PayloadAttributes) {
 ///
 /// Variable:
 ///   - payload_status (same layout as PayloadStatus)
-///   - payload_id: Union[None, uint64] (selector byte + 8 bytes)
+///   - payload_id: List[Bytes8, 1] (0 bytes = absent, 8 bytes = present)
 pub fn decode_forkchoice_updated_response(
     buf: &[u8],
 ) -> Result<ForkchoiceUpdatedResponse, SszRestCodecError> {
@@ -344,27 +325,14 @@ pub fn decode_forkchoice_updated_response(
     let ps_data = &buf[ps_offset..pid_offset];
     let payload_status = decode_payload_status(ps_data)?;
 
+    // List[Bytes8, 1]: 0 bytes = absent, 8 bytes = present
     let pid_data = &buf[pid_offset..];
-    let payload_id = if pid_data.is_empty() {
-        None
+    let payload_id = if pid_data.len() == 8 {
+        let mut arr = [0u8; 8];
+        arr.copy_from_slice(pid_data);
+        Some(arr)
     } else {
-        let selector = pid_data[0];
-        match selector {
-            0 => None,
-            1 => {
-                if pid_data.len() < 9 {
-                    return Err(SszRestCodecError::BufferTooShort {
-                        expected: 9,
-                        actual: pid_data.len(),
-                    });
-                }
-                let id = read_u64_le(pid_data, 1)?;
-                let mut arr = [0u8; 8];
-                arr.copy_from_slice(&id.to_le_bytes());
-                Some(arr)
-            }
-            _ => return Err(SszRestCodecError::UnknownSelector(selector)),
-        }
+        None
     };
 
     Ok(ForkchoiceUpdatedResponse {

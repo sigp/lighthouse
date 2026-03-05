@@ -21,8 +21,6 @@ pub enum SszRestError {
     /// Network-level error (connection refused, timeout, DNS failure).
     /// These are suitable for fallback to JSON-RPC.
     Network(String),
-    /// The server returned an error response with a JSON body.
-    ServerError { code: i64, message: String },
     /// SSZ decoding/encoding error.
     Codec(SszRestCodecError),
     /// HTTP error that is not a network error (e.g., 401, 500).
@@ -37,9 +35,6 @@ impl std::fmt::Display for SszRestError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Network(msg) => write!(f, "SSZ-REST network error: {}", msg),
-            Self::ServerError { code, message } => {
-                write!(f, "SSZ-REST server error (code {}): {}", code, message)
-            }
             Self::Codec(e) => write!(f, "SSZ-REST codec error: {}", e),
             Self::Http { status, body } => {
                 write!(f, "SSZ-REST HTTP error (status {}): {}", status, body)
@@ -76,7 +71,6 @@ impl From<SszRestError> for Error {
     fn from(e: SszRestError) -> Self {
         match e {
             SszRestError::Network(msg) => Error::RequestFailed(format!("SSZ-REST: {}", msg)),
-            SszRestError::ServerError { code, message } => Error::ServerMessage { code, message },
             SszRestError::Codec(c) => Error::BadResponse(c.to_string()),
             SszRestError::Http { status, body } => {
                 Error::RequestFailed(format!("HTTP {}: {}", status, body))
