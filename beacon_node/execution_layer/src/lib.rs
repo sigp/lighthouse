@@ -467,8 +467,6 @@ pub struct Config {
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
     pub execution_timeout_multiplier: Option<u32>,
-    /// Optional SSZ-REST endpoint URL for EIP-8161 transport.
-    pub ssz_rest_url: Option<String>,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -493,7 +491,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             jwt_version,
             default_datadir,
             execution_timeout_multiplier,
-            ssz_rest_url,
         } = config;
 
         let execution_url = url.ok_or(Error::NoEngine)?;
@@ -534,11 +531,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
             let auth = Auth::new(jwt_key.clone(), jwt_id, jwt_version);
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let mut api =
-                HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
+                HttpJsonRpc::new_with_auth(execution_url.clone(), auth, execution_timeout_multiplier)
                     .map_err(Error::ApiError)?;
 
-            // Configure SSZ-REST client if URL is provided (EIP-8161)
-            if let Some(ref ssz_url) = ssz_rest_url {
+            // EIP-8161: Configure SSZ-REST client using the same execution URL.
+            // SSZ-REST routes are served on the same port under /engine/* paths.
+            {
+                let ssz_url = execution_url.to_string().trim_end_matches('/').to_string();
                 let ssz_auth = Auth::new(jwt_key, None, None);
                 match crate::engine_api::ssz_rest::SszRestClient::new(
                     ssz_url.clone(),
