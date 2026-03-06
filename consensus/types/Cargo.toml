@@ -22,7 +22,6 @@ arbitrary = [
     "ssz_types/arbitrary",
     "swap_or_not_shuffle/arbitrary",
 ]
-arbitrary-fuzz = ["arbitrary"]
 portable = ["bls/supranational-portable"]
 
 [dependencies]
