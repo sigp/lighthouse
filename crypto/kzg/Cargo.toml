@@ -5,10 +5,15 @@ authors = ["Pawan Dhananjay <pawandhananjay@gmail.com>"]
 edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+arbitrary = ["dep:arbitrary"]
+fake_crypto = []
+
 [dependencies]
-arbitrary = { workspace = true }
+arbitrary = { workspace = true, optional = true }
 c-kzg = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }

@@ -102,7 +102,7 @@ lack of historic states. _You do not need these states to run a staking node_, b
 for historical API calls (as used by block explorers and researchers).
 
 To run an archived node, you can opt-in to reconstructing all of the historic states by providing the
-`--reconstruct-historic-states` flag to the beacon node at any point (before, during or after sync).
+`--archive` flag to the beacon node at any point (before, during or after sync).
 
 The database keeps track of three markers to determine the availability of historic blocks and
 states:
@@ -160,7 +160,7 @@ curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/
 
 where `$SLOT` is the slot number. A slot which is an epoch boundary slot (i.e., first slot of an epoch) should always be used for manual checkpoint sync.
 
-If the block contains blobs, all state, block and blobs must be provided and must point to the same slot. The
+If the block contains blobs, all state, block and blobs must be provided and must point to the same slot (only applies for slots before Fulu). The
 state may be from the same slot as the block (unadvanced), or advanced to an epoch boundary,
 in which case it will be assumed to be finalized at that epoch.
 

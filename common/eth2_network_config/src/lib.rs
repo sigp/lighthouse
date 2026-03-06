@@ -133,6 +133,16 @@ impl Eth2NetworkConfig {
         self.genesis_state_source != GenesisStateSource::Unknown
     }
 
+    /// The `genesis_time` of the genesis state.
+    pub fn genesis_time<E: EthSpec>(&self) -> Result<Option<u64>, String> {
+        if let GenesisStateSource::Url { genesis_time, .. } = self.genesis_state_source {
+            Ok(Some(genesis_time))
+        } else {
+            self.get_genesis_state_from_bytes::<E>()
+                .map(|state| Some(state.genesis_time()))
+        }
+    }
+
     /// The `genesis_validators_root` of the genesis state.
     pub fn genesis_validators_root<E: EthSpec>(&self) -> Result<Option<Hash256>, String> {
         if let GenesisStateSource::Url {
@@ -464,9 +474,10 @@ fn parse_state_download_url(url: &str) -> Result<Url, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fixed_bytes::FixedBytesExtended;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, FixedBytesExtended, GnosisEthSpec, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 

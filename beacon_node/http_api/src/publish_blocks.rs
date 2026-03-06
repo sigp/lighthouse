@@ -16,23 +16,21 @@ use eth2::types::{
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
-use lighthouse_tracing::SPAN_PUBLISH_BLOCK;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
-use slot_clock::SlotClock;
+use reqwest::StatusCode;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{Span, debug, debug_span, error, info, instrument, warn};
+use tracing::{Span, debug, debug_span, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
     DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
     FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
-use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
 
 pub type UnverifiedBlobs<T> = Option<(
@@ -77,10 +75,10 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
 #[instrument(
-    name = SPAN_PUBLISH_BLOCK,
+    name = "lh_publish_block",
     level = "info",
     skip_all,
-    fields(?block_root, ?validation_level, provenance = tracing::field::Empty)
+    fields(block_root = field::Empty, ?validation_level, block_slot = field::Empty, provenance = field::Empty)
 )]
 pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     block_root: Option<Hash256>,
@@ -103,12 +101,16 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     } else {
         "builder"
     };
-    let current_span = Span::current();
-    current_span.record("provenance", provenance);
 
     let block = unverified_block.inner_block();
+    let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
-    debug!(slot = %block.slot(), "Signed block received in HTTP API");
+    let current_span = Span::current();
+    current_span.record("provenance", provenance);
+    current_span.record("block_root", field::display(block_root));
+    current_span.record("block_slot", field::display(block.slot()));
+
+    debug!("Signed block received in HTTP API");
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -132,9 +134,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             "Signed block published to network via HTTP API"
         );
 
-        crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone())).map_err(
-            |_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)),
-        )?;
+        crate::utils::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
+            .map_err(|_| {
+                BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
+            })?;
 
         Ok(())
     };
@@ -152,12 +155,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     // Gossip verify the block and blobs/data columns separately.
     let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
-    let block_root = block_root.unwrap_or_else(|| {
-        gossip_verified_block_result.as_ref().map_or_else(
-            |_| block.canonical_root(),
-            |verified_block| verified_block.block_root,
-        )
-    });
 
     let should_publish_block = gossip_verified_block_result.is_ok();
     if BroadcastValidation::Gossip == validation_level && should_publish_block {
@@ -304,20 +301,29 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                         message: "duplicate block".to_string(),
                         stacktraces: vec![],
                     }),
-                    duplicate_status_code,
+                    warp_utils::status_code::convert(duplicate_status_code)?,
                 )
                 .into_response())
             }
         }
-        Err(BlockError::DuplicateImportStatusUnknown(root)) => {
+        Err(BlockError::DuplicateImportStatusUnknown(_)) => {
             debug!(
-                block_root = ?root,
                 slot = %block.slot(),
                 "Block previously seen"
             );
+            let Ok(rpc_block) = RpcBlock::new(
+                block.clone(),
+                None,
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            ) else {
+                return Err(warp_utils::reject::custom_bad_request(
+                    "Unable to construct rpc block".to_string(),
+                ));
+            };
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
@@ -493,7 +499,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
     blob: &GossipVerifiedBlob<T>,
 ) -> Result<(), BlockError> {
     let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
-    crate::publish_pubsub_message(sender_clone, pubsub_message)
+    crate::utils::publish_pubsub_message(sender_clone, pubsub_message)
         .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
@@ -515,18 +521,18 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         data_column_sidecars.shuffle(&mut **chain.rng.lock());
         let dropped_indices = data_column_sidecars
             .drain(columns_to_keep..)
-            .map(|d| d.index)
+            .map(|d| *d.index())
             .collect::<Vec<_>>();
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
     let pubsub_messages = data_column_sidecars
         .into_iter()
         .map(|data_col| {
-            let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
+            let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
             PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col)))
         })
         .collect::<Vec<_>>();
-    crate::publish_pubsub_messages(sender_clone, pubsub_messages)
+    crate::utils::publish_pubsub_messages(sender_clone, pubsub_messages)
         .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
@@ -762,7 +768,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     //
     // Check to see the thresholds are non-zero to avoid logging errors with small
     // slot times (e.g., during testing)
-    let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
+    let too_late_threshold = chain.spec.get_unaggregated_attestation_due();
     let delayed_threshold = too_late_threshold / 2;
     if delay >= too_late_threshold {
         error!(

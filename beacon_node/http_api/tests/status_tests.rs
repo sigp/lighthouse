@@ -3,31 +3,26 @@ use beacon_chain::{
     BlockError,
     test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
 };
-use eth2::StatusCode;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
+use reqwest::StatusCode;
 use types::{EthSpec, ExecPayload, ForkName, MinimalEthSpec, Slot, Uint256};
 
 type E = MinimalEthSpec;
 
 /// Create a new test environment that is post-merge with `chain_depth` blocks.
 async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
-    // Test using latest fork so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    // TODO(EIP-7732): extend tests for Gloas by reverting back to using `ForkName::latest()`
+    // Issue is that these tests do block production via `extend_chain_with_sync` which expects to be able to use `state.latest_execution_payload_header` during block production, but Gloas uses `latest_execution_bid` instead
+    // This will be resolved in a subsequent block processing PR
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = Uint256::from(1);
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count as usize).await;
     let harness = &tester.harness;
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
-    let execution_ctx = mock_el.server.ctx.clone();
 
-    // Move to terminal block.
     mock_el.server.all_payloads_valid();
-    execution_ctx
-        .execution_block_generator
-        .write()
-        .move_to_terminal_block()
-        .unwrap();
 
     // Create some chain depth.
     harness.advance_slot();

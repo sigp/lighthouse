@@ -1,4 +1,4 @@
-use derivative::Derivative;
+use educe::Educe;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -8,14 +8,16 @@ use crate::block_verification::{
     BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::observed_data_sidecars::{ObservationStrategy, Observe};
+use crate::observed_data_sidecars::{
+    Error as ObservedDataSidecarsError, ObservationStrategy, Observe,
+};
 use crate::{BeaconChainError, metrics};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
 use std::time::Duration;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
-use types::blob_sidecar::BlobIdentifier;
+use types::data::BlobIdentifier;
 use types::{
     BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
 };
@@ -245,8 +247,8 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedBlob<T, O> {
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
 /// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, Educe, Clone, Encode, Decode)]
+#[educe(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedBlob<E: EthSpec> {
     blob: Arc<BlobSidecar<E>>,
@@ -451,8 +453,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     if chain
         .observed_blob_sidecars
         .read()
-        .proposer_is_known(&blob_sidecar)
+        .observation_key_is_known(&blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
+        .is_some()
     {
         return Err(GossipBlobError::RepeatBlob {
             proposer: blob_proposer_index,
@@ -593,7 +596,10 @@ pub fn observe_gossip_blob<T: BeaconChainTypes>(
         .observed_blob_sidecars
         .write()
         .observe_sidecar(blob_sidecar)
-        .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
+        .map_err(|e: ObservedDataSidecarsError| {
+            GossipBlobError::BeaconChainError(Box::new(e.into()))
+        })?
+        .is_some()
     {
         return Err(GossipBlobError::RepeatBlob {
             proposer: blob_sidecar.block_proposer_index(),

@@ -1,13 +1,15 @@
+use bls::{PublicKeyBytes, Signature};
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use slashing_protection::NotSafe;
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec, Graffiti, Hash256,
-    PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedValidatorRegistrationData, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, Graffiti, Hash256, SelectionProof, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -18,9 +20,9 @@ pub enum Error<T> {
     Slashable(NotSafe),
     SameData,
     GreaterThanCurrentSlot { slot: Slot, current_slot: Slot },
-    GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
     UnableToSignAttestation(AttestationError),
     SpecificError(T),
+    ExecutorError,
     Middleware(String),
 }
 
@@ -102,13 +104,24 @@ pub trait ValidatorStore: Send + Sync {
         current_slot: Slot,
     ) -> impl Future<Output = Result<SignedBlock<Self::E>, Error<Self::Error>>> + Send;
 
-    fn sign_attestation(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        validator_committee_position: usize,
-        attestation: &mut Attestation<Self::E>,
-        current_epoch: Epoch,
-    ) -> impl Future<Output = Result<(), Error<Self::Error>>> + Send;
+    /// Sign a batch of `attestations` and apply slashing protection to them.
+    ///
+    /// Only successfully signed attestations that pass slashing protection are returned, along with
+    /// the validator index of the signer. Eventually this will be replaced by `SingleAttestation`
+    /// use.
+    ///
+    /// Input:
+    ///
+    /// * Vec of (validator_index, pubkey, validator_committee_index, attestation).
+    ///
+    /// Output:
+    ///
+    /// * Vec of (validator_index, signed_attestation).
+    #[allow(clippy::type_complexity)]
+    fn sign_attestations(
+        self: &Arc<Self>,
+        attestations: Vec<(u64, PublicKeyBytes, usize, Attestation<Self::E>)>,
+    ) -> impl Future<Output = Result<Vec<(u64, Attestation<Self::E>)>, Error<Self::Error>>> + Send;
 
     fn sign_validator_registration_data(
         &self,
@@ -165,6 +178,13 @@ pub trait ValidatorStore: Send + Sync {
     /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
     /// runs.
     fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool);
+
+    /// Sign an `ExecutionPayloadEnvelope` for Gloas.
+    fn sign_execution_payload_envelope(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        envelope: ExecutionPayloadEnvelope<Self::E>,
+    ) -> impl Future<Output = Result<SignedExecutionPayloadEnvelope<Self::E>, Error<Self::Error>>> + Send;
 
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,

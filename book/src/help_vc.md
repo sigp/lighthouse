@@ -185,6 +185,12 @@ Flags:
           If present, do not attempt to discover new validators in the
           validators-dir. Validators will need to be manually added to the
           validator_definitions.yml file.
+      --disable-beacon-head-monitor
+          Disable the beacon head monitor which tries to attest as soon as any
+          of the configured beacon nodes sends a head event. Leaving the service
+          enabled is recommended, but disabling it can lead to reduced bandwidth
+          and more predictable usage of the primary beacon node (rather than the
+          fastest BN).
       --disable-latency-measurement-service
           Disables the service that periodically attempts to measure latency to
           BNs.
@@ -221,6 +227,10 @@ Flags:
           automatically enabled for <= 64 validators. Enabling this metric for
           higher validator counts will lead to higher volume of prometheus
           metrics being collected.
+      --graffiti-append
+          When used, client version info will be prepended to user custom
+          graffiti, with a space in between. This should only be used with a
+          Lighthouse beacon node.
   -h, --help
           Prints help information
       --http

@@ -1,3 +1,4 @@
+use bls::PublicKeyBytes;
 use eth2::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use std::fs;
@@ -15,6 +16,7 @@ use validator_manager::{
     list_validators::ListConfig,
     move_validators::{MoveConfig, PasswordSource, Validators},
 };
+use zeroize::Zeroizing;
 
 const EXAMPLE_ETH1_ADDRESS: &str = "0x00000000219ab540356cBB839Cbe05303d7705Fa";
 
@@ -280,10 +282,74 @@ pub fn validator_import_using_both_file_flags() {
 }
 
 #[test]
+pub fn validator_import_keystore_file_without_password_flag_should_fail() {
+    CommandLineTest::validators_import()
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--keystore-file", Some("./keystore.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_import_keystore_file_with_password_flag_should_pass() {
+    CommandLineTest::validators_import()
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--keystore-file", Some("./keystore.json"))
+        .flag("--password", Some("abcd"))
+        .assert_success(|config| {
+            let expected = ImportConfig {
+                validators_file_path: None,
+                keystore_file_path: Some(PathBuf::from("./keystore.json")),
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                ignore_duplicates: false,
+                password: Some(Zeroizing::new("abcd".into())),
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
+            };
+            assert_eq!(expected, config);
+            println!("{:?}", expected);
+        });
+}
+
+#[test]
 pub fn validator_import_missing_both_file_flags() {
     CommandLineTest::validators_import()
         .flag("--vc-token", Some("./token.json"))
         .assert_failed();
+}
+
+#[test]
+pub fn validator_import_fee_recipient_override() {
+    CommandLineTest::validators_import()
+        .flag("--validators-file", Some("./vals.json"))
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
+        .flag("--gas-limit", Some("1337"))
+        .flag("--builder-proposals", Some("true"))
+        .flag("--builder-boost-factor", Some("150"))
+        .flag("--prefer-builder-proposals", Some("true"))
+        .flag("--enabled", Some("false"))
+        .assert_success(|config| {
+            let expected = ImportConfig {
+                validators_file_path: Some(PathBuf::from("./vals.json")),
+                keystore_file_path: None,
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                ignore_duplicates: false,
+                password: None,
+                fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
+                builder_boost_factor: Some(150),
+                gas_limit: Some(1337),
+                builder_proposals: Some(true),
+                enabled: Some(false),
+                prefer_builder_proposals: Some(true),
+            };
+            assert_eq!(expected, config);
+        });
 }
 
 #[test]

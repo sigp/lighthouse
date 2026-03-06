@@ -6,9 +6,10 @@ edition = { workspace = true }
 
 [dependencies]
 account_utils = { workspace = true }
+bls = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
@@ -28,4 +29,4 @@ beacon_chain = { workspace = true }
 http_api = { workspace = true }
 regex = { workspace = true }
 tempfile = { workspace = true }
-validator_http_api = { workspace = true }
+validator_http_api = { workspace = true, features = ["testing"] }

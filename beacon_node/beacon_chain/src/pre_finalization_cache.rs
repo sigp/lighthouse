@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 use tracing::debug;
 use types::Hash256;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 
 const BLOCK_ROOT_CACHE_LIMIT: NonZeroUsize = new_non_zero_usize(512);
 const LOOKUP_LIMIT: NonZeroUsize = new_non_zero_usize(8);

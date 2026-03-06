@@ -21,6 +21,8 @@ jemalloc-profiling = ["tikv-jemallocator/profiling"]
 # Force the use of system malloc (or glibc) rather than jemalloc.
 # This is a no-op on Windows where jemalloc is always disabled.
 sysmalloc = []
+# Enable jemalloc with unprefixed malloc (recommended for reproducible builds)
+jemalloc-unprefixed = ["jemalloc", "tikv-jemallocator/unprefixed_malloc_on_supported_platforms"]
 
 [dependencies]
 libc = "0.2.79"
@@ -33,7 +35,4 @@ tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats"] }
 
 # Jemalloc's background_threads feature requires Linux (pthreads).
 [target.'cfg(target_os = "linux")'.dependencies]
-tikv-jemallocator = { version = "0.6.0", optional = true, features = [
-    "stats",
-    "background_threads",
-] }
+tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats", "background_threads"] }
