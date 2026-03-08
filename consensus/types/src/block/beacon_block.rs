@@ -4,6 +4,7 @@ use bls::{AggregateSignature, PublicKeyBytes, SecretKey, Signature, SignatureByt
 use context_deserialize::ContextDeserialize;
 use educe::Educe;
 use fixed_bytes::FixedBytesExtended;
+use kzg::KzgCommitment;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -844,11 +845,22 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockGloas<E, Payload> {
                 .push(signed_bls_to_execution_change.clone())
                 .unwrap();
         }
+
         for _ in 0..E::MaxPayloadAttestations::to_usize() {
             block
                 .body
                 .payload_attestations
                 .push(payload_attestation.clone())
+                .unwrap();
+        }
+
+        for _ in 0..E::MaxBlobCommitmentsPerBlock::to_usize() {
+            block
+                .body
+                .signed_execution_payload_bid
+                .message
+                .blob_kzg_commitments
+                .push(KzgCommitment::empty_for_testing())
                 .unwrap();
         }
 
