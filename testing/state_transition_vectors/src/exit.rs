@@ -1,4 +1,5 @@
 use super::*;
+use beacon_chain::test_utils::test_spec;
 use state_processing::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
     per_block_processing, per_block_processing::errors::ExitInvalid,
@@ -70,13 +71,13 @@ impl ExitTest {
             BlockSignatureStrategy::VerifyIndividual,
             VerifyBlockRoot::True,
             &mut ctxt,
-            &E::default_spec(),
+            &test_spec::<E>(),
         )
     }
 
     #[cfg(all(test, not(debug_assertions)))]
     async fn run(self) -> BeaconState<E> {
-        let spec = &E::default_spec();
+        let spec = &test_spec::<E>();
         let expected = self.expected.clone();
         assert_eq!(STATE_EPOCH, spec.shard_committee_period);
 

@@ -319,6 +319,14 @@ pub fn is_compounding_withdrawal_credential(
         .unwrap_or(false)
 }
 
+pub fn is_builder_withdrawal_credential(withdrawal_credentials: Hash256, spec: &ChainSpec) -> bool {
+    withdrawal_credentials
+        .as_slice()
+        .first()
+        .map(|prefix_byte| *prefix_byte == spec.builder_withdrawal_prefix_byte)
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -33,9 +33,7 @@ pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::net::IpAddr;
 use strum::IntoEnumIterator;
-use types::data_column_custody_group::{
-    CustodyIndex, compute_subnets_from_custody_group, get_custody_groups,
-};
+use types::data::{CustodyIndex, compute_subnets_from_custody_group, get_custody_groups};
 
 /// Unified peer subnet information structure for pruning logic.
 struct PeerSubnetInfo<E: EthSpec> {

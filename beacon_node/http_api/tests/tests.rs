@@ -6,15 +6,15 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
 };
-use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
+use bls::{AggregateSignature, Keypair, PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use eth2::{
     BeaconNodeHttpClient, Error,
     Error::ServerMessage,
-    StatusCode, Timeouts,
+    Timeouts,
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
-    reqwest::{RequestBuilder, Response},
     types::{
-        BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
+        BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, ProduceBlockV4Metadata,
+        StateId as CoreStateId, *,
     },
 };
 use execution_layer::expected_gas_limit;
@@ -34,6 +34,7 @@ use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
+use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::BitList;
@@ -44,15 +45,16 @@ use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
-use types::application_domain::ApplicationDomain;
+use types::ApplicationDomain;
 use types::{
     Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
-    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
+    SignedExecutionPayloadEnvelope, SignedRoot, SingleAttestation, Slot,
+    attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 type E = MainnetEthSpec;
 
-const SECONDS_PER_SLOT: u64 = 12;
+const SLOT_DURATION_MS: u64 = 12_000;
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
@@ -135,7 +137,7 @@ impl ApiTester {
         let mut harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
             .chain_config(ChainConfig {
-                reconstruct_historic_states: config.retain_historic_states,
+                archive: config.retain_historic_states,
                 ..ChainConfig::default()
             })
             .deterministic_keypairs(VALIDATOR_COUNT)
@@ -144,15 +146,6 @@ impl ApiTester {
             .mock_execution_layer()
             .node_custody_type(config.node_custody_type)
             .build();
-
-        harness
-            .mock_execution_layer
-            .as_ref()
-            .unwrap()
-            .server
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
 
         harness.advance_slot();
 
@@ -323,7 +316,7 @@ impl ApiTester {
 
         let client = BeaconNodeHttpClient::new(
             beacon_url,
-            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+            Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
         );
 
         Self {
@@ -411,7 +404,7 @@ impl ApiTester {
                 listening_socket.port()
             ))
             .unwrap(),
-            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+            Timeouts::set_all(Duration::from_millis(SLOT_DURATION_MS)),
         );
 
         Self {
@@ -1970,8 +1963,8 @@ impl ApiTester {
             .await
         {
             Ok(result) => panic!("Full node are unable to return blobs post-Fulu: {result:?}"),
-            // Post-Fulu, full nodes don't store blobs and return error 500
-            Err(e) => assert_eq!(e.status().unwrap(), 500),
+            // Post-Fulu, full nodes don't store blobs and return error 400 (Bad Request)
+            Err(e) => assert_eq!(e.status().unwrap(), 400),
         };
 
         self
@@ -2855,19 +2848,9 @@ impl ApiTester {
 
         let expected = IdentityData {
             peer_id: self.local_enr.peer_id().to_string(),
-            enr: self.local_enr.to_base64(),
-            p2p_addresses: self
-                .local_enr
-                .multiaddr_p2p_tcp()
-                .iter()
-                .map(|a| a.to_string())
-                .collect(),
-            discovery_addresses: self
-                .local_enr
-                .multiaddr_p2p_udp()
-                .iter()
-                .map(|a| a.to_string())
-                .collect(),
+            enr: self.local_enr.clone(),
+            p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
+            discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
             metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
@@ -2896,7 +2879,7 @@ impl ApiTester {
     pub async fn test_get_node_peers_by_id(self) -> Self {
         let result = self
             .client
-            .get_node_peers_by_id(&self.external_peer_id.to_string())
+            .get_node_peers_by_id(self.external_peer_id)
             .await
             .unwrap()
             .data;
@@ -3731,6 +3714,229 @@ impl ApiTester {
                     self.chain.slot_clock.set_slot(slot.as_u64() + 1);
                 }
             }
+        }
+
+        self
+    }
+
+    /// Get the proposer secret key and randao reveal for the given slot.
+    async fn proposer_setup(
+        &self,
+        slot: Slot,
+        epoch: Epoch,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+    ) -> (SecretKey, SignatureBytes) {
+        let proposer_pubkey_bytes = self
+            .client
+            .get_validator_duties_proposer(epoch)
+            .await
+            .unwrap()
+            .data
+            .into_iter()
+            .find(|duty| duty.slot == slot)
+            .map(|duty| duty.pubkey)
+            .unwrap();
+        let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+        let sk = self
+            .validator_keypairs()
+            .iter()
+            .find(|kp| kp.pk == proposer_pubkey)
+            .map(|kp| kp.sk.clone())
+            .unwrap();
+
+        let randao_reveal = {
+            let domain =
+                self.chain
+                    .spec
+                    .get_domain(epoch, Domain::Randao, fork, genesis_validators_root);
+            let message = epoch.signing_root(domain);
+            sk.sign(message).into()
+        };
+
+        (sk, randao_reveal)
+    }
+
+    /// Assert block metadata and verify the envelope cache.
+    fn assert_v4_block_metadata(
+        &self,
+        block: &BeaconBlock<E>,
+        metadata: &ProduceBlockV4Metadata,
+        slot: Slot,
+    ) {
+        assert_eq!(
+            metadata.consensus_version,
+            block.to_ref().fork_name(&self.chain.spec).unwrap()
+        );
+        assert!(!metadata.consensus_block_value.is_zero());
+
+        let block_root = block.tree_hash_root();
+        let envelope = self
+            .chain
+            .pending_payload_envelopes
+            .read()
+            .get(slot)
+            .cloned()
+            .expect("envelope should exist in pending cache for local building");
+        assert_eq!(envelope.beacon_block_root, block_root);
+        assert_eq!(envelope.slot, slot);
+    }
+
+    /// Assert envelope fields match the expected block root and slot.
+    fn assert_envelope_fields(
+        &self,
+        envelope: &ExecutionPayloadEnvelope<E>,
+        block_root: Hash256,
+        slot: Slot,
+    ) {
+        assert_eq!(envelope.beacon_block_root, block_root);
+        assert_eq!(envelope.slot, slot);
+        assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
+        assert_ne!(envelope.state_root, Hash256::ZERO);
+    }
+
+    /// Sign an execution payload envelope.
+    fn sign_envelope(
+        &self,
+        envelope: ExecutionPayloadEnvelope<E>,
+        sk: &SecretKey,
+        epoch: Epoch,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+    ) -> SignedExecutionPayloadEnvelope<E> {
+        let domain =
+            self.chain
+                .spec
+                .get_domain(epoch, Domain::BeaconBuilder, fork, genesis_validators_root);
+        let signing_root = envelope.signing_root(domain);
+        let signature = sk.sign(signing_root);
+
+        SignedExecutionPayloadEnvelope {
+            message: envelope,
+            signature,
+        }
+    }
+
+    /// Test V4 block production (JSON). Only runs if Gloas is scheduled.
+    pub async fn test_block_production_v4(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
+
+            let (response, metadata) = self
+                .client
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None)
+                .await
+                .unwrap();
+            let block = response.data;
+
+            self.assert_v4_block_metadata(&block, &metadata, slot);
+
+            let envelope = self
+                .client
+                .get_validator_execution_payload_envelope::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .await
+                .unwrap()
+                .data;
+
+            self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
+            self.client
+                .post_beacon_blocks_v2(&signed_block_request, None)
+                .await
+                .unwrap();
+            assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
+
+            let signed_envelope =
+                self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+            self.client
+                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .await
+                .unwrap();
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    /// Test V4 block production (SSZ). Only runs if Gloas is scheduled.
+    pub async fn test_block_production_v4_ssz(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
+
+            let (block, metadata) = self
+                .client
+                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, None, None)
+                .await
+                .unwrap();
+
+            self.assert_v4_block_metadata(&block, &metadata, slot);
+
+            let envelope = self
+                .client
+                .get_validator_execution_payload_envelope_ssz::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .await
+                .unwrap();
+
+            self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
+            self.client
+                .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                .await
+                .unwrap();
+            assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
+
+            let signed_envelope =
+                self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+            self.client
+                .post_beacon_execution_payload_envelope_ssz(&signed_envelope, fork_name)
+                .await
+                .unwrap();
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
         self
@@ -6539,8 +6745,13 @@ impl ApiTester {
             block_events.as_slice(),
             &[
                 expected_gossip,
-                expected_block,
+                // SSE `Head`` event is now emitted before `Block` event, because we only emit the block event
+                // after it's persisted to the database. We could consider changing this later, but
+                // we might have to serve http API requests for blocks from early_attester_cache
+                // before they're persisted to the database.
+                // https://github.com/sigp/lighthouse/pull/8718#issuecomment-3815593310
                 expected_head,
+                expected_block,
                 expected_finalized
             ]
         );
@@ -6655,7 +6866,8 @@ impl ApiTester {
         }
         let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec)
             .unwrap()
-            .0;
+            .withdrawals()
+            .to_vec();
 
         // fetch expected withdrawals from the client
         let result = self.client.get_expected_withdrawals(&state_id).await;
@@ -6663,7 +6875,7 @@ impl ApiTester {
             Ok(withdrawal_response) => {
                 assert_eq!(withdrawal_response.execution_optimistic, Some(false));
                 assert_eq!(withdrawal_response.finalized, Some(false));
-                assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
+                assert_eq!(withdrawal_response.data, expected_withdrawals);
             }
             Err(_) => {
                 panic!("query failed incorrectly");
@@ -6797,7 +7009,12 @@ impl ApiTester {
             .unwrap();
 
         let block_events = poll_events(&mut events_future, 2, Duration::from_millis(10000)).await;
-        assert_eq!(block_events.as_slice(), &[expected_block, expected_head]);
+        // SSE `Head`` event is now emitted before `Block` event, because we only emit the block event
+        // after it's persisted to the database. We could consider changing this later, but
+        // we might have to serve http API requests for blocks from early_attester_cache
+        // before they're persisted to the database.
+        // https://github.com/sigp/lighthouse/pull/8718#issuecomment-3815593310
+        assert_eq!(block_events.as_slice(), &[expected_head, expected_block]);
 
         self
     }
@@ -7455,6 +7672,22 @@ async fn block_production_v3_ssz_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production_v3_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v4() {
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_block_production_v4()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v4_ssz() {
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_block_production_v4_ssz()
         .await;
 }
 

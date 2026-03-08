@@ -1,3 +1,6 @@
+#[cfg(feature = "testing")]
+pub mod test_utils;
+
 mod api_secret;
 mod create_signed_voluntary_exit;
 mod create_validator;
@@ -6,7 +9,6 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
-pub mod test_utils;
 pub use api_secret::PK_FILENAME;
 
 use graffiti::{delete_graffiti, get_graffiti, set_graffiti};

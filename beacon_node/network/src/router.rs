@@ -486,6 +486,49 @@ impl<T: BeaconChainTypes> Router<T> {
                             bls_to_execution_change,
                         ),
                 ),
+            PubsubMessage::ExecutionPayload(signed_execution_payload_envelope) => {
+                trace!(%peer_id, "Received a signed execution payload envelope");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_payload(
+                        message_id,
+                        peer_id,
+                        signed_execution_payload_envelope,
+                    ),
+                )
+            }
+            PubsubMessage::PayloadAttestation(payload_attestation_message) => {
+                trace!(%peer_id, "Received a payload attestation message");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_payload_attestation(
+                            message_id,
+                            peer_id,
+                            payload_attestation_message,
+                        ),
+                )
+            }
+            PubsubMessage::ExecutionPayloadBid(execution_payload_bid) => {
+                trace!(%peer_id, "Received a signed execution payload bid");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_execution_payload_bid(
+                            message_id,
+                            peer_id,
+                            execution_payload_bid,
+                        ),
+                )
+            }
+            PubsubMessage::ProposerPreferences(proposer_preferences) => {
+                trace!(%peer_id, "Received signed proposer preferences");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_proposer_preferences(
+                            message_id,
+                            peer_id,
+                            proposer_preferences,
+                        ),
+                )
+            }
         }
     }
 
