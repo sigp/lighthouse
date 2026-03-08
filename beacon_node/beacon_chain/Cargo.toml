@@ -50,6 +50,7 @@ parking_lot = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
+reth-era = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
@@ -79,6 +80,7 @@ maplit = { workspace = true }
 mockall = { workspace = true }
 mockall_double = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 
 [[bench]]
 name = "benches"

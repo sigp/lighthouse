@@ -2076,6 +2076,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    /// Store a pre-finalization state in the freezer database, applying ops atomically.
+    pub fn put_cold_state(
+        &self,
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+        self.store_cold_state(state_root, state, &mut ops)?;
+        self.cold_db.do_atomically(ops)
+    }
+
     /// Store a pre-finalization state in the freezer database.
     pub fn store_cold_state(
         &self,
