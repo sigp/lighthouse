@@ -21,6 +21,7 @@ pub mod data_availability_checker;
 pub mod data_column_verification;
 mod early_attester_cache;
 pub mod envelope_times_cache;
+pub mod era;
 mod errors;
 pub mod events;
 pub mod execution_payload;

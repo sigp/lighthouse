@@ -1,0 +1,186 @@
+# This file should contain the origin run-time config for the minimal
+# network [1] without all properties overriden in the local network
+# simulation. We use to generate a full run-time config as required
+# by third-party binaries, such as Lighthouse and Web3Signer.
+#
+# [1]: https://raw.githubusercontent.com/ethereum/consensus-specs/dev/configs/minimal.yaml
+
+# Minimal config
+
+# Extends the minimal preset
+# (overriden in launch_local_testnet.sh) PRESET_BASE: 'minimal'
+
+# Free-form short name of the network that this configuration applies to - known
+# canonical network names include:
+# * 'mainnet' - there can be only one
+# * 'prater' - testnet
+# Must match the regex: [a-z0-9\-]
+CONFIG_NAME: 'minimal'
+
+# Transition
+# ---------------------------------------------------------------
+# 2**256-2**10 for testing minimal network
+# (overriden in launch_local_testnet.sh) TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638912
+# By default, don't use these params
+TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000000
+TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
+
+
+
+# Genesis
+# ---------------------------------------------------------------
+# [customized]
+# (overriden in launch_local_testnet.sh) MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 64
+# Jan 3, 2020
+# (overriden in launch_local_testnet.sh) MIN_GENESIS_TIME: 1578009600
+# Highest byte set to 0x01 to avoid collisions with mainnet versioning
+GENESIS_FORK_VERSION: 0x00000001
+# [customized] Faster to spin up testnets, but does not give validator reasonable warning time for genesis
+# (overriden in launch_local_testnet.sh) GENESIS_DELAY: 300
+
+
+# Forking
+# ---------------------------------------------------------------
+# Values provided for illustrative purposes.
+# Individual tests/testnets may set different values.
+
+# Altair
+ALTAIR_FORK_VERSION: 0x01000001
+# (overriden in launch_local_testnet.sh) ALTAIR_FORK_EPOCH: 18446744073709551615
+# Bellatrix
+BELLATRIX_FORK_VERSION: 0x02000001
+# (overriden in launch_local_testnet.sh) BELLATRIX_FORK_EPOCH: 18446744073709551615
+# Capella
+CAPELLA_FORK_VERSION: 0x03000001
+# (overriden in launch_local_testnet.sh) CAPELLA_FORK_EPOCH: 18446744073709551615
+# Deneb
+DENEB_FORK_VERSION: 0x04000001
+# (overriden in launch_local_testnet.sh) DENEB_FORK_EPOCH: 18446744073709551615
+# Electra
+ELECTRA_FORK_VERSION: 0x05000001
+# (overriden in launch_local_testnet.sh) ELECTRA_FORK_EPOCH: 18446744073709551615
+# Fulu
+FULU_FORK_VERSION: 0x06000001
+# (overriden in launch_local_testnet.sh) FULU_FORK_EPOCH: 18446744073709551615
+
+# Time parameters
+# ---------------------------------------------------------------
+# [customized] Faster for testing purposes
+SECONDS_PER_SLOT: 6
+# 14 (estimate from Eth1 mainnet)
+SECONDS_PER_ETH1_BLOCK: 14
+# 2**8 (= 256) epochs
+MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+# [customized] higher frequency of committee turnover and faster time to acceptable voluntary exit
+SHARD_COMMITTEE_PERIOD: 64
+# [customized] process deposits more quickly, but insecure
+# (overriden in launch_local_testnet.sh) ETH1_FOLLOW_DISTANCE: 16
+
+
+# Validator cycle
+# ---------------------------------------------------------------
+# 2**2 (= 4)
+INACTIVITY_SCORE_BIAS: 4
+# 2**4 (= 16)
+INACTIVITY_SCORE_RECOVERY_RATE: 16
+# 2**4 * 10**9 (= 16,000,000,000) Gwei
+EJECTION_BALANCE: 16000000000
+# [customized] more easily demonstrate the difference between this value and the activation churn limit
+MIN_PER_EPOCH_CHURN_LIMIT: 2
+# [customized] scale queue churn at much lower validator counts for testing
+CHURN_LIMIT_QUOTIENT: 32
+# [New in Deneb:EIP7514] [customized]
+MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 4
+
+
+# Fork choice
+# ---------------------------------------------------------------
+# 40%
+PROPOSER_SCORE_BOOST: 40
+# 20%
+REORG_HEAD_WEIGHT_THRESHOLD: 20
+# 160%
+REORG_PARENT_WEIGHT_THRESHOLD: 160
+# `2` epochs
+REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+
+
+# Deposit contract
+# ---------------------------------------------------------------
+# Ethereum Goerli testnet
+DEPOSIT_CHAIN_ID: 5
+DEPOSIT_NETWORK_ID: 5
+# Configured on a per testnet basis
+# (overriden in launch_local_testnet.sh) DEPOSIT_CONTRACT_ADDRESS: 0x1234567890123456789012345678901234567890
+
+
+# Networking
+# ---------------------------------------------------------------
+# `10 * 2**20` (= 10485760, 10 MiB)
+MAX_PAYLOAD_SIZE: 10485760
+# `2**10` (= 1024)
+MAX_REQUEST_BLOCKS: 1024
+# `2**8` (= 256)
+EPOCHS_PER_SUBNET_SUBSCRIPTION: 256
+# [customized] `MIN_VALIDATOR_WITHDRAWABILITY_DELAY + CHURN_LIMIT_QUOTIENT // 2` (= 272)
+MIN_EPOCHS_FOR_BLOCK_REQUESTS: 272
+ATTESTATION_PROPAGATION_SLOT_RANGE: 32
+# 500ms
+MAXIMUM_GOSSIP_CLOCK_DISPARITY: 500
+MESSAGE_DOMAIN_INVALID_SNAPPY: 0x00000000
+MESSAGE_DOMAIN_VALID_SNAPPY: 0x01000000
+# 2 subnets per node
+SUBNETS_PER_NODE: 2
+# 2**8 (= 64)
+ATTESTATION_SUBNET_COUNT: 64
+ATTESTATION_SUBNET_EXTRA_BITS: 0
+# ceillog2(ATTESTATION_SUBNET_COUNT) + ATTESTATION_SUBNET_EXTRA_BITS
+ATTESTATION_SUBNET_PREFIX_BITS: 6
+
+# Deneb
+# `2**7` (=128)
+MAX_REQUEST_BLOCKS_DENEB: 128
+# `2**12` (= 4096 epochs, ~18 days)
+MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: 4096
+# `6`
+BLOB_SIDECAR_SUBNET_COUNT: 6
+## `uint64(6)`
+MAX_BLOBS_PER_BLOCK: 6
+# MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK
+MAX_REQUEST_BLOB_SIDECARS: 768
+
+# Electra
+# [customized] 2**6 * 10**9 (= 64,000,000,000)
+MIN_PER_EPOCH_CHURN_LIMIT_ELECTRA: 64000000000
+# [customized] 2**7 * 10**9 (= 128,000,000,000)
+MAX_PER_EPOCH_ACTIVATION_EXIT_CHURN_LIMIT: 128000000000
+# `9`
+BLOB_SIDECAR_SUBNET_COUNT_ELECTRA: 9
+# `uint64(9)`
+MAX_BLOBS_PER_BLOCK_ELECTRA: 9
+# MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK_ELECTRA
+MAX_REQUEST_BLOB_SIDECARS_ELECTRA: 1152
+
+# Fulu
+NUMBER_OF_COLUMNS: 128
+NUMBER_OF_CUSTODY_GROUPS: 128
+DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
+MAX_REQUEST_DATA_COLUMN_SIDECARS: 16384
+SAMPLES_PER_SLOT: 8
+CUSTODY_REQUIREMENT: 4
+VALIDATOR_CUSTODY_REQUIREMENT: 8
+BALANCE_PER_ADDITIONAL_CUSTODY_GROUP: 32000000000
+MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS: 4096
+PRESET_BASE: minimal
+MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 1024
+MIN_GENESIS_TIME: 0
+GENESIS_DELAY: 10
+DEPOSIT_CONTRACT_ADDRESS: 0x4242424242424242424242424242424242424242
+ETH1_FOLLOW_DISTANCE: 1
+ALTAIR_FORK_EPOCH: 0
+BELLATRIX_FORK_EPOCH: 0
+CAPELLA_FORK_EPOCH: 0
+DENEB_FORK_EPOCH: 0
+ELECTRA_FORK_EPOCH: 0
+FULU_FORK_EPOCH: 100000
+TERMINAL_TOTAL_DIFFICULTY: 0

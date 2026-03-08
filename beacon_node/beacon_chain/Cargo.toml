@@ -52,6 +52,7 @@ parking_lot = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
+reth-era = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
@@ -85,6 +86,7 @@ mockall_double = { workspace = true }
 rand_xorshift = { workspace = true }
 serde_json = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }
+yaml_serde = { workspace = true }
 
 [[bench]]
 name = "benches"
