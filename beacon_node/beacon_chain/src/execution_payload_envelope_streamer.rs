@@ -6,7 +6,7 @@ use futures::Stream;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::debug;
+use tracing::{debug, warn};
 use types::{EthSpec, SignedExecutionPayloadEnvelope};
 
 use crate::{BeaconChainError, BeaconChainTypes, BeaconStore, beacon_block_streamer::CheckCaches};
@@ -98,6 +98,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         let results = match self.load_envelopes(&beacon_block_roots).await {
             Ok(results) => results,
             Err(e) => {
+                warn!(error = ?e, "Failed to load payload envelopes");
                 send_errors(beacon_block_roots, sender, e).await;
                 return;
             }
