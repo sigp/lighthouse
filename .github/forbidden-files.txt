@@ -5,9 +5,6 @@
 beacon_node/beacon_chain/src/otb_verification_service.rs
 beacon_node/store/src/partial_beacon_state.rs
 beacon_node/store/src/consensus_context.rs
-
-# Deleted non-standard rewards API. We may want to reuse these filenames for the standard API in
-# future.
 beacon_node/beacon_chain/src/block_reward.rs
 beacon_node/http_api/src/block_rewards.rs
 common/eth2/src/lighthouse/block_rewards.rs
