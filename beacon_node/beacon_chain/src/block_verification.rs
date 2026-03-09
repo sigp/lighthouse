@@ -1358,7 +1358,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// verification must be done upstream (e.g., via a `SignatureVerifiedBlock`
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(skip_all, level = "debug", fields(?block_root))]
     pub fn from_signature_verified_components(
         block: MaybeAvailableBlock<T::EthSpec>,
         block_root: Hash256,

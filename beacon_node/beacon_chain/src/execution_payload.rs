@@ -25,7 +25,6 @@ use state_processing::per_block_processing::{
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{Instrument, debug_span, warn};
-use tree_hash::TreeHash;
 use types::execution::BlockProductionVersion;
 use types::*;
 
@@ -111,7 +110,6 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         } else {
             notify_new_payload(
                 &self.chain,
-                self.block.message().tree_hash_root(),
                 self.block.message().slot(),
                 self.block.message().parent_root(),
                 self.block.message().try_into()?,
@@ -132,7 +130,6 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
 pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    beacon_block_root: Hash256,
     slot: Slot,
     parent_beacon_block_root: Hash256,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
@@ -161,7 +158,6 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                     ?validation_error,
                     ?latest_valid_hash,
                     ?execution_block_hash,
-                    root = ?beacon_block_root,
                     %slot,
                     method = "new_payload",
                     "Invalid execution payload"
@@ -202,7 +198,6 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 warn!(
                     ?validation_error,
                     ?execution_block_hash,
-                    root = ?beacon_block_root,
                     %slot,
                     method = "new_payload",
                     "Invalid execution payload block hash"
