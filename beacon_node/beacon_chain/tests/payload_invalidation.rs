@@ -1,4 +1,5 @@
 #![cfg(not(debug_assertions))]
+#![allow(clippy::result_large_err)]
 
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{

@@ -7,10 +7,10 @@ edition = { workspace = true }
 [features]
 default = []
 fake_crypto = ["bls/fake_crypto"]
-arbitrary-fuzz = [
+arbitrary = [
     "dep:arbitrary",
     "smallvec/arbitrary",
-    "types/arbitrary-fuzz",
+    "types/arbitrary",
     "merkle_proof/arbitrary",
     "ethereum_ssz/arbitrary",
     "ssz_types/arbitrary",
