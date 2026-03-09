@@ -1080,7 +1080,7 @@ impl<E: EthSpec> Tester<E> {
                 equivocating_indices,
                 &cached_head.snapshot.beacon_state,
             )
-            .map_err(|e| Error::InternalError(format!("FCR run_confirmation failed: {e}")))?;
+            .map_err(|e| Error::InternalError(format!("FCR run_confirmation failed: {e:?}")))?;
         }
         drop(fork_choice_lock);
 
