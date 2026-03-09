@@ -74,68 +74,168 @@ pub struct InvariantContext {
 /// A single invariant violation.
 #[derive(Debug, Clone, Serialize)]
 pub enum InvariantViolation {
-    /// Hot block has no corresponding hot state summary.
+    /// Invariant 1: fork choice block consistency.
+    ///
+    /// ```text
+    /// block in fork_choice -> block in hot_db
+    /// ```
+    ForkChoiceBlockMissing { block_root: Hash256, slot: Slot },
+    /// Invariant 2: block and state consistency.
+    ///
+    /// ```text
+    /// block in hot_db && block.slot >= split.slot
+    ///   -> state_summary for block.state_root() in hot_db
+    /// ```
     HotBlockMissingStateSummary {
         block_root: Hash256,
         slot: Slot,
         state_root: Hash256,
     },
-    /// Hot state summary should have a snapshot but none found.
+    /// Invariant 3: state summary diff consistency.
+    ///
+    /// ```text
+    /// state_summary in hot_db
+    ///   -> state diff/snapshot/nothing in hot_db according to hierarchy rules
+    /// ```
     HotStateMissingSnapshot { state_root: Hash256, slot: Slot },
-    /// Hot state summary should have a diff but none found.
+    /// Invariant 3: state summary diff consistency (missing diff).
+    ///
+    /// ```text
+    /// state_summary in hot_db
+    ///   -> state diff/snapshot/nothing in hot_db according to hierarchy rules
+    /// ```
     HotStateMissingDiff { state_root: Hash256, slot: Slot },
-    /// Hot state summary's DiffFrom/ReplayFrom base slot has no summary.
+    /// Invariant 3: DiffFrom/ReplayFrom base slot must reference an existing summary.
+    ///
+    /// ```text
+    /// state_summary in hot_db
+    ///   -> state diff/snapshot/nothing in hot_db according to hierarchy rules
+    /// ```
     HotStateBaseSummaryMissing { slot: Slot, base_slot: Slot },
-    /// Hot state summary's previous_state_root has no summary.
+    /// Invariant 4: state summary chain consistency.
+    ///
+    /// ```text
+    /// state_summary in hot_db && state_summary.slot > split.slot
+    ///   -> state_summary for previous_state_root in hot_db
+    /// ```
     HotStateMissingPreviousSummary {
         slot: Slot,
         previous_state_root: Hash256,
     },
-    /// Block has no execution payload or envelope (prune_payloads=false).
+    /// Invariant 5: block and execution payload consistency.
+    ///
+    /// ```text
+    /// block in hot_db && !prune_payloads -> payload for block.root in hot_db
+    /// ```
     ExecutionPayloadMissing { block_root: Hash256, slot: Slot },
-    /// Block has no blob sidecar entry.
+    /// Invariant 6: block and blobs consistency.
+    ///
+    /// ```text
+    /// block in hot_db -> blob_list for block.root in hot_db
+    /// ```
     BlobSidecarMissing { block_root: Hash256, slot: Slot },
-    /// State in cache has no hot state summary on disk.
+    /// Invariant 7: block and data columns consistency.
+    ///
+    /// ```text
+    /// block in hot_db && block.slot >= earliest_available_slot
+    ///   && data_column_idx in custody_columns
+    ///   -> (block_root, data_column_idx) in hot_db
+    /// ```
+    DataColumnMissing {
+        block_root: Hash256,
+        slot: Slot,
+        column_index: ColumnIndex,
+    },
+    /// Invariant 8: state cache and disk consistency.
+    ///
+    /// ```text
+    /// state in state_cache -> state_summary in hot_db
+    /// ```
     StateCacheMissingSummary { state_root: Hash256 },
-    /// Cold block root index missing for a slot.
+    /// Invariant 9: pubkey cache consistency.
+    ///
+    /// ```text
+    /// state_summary in hot_db
+    ///   -> all validator pubkeys from state.validators are in the hot_db
+    /// ```
+    PubkeyCacheCountMismatch { in_memory: usize, on_disk: usize },
+    /// Invariant 10: block root indices mapping.
+    ///
+    /// ```text
+    /// oldest_block_slot <= i < split.slot
+    ///   -> block_root for slot i in cold_db
+    ///   && block for block_root in hot_db
+    /// ```
     ColdBlockRootMissing {
         slot: Slot,
         oldest_block_slot: Slot,
         split_slot: Slot,
     },
-    /// Cold block root index references a block not in hot DB.
+    /// Invariant 10: block root index references a block that must exist.
+    ///
+    /// ```text
+    /// oldest_block_slot <= i < split.slot
+    ///   -> block_root for slot i in cold_db
+    ///   && block for block_root in hot_db
+    /// ```
     ColdBlockRootOrphan { slot: Slot, block_root: Hash256 },
-    /// Cold state root index missing for a slot.
+    /// Invariant 11: state root indices mapping.
+    ///
+    /// ```text
+    /// (i <= state_lower_limit || i >= min(split.slot, state_upper_limit)) && i < split.slot
+    ///   -> i |-> state_root in cold_db(BeaconStateRoots)
+    ///   && state_root |-> cold_state_summary in cold_db(BeaconColdStateSummary)
+    ///   && cold_state_summary.slot == i
+    /// ```
     ColdStateRootMissing {
         slot: Slot,
         state_lower_limit: Slot,
         state_upper_limit: Slot,
         split_slot: Slot,
     },
-    /// Cold state root index references a state with no cold summary.
+    /// Invariant 11: state root index must have a cold state summary.
+    ///
+    /// ```text
+    /// (i <= state_lower_limit || i >= min(split.slot, state_upper_limit)) && i < split.slot
+    ///   -> i |-> state_root in cold_db(BeaconStateRoots)
+    ///   && state_root |-> cold_state_summary in cold_db(BeaconColdStateSummary)
+    ///   && cold_state_summary.slot == i
+    /// ```
     ColdStateRootMissingSummary { slot: Slot, state_root: Hash256 },
-    /// Cold state summary slot doesn't match the state root index slot.
+    /// Invariant 11: cold state summary slot must match index slot.
+    ///
+    /// ```text
+    /// (i <= state_lower_limit || i >= min(split.slot, state_upper_limit)) && i < split.slot
+    ///   -> i |-> state_root in cold_db(BeaconStateRoots)
+    ///   && state_root |-> cold_state_summary in cold_db(BeaconColdStateSummary)
+    ///   && cold_state_summary.slot == i
+    /// ```
     ColdStateRootSlotMismatch {
         slot: Slot,
         state_root: Hash256,
         summary_slot: Slot,
     },
-    /// Cold state summary should have a snapshot but none found.
+    /// Invariant 12: cold state diff consistency.
+    ///
+    /// ```text
+    /// cold_state_summary in cold_db
+    ///   -> slot |-> state diff/snapshot/nothing in cold_db according to diff hierarchy
+    /// ```
     ColdStateMissingSnapshot { state_root: Hash256, slot: Slot },
-    /// Cold state summary should have a diff but none found.
+    /// Invariant 12: cold state diff consistency (missing diff).
+    ///
+    /// ```text
+    /// cold_state_summary in cold_db
+    ///   -> slot |-> state diff/snapshot/nothing in cold_db according to diff hierarchy
+    /// ```
     ColdStateMissingDiff { state_root: Hash256, slot: Slot },
-    /// Cold state summary's DiffFrom/ReplayFrom base slot has no summary.
+    /// Invariant 12: DiffFrom/ReplayFrom base slot must reference an existing summary.
+    ///
+    /// ```text
+    /// cold_state_summary in cold_db
+    ///   -> slot |-> state diff/snapshot/nothing in cold_db according to diff hierarchy
+    /// ```
     ColdStateBaseSummaryMissing { slot: Slot, base_slot: Slot },
-    /// Fork choice references a block not in hot DB.
-    ForkChoiceBlockMissing { block_root: Hash256, slot: Slot },
-    /// Block missing a custody data column.
-    DataColumnMissing {
-        block_root: Hash256,
-        slot: Slot,
-        column_index: ColumnIndex,
-    },
-    /// Pubkey cache count mismatch between memory and disk.
-    PubkeyCacheCountMismatch { in_memory: usize, on_disk: usize },
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
