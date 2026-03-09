@@ -2144,6 +2144,24 @@ impl BeaconNodeHttpClient {
             .await
     }
 
+    /// `GET v2/validator/duties/proposer/{epoch}`
+    pub async fn get_validator_duties_proposer_v2(
+        &self,
+        epoch: Epoch,
+    ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("proposer")
+            .push(&epoch.to_string());
+
+        self.get_with_timeout(path, self.timeouts.proposer_duties)
+            .await
+    }
+
     /// `GET v2/validator/blocks/{slot}`
     pub async fn get_validator_blocks<E: EthSpec>(
         &self,
