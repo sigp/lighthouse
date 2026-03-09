@@ -42,8 +42,6 @@ pub enum Error {
     TrustedSetupError(String),
     /// An error from the rust-eth-kzg library.
     Kzg(rust_eth_kzg::Error),
-    /// A prover/verifier error from the rust-eth-kzg library.
-    PeerDASKZG(rust_eth_kzg::Error),
     /// The kzg verification failed
     KzgVerificationFailed,
     /// Misc indexing error
@@ -208,7 +206,7 @@ impl Kzg {
         let (cells, proofs) = self
             .context()
             .compute_cells_and_kzg_proofs(blob)
-            .map_err(Error::PeerDASKZG)?;
+            .map_err(Error::Kzg)?;
 
         let kzg_proofs = proofs.map(KzgProof);
         Ok((cells, kzg_proofs))
@@ -216,9 +214,7 @@ impl Kzg {
 
     /// Computes the cells for a given `blob`.
     pub fn compute_cells(&self, blob: KzgBlobRef<'_>) -> Result<[Cell; CELLS_PER_EXT_BLOB], Error> {
-        self.context()
-            .compute_cells(blob)
-            .map_err(Error::PeerDASKZG)
+        self.context().compute_cells(blob).map_err(Error::Kzg)
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
@@ -300,7 +296,7 @@ impl Kzg {
                     Err(e) if e.is_proof_invalid() => {
                         Err((Some(column_index), Error::KzgVerificationFailed))
                     }
-                    Err(e) => Err((Some(column_index), Error::PeerDASKZG(e))),
+                    Err(e) => Err((Some(column_index), Error::Kzg(e))),
                 }
             })
             .collect::<Result<Vec<()>, (Option<u64>, Error)>>()?;
@@ -316,7 +312,7 @@ impl Kzg {
         let (cells, proofs) = self
             .context()
             .recover_cells_and_kzg_proofs(cell_ids.to_vec(), cells.to_vec())
-            .map_err(Error::PeerDASKZG)?;
+            .map_err(Error::Kzg)?;
 
         let kzg_proofs = proofs.map(KzgProof);
         Ok((cells, kzg_proofs))
