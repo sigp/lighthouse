@@ -259,7 +259,7 @@ impl EraFileDir {
                             || head_state
                                 .get_block_root(Slot::new(slot.as_u64() - 1))
                                 .ok()
-                                .map_or(true, |prev| prev != root)
+                                .is_none_or(|prev| prev != root)
                     })
                     .unwrap_or(false)
             })
