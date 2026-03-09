@@ -82,7 +82,6 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         &self,
         block_root: Hash256,
         partials: Vec<KzgVerifiedCustodyPartialDataColumn<E>>,
-        local_blobs: bool,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies
@@ -93,7 +92,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     .next()
                     .map(|header| PartialAssembly {
                         header: header.clone(),
-                        has_local_blobs: local_blobs,
+                        has_local_blobs: false,
                         columns: HashMap::new(),
                     })
                     .ok_or(())
@@ -155,10 +154,6 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             updated_partials.push(merged);
         }
 
-        if local_blobs {
-            assembly.has_local_blobs = true;
-        }
-
         Some(PartialMergeResult {
             added_cells,
             local_blobs: assembly.has_local_blobs,
@@ -200,26 +195,35 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .cloned()
     }
 
-    /// Get all current partials for a block
-    pub fn get_partials(
+    /// Get all current partials for a block for publishing after fetching local blobs.
+    /// To unlock future publishing, mark blobs as fetched locally.
+    /// We do this within one write lock to avoid useless double publishes.
+    pub fn get_partials_and_mark_as_local_fetched(
         &self,
-        block_root: &Hash256,
+        block_root: Hash256,
+        header: &PartialDataColumnHeader<E>,
     ) -> Option<Vec<KzgVerifiedCustodyPartialDataColumn<E>>> {
-        Some(
-            self.assemblies
-                .read()
-                .peek(block_root)?
-                .columns
-                .values()
-                .filter_map(|value| {
-                    if let AssemblyColumn::Incomplete(partial) = value {
-                        Some(partial.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-        )
+        let mut assemblies = self.assemblies.write();
+        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
+            header: header.clone(),
+            has_local_blobs: true,
+            columns: Default::default(),
+        });
+
+        assembly.has_local_blobs = true;
+
+        let columns = assembly
+            .columns
+            .values()
+            .filter_map(|value| {
+                if let AssemblyColumn::Incomplete(partial) = value {
+                    Some(partial.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Some(columns)
     }
 
     /// Get header for a block if we have an active assembly

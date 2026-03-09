@@ -957,7 +957,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .data_availability_checker
             .partial_assembler()
-            .get_partials(&block_root)
+            .get_partials_and_mark_as_local_fetched(block_root, header)
         {
             debug!(block = %block_root, "Publishing all partials after getBlobs");
             self.send_network_message(NetworkMessage::PublishPartial {

@@ -3211,7 +3211,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let merge_result = self
             .data_availability_checker
             .partial_assembler()
-            .merge_partials(block_root, vec![verified_partial], false)
+            .merge_partials(block_root, vec![verified_partial])
             .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
 
         metrics::inc_counter_vec_by(
