@@ -134,15 +134,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// - Invariant 9 (pubkey cache) — requires validator pubkey cache
     ///
     /// Use `BeaconChain::check_database_invariants` for a complete check.
-    pub fn check_invariants(&self) -> Result<InvariantCheckResult, Error> {
+    pub fn check_invariants(
+        &self,
+        custody_columns: Option<&[ColumnIndex]>,
+    ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
         let split = self.get_split_info();
 
-        result.merge(self.check_hot_block_state_consistency(&split)?);
+        result.merge(self.check_hot_block_invariants(&split, custody_columns)?);
         result.merge(self.check_hot_state_summary_diff_consistency(&split)?);
         result.merge(self.check_hot_state_summary_chain_consistency(&split)?);
-        result.merge(self.check_execution_payload_consistency()?);
-        result.merge(self.check_blob_consistency()?);
         result.merge(self.check_state_cache_consistency()?);
         result.merge(self.check_cold_block_root_indices(&split)?);
         result.merge(self.check_cold_state_root_indices(&split)?);
@@ -151,33 +152,47 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(result)
     }
 
-    /// Invariant 2 (Hot DB): Block-state consistency.
+    /// Invariants 2, 5, 6, 7 (Hot DB): Block-related consistency checks.
     ///
-    /// ```text
-    /// block in hot_db && block.slot >= split.slot
-    ///   -> state_summary for block.state_root() in hot_db
-    /// ```
-    ///
-    /// Every block in the hot DB at or above the split should have a corresponding hot state
-    /// summary. Blocks below the split are in the cold range and are not checked here.
-    fn check_hot_block_state_consistency(
+    /// Iterates hot DB blocks once and checks:
+    /// - Invariant 2: block-state summary consistency
+    /// - Invariant 5: execution payload consistency (when prune_payloads=false)
+    /// - Invariant 6: blob sidecar consistency (Deneb to Fulu)
+    /// - Invariant 7: data column consistency (post-Fulu, when custody_columns provided)
+    fn check_hot_block_invariants(
         &self,
         split: &Split,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
 
-        for res in self
-            .hot_db
-            .iter_column_keys::<Hash256>(DBColumn::BeaconBlock)
-        {
-            let block_root = res?;
+        let check_payloads = !self.get_config().prune_payloads;
+        let bellatrix_fork_slot = self
+            .spec
+            .bellatrix_fork_epoch
+            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+        let deneb_fork_slot = self
+            .spec
+            .deneb_fork_epoch
+            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+        let fulu_fork_slot = self
+            .spec
+            .fulu_fork_epoch
+            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+        let oldest_blob_slot = self.get_blob_info().oldest_blob_slot;
+        let oldest_data_column_slot = self.get_data_column_info().oldest_data_column_slot;
+
+        for res in self.hot_db.iter_column::<Hash256>(DBColumn::BeaconBlock) {
+            let (block_root, block_bytes) = res?;
+            let block = SignedBeaconBlock::<E, BlindedPayload<E>>::from_ssz_bytes(
+                &block_bytes,
+                &self.spec,
+            )?;
+            let slot = block.slot();
+
+            // Invariant 2: block-state consistency.
             result.inc_checks();
-
-            let Some(block) = self.get_blinded_block(&block_root)? else {
-                continue;
-            };
-
-            if block.slot() >= split.slot {
+            if slot >= split.slot {
                 let state_root = block.state_root();
                 let has_summary = self
                     .hot_db
@@ -185,9 +200,66 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 if !has_summary {
                     result.add_violation(InvariantViolation::HotBlockMissingStateSummary {
                         block_root,
-                        slot: block.slot(),
+                        slot,
                         state_root,
                     });
+                }
+            }
+
+            // Invariant 5: execution payload consistency.
+            if check_payloads {
+                if let Some(bellatrix_slot) = bellatrix_fork_slot {
+                    if slot >= bellatrix_slot {
+                        result.inc_checks();
+                        if !self.execution_payload_exists(&block_root)?
+                            && !self.payload_envelope_exists(&block_root)?
+                        {
+                            result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                                block_root,
+                                slot,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Invariant 6: blob sidecar consistency.
+            if let Some(deneb_slot) = deneb_fork_slot {
+                if let Some(oldest_blob) = oldest_blob_slot {
+                    let is_pre_fulu = fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot);
+                    if slot >= deneb_slot && slot >= oldest_blob && is_pre_fulu {
+                        result.inc_checks();
+                        let has_blob = self
+                            .blobs_db
+                            .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
+                        if !has_blob {
+                            result.add_violation(InvariantViolation::BlobSidecarMissing {
+                                block_root,
+                                slot,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Invariant 7: data column consistency.
+            if let Some(custody_cols) = custody_columns {
+                if let Some(fulu_slot) = fulu_fork_slot {
+                    if let Some(oldest_dc) = oldest_data_column_slot {
+                        if slot >= fulu_slot && slot >= oldest_dc {
+                            result.inc_checks();
+                            let stored_columns = self.get_data_column_keys(block_root)?;
+                            for col_idx in custody_cols {
+                                if !stored_columns.contains(col_idx) {
+                                    result.add_violation(InvariantViolation::DataColumnMissing {
+                                        block_root,
+                                        slot,
+                                        column_index: *col_idx,
+                                    });
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -307,123 +379,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         previous_state_root: prev_root,
                     });
                 }
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Invariant 5 (Hot DB): Execution payload consistency.
-    ///
-    /// ```text
-    /// block in hot_db && !prune_payloads
-    ///   -> execution payload or payload envelope for block.root in hot_db
-    /// ```
-    ///
-    /// When payload pruning is disabled, every post-Bellatrix block should have its execution
-    /// payload (pre-Gloas) or payload envelope (post-Gloas) stored. When `prune_payloads` is
-    /// true (the default), payloads are pruned at finalization and this check is skipped.
-    fn check_execution_payload_consistency(&self) -> Result<InvariantCheckResult, Error> {
-        let mut result = InvariantCheckResult::new();
-
-        if self.get_config().prune_payloads {
-            return Ok(result);
-        }
-
-        let bellatrix_fork_slot = match self.spec.bellatrix_fork_epoch {
-            Some(epoch) => epoch.start_slot(E::slots_per_epoch()),
-            None => return Ok(result),
-        };
-
-        for res in self
-            .hot_db
-            .iter_column_keys::<Hash256>(DBColumn::BeaconBlock)
-        {
-            let block_root = res?;
-
-            let Some(block) = self.get_blinded_block(&block_root)? else {
-                continue;
-            };
-
-            if block.slot() < bellatrix_fork_slot {
-                continue;
-            }
-
-            result.inc_checks();
-
-            let has_payload = self.execution_payload_exists(&block_root)?;
-            if !has_payload {
-                let has_envelope = self.payload_envelope_exists(&block_root)?;
-                if !has_envelope {
-                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
-                        block_root,
-                        slot: block.slot(),
-                    });
-                }
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Invariant 6 (Hot DB): Blob sidecar consistency (Deneb to Fulu).
-    ///
-    /// ```text
-    /// block in hot_db && block.slot >= deneb_fork_slot && block.slot < fulu_fork_slot
-    ///   && block.slot >= oldest_blob_slot
-    ///   -> blob sidecar list for block.root in blob_db
-    /// ```
-    ///
-    /// Every post-Deneb, pre-Fulu block within the blob availability window should have a blob
-    /// sidecar entry (which may be an empty list for blocks with no blobs). Post-Fulu blocks
-    /// use data columns instead of blobs and are checked by invariant 7.
-    fn check_blob_consistency(&self) -> Result<InvariantCheckResult, Error> {
-        let mut result = InvariantCheckResult::new();
-
-        let deneb_fork_slot = match self.spec.deneb_fork_epoch {
-            Some(epoch) => epoch.start_slot(E::slots_per_epoch()),
-            None => return Ok(result),
-        };
-
-        let fulu_fork_slot = self
-            .spec
-            .fulu_fork_epoch
-            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
-
-        let blob_info = self.get_blob_info();
-        let Some(oldest_blob_slot) = blob_info.oldest_blob_slot else {
-            return Ok(result);
-        };
-
-        for res in self
-            .hot_db
-            .iter_column_keys::<Hash256>(DBColumn::BeaconBlock)
-        {
-            let block_root = res?;
-
-            let Some(block) = self.get_blinded_block(&block_root)? else {
-                continue;
-            };
-
-            let slot = block.slot();
-
-            if slot < deneb_fork_slot || slot < oldest_blob_slot {
-                continue;
-            }
-            if let Some(fulu_slot) = fulu_fork_slot
-                && slot >= fulu_slot
-            {
-                continue;
-            }
-
-            result.inc_checks();
-
-            let has_blob_entry = self
-                .blobs_db
-                .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
-
-            if !has_blob_entry {
-                result.add_violation(InvariantViolation::BlobSidecarMissing { block_root, slot });
             }
         }
 
