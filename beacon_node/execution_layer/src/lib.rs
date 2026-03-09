@@ -1937,7 +1937,7 @@ enum InvalidBuilderPayload {
         expected: ForkName,
     },
     Signature {
-        signature: Signature,
+        signature: Box<Signature>,
         pubkey: PublicKeyBytes,
     },
     WithdrawalsRoot {
@@ -2084,7 +2084,7 @@ fn verify_builder_bid<E: EthSpec>(
         }))
     } else if !is_signature_valid {
         Err(Box::new(InvalidBuilderPayload::Signature {
-            signature: bid.data.signature.clone(),
+            signature: Box::new(bid.data.signature.clone()),
             pubkey: *bid.data.message.pubkey(),
         }))
     } else if payload_withdrawals_root != expected_withdrawals_root {
