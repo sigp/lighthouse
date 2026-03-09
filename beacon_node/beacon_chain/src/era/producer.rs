@@ -178,10 +178,13 @@ fn build_era_group<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 continue;
             }
 
-            let block = db
-                .get_full_block(block_root)
+            let blinded_block = db
+                .get_blinded_block(block_root)
                 .map_err(|error| format!("failed to load block: {error:?}"))?
                 .ok_or_else(|| format!("missing block for root {block_root:?}"))?;
+            let block = db
+                .make_full_block(block_root, blinded_block)
+                .map_err(|error| format!("failed to load block: {error:?}"))?;
 
             let compressed = CompressedSignedBeaconBlock::from_ssz(&block.as_ssz_bytes())
                 .map_err(|error| format!("failed to compress block: {error:?}"))?;

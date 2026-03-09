@@ -7,11 +7,15 @@
 ///
 /// All subtests run from a single #[test] to avoid nextest download races
 /// (same pattern as slashing_protection/tests/interop.rs).
-use super::consumer::{EraFileDir, EraImportTrust};
+use super::consumer::{EraFileDir, EraImportTrust, init_genesis_store};
+use crate::beacon_chain::WhenSlotSkipped;
+use crate::test_utils::BeaconChainHarness;
 use reth_era::common::file_ops::StreamReader;
 use serde::Deserialize;
+use slot_clock::{SlotClock, TestingSlotClock};
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use store::{DBColumn, HotColdDB, KeyValueStore, StoreConfig};
 use types::{BeaconState, ChainSpec, Config, EthSpec, Hash256, MinimalEthSpec, Slot};
 
@@ -98,21 +102,21 @@ type TestStore = HotColdDB<
     store::MemoryStore<MinimalEthSpec>,
 >;
 
-/// Open ERA dir, store genesis, import all ERAs, return store.
-fn import_eras(trust: EraImportTrust) -> (TestStore, ChainSpec) {
+/// Open ERA dir, init genesis, import all ERAs, return store.
+fn import_eras(trust: EraImportTrust) -> (Arc<TestStore>, ChainSpec) {
     let spec = load_spec();
     let mut genesis = load_genesis_state(&spec);
     let gvr = genesis.genesis_validators_root();
 
+    let store = Arc::new(
+        HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone())).expect("store"),
+    );
+
+    // Genesis init — sets up split, anchor, fork choice at genesis
+    init_genesis_store(&store, &mut genesis, &spec).expect("init genesis");
+
     let era_dir =
         EraFileDir::new::<MinimalEthSpec>(&era_path(), gvr, trust, &spec).expect("open ERA dir");
-
-    let store =
-        HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone())).expect("store");
-    let root = genesis.canonical_root().expect("hash genesis");
-    store
-        .put_cold_state(&root, &genesis)
-        .expect("store genesis");
     era_dir.import_all(&store, &spec).expect("import");
 
     (store, spec)
@@ -219,7 +223,7 @@ fn era_test_vectors() {
 
 fn consumer_imports_and_verifies() {
     let metadata = load_metadata();
-    let (store, _spec) = import_eras(EraImportTrust::Untrusted);
+    let (store, spec) = import_eras(EraImportTrust::Untrusted);
     let slots_per_era = MinimalEthSpec::slots_per_historical_root() as u64;
 
     assert_eq!(MAX_ERA + 1, metadata.era_count, "era count mismatch");
@@ -245,13 +249,15 @@ fn consumer_imports_and_verifies() {
         "last indexed slot is {}",
         MAX_ERA * slots_per_era - 1
     );
+
+    chain_boots_from_imported_db(store, &spec, &metadata);
 }
 
 fn consumer_imports_with_trusted_state_root() {
     let metadata = load_metadata();
     let spec = load_spec();
     let root = reference_state_root(&spec);
-    let (store, _spec) = import_eras(EraImportTrust::TrustedStateRoot(MAX_ERA, root));
+    let (store, spec) = import_eras(EraImportTrust::TrustedStateRoot(MAX_ERA, root));
 
     let head_key = metadata.head_slot.to_be_bytes().to_vec();
     let head_root_bytes = store
@@ -261,6 +267,8 @@ fn consumer_imports_with_trusted_state_root() {
         .expect("head root exists");
     let expected = hex::decode(&metadata.head_root).expect("hex");
     assert_eq!(head_root_bytes, expected);
+
+    chain_boots_from_imported_db(store, &spec, &metadata);
 }
 
 fn producer_output_is_byte_identical() {
@@ -387,5 +395,101 @@ fn rejects_wrong_trusted_state_root() {
     assert!(
         err.contains("trusted state root mismatch"),
         "expected trusted state root mismatch: {err}"
+    );
+}
+
+/// Verify that a BeaconChain can boot from an ERA-imported store.
+///
+/// This function MUST NOT write any new data to the store. It boots a BeaconChain using the
+/// regular `resume_from_db` path (same as `lighthouse bn` restart) and verifies:
+/// - `canonical_head` equals the expected head root from metadata
+/// - For every slot in 0..head_slot:
+///   - state_root_at_slot + get_state succeeds and returned state.slot() matches
+///     (same code path as HTTP API `GET /eth/v2/debug/beacon/states/{slot}`)
+///   - block_root_at_slot + get_blinded_block succeeds for non-skipped slots and
+///     returned block.slot() matches
+///     (same code path as HTTP API `GET /eth/v2/beacon/blocks/{slot}`)
+fn chain_boots_from_imported_db(store: Arc<TestStore>, spec: &ChainSpec, metadata: &Metadata) {
+    let expected_head_root =
+        Hash256::from_slice(&hex::decode(&metadata.head_root).expect("decode head root hex"));
+
+    // Boot via resume_from_db — the same path lighthouse bn uses on restart.
+    // The slot clock must be at or beyond the head slot, as the real beacon node would be.
+    // The ERA boundary slot is one past the head block slot (the split point).
+    let era_boundary_slot =
+        (metadata.head_slot / MinimalEthSpec::slots_per_historical_root() as u64 + 1)
+            * MinimalEthSpec::slots_per_historical_root() as u64;
+    let genesis_time = Duration::from_secs(spec.min_genesis_time);
+    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let clock_time = genesis_time + slot_duration * era_boundary_slot as u32;
+    let slot_clock = TestingSlotClock::new(Slot::new(0), genesis_time, slot_duration);
+    slot_clock.set_current_time(clock_time);
+
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(Arc::new(spec.clone()))
+        .deterministic_keypairs(1)
+        .testing_slot_clock(slot_clock)
+        .resumed_ephemeral_store(store)
+        .build();
+
+    // canonical_head matches expected value
+    let head = harness.chain.head();
+    assert_eq!(
+        head.head_block_root(),
+        expected_head_root,
+        "canonical head root mismatch"
+    );
+
+    // Every slot's state and block are accessible through the chain (HTTP API code path).
+    let head_slot = metadata.head_slot;
+    let mut block_count = 0u64;
+    let mut prev_block_root = None;
+    for slot_u64 in 0..head_slot {
+        let slot = Slot::new(slot_u64);
+
+        // State by slot: chain.state_root_at_slot → chain.get_state
+        let state_root = harness
+            .chain
+            .state_root_at_slot(slot)
+            .unwrap_or_else(|e| panic!("state_root_at_slot({slot}) failed: {e:?}"))
+            .unwrap_or_else(|| panic!("no state root at slot {slot}"));
+        let state = harness
+            .chain
+            .get_state(&state_root, Some(slot), false)
+            .unwrap_or_else(|e| panic!("get_state at slot {slot} failed: {e:?}"))
+            .unwrap_or_else(|| panic!("state not found at slot {slot}"));
+        assert_eq!(state.slot(), slot, "state slot mismatch at slot {slot}");
+
+        // Block by slot: chain.block_root_at_slot → chain.get_blinded_block
+        // WhenSlotSkipped::None mirrors the HTTP API (returns None for skip slots).
+        if let Some(block_root) = harness
+            .chain
+            .block_root_at_slot(slot, WhenSlotSkipped::None)
+            .unwrap_or_else(|e| panic!("block_root_at_slot({slot}) failed: {e:?}"))
+        {
+            let block = harness
+                .chain
+                .get_blinded_block(&block_root)
+                .unwrap_or_else(|e| panic!("get_blinded_block at slot {slot} failed: {e:?}"))
+                .unwrap_or_else(|| panic!("block not found at slot {slot}"));
+            assert_eq!(block.slot(), slot, "block slot mismatch at slot {slot}");
+
+            // Verify parent chain: each block's parent_root must equal the previous block's root.
+            if let Some(prev_root) = prev_block_root {
+                assert_eq!(
+                    block.parent_root(),
+                    prev_root,
+                    "parent_root mismatch at slot {slot}"
+                );
+            }
+            prev_block_root = Some(block_root);
+            block_count += 1;
+        }
+    }
+    // Sanity check: the testnet has 767 blocks (metadata), so we must have found them all.
+    // This guards against a silent pass when block_root_at_slot returns None for every slot.
+    assert!(
+        block_count > head_slot / 2,
+        "too few blocks found: {block_count} out of {head_slot} slots"
     );
 }

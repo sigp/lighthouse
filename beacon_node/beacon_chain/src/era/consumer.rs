@@ -22,19 +22,29 @@
 //! era_dir.import_all(&store, &spec)?;
 //! ```
 
+use crate::beacon_chain::BEACON_CHAIN_DB_KEY;
+use crate::beacon_chain::FORK_CHOICE_DB_KEY;
+use crate::beacon_fork_choice_store::PersistedForkChoiceStore;
+use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use bls::FixedBytesExtended;
+use fork_choice::ForkChoice;
 use rayon::prelude::*;
 use reth_era::common::file_ops::StreamReader;
 use reth_era::era::file::EraReader;
 use reth_era::era::types::consensus::{CompressedBeaconState, CompressedSignedBeaconBlock};
+use ssz::Encode;
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use store::{DBColumn, HotColdDB, ItemStore, KeyValueStoreOp};
+use std::sync::Arc;
+use store::{DBColumn, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem};
 use tracing::{debug, debug_span, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, ChainSpec, EthSpec, Hash256, HistoricalBatch, HistoricalSummary,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Hash256, HistoricalBatch,
+    HistoricalSummary, SignedBeaconBlock, Slot,
 };
 
 fn decode_block<E: EthSpec>(
@@ -72,6 +82,111 @@ pub enum EraImportTrust {
     Untrusted,
 }
 
+/// Initialize a store from genesis for ERA import.
+///
+/// Creates the genesis block, stores genesis state and block, and sets up initial store
+/// metadata (split at genesis, anchor, fork choice, `PersistedBeaconChain`).
+/// Call this before [`EraFileDir::import_all`].
+pub fn init_genesis_store<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+    store: &Arc<HotColdDB<E, Hot, Cold>>,
+    genesis_state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    let mut genesis_block = BeaconBlock::<E>::empty(spec);
+    *genesis_block.state_root_mut() = genesis_state
+        .update_tree_hash_cache()
+        .map_err(|e| format!("failed to hash genesis state: {e:?}"))?;
+    let signed_block = SignedBeaconBlock::from_block(genesis_block, bls::Signature::empty());
+    let block_root = signed_block.canonical_root();
+    let state_root = signed_block.message().state_root();
+
+    // Store genesis state and block
+    store
+        .put_cold_state(&state_root, genesis_state)
+        .map_err(|e| format!("failed to store genesis state: {e:?}"))?;
+    store
+        .put_block(&block_root, signed_block.clone())
+        .map_err(|e| format!("failed to store genesis block: {e:?}"))?;
+    // Also store under ZERO_HASH alias (used by resume_from_db for genesis lookup)
+    store
+        .put_block(&Hash256::zero(), signed_block.clone())
+        .map_err(|e| format!("failed to store genesis block alias: {e:?}"))?;
+    store
+        .store_frozen_block_root_at_skip_slots(Slot::new(0), Slot::new(1), block_root)
+        .and_then(|ops| store.cold_db.do_atomically(ops))
+        .map_err(|e| format!("failed to store genesis block root: {e:?}"))?;
+
+    // Set split at genesis
+    store.set_split(Slot::new(0), state_root, block_root);
+
+    // Initialize anchor
+    let mut batch = vec![];
+    batch.push(
+        store
+            .init_anchor_info(
+                signed_block.parent_root(),
+                Slot::new(0),
+                Slot::new(0),
+                false,
+            )
+            .map_err(|e| format!("failed to init anchor: {e:?}"))?,
+    );
+    batch.push(
+        store
+            .init_blob_info(Slot::new(0))
+            .map_err(|e| format!("failed to init blob info: {e:?}"))?,
+    );
+    batch.push(
+        store
+            .init_data_column_info(Slot::new(0))
+            .map_err(|e| format!("failed to init data column info: {e:?}"))?,
+    );
+    batch.push(store.store_split_in_batch());
+
+    // Fork choice from genesis
+    let snapshot = BeaconSnapshot {
+        beacon_block_root: block_root,
+        beacon_block: Arc::new(signed_block),
+        beacon_state: genesis_state.clone(),
+    };
+    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())
+        .map_err(|e| format!("failed to create fork choice store: {e:?}"))?;
+    let fork_choice = ForkChoice::from_anchor(
+        fc_store,
+        block_root,
+        &snapshot.beacon_block,
+        &snapshot.beacon_state,
+        None,
+        spec,
+    )
+    .map_err(|e| format!("failed to create fork choice: {e:?}"))?;
+
+    // Persist chain metadata
+    batch.push(
+        PersistedBeaconChain {
+            genesis_block_root: block_root,
+        }
+        .as_kv_store_op(BEACON_CHAIN_DB_KEY),
+    );
+    let persisted_fork_choice = PersistedForkChoice {
+        fork_choice: fork_choice.to_persisted(),
+        fork_choice_store: fork_choice.fc_store().to_persisted(),
+    };
+    batch.push(
+        persisted_fork_choice
+            .as_kv_store_op(FORK_CHOICE_DB_KEY, store.get_config())
+            .map_err(|e| format!("failed to persist fork choice: {e:?}"))?,
+    );
+
+    store
+        .hot_db
+        .do_atomically(batch)
+        .map_err(|e| format!("failed to write genesis metadata: {e:?}"))?;
+
+    info!("Initialized store from genesis for ERA import");
+    Ok(())
+}
+
 /// A directory of ERA files ready for import into a Lighthouse cold DB.
 ///
 /// On construction, reads the highest-numbered ERA file's state to extract
@@ -83,6 +198,7 @@ pub enum EraImportTrust {
 ///
 /// Use [`EraFileDir::import_all`] to import all ERA files into a store,
 /// or [`EraFileDir::import_era_file`] for individual ERA import.
+#[derive(Debug)]
 pub struct EraFileDir {
     dir: PathBuf,
     network_name: String,
@@ -189,14 +305,14 @@ impl EraFileDir {
         self.genesis_validators_root
     }
 
-    /// Import ERA files 1 through `max_era` into the store.
+    /// Import ERA files 1 through `max_era` into the store, then advance the chain state.
     ///
-    /// The caller is responsible for storing the genesis state in the cold DB before calling
-    /// this method. All trust checks (genesis_validators_root, trusted state root) are
-    /// performed during [`EraFileDir::new`].
+    /// The caller must have initialized the store from genesis first via [`init_genesis_store`].
+    /// After importing all ERA files, the split, fork choice, and anchor are advanced to the
+    /// latest ERA boundary slot so the store is ready for `resume_from_db`.
     pub fn import_all<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         &self,
-        store: &HotColdDB<E, Hot, Cold>,
+        store: &Arc<HotColdDB<E, Hot, Cold>>,
         spec: &ChainSpec,
     ) -> Result<(), String> {
         let start = std::time::Instant::now();
@@ -206,10 +322,142 @@ impl EraFileDir {
             info!(era_number, max_era, "Imported era file");
         }
 
+        // Advance the store metadata from genesis to the latest ERA boundary.
+        self.advance_store_to_era::<E, Hot, Cold>(store, spec)?;
+
         info!(
             max_era,
             elapsed = ?start.elapsed(),
             "ERA file import complete"
+        );
+
+        Ok(())
+    }
+
+    /// Advance split, fork choice, and anchor from genesis to the latest ERA boundary slot.
+    fn advance_store_to_era<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+        &self,
+        store: &Arc<HotColdDB<E, Hot, Cold>>,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
+        let slots_per_hr = E::slots_per_historical_root() as u64;
+        let head_slot = Slot::new(self.max_era * slots_per_hr);
+
+        // Load the latest ERA state (already in cold DB from import)
+        let mut head_state = store
+            .load_cold_state_by_slot(head_slot)
+            .map_err(|e| format!("failed to load head state at slot {head_slot}: {e:?}"))?;
+
+        let head_state_root = head_state
+            .canonical_root()
+            .map_err(|e| format!("failed to compute head state root: {e:?}"))?;
+
+        // Find the latest block root from the state's block_roots
+        let last_block_slot = (0..slots_per_hr)
+            .rev()
+            .map(|i| Slot::new(head_slot.as_u64().saturating_sub(slots_per_hr) + i))
+            .find(|slot| {
+                head_state
+                    .get_block_root(*slot)
+                    .ok()
+                    .map(|root| {
+                        // Non-skipped slot: root differs from previous slot's root
+                        slot.as_u64() == 0
+                            || head_state
+                                .get_block_root(Slot::new(slot.as_u64() - 1))
+                                .ok()
+                                .map_or(true, |prev| prev != root)
+                    })
+                    .unwrap_or(false)
+            })
+            .ok_or("no block found in last ERA")?;
+        let head_block_root = *head_state
+            .get_block_root(last_block_slot)
+            .map_err(|e| format!("failed to read head block root: {e:?}"))?;
+
+        // Update anchor to reflect imported ERA data:
+        // - anchor_slot = head_slot so put_state uses Snapshot strategy
+        // - state_lower_limit = head_slot so state_root_at_slot sees all cold DB states as available
+        {
+            let old_anchor = store.get_anchor_info();
+            let mut new_anchor = old_anchor.clone();
+            new_anchor.anchor_slot = head_slot;
+            new_anchor.state_lower_limit = head_slot;
+            store
+                .compare_and_set_anchor_info_with_write(old_anchor, new_anchor)
+                .map_err(|e| format!("failed to update anchor: {e:?}"))?;
+        }
+
+        // Set split at the ERA boundary
+        store.set_split(head_slot, head_state_root, head_block_root);
+
+        // Store the head state in hot DB (needed by get_advanced_hot_state on startup).
+        store
+            .put_state(&head_state_root, &head_state)
+            .map_err(|e| format!("failed to store head state in hot DB: {e:?}"))?;
+
+        // Re-create fork choice with the head as anchor.
+        //
+        // We cannot use `get_forkchoice_store` here because the ERA boundary state's
+        // `latest_block_header` may reference a block at the boundary slot that belongs to the
+        // NEXT ERA and is not stored. Instead, construct the fork choice store directly using
+        // `from_persisted` with the correct head block root and state root.
+        let head_block = store
+            .get_full_block(&head_block_root)
+            .map_err(|e| format!("failed to load head block at slot {last_block_slot}: {e:?}"))?
+            .ok_or_else(|| {
+                format!("head block {head_block_root:?} not found at slot {last_block_slot}")
+            })?;
+
+        let anchor_epoch = head_state.current_epoch();
+        let anchor_checkpoint = Checkpoint {
+            epoch: anchor_epoch,
+            root: head_block_root,
+        };
+        let persisted_fc_store = PersistedForkChoiceStore {
+            time: head_slot,
+            finalized_checkpoint: anchor_checkpoint,
+            justified_checkpoint: anchor_checkpoint,
+            justified_state_root: head_state_root,
+            unrealized_justified_checkpoint: anchor_checkpoint,
+            unrealized_justified_state_root: head_state_root,
+            unrealized_finalized_checkpoint: anchor_checkpoint,
+            proposer_boost_root: Hash256::zero(),
+            equivocating_indices: BTreeSet::new(),
+        };
+        let fc_store = BeaconForkChoiceStore::from_persisted(persisted_fc_store, store.clone())
+            .map_err(|e| format!("failed to create fork choice store: {e:?}"))?;
+        let fork_choice = ForkChoice::from_anchor(
+            fc_store,
+            head_block_root,
+            &head_block,
+            &head_state,
+            Some(head_slot),
+            spec,
+        )
+        .map_err(|e| format!("failed to create fork choice: {e:?}"))?;
+
+        // Persist updated metadata
+        let mut batch = vec![];
+        batch.push(store.store_split_in_batch());
+        let persisted_fork_choice = PersistedForkChoice {
+            fork_choice: fork_choice.to_persisted(),
+            fork_choice_store: fork_choice.fc_store().to_persisted(),
+        };
+        batch.push(
+            persisted_fork_choice
+                .as_kv_store_op(FORK_CHOICE_DB_KEY, store.get_config())
+                .map_err(|e| format!("failed to persist fork choice: {e:?}"))?,
+        );
+        store
+            .hot_db
+            .do_atomically(batch)
+            .map_err(|e| format!("failed to write advanced metadata: {e:?}"))?;
+
+        info!(
+            head_slot = %head_slot,
+            head_block_root = ?head_block_root,
+            "Advanced store to latest ERA boundary"
         );
 
         Ok(())
@@ -379,10 +627,14 @@ impl EraFileDir {
                 .map_err(|error| format!("failed to store blocks: {error:?}"))?;
         }
 
-        // Populate the cold DB slot -> block root index from the state.block_roots()
+        // Populate the cold DB slot -> root indices from the state
         {
             let _ = debug_span!("era_import_write_block_index").entered();
             write_block_root_index_for_era(store, &state, era_number)?;
+        }
+        {
+            let _ = debug_span!("era_import_write_state_root_index").entered();
+            write_state_root_index_for_era(store, &state)?;
         }
 
         debug!(era_number, "Importing state from era file");
@@ -506,6 +758,42 @@ fn write_block_root_index_for_era<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore
         .cold_db
         .do_atomically(ops)
         .map_err(|error| format!("failed to store block root index: {error:?}"))?;
+
+    Ok(())
+}
+
+fn write_state_root_index_for_era<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+    store: &HotColdDB<E, Hot, Cold>,
+    state: &BeaconState<E>,
+) -> Result<(), String> {
+    let end_slot = state.slot();
+    let slots_per_historical_root = E::slots_per_historical_root() as u64;
+    let start_slot = end_slot.saturating_sub(slots_per_historical_root);
+
+    let mut ops = Vec::with_capacity((end_slot.as_u64() - start_slot.as_u64()) as usize * 2);
+    for slot_u64 in start_slot.as_u64()..end_slot.as_u64() {
+        let slot = Slot::new(slot_u64);
+        let state_root = state
+            .get_state_root(slot)
+            .map_err(|error| format!("failed to read state root {slot}: {error:?}"))?;
+        // Slot → state_root (used by forwards_state_roots_iterator)
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconStateRoots,
+            slot_u64.to_be_bytes().to_vec(),
+            state_root.as_slice().to_vec(),
+        ));
+        // State_root → slot (used by load_cold_state to find the slot for reconstruction)
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconColdStateSummary,
+            state_root.as_slice().to_vec(),
+            slot.as_ssz_bytes(),
+        ));
+    }
+
+    store
+        .cold_db
+        .do_atomically(ops)
+        .map_err(|error| format!("failed to store state root index: {error:?}"))?;
 
     Ok(())
 }

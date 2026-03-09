@@ -331,6 +331,21 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store_mutator(Box::new(mutator))
     }
 
+    /// Use an existing `MemoryStore` and initialize from `genesis_state`.
+    pub fn genesis_state_existing_store(
+        mut self,
+        store: Arc<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,
+        genesis_state: BeaconState<E>,
+    ) -> Self {
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .genesis_state(genesis_state)
+                .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
     /// Manually restore from a given `MemoryStore`.
     pub fn resumed_ephemeral_store(
         mut self,
