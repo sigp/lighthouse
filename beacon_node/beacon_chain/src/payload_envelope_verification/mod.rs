@@ -1,5 +1,5 @@
 //! The incremental processing steps (e.g., signatures verified but not the state transition) is
-//! represented as a sequence of wrapper-types around the block. There is a linear progression of
+//! represented as a sequence of wrapper-types around the envelope. There is a linear progression of
 //! types, starting at a `SignedExecutionPayloadEnvelope` and finishing with an `AvailableExecutedEnvelope` (see
 //! diagram below).
 //!
