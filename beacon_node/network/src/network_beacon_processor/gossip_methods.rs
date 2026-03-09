@@ -3251,6 +3251,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = "lh_process_execution_payload_envelope",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(beacon_block_root = tracing::field::Empty),
+    )]
     pub async fn process_gossip_execution_payload_envelope(
         self: Arc<Self>,
         message_id: MessageId,
@@ -3328,13 +3336,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(_) => return None,
         };
 
-        // TODO(gloas) do we need to register the payload with monitored validators?
-
         let envelope_slot = verified_envelope.signed_envelope.slot();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
         match self.chain.slot() {
-            // We only need to do a simple check about the envelope slot vs the current slot beacuse
-            // `verify_envelope_for_gossip` already ensuresthat the envelope slot is within tolerance
+            // We only need to do a simple check about the envelope slot vs the current slot because
+            // `verify_envelope_for_gossip` already ensures that the envelope slot is within tolerance
             // for envelope imports.
             Ok(current_slot) if envelope_slot > current_slot => {
                 warn!(
@@ -3375,12 +3381,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
-        peer_id: PeerId,
+        _peer_id: PeerId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
 
+        #[allow(clippy::result_large_err)]
         let result = self
             .chain
             .process_execution_payload_envelope(
@@ -3396,31 +3403,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                // TODO(gloas) do we need to send a `PayloadImported` event to the reporcess queue?
-                debug!(
-                    ?block_root,
-                    %peer_id,
-                    "Gossipsub envelope processed"
-                );
-
-                // TODO(gloas) do we need to recompute head?
-                // should canonical_head return the block and the payload now?
-                self.chain.recompute_head_at_current_slot().await;
-
-                // TODO(gloas) metrics
+            Ok(AvailabilityProcessingStatus::Imported(_))
+            | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                // Nothing to do
             }
-            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
-                    %slot,
-                    %block_root,
-                    "Processed envelope, waiting for other components"
-                )
-            }
-
             Err(_) => {
                 // TODO(gloas) implement peer penalties
-                warn!("process_gossip_verified_execution_payload_envelope_failed")
             }
         }
     }

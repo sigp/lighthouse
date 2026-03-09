@@ -29,10 +29,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         let payload_verification_status = {
             let payload_message = &envelope.message;
 
-            // TODO(gloas) re-asses if optimistic syncing works similarly post-gloas
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
                     let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;
+                    // TODO(gloas): check and test RLP block hash calculation post-Gloas
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
                             block_number = ?payload_message.payload.block_number,
@@ -61,9 +61,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
-            let block_root = self.envelope.message.beacon_block_root;
+            let parent_root = self.block.message().parent_root();
             let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
-            notify_new_payload(&self.chain, block_root, self.envelope.slot(), request).await
+            notify_new_payload(&self.chain, self.envelope.slot(), parent_root, request).await
         }
     }
 

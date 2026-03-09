@@ -31,11 +31,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
-/// and execution bid. This checks:
-/// - The envelope slot is not prior to finalization
-/// - The envelope slot matches the block slot
-/// - The builder index matches the committed bid
-/// - The payload block hash matches the committed bid
+/// and execution bid.
 pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     envelope: &ExecutionPayloadEnvelope<E>,
     block: &SignedBeaconBlock<E>,
@@ -51,7 +47,7 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
-    // Check that the slot of the envelope matches the slot of the parent block.
+    // Check that the slot of the envelope matches the slot of the block.
     if envelope.slot != block.slot() {
         return Err(EnvelopeError::SlotMismatch {
             block: block.slot(),
@@ -147,18 +143,20 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // For external builder envelopes, we must load the state to access the builder registry.
         let builder_index = envelope.builder_index;
         let block_slot = envelope.slot;
-        let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
-        let proposer_shuffling_decision_block =
-            proto_block.proposer_shuffling_root_for_child_block(block_epoch, ctx.spec);
+        let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
+        // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
+        // already carries the correct `shuffling_decision_block`.
+        let proposer_shuffling_decision_block = proto_block
+            .current_epoch_shuffling_id
+            .shuffling_decision_block;
 
         let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
             // Fast path: self-built envelopes can be verified without loading the state.
             let mut opt_snapshot = None;
             let proposer = beacon_proposer_cache::with_proposer_cache(
                 ctx.beacon_proposer_cache,
-                ctx.spec,
                 proposer_shuffling_decision_block,
-                block_epoch,
+                envelope_epoch,
                 |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
                 || {
                     debug!(
@@ -173,13 +171,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     opt_snapshot = Some(Box::new(snapshot.clone()));
                     Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
+                ctx.spec,
             )?;
             let expected_proposer = proposer.index;
             let fork = proposer.fork;
 
             if block.message().proposer_index() != expected_proposer as u64 {
                 return Err(EnvelopeError::IncorrectBlockProposer {
-                    block: block.message().proposer_index(),
+                    proposer_index: block.message().proposer_index(),
                     local_shuffling: expected_proposer as u64,
                 });
             }
@@ -188,7 +187,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| EnvelopeError::UnknownValidator {
-                    builder_index: block.message().proposer_index(),
+                    proposer_index: block.message().proposer_index(),
                 })?;
             let is_valid = signed_envelope.verify_signature(
                 pubkey,
@@ -248,7 +247,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Errors
     ///
-    /// Returns an `Err` if the given envelope was invalid, or an error was encountered during
+    /// Returns an `Err` if the given envelope was invalid, or an error was encountered during verification.
     pub async fn verify_envelope_for_gossip(
         self: &Arc<Self>,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,

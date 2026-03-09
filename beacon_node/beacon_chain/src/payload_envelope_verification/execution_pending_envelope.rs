@@ -5,7 +5,7 @@ use state_processing::{
     VerifySignatures,
     envelope_processing::{VerifyStateRoot, process_execution_payload_envelope},
 };
-use types::{EthSpec, SignedExecutionPayloadEnvelope};
+use types::EthSpec;
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
@@ -13,20 +13,10 @@ use crate::{
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
-        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot,
+        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
         payload_notifier::PayloadNotifier,
     },
 };
-
-pub trait IntoExecutionPendingEnvelope<T: BeaconChainTypes>: Sized {
-    fn into_execution_pending_envelope(
-        self,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError>;
-
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>;
-}
 
 pub struct ExecutionPendingEnvelope<E: EthSpec> {
     pub signed_envelope: MaybeAvailableEnvelope<E>,
@@ -34,8 +24,8 @@ pub struct ExecutionPendingEnvelope<E: EthSpec> {
     pub payload_verification_handle: PayloadVerificationHandle,
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnvelope<T> {
-    fn into_execution_pending_envelope(
+impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
+    pub fn into_execution_pending_envelope(
         self,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
@@ -44,9 +34,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         let envelope = &signed_envelope.message;
         let payload = &envelope.payload;
 
-        // TODO(gloas)
-
-        // Verify the execution payload is valid
+        // Define a future that will verify the execution payload with an execution engine.
+        //
+        // We do this as early as possible so that later parts of this function can run in parallel
+        // with the payload verification.
         let payload_notifier = PayloadNotifier::new(
             chain.clone(),
             signed_envelope.clone(),
@@ -68,8 +59,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
             Ok(PayloadVerificationOutcome {
                 payload_verification_status,
-                // This fork is after the merge so it'll never be the merge transition block
-                is_valid_merge_transition_block: false,
             })
         };
         // Spawn the payload verification future as a new task, but don't wait for it to complete.
@@ -86,11 +75,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
         let snapshot = if let Some(snapshot) = self.snapshot {
             *snapshot
         } else {
-            load_snapshot(
-                signed_envelope.as_ref(),
-                &chain.canonical_head,
-                &chain.store,
-            )?
+            load_snapshot_from_state_root::<T>(block_root, self.block.state_root(), &chain.store)?
         };
         let mut state = snapshot.pre_state;
 
@@ -112,31 +97,9 @@ impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T> for GossipVerifiedEnve
             },
             import_data: EnvelopeImportData {
                 block_root,
-                block: self.block,
                 post_state: Box::new(state),
             },
             payload_verification_handle,
         })
-    }
-
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
-        &self.signed_envelope
-    }
-}
-
-impl<T: BeaconChainTypes> IntoExecutionPendingEnvelope<T>
-    for Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>
-{
-    fn into_execution_pending_envelope(
-        self,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
-        GossipVerifiedEnvelope::new(self, &chain.gossip_verification_context())?
-            .into_execution_pending_envelope(chain, notify_execution_layer)
-    }
-
-    fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
-        self
     }
 }
