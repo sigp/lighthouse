@@ -58,14 +58,237 @@ impl Default for InvariantCheckResult {
 
 /// A single invariant violation.
 #[derive(Debug, Clone, Serialize)]
-pub struct InvariantViolation {
-    pub invariant: String,
-    pub message: String,
+pub enum InvariantViolation {
+    /// Block root exists in BeaconBlock column but block failed to load.
+    BlockFailedToLoad { block_root: Hash256 },
+    /// Hot block has no corresponding hot state summary.
+    HotBlockMissingStateSummary {
+        block_root: Hash256,
+        slot: Slot,
+        state_root: Hash256,
+    },
+    /// Hot state summary should have a snapshot but none found.
+    HotStateMissingSnapshot { state_root: Hash256, slot: Slot },
+    /// Hot state summary should have a diff but none found.
+    HotStateMissingDiff { state_root: Hash256, slot: Slot },
+    /// Hot state summary's previous_state_root has no summary.
+    HotStateMissingPreviousSummary {
+        slot: Slot,
+        previous_state_root: Hash256,
+    },
+    /// Cold block root index missing for a slot.
+    ColdBlockRootMissing {
+        slot: Slot,
+        oldest_block_slot: Slot,
+        split_slot: Slot,
+    },
+    /// Cold block root index has invalid byte length.
+    ColdBlockRootInvalidLength { slot: Slot, length: usize },
+    /// Cold block root index references a block not in hot DB.
+    ColdBlockRootOrphan { slot: Slot, block_root: Hash256 },
+    /// Cold state root index missing for a slot.
+    ColdStateRootMissing {
+        slot: Slot,
+        state_lower_limit: Slot,
+        state_upper_limit: Slot,
+        split_slot: Slot,
+    },
+    /// Cold state root index has invalid key length.
+    ColdStateRootInvalidKeyLength { length: usize },
+    /// Cold state root index has invalid root length.
+    ColdStateRootInvalidRootLength { slot: Slot, length: usize },
+    /// Cold state root index references a state with no cold summary.
+    ColdStateRootMissingSummary { slot: Slot, state_root: Hash256 },
+    /// Cold state summary slot doesn't match the state root index slot.
+    ColdStateRootSlotMismatch {
+        slot: Slot,
+        state_root: Hash256,
+        summary_slot: Slot,
+    },
+    /// Cold state summary should have a snapshot but none found.
+    ColdStateMissingSnapshot { state_root: Hash256, slot: Slot },
+    /// Cold state summary should have a diff but none found.
+    ColdStateMissingDiff { state_root: Hash256, slot: Slot },
+    /// Fork choice references a block not in hot DB.
+    ForkChoiceBlockMissing { block_root: Hash256, slot: Slot },
+    /// Block has no execution payload or envelope (prune_payloads=false).
+    ExecutionPayloadMissing { block_root: Hash256, slot: Slot },
+    /// Block has no blob sidecar entry.
+    BlobSidecarMissing { block_root: Hash256, slot: Slot },
+    /// Block missing a custody data column.
+    DataColumnMissing {
+        block_root: Hash256,
+        slot: Slot,
+        column_index: ColumnIndex,
+    },
+    /// State in cache has no hot state summary on disk.
+    StateCacheMissingSummary { state_root: Hash256 },
+    /// Pubkey cache count mismatch between memory and disk.
+    PubkeyCacheCountMismatch { in_memory: usize, on_disk: usize },
 }
 
 impl fmt::Display for InvariantViolation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}]: {}", self.invariant, self.message)
+        match self {
+            Self::BlockFailedToLoad { block_root } => {
+                write!(
+                    f,
+                    "block root {block_root:?} exists in BeaconBlock column but failed to load"
+                )
+            }
+            Self::HotBlockMissingStateSummary {
+                block_root,
+                slot,
+                state_root,
+            } => {
+                write!(
+                    f,
+                    "hot block {block_root:?} at slot {slot} has state root {state_root:?} \
+                     but no hot state summary exists"
+                )
+            }
+            Self::HotStateMissingSnapshot { state_root, slot } => {
+                write!(
+                    f,
+                    "state {state_root:?} at slot {slot} should have a snapshot but none found"
+                )
+            }
+            Self::HotStateMissingDiff { state_root, slot } => {
+                write!(
+                    f,
+                    "state {state_root:?} at slot {slot} should have a diff but none found"
+                )
+            }
+            Self::HotStateMissingPreviousSummary {
+                slot,
+                previous_state_root,
+            } => {
+                write!(
+                    f,
+                    "state summary at slot {slot} references previous_state_root \
+                     {previous_state_root:?} which has no hot state summary"
+                )
+            }
+            Self::ColdBlockRootMissing {
+                slot,
+                oldest_block_slot,
+                split_slot,
+            } => {
+                write!(
+                    f,
+                    "missing cold block root index at slot {slot} \
+                     (oldest_block_slot={oldest_block_slot}, split.slot={split_slot})"
+                )
+            }
+            Self::ColdBlockRootInvalidLength { slot, length } => {
+                write!(
+                    f,
+                    "cold block root index at slot {slot} has invalid length {length}"
+                )
+            }
+            Self::ColdBlockRootOrphan { slot, block_root } => {
+                write!(
+                    f,
+                    "cold block root index at slot {slot} references block root \
+                     {block_root:?} which does not exist in hot DB"
+                )
+            }
+            Self::ColdStateRootMissing {
+                slot,
+                state_lower_limit,
+                state_upper_limit,
+                split_slot,
+            } => {
+                write!(
+                    f,
+                    "missing cold state root index at slot {slot} \
+                     (state_lower_limit={state_lower_limit}, \
+                     state_upper_limit={state_upper_limit}, split.slot={split_slot})"
+                )
+            }
+            Self::ColdStateRootInvalidKeyLength { length } => {
+                write!(f, "state root index has invalid key length {length}")
+            }
+            Self::ColdStateRootInvalidRootLength { slot, length } => {
+                write!(
+                    f,
+                    "state root index at slot {slot} has invalid root length {length}"
+                )
+            }
+            Self::ColdStateRootMissingSummary { slot, state_root } => {
+                write!(
+                    f,
+                    "state root index at slot {slot} has state root {state_root:?} \
+                     but no cold state summary exists"
+                )
+            }
+            Self::ColdStateRootSlotMismatch {
+                slot,
+                state_root,
+                summary_slot,
+            } => {
+                write!(
+                    f,
+                    "cold state summary for {state_root:?} has slot {summary_slot} \
+                     but state root index has slot {slot}"
+                )
+            }
+            Self::ColdStateMissingSnapshot { state_root, slot } => {
+                write!(
+                    f,
+                    "cold state {state_root:?} at slot {slot} should have a snapshot \
+                     but none found"
+                )
+            }
+            Self::ColdStateMissingDiff { state_root, slot } => {
+                write!(
+                    f,
+                    "cold state {state_root:?} at slot {slot} should have a diff but none found"
+                )
+            }
+            Self::ForkChoiceBlockMissing { block_root, slot } => {
+                write!(
+                    f,
+                    "block {block_root:?} at slot {slot} exists in fork choice but not in hot DB"
+                )
+            }
+            Self::ExecutionPayloadMissing { block_root, slot } => {
+                write!(
+                    f,
+                    "block {block_root:?} at slot {slot} has no execution payload \
+                     or payload envelope (prune_payloads=false)"
+                )
+            }
+            Self::BlobSidecarMissing { block_root, slot } => {
+                write!(
+                    f,
+                    "block {block_root:?} at slot {slot} has no blob sidecar entry"
+                )
+            }
+            Self::DataColumnMissing {
+                block_root,
+                slot,
+                column_index,
+            } => {
+                write!(
+                    f,
+                    "block {block_root:?} at slot {slot} missing custody data column \
+                     {column_index}"
+                )
+            }
+            Self::StateCacheMissingSummary { state_root } => {
+                write!(
+                    f,
+                    "state {state_root:?} is in state cache but has no hot state summary"
+                )
+            }
+            Self::PubkeyCacheCountMismatch { in_memory, on_disk } => {
+                write!(
+                    f,
+                    "pubkey cache has {in_memory} keys in memory but {on_disk} on disk"
+                )
+            }
+        }
     }
 }
 
@@ -105,7 +328,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         split: &Split,
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "hot_block_state_consistency";
 
         for res in self
             .hot_db
@@ -114,31 +336,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let block_root = res?;
             result.inc_checks();
 
-            // Load the block to check its slot.
             let Some(block) = self.get_blinded_block(&block_root)? else {
-                result.add_violation(InvariantViolation {
-                    invariant: invariant_name.to_string(),
-                    message: format!(
-                        "block root {block_root:?} exists in BeaconBlock column but failed to load"
-                    ),
-                });
+                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
             if block.slot() >= split.slot {
-                // This block is in the hot range, check for a state summary.
                 let state_root = block.state_root();
                 let has_summary = self
                     .hot_db
                     .key_exists(DBColumn::BeaconStateHotSummary, state_root.as_slice())?;
                 if !has_summary {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "hot block {block_root:?} at slot {} has state root {state_root:?} \
-                             but no hot state summary exists",
-                            block.slot()
-                        ),
+                    result.add_violation(InvariantViolation::HotBlockMissingStateSummary {
+                        block_root,
+                        slot: block.slot(),
+                        state_root,
                     });
                 }
             }
@@ -162,7 +374,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         _split: &Split,
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "hot_state_summary_diff_consistency";
 
         let anchor_slot = self.get_anchor_info().anchor_slot;
 
@@ -190,13 +401,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         .hot_db
                         .key_exists(DBColumn::BeaconStateHotSnapshot, state_root.as_slice())?;
                     if !has_snapshot {
-                        result.add_violation(InvariantViolation {
-                            invariant: invariant_name.to_string(),
-                            message: format!(
-                                "state {state_root:?} at slot {} should have a snapshot \
-                                 but none found",
-                                summary.slot
-                            ),
+                        result.add_violation(InvariantViolation::HotStateMissingSnapshot {
+                            state_root,
+                            slot: summary.slot,
                         });
                     }
                 }
@@ -205,13 +412,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         .hot_db
                         .key_exists(DBColumn::BeaconStateHotDiff, state_root.as_slice())?;
                     if !has_diff {
-                        result.add_violation(InvariantViolation {
-                            invariant: invariant_name.to_string(),
-                            message: format!(
-                                "state {state_root:?} at slot {} should have a diff \
-                                 but none found",
-                                summary.slot
-                            ),
+                        result.add_violation(InvariantViolation::HotStateMissingDiff {
+                            state_root,
+                            slot: summary.slot,
                         });
                     }
                 }
@@ -238,7 +441,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         split: &Split,
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "hot_state_summary_chain_consistency";
 
         for res in self
             .hot_db
@@ -254,13 +456,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .hot_db
                     .key_exists(DBColumn::BeaconStateHotSummary, prev_root.as_slice())?;
                 if !has_prev {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "state summary at slot {} references previous_state_root \
-                             {prev_root:?} which has no hot state summary",
-                            summary.slot
-                        ),
+                    result.add_violation(InvariantViolation::HotStateMissingPreviousSummary {
+                        slot: summary.slot,
+                        previous_state_root: prev_root,
                     });
                 }
             }
@@ -283,7 +481,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// from the index slot.
     fn check_cold_block_root_indices(&self, split: &Split) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "cold_block_root_indices";
 
         let anchor_info = self.get_anchor_info();
         let start_slot = anchor_info.oldest_block_slot;
@@ -309,32 +506,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             .hot_db
                             .key_exists(DBColumn::BeaconBlock, block_root.as_slice())?;
                         if !block_exists {
-                            result.add_violation(InvariantViolation {
-                                invariant: invariant_name.to_string(),
-                                message: format!(
-                                    "cold block root index at slot {slot} references block root \
-                                     {block_root:?} which does not exist in hot DB"
-                                ),
+                            result.add_violation(InvariantViolation::ColdBlockRootOrphan {
+                                slot,
+                                block_root,
                             });
                         }
                     } else {
-                        result.add_violation(InvariantViolation {
-                            invariant: invariant_name.to_string(),
-                            message: format!(
-                                "cold block root index at slot {slot} has invalid length {}",
-                                root_bytes.len()
-                            ),
+                        result.add_violation(InvariantViolation::ColdBlockRootInvalidLength {
+                            slot,
+                            length: root_bytes.len(),
                         });
                     }
                 }
                 None => {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "missing cold block root index at slot {slot} \
-                             (oldest_block_slot={start_slot}, split.slot={})",
-                            split.slot
-                        ),
+                    result.add_violation(InvariantViolation::ColdBlockRootMissing {
+                        slot,
+                        oldest_block_slot: start_slot,
+                        split_slot: split.slot,
                     });
                 }
             }
@@ -358,7 +546,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///   matching slot.
     fn check_cold_state_root_indices(&self, split: &Split) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "cold_state_root_indices";
 
         let anchor_info = self.get_anchor_info();
 
@@ -379,14 +566,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .cold_db
                     .key_exists(DBColumn::BeaconStateRoots, &slot_bytes)?;
                 if !has_entry {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "missing cold state root index at slot {slot} \
-                             (state_lower_limit={state_lower}, state_upper_limit={}, \
-                             split.slot={})",
-                            anchor_info.state_upper_limit, split.slot
-                        ),
+                    result.add_violation(InvariantViolation::ColdStateRootMissing {
+                        slot,
+                        state_lower_limit: state_lower,
+                        state_upper_limit: anchor_info.state_upper_limit,
+                        split_slot: split.slot,
                     });
                 }
             }
@@ -401,12 +585,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             result.inc_checks();
 
             if slot_bytes.len() != 8 {
-                result.add_violation(InvariantViolation {
-                    invariant: invariant_name.to_string(),
-                    message: format!(
-                        "state root index has invalid key length {}",
-                        slot_bytes.len()
-                    ),
+                result.add_violation(InvariantViolation::ColdStateRootInvalidKeyLength {
+                    length: slot_bytes.len(),
                 });
                 continue;
             }
@@ -417,12 +597,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let slot = Slot::new(slot_val);
 
             if root_bytes.len() != 32 {
-                result.add_violation(InvariantViolation {
-                    invariant: invariant_name.to_string(),
-                    message: format!(
-                        "state root index at slot {slot} has invalid root length {}",
-                        root_bytes.len()
-                    ),
+                result.add_violation(InvariantViolation::ColdStateRootInvalidRootLength {
+                    slot,
+                    length: root_bytes.len(),
                 });
                 continue;
             }
@@ -434,24 +611,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .get_bytes(DBColumn::BeaconColdStateSummary, state_root.as_slice())?
             {
                 None => {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "state root index at slot {slot} has state root {state_root:?} \
-                             but no cold state summary exists"
-                        ),
+                    result.add_violation(InvariantViolation::ColdStateRootMissingSummary {
+                        slot,
+                        state_root,
                     });
                 }
                 Some(summary_bytes) => {
                     let summary = ColdStateSummary::from_ssz_bytes(&summary_bytes)?;
                     if summary.slot != slot {
-                        result.add_violation(InvariantViolation {
-                            invariant: invariant_name.to_string(),
-                            message: format!(
-                                "cold state summary for {state_root:?} has slot {} \
-                                 but state root index has slot {slot}",
-                                summary.slot
-                            ),
+                        result.add_violation(InvariantViolation::ColdStateRootSlotMismatch {
+                            slot,
+                            state_root,
+                            summary_slot: summary.slot,
                         });
                     }
                 }
@@ -476,7 +647,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         _split: &Split,
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "cold_state_diff_consistency";
 
         for res in self
             .cold_db
@@ -498,13 +668,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         .cold_db
                         .key_exists(DBColumn::BeaconStateSnapshot, &slot_bytes)?;
                     if !has_snapshot {
-                        result.add_violation(InvariantViolation {
-                            invariant: invariant_name.to_string(),
-                            message: format!(
-                                "cold state {state_root:?} at slot {} should have a snapshot \
-                                 but none found",
-                                summary.slot
-                            ),
+                        result.add_violation(InvariantViolation::ColdStateMissingSnapshot {
+                            state_root,
+                            slot: summary.slot,
                         });
                     }
                 }
@@ -513,13 +679,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         .cold_db
                         .key_exists(DBColumn::BeaconStateDiff, &slot_bytes)?;
                     if !has_diff {
-                        result.add_violation(InvariantViolation {
-                            invariant: invariant_name.to_string(),
-                            message: format!(
-                                "cold state {state_root:?} at slot {} should have a diff \
-                                 but none found",
-                                summary.slot
-                            ),
+                        result.add_violation(InvariantViolation::ColdStateMissingDiff {
+                            state_root,
+                            slot: summary.slot,
                         });
                     }
                 }

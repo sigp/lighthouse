@@ -42,7 +42,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This ensures the fork choice tree never references blocks that have been pruned or lost.
     fn check_fork_choice_block_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "fork_choice_block_consistency";
 
         // Collect block roots from fork choice under the read lock, then drop the lock before
         // performing DB I/O to avoid blocking fork choice writes (recompute_head).
@@ -65,13 +64,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .key_exists(DBColumn::BeaconBlock, block_root.as_slice())?;
 
             if !exists {
-                result.add_violation(InvariantViolation {
-                    invariant: invariant_name.to_string(),
-                    message: format!(
-                        "block {block_root:?} at slot {slot} exists in fork choice \
-                         but not in hot DB",
-                    ),
-                });
+                result
+                    .add_violation(InvariantViolation::ForkChoiceBlockMissing { block_root, slot });
             }
         }
 
@@ -90,7 +84,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// true (the default), payloads are pruned at finalization and this check is skipped.
     fn check_execution_payload_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "execution_payload_consistency";
 
         if self.store.get_config().prune_payloads {
             return Ok(result);
@@ -109,6 +102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let block_root = res?;
 
             let Some(block) = self.store.get_blinded_block(&block_root)? else {
+                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
@@ -124,13 +118,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Post-Gloas blocks store a payload envelope instead.
                 let has_envelope = self.store.payload_envelope_exists(&block_root)?;
                 if !has_envelope {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "block {block_root:?} at slot {} has no execution payload \
-                             or payload envelope (prune_payloads=false)",
-                            block.slot()
-                        ),
+                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                        block_root,
+                        slot: block.slot(),
                     });
                 }
             }
@@ -152,7 +142,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// use data columns instead of blobs and are checked by invariant 7.
     fn check_blob_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "blob_consistency";
 
         let deneb_fork_slot = match self.spec.deneb_fork_epoch {
             Some(epoch) => epoch.start_slot(T::EthSpec::slots_per_epoch()),
@@ -179,6 +168,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let block_root = res?;
 
             let Some(block) = self.store.get_blinded_block(&block_root)? else {
+                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
@@ -202,12 +192,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
 
             if !has_blob_entry {
-                result.add_violation(InvariantViolation {
-                    invariant: invariant_name.to_string(),
-                    message: format!(
-                        "block {block_root:?} at slot {slot} has no blob sidecar entry",
-                    ),
-                });
+                result.add_violation(InvariantViolation::BlobSidecarMissing { block_root, slot });
             }
         }
 
@@ -229,7 +214,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// requirements; see https://github.com/sigp/lighthouse/issues/6572.
     fn check_data_column_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "data_column_consistency";
 
         let fulu_fork_slot = match self.spec.fulu_fork_epoch {
             Some(epoch) => epoch.start_slot(T::EthSpec::slots_per_epoch()),
@@ -257,6 +241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let block_root = res?;
 
             let Some(block) = self.store.get_blinded_block(&block_root)? else {
+                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
@@ -269,12 +254,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let stored_columns = self.store.get_data_column_keys(block_root)?;
             for col_idx in &custody_columns {
                 if !stored_columns.contains(col_idx) {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "block {block_root:?} at slot {} missing custody data column {col_idx}",
-                            block.slot()
-                        ),
+                    result.add_violation(InvariantViolation::DataColumnMissing {
+                        block_root,
+                        slot: block.slot(),
+                        column_index: *col_idx,
                     });
                 }
             }
@@ -293,7 +276,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// have a corresponding hot state summary on disk.
     fn check_state_cache_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "state_cache_consistency";
 
         let state_roots = self.store.state_cache.lock().state_roots();
 
@@ -305,12 +287,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .hot_db
                 .key_exists(DBColumn::BeaconStateHotSummary, state_root.as_slice())?;
             if !has_summary {
-                result.add_violation(InvariantViolation {
-                    invariant: invariant_name.to_string(),
-                    message: format!(
-                        "state {state_root:?} is in state cache but has no hot state summary"
-                    ),
-                });
+                result.add_violation(InvariantViolation::StateCacheMissingSummary { state_root });
             }
         }
 
@@ -328,7 +305,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// pubkey values are not compared.
     fn check_pubkey_cache_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = InvariantCheckResult::new();
-        let invariant_name = "pubkey_cache_consistency";
 
         result.inc_checks();
 
@@ -346,12 +322,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if in_memory_count != on_disk_count {
-            result.add_violation(InvariantViolation {
-                invariant: invariant_name.to_string(),
-                message: format!(
-                    "pubkey cache has {in_memory_count} keys in memory \
-                     but {on_disk_count} on disk"
-                ),
+            result.add_violation(InvariantViolation::PubkeyCacheCountMismatch {
+                in_memory: in_memory_count,
+                on_disk: on_disk_count,
             });
         }
 
