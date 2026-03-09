@@ -299,6 +299,7 @@ lint:
 		-A clippy::uninlined-format-args \
 		-A clippy::enum_variant_names \
 		-A clippy::result_large_err \
+		-A unknown-lints \
 		-A clippy::manual_checked_ops
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
