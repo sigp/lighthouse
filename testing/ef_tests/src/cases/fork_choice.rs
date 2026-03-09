@@ -518,7 +518,7 @@ impl<E: EthSpec> Tester<E> {
         // not on every block/attestation import. We trigger confirmation
         // explicitly in `check_confirmed_root` instead.
         if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
-            fcr_mutex.lock().set_auto_confirm(false);
+            fcr_mutex.lock().set_spec_test_mode(true);
         }
 
         Ok(Self { harness, spec })
@@ -1055,7 +1055,7 @@ impl<E: EthSpec> Tester<E> {
             .slot()
             .map_err(|e| Error::InternalError(format!("Failed to get slot: {e:?}")))?;
 
-        // Explicitly run FCR confirmation. In spec tests, auto_confirm is disabled
+        // Explicitly run FCR confirmation. In spec tests, spec_test_mode is enabled
         // so `on_fast_confirmation` only tracks variables. We trigger the full
         // confirmation step here, matching the spec's `with_fast_confirmation` flag.
         let fork_choice_lock = self.harness.chain.canonical_head.fork_choice_read_lock();

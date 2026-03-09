@@ -32,9 +32,10 @@
 //! The original spec functions (`is_one_confirmed`, `get_attestation_score`) are not
 //! present — only the optimized equivalents are used.
 
+use crate::metrics;
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::{BTreeSet, HashMap};
-use tracing::{debug, debug_span, warn};
+use tracing::{debug, debug_span};
 use types::{BeaconState, Checkpoint, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// Per-mille adjustment factor for committee weight estimates that don't cover a full epoch.
@@ -129,21 +130,34 @@ pub struct FastConfirmationRule {
     pub byzantine_threshold: u64,
 
     // === Committee data from head state ===
-    /// Per-validator slot assignment, covering current and previous epochs.
-    /// Built from the HEAD state each time `on_fast_confirmation` runs.
+    /// Per-validator slot assignment for store epochs `current - 2`, `current - 1`,
+    /// and `current`.
+    ///
+    /// Built from the HEAD state each time `on_fast_confirmation` runs and retains the
+    /// oldest epoch assignment across an epoch transition so reconfirmation can account
+    /// for empty-slot support in `current_epoch - 2`, matching the spec requirement for
+    /// `get_slot_committee`.
     /// Used by `get_block_support_between_slots` and `get_equivocation_score`.
     head_slot_assignments: Vec<Slot>,
+    head_slot_assignment_epochs: [types::Epoch; 3],
+
+    // === FFG data from the head state ===
+    /// Effective balances for the current store epoch as seen from the head state.
+    ///
+    /// This is the implementation's approximation of the spec's pulled-up head state
+    /// balance source and is used only by the FFG helpers.
+    head_balance_source: BalanceSourceData,
 
     // === Internal bookkeeping ===
     /// The last slot at which `update_fast_confirmation_variables` ran.
     /// Prevents double-rotation when `recompute_head` runs multiple times per slot.
     last_update_slot: Slot,
 
-    /// When `false`, `on_fast_confirmation` updates tracking variables but skips
-    /// the `get_latest_confirmed` call. Used in spec tests where FCR is only
-    /// triggered at explicit orchestration points (the spec's `with_fast_confirmation`
-    /// flag). In production this should always be `true`.
-    auto_confirm: bool,
+    /// When `true`, `on_fast_confirmation` updates tracking variables but skips
+    /// the `get_latest_confirmed` call. Spec tests set this so FCR is only
+    /// triggered at explicit orchestration points (the spec's `with_fast_confirmation`).
+    /// Always `false` in production.
+    spec_test_mode: bool,
 }
 
 impl FastConfirmationRule {
@@ -166,84 +180,162 @@ impl FastConfirmationRule {
             current_balance_source: BalanceSourceData::default(),
             byzantine_threshold,
             head_slot_assignments: Vec::new(),
+            head_slot_assignment_epochs: [types::Epoch::new(0); 3],
+            head_balance_source: BalanceSourceData::default(),
             last_update_slot: Slot::new(0),
-            auto_confirm: true,
+            spec_test_mode: false,
         }
     }
 
-    /// Disable automatic confirmation finding (for spec tests).
-    /// When disabled, `on_fast_confirmation` still tracks variables but does not
-    /// update `confirmed_root`. Call `run_confirmation` explicitly to trigger it.
-    pub fn set_auto_confirm(&mut self, enabled: bool) {
-        self.auto_confirm = enabled;
+    /// Enable spec test mode: `on_fast_confirmation` still tracks variables but
+    /// does not update `confirmed_root`. Call `run_confirmation` explicitly.
+    pub fn set_spec_test_mode(&mut self, enabled: bool) {
+        self.spec_test_mode = enabled;
     }
 
     /// Directly set committee slot assignments (for benchmarks that lack a real BeaconState).
     pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>) {
-        self.head_slot_assignments = assignments;
+        if assignments.len().is_multiple_of(3) {
+            self.head_slot_assignments = assignments;
+        } else if assignments.len().is_multiple_of(2) {
+            let validator_count = assignments.len() / 2;
+            let mut expanded = vec![Slot::new(0); validator_count * 3];
+            for val_idx in 0..validator_count {
+                expanded[val_idx * 3 + 1] = assignments[val_idx * 2];
+                expanded[val_idx * 3 + 2] = assignments[val_idx * 2 + 1];
+            }
+            self.head_slot_assignments = expanded;
+        } else {
+            self.head_slot_assignments = assignments;
+        }
     }
 
     /// Rebuild committee slot assignments from the head state.
     ///
     /// The spec's `get_slot_committee` uses `store.block_states[head]` for shuffling,
-    /// which is separate from the balance source. We store two slot assignments per
-    /// validator (previous epoch and current epoch) so we can check committee membership
-    /// across epoch boundaries.
-    fn rebuild_head_slot_assignments<E: EthSpec>(&mut self, state: &BeaconState<E>) {
+    /// which is separate from the balance source. We retain up to three epoch-relative
+    /// slot assignments per validator so committee membership checks remain valid across
+    /// the reconfirmation boundary.
+    fn rebuild_head_slot_assignments<E: EthSpec>(
+        &mut self,
+        state: &BeaconState<E>,
+        current_slot: Slot,
+    ) -> Result<(), String> {
         let validator_count = state.validators().len();
-        // Store pairs: (prev_epoch_slot, curr_epoch_slot). Slot(0) means no assignment.
-        let mut assignments = vec![Slot::new(0); validator_count * 2];
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let desired_epochs = [
+            current_epoch.saturating_sub(2u64),
+            current_epoch.saturating_sub(1u64),
+            current_epoch,
+        ];
+        let mut assignments = vec![Slot::new(0); validator_count * 3];
+
+        // Preserve any previously-known assignment that still falls into the desired epoch window.
+        if self.head_slot_assignments.len() == validator_count * 3 {
+            for val_idx in 0..validator_count {
+                for (old_col, old_epoch) in self.head_slot_assignment_epochs.iter().enumerate() {
+                    if let Some(new_col) =
+                        desired_epochs.iter().position(|epoch| epoch == old_epoch)
+                    {
+                        assignments[val_idx * 3 + new_col] =
+                            self.head_slot_assignments[val_idx * 3 + old_col];
+                    }
+                }
+            }
+        }
 
         for val_idx in 0..validator_count {
-            if let Ok(Some(duty)) = state.get_attestation_duties(val_idx, RelativeEpoch::Previous) {
-                assignments[val_idx * 2] = duty.slot;
+            match state.get_attestation_duties(val_idx, RelativeEpoch::Previous) {
+                Ok(Some(duty)) => {
+                    let duty_epoch = state.previous_epoch();
+                    if let Some(col) = desired_epochs.iter().position(|epoch| *epoch == duty_epoch)
+                    {
+                        assignments[val_idx * 3 + col] = duty.slot;
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(format!(
+                        "FCR: failed to get attestation duties for validator {val_idx}: {e:?}"
+                    ));
+                }
             }
-            if let Ok(Some(duty)) = state.get_attestation_duties(val_idx, RelativeEpoch::Current) {
-                assignments[val_idx * 2 + 1] = duty.slot;
+            match state.get_attestation_duties(val_idx, RelativeEpoch::Current) {
+                Ok(Some(duty)) => {
+                    let duty_epoch = state.current_epoch();
+                    if let Some(col) = desired_epochs.iter().position(|epoch| *epoch == duty_epoch)
+                    {
+                        assignments[val_idx * 3 + col] = duty.slot;
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(format!(
+                        "FCR: failed to get attestation duties for validator {val_idx}: {e:?}"
+                    ));
+                }
             }
         }
 
         self.head_slot_assignments = assignments;
+        self.head_slot_assignment_epochs = desired_epochs;
+        Ok(())
+    }
+
+    fn rebuild_head_balance_source<E: EthSpec>(
+        &mut self,
+        state: &BeaconState<E>,
+        current_slot: Slot,
+    ) -> Result<(), String> {
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let relative_epoch = if state.current_epoch() < current_epoch {
+            RelativeEpoch::Next
+        } else {
+            RelativeEpoch::Current
+        };
+        let checkpoint = Checkpoint {
+            epoch: current_epoch,
+            root: Hash256::ZERO,
+        };
+
+        self.head_balance_source =
+            BalanceSourceData::from_state(state, checkpoint, relative_epoch)?;
+        Ok(())
     }
 
     /// Check if a validator is assigned to any committee in the slot range [start, end].
     fn is_in_committee_range(&self, val_idx: usize, start_slot: Slot, end_slot: Slot) -> bool {
-        let prev_slot = self
-            .head_slot_assignments
-            .get(val_idx * 2)
-            .copied()
-            .unwrap_or_else(|| Slot::new(0));
-        let curr_slot = self
-            .head_slot_assignments
-            .get(val_idx * 2 + 1)
-            .copied()
-            .unwrap_or_else(|| Slot::new(0));
-        (prev_slot >= start_slot && prev_slot <= end_slot)
-            || (curr_slot >= start_slot && curr_slot <= end_slot)
+        (0..3).any(|col| {
+            let Some(&slot) = self.head_slot_assignments.get(val_idx * 3 + col) else {
+                return false;
+            };
+            slot > Slot::new(0) && slot >= start_slot && slot <= end_slot
+        })
     }
 
     /// Update balance sources from a beacon state.
     ///
     /// Called at epoch boundaries when the observed justified checkpoints rotate.
     /// The state should have committee caches built for both current and previous epochs.
-    pub fn update_balance_sources<E: EthSpec>(&mut self, state: &BeaconState<E>) {
+    pub fn update_balance_sources<E: EthSpec>(
+        &mut self,
+        state: &BeaconState<E>,
+    ) -> Result<(), String> {
         let current_cp = self.current_epoch_observed_justified_checkpoint;
         let previous_cp = self.previous_epoch_observed_justified_checkpoint;
 
         // Only rebuild if the checkpoint changed.
         if self.current_balance_source.checkpoint != current_cp {
-            match BalanceSourceData::from_state(state, current_cp, RelativeEpoch::Current) {
-                Ok(bs) => self.current_balance_source = bs,
-                Err(e) => warn!(error = %e, "FCR: failed to build current balance source"),
-            }
+            self.current_balance_source =
+                BalanceSourceData::from_state(state, current_cp, RelativeEpoch::Current)?;
         }
 
         if self.previous_balance_source.checkpoint != previous_cp {
-            match BalanceSourceData::from_state(state, previous_cp, RelativeEpoch::Previous) {
-                Ok(bs) => self.previous_balance_source = bs,
-                Err(e) => warn!(error = %e, "FCR: failed to build previous balance source"),
-            }
+            self.previous_balance_source =
+                BalanceSourceData::from_state(state, previous_cp, RelativeEpoch::Previous)?;
         }
+
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -274,16 +366,16 @@ impl FastConfirmationRule {
             head_root,
             unrealized_justified_checkpoint,
             current_slot,
-            proto_array,
         );
 
         // Rebuild committee assignments from the head state.
-        self.rebuild_head_slot_assignments::<E>(state);
+        self.rebuild_head_slot_assignments::<E>(state, current_slot)?;
+        self.rebuild_head_balance_source::<E>(state, current_slot)?;
 
         // Rebuild balance sources if the observed justified checkpoints changed.
-        self.update_balance_sources(state);
+        self.update_balance_sources(state)?;
 
-        if self.auto_confirm {
+        if !self.spec_test_mode {
             self.confirmed_root = self.get_latest_confirmed::<E>(
                 head_root,
                 finalized_checkpoint,
@@ -293,7 +385,7 @@ impl FastConfirmationRule {
                 proto_array,
                 votes,
                 equivocating_indices,
-            );
+            )?;
         }
 
         Ok(())
@@ -301,7 +393,7 @@ impl FastConfirmationRule {
 
     /// Explicitly trigger the confirmation finding step.
     ///
-    /// In spec tests, `auto_confirm` is `false` so this must be called manually
+    /// In spec tests, `spec_test_mode` is `true` so this must be called manually
     /// at the orchestration points that correspond to the spec's `with_fast_confirmation`.
     #[allow(clippy::too_many_arguments)]
     pub fn run_confirmation<E: EthSpec>(
@@ -321,10 +413,10 @@ impl FastConfirmationRule {
             head_root,
             unrealized_justified_checkpoint,
             current_slot,
-            proto_array,
         );
-        self.rebuild_head_slot_assignments::<E>(state);
-        self.update_balance_sources(state);
+        self.rebuild_head_slot_assignments::<E>(state, current_slot)?;
+        self.rebuild_head_balance_source::<E>(state, current_slot)?;
+        self.update_balance_sources(state)?;
 
         self.confirmed_root = self.get_latest_confirmed::<E>(
             head_root,
@@ -335,7 +427,7 @@ impl FastConfirmationRule {
             proto_array,
             votes,
             equivocating_indices,
-        );
+        )?;
 
         Ok(())
     }
@@ -345,14 +437,11 @@ impl FastConfirmationRule {
     // -----------------------------------------------------------------------
 
     /// Spec: `update_fast_confirmation_variables`.
-    ///
-    /// `_proto_array` is unused but kept to match the spec function signature.
     fn update_fast_confirmation_variables<E: EthSpec>(
         &mut self,
         head_root: Hash256,
         unrealized_justified_checkpoint: &Checkpoint,
         current_slot: Slot,
-        _proto_array: &ProtoArray,
     ) {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
 
@@ -360,9 +449,8 @@ impl FastConfirmationRule {
         // the head at the *start* of each slot. Mid-slot block processing should NOT update
         // these values. Only rotate at slot boundaries.
         if current_slot > self.last_update_slot {
-            // Rotate slot heads: previous captures old current, then current = new head.
+            // Rotate slot heads once per slot boundary.
             self.previous_slot_head = self.current_slot_head;
-            self.current_slot_head = head_root;
 
             // At last slot of epoch: snapshot greatest unrealized justified.
             if is_start_slot_at_epoch::<E>(current_slot.saturating_add(1u64)) {
@@ -380,6 +468,9 @@ impl FastConfirmationRule {
 
             self.last_update_slot = current_slot;
         }
+
+        // Keep current_slot_head aligned with the latest head seen in this slot.
+        self.current_slot_head = head_root;
     }
 
     // -----------------------------------------------------------------------
@@ -398,7 +489,7 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> Hash256 {
+    ) -> Result<Hash256, String> {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let mut confirmed_root = self.confirmed_root;
 
@@ -407,7 +498,7 @@ impl FastConfirmationRule {
         let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
 
         if confirmed_epoch.is_none_or(|e| e.saturating_add(1u64) < current_epoch)
-            || !self.is_ancestor(head_root, confirmed_root, proto_array)
+            || !self.is_ancestor(head_root, confirmed_root, proto_array)?
             || (is_epoch_start
                 && !self.is_confirmed_chain_safe::<E>(
                     confirmed_root,
@@ -415,7 +506,7 @@ impl FastConfirmationRule {
                     proto_array,
                     votes,
                     equivocating_indices,
-                ))
+                )?)
         {
             debug!(
                 prev_confirmed = %confirmed_root,
@@ -424,15 +515,16 @@ impl FastConfirmationRule {
                 "FCR reverted to finalized"
             );
             confirmed_root = finalized_checkpoint.root;
+            metrics::inc_counter(&metrics::FCR_PHASE1_REVERT);
         }
 
         // Phase 2: Restart from justified if conditions met.
         let observed_jcp = &self.current_epoch_observed_justified_checkpoint;
         if is_epoch_start
             && observed_jcp.epoch.saturating_add(1u64) == current_epoch
-            && *observed_jcp == self.unrealized_justification_of(head_root, proto_array)
-            && self.block_slot(confirmed_root, proto_array)
-                < self.block_slot(observed_jcp.root, proto_array)
+            && *observed_jcp == self.unrealized_justification_of(head_root, proto_array)?
+            && self.block_slot(confirmed_root, proto_array)?
+                < self.block_slot(observed_jcp.root, proto_array)?
         {
             debug!(
                 prev_confirmed = %confirmed_root,
@@ -441,7 +533,10 @@ impl FastConfirmationRule {
                 "FCR restarted from observed justified"
             );
             confirmed_root = observed_jcp.root;
+            metrics::inc_counter(&metrics::FCR_PHASE2_RESTART);
         }
+
+        let pre_advance_root = confirmed_root;
 
         // Phase 3: Advance via find_latest_confirmed_descendant.
         let confirmed_epoch = self.block_epoch::<E>(confirmed_root, proto_array);
@@ -454,10 +549,14 @@ impl FastConfirmationRule {
                 proto_array,
                 votes,
                 equivocating_indices,
-            );
+            )?;
         }
 
-        confirmed_root
+        if confirmed_root != pre_advance_root {
+            metrics::inc_counter(&metrics::FCR_PHASE3_ADVANCE);
+        }
+
+        Ok(confirmed_root)
     }
 
     // -----------------------------------------------------------------------
@@ -479,7 +578,7 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> Hash256 {
+    ) -> Result<Hash256, String> {
         let _span = debug_span!("fcr_find_confirmed_descendant").entered();
 
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
@@ -514,7 +613,7 @@ impl FastConfirmationRule {
             proto_array,
             votes,
             equivocating_indices,
-        );
+        )?;
         let uj_prev_head =
             self.unrealized_justification_epoch_of(self.previous_slot_head, proto_array);
         let uj_head = self.unrealized_justification_epoch_of(head_root, proto_array);
@@ -525,17 +624,20 @@ impl FastConfirmationRule {
                     && (uj_prev_head.is_some_and(|e| e.saturating_add(1u64) >= current_epoch)
                         || uj_head.is_some_and(|e| e.saturating_add(1u64) >= current_epoch))));
         if loop1_guard {
-            let canonical_roots = self.get_ancestor_roots(head_root, confirmed_root, proto_array);
+            let canonical_roots =
+                self.get_ancestor_roots(head_root, confirmed_root, proto_array)?;
 
             for block_root in &canonical_roots {
                 let block_epoch = self.block_epoch::<E>(*block_root, proto_array);
                 if block_epoch.is_none_or(|e| e >= current_epoch) {
                     break;
                 }
-                if !self.is_ancestor(self.previous_slot_head, *block_root, proto_array) {
+                if !self.is_ancestor(self.previous_slot_head, *block_root, proto_array)? {
                     break;
                 }
-                let score = precomputed_scores.get(block_root).copied().unwrap_or(0);
+                let score = *precomputed_scores.get(block_root).ok_or_else(|| {
+                    format!("FCR: missing precomputed score for block {block_root}")
+                })?;
                 if !self.is_one_confirmed_with_score::<E>(
                     &self.current_balance_source,
                     *block_root,
@@ -544,7 +646,7 @@ impl FastConfirmationRule {
                     proto_array,
                     votes,
                     equivocating_indices,
-                ) {
+                )? {
                     break;
                 }
                 confirmed_root = *block_root;
@@ -556,7 +658,8 @@ impl FastConfirmationRule {
         let loop2_guard =
             is_epoch_start || uj_epoch.is_some_and(|e| e.saturating_add(1u64) >= current_epoch);
         if loop2_guard {
-            let canonical_roots = self.get_ancestor_roots(head_root, confirmed_root, proto_array);
+            let canonical_roots =
+                self.get_ancestor_roots(head_root, confirmed_root, proto_array)?;
 
             let mut tentative_confirmed_root = confirmed_root;
 
@@ -573,13 +676,15 @@ impl FastConfirmationRule {
                         proto_array,
                         votes,
                         equivocating_indices,
-                    );
+                    )?;
                     if !ffg_ok {
                         break;
                     }
                 }
 
-                let score = precomputed_scores.get(block_root).copied().unwrap_or(0);
+                let score = *precomputed_scores.get(block_root).ok_or_else(|| {
+                    format!("FCR: missing precomputed score for block {block_root}")
+                })?;
                 if !self.is_one_confirmed_with_score::<E>(
                     &self.current_balance_source,
                     *block_root,
@@ -588,7 +693,7 @@ impl FastConfirmationRule {
                     proto_array,
                     votes,
                     equivocating_indices,
-                ) {
+                )? {
                     break;
                 }
                 tentative_confirmed_root = *block_root;
@@ -613,7 +718,7 @@ impl FastConfirmationRule {
                         proto_array,
                         votes,
                         equivocating_indices,
-                    ));
+                    )?);
 
             if promote_check1 || promote_check2 {
                 confirmed_root = tentative_confirmed_root;
@@ -627,7 +732,7 @@ impl FastConfirmationRule {
                 "FCR advanced"
             );
         }
-        confirmed_root
+        Ok(confirmed_root)
     }
 
     // -----------------------------------------------------------------------
@@ -648,25 +753,32 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> bool {
+    ) -> Result<bool, String> {
         let observed_jcp = &self.current_epoch_observed_justified_checkpoint;
-        if !self.is_ancestor(confirmed_root, observed_jcp.root, proto_array) {
-            return false;
+        if !self.is_ancestor(confirmed_root, observed_jcp.root, proto_array)? {
+            return Ok(false);
         }
 
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let start_root = if observed_jcp.epoch.saturating_add(1u64) >= current_epoch {
             observed_jcp.root
         } else {
-            // Limit reconfirmation to the checkpoint block at current_epoch - 1.
-            let cp_root = self.get_checkpoint_block_root::<E>(
-                confirmed_root,
-                current_epoch.saturating_sub(1u64),
-                proto_array,
-            );
-            match self.parent_root(cp_root, proto_array) {
-                Some(r) => r,
-                None => return false,
+            // Limit reconfirmation to the first block of the previous epoch.
+            // If successful, reconfirmation of ancestors is implied.
+            let prev_epoch_start = current_epoch
+                .saturating_sub(1u64)
+                .start_slot(E::slots_per_epoch());
+            let ancestor = self.get_ancestor(confirmed_root, prev_epoch_start, proto_array)?;
+            let ancestor_epoch = self.block_epoch::<E>(ancestor, proto_array);
+            if ancestor_epoch.is_some_and(|e| e.saturating_add(1u64) == current_epoch) {
+                // The parent of the first block of the previous epoch.
+                match self.parent_root(ancestor, proto_array) {
+                    Some(r) => r,
+                    None => return Ok(false),
+                }
+            } else {
+                // The last block of the epoch before the previous one.
+                ancestor
             }
         };
 
@@ -680,10 +792,12 @@ impl FastConfirmationRule {
             equivocating_indices,
         );
 
-        let chain_roots = self.get_ancestor_roots(confirmed_root, start_root, proto_array);
-        chain_roots.iter().all(|root| {
-            let score = precomputed_scores.get(root).copied().unwrap_or(0);
-            self.is_one_confirmed_with_score::<E>(
+        let chain_roots = self.get_ancestor_roots(confirmed_root, start_root, proto_array)?;
+        for root in &chain_roots {
+            let score = *precomputed_scores
+                .get(root)
+                .ok_or_else(|| format!("FCR: missing precomputed score for block {root}"))?;
+            if !self.is_one_confirmed_with_score::<E>(
                 &self.previous_balance_source,
                 *root,
                 score,
@@ -691,8 +805,11 @@ impl FastConfirmationRule {
                 proto_array,
                 votes,
                 equivocating_indices,
-            )
-        })
+            )? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     // -----------------------------------------------------------------------
@@ -746,18 +863,14 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_support_discount`.
-    ///
-    /// `_block_root` and `_proto_array` are unused but kept to match the spec function signature.
     #[allow(clippy::too_many_arguments)]
     fn get_support_discount<E: EthSpec>(
         &self,
         balance_source: &BalanceSourceData,
-        _block_root: Hash256,
         block_slot: Slot,
         parent_root: Hash256,
         parent_slot: Slot,
         current_slot: Slot,
-        _proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> u64 {
@@ -801,10 +914,10 @@ impl FastConfirmationRule {
         current_slot: Slot,
         proto_array: &ProtoArray,
         equivocating_indices: &BTreeSet<u64>,
-    ) -> u64 {
-        let block_slot = self.block_slot(block_root, proto_array);
+    ) -> Result<u64, String> {
+        let block_slot = self.block_slot(block_root, proto_array)?;
         let Some(parent_root) = self.parent_root(block_root, proto_array) else {
-            return 0;
+            return Ok(0);
         };
         let parent_epoch = self.block_epoch::<E>(parent_root, proto_array);
         let block_epoch = self.block_epoch::<E>(block_root, proto_array);
@@ -817,13 +930,13 @@ impl FastConfirmationRule {
             block_slot
         };
 
-        self.compute_adversarial_weight::<E>(
+        Ok(self.compute_adversarial_weight::<E>(
             balance_source,
             start_slot,
             current_slot.saturating_sub(1u64),
             current_slot,
             equivocating_indices,
-        )
+        ))
     }
 
     /// Spec: `compute_adversarial_weight`.
@@ -891,10 +1004,10 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> bool {
-        let current_target = self.get_current_target::<E>(head_root, current_slot, proto_array);
+    ) -> Result<bool, String> {
+        let current_target = self.get_current_target::<E>(head_root, current_slot, proto_array)?;
         if current_target == *unrealized_justified_checkpoint {
-            return true;
+            return Ok(true);
         }
 
         let honest_ffg = self.compute_honest_ffg_support::<E>(
@@ -903,11 +1016,11 @@ impl FastConfirmationRule {
             proto_array,
             votes,
             equivocating_indices,
-        );
-        let total_active = self.current_balance_source.total_active_balance;
+        )?;
+        let total_active = self.head_balance_source.total_active_balance;
 
         // 3 * honest_ffg >= 1 * total_active (i.e. honest > 1/3)
-        3u128 * honest_ffg as u128 >= total_active as u128
+        Ok(3u128 * honest_ffg as u128 >= total_active as u128)
     }
 
     /// Spec: `will_current_target_be_justified`.
@@ -920,19 +1033,19 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> bool {
+    ) -> Result<bool, String> {
         let honest_ffg = self.compute_honest_ffg_support::<E>(
             head_root,
             current_slot,
             proto_array,
             votes,
             equivocating_indices,
-        );
-        let total_active = self.current_balance_source.total_active_balance;
+        )?;
+        let total_active = self.head_balance_source.total_active_balance;
 
         // 3 * honest_ffg >= 2 * total_active (i.e. honest > 2/3)
         let _ = unrealized_justified_checkpoint; // used only in will_no_conflicting
-        3u128 * honest_ffg as u128 >= 2u128 * total_active as u128
+        Ok(3u128 * honest_ffg as u128 >= 2u128 * total_active as u128)
     }
 
     /// Spec: `get_current_target_score` — estimates FFG support for current epoch target.
@@ -947,9 +1060,9 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> u64 {
-        let current_target = self.get_current_target::<E>(head_root, current_slot, proto_array);
-        let bs = &self.current_balance_source;
+    ) -> Result<u64, String> {
+        let current_target = self.get_current_target::<E>(head_root, current_slot, proto_array)?;
+        let bs = &self.head_balance_source;
         let mut score = 0u64;
 
         // Cache: most validators vote for the same root+epoch, so cache the last
@@ -980,7 +1093,8 @@ impl FastConfirmationRule {
                 if cached_valid && vote_root == cached_root && vote_epoch == cached_epoch {
                     cached_target
                 } else {
-                    let cp = self.get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array);
+                    let cp =
+                        self.get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array)?;
                     cached_root = vote_root;
                     cached_epoch = vote_epoch;
                     cached_target = cp;
@@ -991,7 +1105,7 @@ impl FastConfirmationRule {
                 score = score.saturating_add(balance);
             }
         }
-        score
+        Ok(score)
     }
 
     /// Spec: `compute_honest_ffg_support_for_current_target`.
@@ -1002,9 +1116,9 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> u64 {
+    ) -> Result<u64, String> {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
-        let total_active = self.current_balance_source.total_active_balance;
+        let total_active = self.head_balance_source.total_active_balance;
 
         let ffg_support = self.get_current_target_score::<E>(
             head_root,
@@ -1012,7 +1126,7 @@ impl FastConfirmationRule {
             proto_array,
             votes,
             equivocating_indices,
-        );
+        )?;
 
         let epoch_start = current_epoch.start_slot(E::slots_per_epoch());
         let ffg_weight_till_now = estimate_committee_weight_between_slots::<E>(
@@ -1025,24 +1139,30 @@ impl FastConfirmationRule {
         let remaining_honest = (remaining_ffg_weight / 100)
             .saturating_mul(100u64.saturating_sub(self.byzantine_threshold));
 
-        let max_adversarial_till_now =
-            (ffg_weight_till_now / 100).saturating_mul(self.byzantine_threshold);
-        let min_honest_support = ffg_support.saturating_sub(max_adversarial_till_now);
+        // Compute potential adversarial weight (accounts for slashed validators).
+        let adversarial_weight = self.compute_adversarial_weight::<E>(
+            &self.head_balance_source,
+            epoch_start,
+            current_slot.saturating_sub(1u64),
+            current_slot,
+            equivocating_indices,
+        );
+        let min_honest_support = ffg_support.saturating_sub(adversarial_weight);
 
-        min_honest_support.saturating_add(remaining_honest)
+        Ok(min_honest_support.saturating_add(remaining_honest))
     }
 
     // -----------------------------------------------------------------------
     // Proto-array accessors (read-only)
     // -----------------------------------------------------------------------
 
-    fn block_slot(&self, root: Hash256, proto_array: &ProtoArray) -> Slot {
+    fn block_slot(&self, root: Hash256, proto_array: &ProtoArray) -> Result<Slot, String> {
         proto_array
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
             .map(|n| n.slot)
-            .unwrap_or_else(|| Slot::new(0))
+            .ok_or_else(|| format!("FCR: block root {root} not found in proto_array"))
     }
 
     fn block_epoch<E: EthSpec>(
@@ -1072,39 +1192,66 @@ impl FastConfirmationRule {
         block_root: Hash256,
         ancestor_root: Hash256,
         proto_array: &ProtoArray,
-    ) -> bool {
-        let ancestor_slot = self.block_slot(ancestor_root, proto_array);
+    ) -> Result<bool, String> {
+        let ancestor_slot = self.block_slot(ancestor_root, proto_array)?;
+        Ok(proto_array
+            .iter_block_roots(&block_root)
+            .any(|(root, slot)| slot <= ancestor_slot && root == ancestor_root))
+    }
+
+    /// Spec: `get_ancestor(store, block_root, slot)`.
+    /// Returns the root of the latest block at or before `slot` on the chain of `block_root`.
+    fn get_ancestor(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+        proto_array: &ProtoArray,
+    ) -> Result<Hash256, String> {
         proto_array
             .iter_block_roots(&block_root)
-            .any(|(root, slot)| slot <= ancestor_slot && root == ancestor_root)
+            .find(|(_, s)| *s <= slot)
+            .map(|(root, _)| root)
+            .ok_or_else(|| format!("FCR: ancestor not found for block {block_root} at slot {slot}"))
     }
 
     /// Get ordered ancestor roots from `terminal_root` (exclusive) to `block_root` (inclusive).
+    ///
+    /// Returns an empty vector if `terminal_root` is not in the chain of `block_root`.
     fn get_ancestor_roots(
         &self,
         block_root: Hash256,
         terminal_root: Hash256,
         proto_array: &ProtoArray,
-    ) -> Vec<Hash256> {
-        let terminal_slot = self.block_slot(terminal_root, proto_array);
-        let mut roots: Vec<Hash256> = proto_array
-            .iter_block_roots(&block_root)
-            .take_while(|(root, _)| *root != terminal_root)
-            .filter(|(_, slot)| *slot > terminal_slot)
-            .map(|(root, _)| root)
-            .collect();
-        roots.reverse();
-        roots
+    ) -> Result<Vec<Hash256>, String> {
+        let terminal_slot = self.block_slot(terminal_root, proto_array)?;
+        let mut roots = Vec::new();
+
+        for (root, slot) in proto_array.iter_block_roots(&block_root) {
+            if root == terminal_root {
+                roots.reverse();
+                return Ok(roots);
+            }
+            if slot <= terminal_slot {
+                return Ok(Vec::new());
+            }
+            roots.push(root);
+        }
+
+        Ok(Vec::new())
     }
 
     /// Get the unrealized justified checkpoint for a block.
-    fn unrealized_justification_of(&self, root: Hash256, proto_array: &ProtoArray) -> Checkpoint {
+    fn unrealized_justification_of(
+        &self,
+        root: Hash256,
+        proto_array: &ProtoArray,
+    ) -> Result<Checkpoint, String> {
         proto_array
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
             .and_then(|n| n.unrealized_justified_checkpoint)
-            .unwrap_or_default()
+            .ok_or_else(|| format!("FCR: unrealized justification not found for block {root}"))
     }
 
     fn unrealized_justification_epoch_of(
@@ -1148,7 +1295,7 @@ impl FastConfirmationRule {
         head_root: Hash256,
         current_slot: Slot,
         proto_array: &ProtoArray,
-    ) -> Checkpoint {
+    ) -> Result<Checkpoint, String> {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         self.get_checkpoint_for_block::<E>(head_root, current_epoch, proto_array)
     }
@@ -1159,12 +1306,12 @@ impl FastConfirmationRule {
         block_root: Hash256,
         epoch: types::Epoch,
         proto_array: &ProtoArray,
-    ) -> Checkpoint {
-        let cp_root = self.get_checkpoint_block_root::<E>(block_root, epoch, proto_array);
-        Checkpoint {
+    ) -> Result<Checkpoint, String> {
+        let cp_root = self.get_checkpoint_block_root::<E>(block_root, epoch, proto_array)?;
+        Ok(Checkpoint {
             epoch,
             root: cp_root,
-        }
+        })
     }
 
     /// Find the block root at the epoch boundary for the given chain.
@@ -1173,13 +1320,17 @@ impl FastConfirmationRule {
         block_root: Hash256,
         epoch: types::Epoch,
         proto_array: &ProtoArray,
-    ) -> Hash256 {
+    ) -> Result<Hash256, String> {
         let epoch_start_slot = epoch.start_slot(E::slots_per_epoch());
         proto_array
             .iter_block_roots(&block_root)
             .find(|(_, slot)| *slot <= epoch_start_slot)
             .map(|(root, _)| root)
-            .unwrap_or(block_root)
+            .ok_or_else(|| {
+                format!(
+                    "FCR: checkpoint block root not found for block {block_root} at epoch {epoch}"
+                )
+            })
     }
 
     // -----------------------------------------------------------------------
@@ -1200,7 +1351,9 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> HashMap<Hash256, u64> {
-        let chain = self.get_ancestor_roots(chain_tip, terminal_root, proto_array);
+        let Ok(chain) = self.get_ancestor_roots(chain_tip, terminal_root, proto_array) else {
+            return HashMap::new();
+        };
         if chain.is_empty() {
             return HashMap::new();
         }
@@ -1213,7 +1366,9 @@ impl FastConfirmationRule {
             }
         }
 
-        let terminal_slot = self.block_slot(terminal_root, proto_array);
+        let Ok(terminal_slot) = self.block_slot(terminal_root, proto_array) else {
+            return HashMap::new();
+        };
 
         // For each validator, walk from vote_root toward genesis. The first canonical chain
         // node hit is the deepest block the vote covers. Accumulate balances by position.
@@ -1308,12 +1463,12 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> bool {
-        let block_slot = self.block_slot(block_root, proto_array);
+    ) -> Result<bool, String> {
+        let block_slot = self.block_slot(block_root, proto_array)?;
         let Some(parent_root) = self.parent_root(block_root, proto_array) else {
-            return false;
+            return Ok(false);
         };
-        let parent_slot = self.block_slot(parent_root, proto_array);
+        let parent_slot = self.block_slot(parent_root, proto_array)?;
 
         let support = attestation_score;
         let proposer_score = self.compute_proposer_score::<E>(balance_source);
@@ -1324,12 +1479,10 @@ impl FastConfirmationRule {
         );
         let support_discount = self.get_support_discount::<E>(
             balance_source,
-            block_root,
             block_slot,
             parent_root,
             parent_slot,
             current_slot,
-            proto_array,
             votes,
             equivocating_indices,
         );
@@ -1339,13 +1492,13 @@ impl FastConfirmationRule {
             current_slot,
             proto_array,
             equivocating_indices,
-        );
+        )?;
 
         let lhs = 2u128 * support as u128 + support_discount as u128;
         let rhs =
             maximum_support as u128 + proposer_score as u128 + 2u128 * adversarial_weight as u128;
 
-        lhs > rhs
+        Ok(lhs > rhs)
     }
 }
 

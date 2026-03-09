@@ -709,6 +709,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &old_cached_head.snapshot.beacon_state,
             ) {
                 error!(error = %e, "Fast Confirmation Rule error, continuing without FCR");
+                let label = fcr_error_label(&e);
+                metrics::inc_counter_vec(&metrics::FCR_ERRORS, &[label]);
             } else {
                 if fcr.confirmed_root != old_confirmed {
                     metrics::inc_counter(&metrics::FCR_CONFIRMED_ROOT_CHANGES);
@@ -723,7 +725,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         &metrics::FCR_CONFIRMED_ROOT_SLOT,
                         confirmed_slot.as_u64() as i64,
                     );
+                    let delay = current_slot
+                        .as_u64()
+                        .saturating_sub(confirmed_slot.as_u64());
+                    metrics::set_gauge(&metrics::FCR_CONFIRMATION_DELAY_SLOTS, delay as i64);
                 }
+                let balance_epoch = fcr.current_balance_source.checkpoint.epoch;
+                let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+                let age = current_epoch
+                    .as_u64()
+                    .saturating_sub(balance_epoch.as_u64());
+                metrics::set_gauge(&metrics::FCR_BALANCE_SOURCE_AGE_EPOCHS, age as i64);
             }
         }
 
@@ -751,7 +763,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Some(hash) = confirmed_hash {
                 new_forkchoice_update_parameters.justified_hash = Some(hash);
             } else {
-                debug!(
+                warn!(
                     confirmed_root = %fcr.confirmed_root,
                     "FCR confirmed root has no execution block hash, falling back to justified"
                 );
@@ -1190,6 +1202,24 @@ fn check_against_finality_reversion(
             old: old_view.finalized_checkpoint,
             new: new_view.finalized_checkpoint,
         })
+    }
+}
+
+/// Categorize an FCR error string into a stable label for the error counter metric.
+/// Must not include variable data (roots, slots) to avoid cardinality explosion.
+fn fcr_error_label(error: &str) -> &'static str {
+    if error.contains("not found in proto_array") {
+        "node_not_found"
+    } else if error.contains("committee cache") || error.contains("CommitteeCacheUninitialized") {
+        "committee_cache"
+    } else if error.contains("balance source") || error.contains("BalanceSource") {
+        "balance_source"
+    } else if error.contains("ancestor") {
+        "ancestor_lookup"
+    } else if error.contains("checkpoint") {
+        "checkpoint_lookup"
+    } else {
+        "unknown"
     }
 }
 
