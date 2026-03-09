@@ -681,7 +681,8 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 }
 
 /// Used to await the result of executing payload with an EE.
-type PayloadVerificationHandle = JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+pub type PayloadVerificationHandle =
+    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
@@ -1357,7 +1358,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// verification must be done upstream (e.g., via a `SignatureVerifiedBlock`
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(skip_all, level = "debug", fields(?block_root))]
     pub fn from_signature_verified_components(
         block: MaybeAvailableBlock<T::EthSpec>,
         block_root: Hash256,
@@ -1570,24 +1571,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         state.build_all_committee_caches(&chain.spec)?;
 
         metrics::stop_timer(committee_timer);
-
-        /*
-         * If we have block reward listeners, compute the block reward and push it to the
-         * event handler.
-         */
-        if let Some(ref event_handler) = chain.event_handler
-            && event_handler.has_block_reward_subscribers()
-        {
-            let mut reward_cache = Default::default();
-            let block_reward = chain.compute_block_reward(
-                block.message(),
-                block_root,
-                &state,
-                &mut reward_cache,
-                true,
-            )?;
-            event_handler.register(EventKind::BlockReward(block_reward));
-        }
 
         /*
          * Perform `per_block_processing` on the block and state, returning early if the block is

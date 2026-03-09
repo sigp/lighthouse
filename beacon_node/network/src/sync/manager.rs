@@ -787,6 +787,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();
+                    self.range_sync.register_metrics();
+                    self.backfill_sync.register_metrics();
+                    self.custody_backfill_sync.register_metrics();
                 }
                 _ = epoch_interval.tick() => {
                     self.update_sync_state();
