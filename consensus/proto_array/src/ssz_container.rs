@@ -49,10 +49,6 @@ pub struct SszContainerV28 {
 pub struct SszContainerV29 {
     pub votes: Vec<VoteTracker>,
     pub prune_threshold: usize,
-    // Deprecated, remove in a future schema migration
-    justified_checkpoint: Checkpoint,
-    // Deprecated, remove in a future schema migration
-    finalized_checkpoint: Checkpoint,
     pub nodes: Vec<ProtoNode>,
     pub indices: Vec<(Hash256, usize)>,
     pub previous_proposer_boost: ProposerBoost,
@@ -61,16 +57,12 @@ pub struct SszContainerV29 {
 impl SszContainerV29 {
     pub fn from_proto_array(
         from: &ProtoArrayForkChoice,
-        justified_checkpoint: Checkpoint,
-        finalized_checkpoint: Checkpoint,
     ) -> Self {
         let proto_array = &from.proto_array;
 
         Self {
             votes: from.votes.0.clone(),
             prune_threshold: proto_array.prune_threshold,
-            justified_checkpoint,
-            finalized_checkpoint,
             nodes: proto_array.nodes.clone(),
             indices: proto_array.indices.iter().map(|(k, v)| (*k, *v)).collect(),
             previous_proposer_boost: proto_array.previous_proposer_boost,
@@ -134,8 +126,6 @@ impl From<SszContainerV28> for SszContainerV29 {
         Self {
             votes: v28.votes,
             prune_threshold: v28.prune_threshold,
-            justified_checkpoint: v28.justified_checkpoint,
-            finalized_checkpoint: v28.finalized_checkpoint,
             nodes: v28.nodes.into_iter().map(ProtoNode::V17).collect(),
             indices: v28.indices,
             previous_proposer_boost: v28.previous_proposer_boost,
@@ -149,8 +139,10 @@ impl From<SszContainerV29> for SszContainerV28 {
         Self {
             votes: v29.votes,
             prune_threshold: v29.prune_threshold,
-            justified_checkpoint: v29.justified_checkpoint,
-            finalized_checkpoint: v29.finalized_checkpoint,
+            // These checkpoints are not consumed in v28 paths since the upgrade from v17,
+            // we can safely default the values.
+            justified_checkpoint: Checkpoint::default(),
+            finalized_checkpoint: Checkpoint::default(),
             nodes: v29
                 .nodes
                 .into_iter()

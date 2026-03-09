@@ -522,8 +522,7 @@ fn get_checkpoint(i: u64) -> Checkpoint {
 }
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
-    // The checkpoint are ignored `ProtoArrayForkChoice::from_bytes` so any value is ok
-    let bytes = original.as_bytes(Checkpoint::default(), Checkpoint::default());
+    let bytes = original.as_bytes();
     let decoded = ProtoArrayForkChoice::from_bytes(&bytes, original.balances.clone())
         .expect("fork choice should decode from bytes");
     assert!(

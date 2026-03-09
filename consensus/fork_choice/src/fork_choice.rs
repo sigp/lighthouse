@@ -1722,7 +1722,7 @@ where
         PersistedForkChoice {
             proto_array: self
                 .proto_array()
-                .as_ssz_container(self.justified_checkpoint(), self.finalized_checkpoint()),
+                .as_ssz_container(),
             queued_attestations: self.queued_attestations().to_vec(),
             queued_payload_attestations: self.queued_payload_attestations.clone(),
         }
