@@ -848,7 +848,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .partial_assembler()
                 .get_header(&column.block_root)
             else {
-                error!(block=%column.block_root, index=%column.index, "Received partial column while not having header stored");
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_MISSING_HEADER_TOTAL,
+                );
+                warn!(block=%column.block_root, index=%column.index, "Received partial column while not having header stored");
                 return;
             };
             column.sidecar.header = VariableList::repeat_full((*header).clone());
