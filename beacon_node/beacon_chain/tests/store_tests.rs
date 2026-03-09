@@ -3397,14 +3397,14 @@ async fn weak_subjectivity_sync_test(
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
 
     // Check database invariants after full checkpoint sync + backfill + reconstruction.
-    let invariants_result = beacon_chain
+    let result = beacon_chain
         .check_database_invariants()
         .expect("invariant check should not error");
     assert!(
-        invariants_result.is_ok(),
-        "database invariant violations after weak subjectivity sync ({} checks):\n{:#?}",
-        invariants_result.checks_performed,
-        invariants_result.violations
+        result.is_ok(),
+        "database invariant violations ({} checks):\n{:#?}",
+        result.checks_performed,
+        result.violations,
     );
 }
 
