@@ -3336,8 +3336,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(_) => return None,
         };
 
-        // TODO(gloas) do we need to register the payload with monitored validators?
-
         let envelope_slot = verified_envelope.signed_envelope.slot();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
         match self.chain.slot() {
