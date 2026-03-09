@@ -4,14 +4,22 @@
 //! Each ERA file is verified against `historical_roots` / `historical_summaries` from the
 //! highest-numbered ERA state, ensuring block and state integrity without trusting the files.
 //!
-//! Block roots are cross-checked against the ERA boundary state's `block_roots` vector.
+//! The trust chain works as follows:
+//! 1. The reference (highest-numbered) ERA state is verified against an [`EraImportTrust`] anchor
+//!    — either a user-provided state root or the network's `genesis_validators_root`.
+//! 2. Each ERA state's `block_roots` / `state_roots` are checked against `historical_roots`
+//!    (pre-Capella) or `historical_summaries` (post-Capella) from the reference state.
+//! 3. Each block's root is checked against the ERA boundary state's `block_roots` vector.
+//!
 //! Block signatures are NOT verified — ERA files are trusted at that level.
 //!
 //! # Usage
 //!
 //! ```ignore
-//! let era_dir = EraFileDir::new::<E>(&path_to_era_files, &spec)?;
-//! era_dir.import_all(&store, &mut genesis_state, &spec)?;
+//! let trust = EraImportTrust::TrustedStateRoot(758, known_root);
+//! let era_dir = EraFileDir::new::<E>(&path, genesis_validators_root, trust, &spec)?;
+//! store.put_cold_state(&genesis_state_root, &genesis_state)?;
+//! era_dir.import_all(&store, &spec)?;
 //! ```
 
 use bls::FixedBytesExtended;
@@ -51,13 +59,29 @@ fn decode_state<E: EthSpec>(
         .map_err(|error| format!("failed to decode state: {error:?}"))
 }
 
+/// How to select and verify the reference ERA state.
+///
+/// The reference state provides `historical_roots` / `historical_summaries` used to verify
+/// every other ERA file. This enum controls which ERA is the reference and how it's verified.
+pub enum EraImportTrust {
+    /// Use the ERA at the given number as the reference state. Its `canonical_root()` is
+    /// verified against the provided root. Only ERAs 0..=era_number are imported.
+    TrustedStateRoot(u64, Hash256),
+    /// Use the highest-numbered ERA in the directory as the reference state. No external
+    /// root verification — only check internal consistency and `genesis_validators_root`.
+    Untrusted,
+}
+
 /// A directory of ERA files ready for import into a Lighthouse cold DB.
 ///
 /// On construction, reads the highest-numbered ERA file's state to extract
 /// `historical_roots` and `historical_summaries`, which are used to verify every subsequent
-/// ERA file during import. Also checks that all expected ERA files (0 through max) are present.
+/// ERA file during import. Validates that:
+/// - All expected ERA files (0 through max) are present in the directory
+/// - `genesis_validators_root` matches the provided value (correct network)
+/// - If [`EraImportTrust::TrustedStateRoot`] is provided, the reference state root matches
 ///
-/// Use [`EraFileDir::import_all`] to import genesis + all ERA files into a fresh store,
+/// Use [`EraFileDir::import_all`] to import all ERA files into a store,
 /// or [`EraFileDir::import_era_file`] for individual ERA import.
 pub struct EraFileDir {
     dir: PathBuf,
@@ -69,7 +93,21 @@ pub struct EraFileDir {
 }
 
 impl EraFileDir {
-    pub fn new<E: EthSpec>(era_files_dir: &Path, spec: &ChainSpec) -> Result<Self, String> {
+    /// Open an ERA file directory and verify trust.
+    ///
+    /// Selects a reference ERA state based on `trust`:
+    /// - [`EraImportTrust::TrustedStateRoot`]: uses the specified ERA, verifies its root,
+    ///   imports only ERAs 0..=era_number.
+    /// - [`EraImportTrust::Untrusted`]: uses the highest-numbered ERA, imports all.
+    ///
+    /// The reference state's `historical_roots` / `historical_summaries` are extracted to
+    /// verify all other ERA files during import.
+    pub fn new<E: EthSpec>(
+        era_files_dir: &Path,
+        genesis_validators_root: Hash256,
+        trust: EraImportTrust,
+        spec: &ChainSpec,
+    ) -> Result<Self, String> {
         let mut era_files = list_era_files(era_files_dir)?;
         era_files.sort_by_key(|(era_number, _)| *era_number);
 
@@ -78,11 +116,41 @@ impl EraFileDir {
             .clone()
             .unwrap_or_else(|| "unknown".to_string());
 
-        let Some((max_era, reference_path)) = era_files.last().cloned() else {
-            return Err("era files directory is empty".to_string());
+        let (max_era, reference_state) = match trust {
+            EraImportTrust::TrustedStateRoot(era_number, expected_root) => {
+                let (_, path) = era_files
+                    .iter()
+                    .find(|(n, _)| *n == era_number)
+                    .ok_or_else(|| format!("trusted era {era_number} not found in directory"))?;
+                let mut state = read_era_state::<E>(path, &network_name, spec)?;
+                let actual_root = state
+                    .canonical_root()
+                    .map_err(|e| format!("failed to compute reference state root: {e:?}"))?;
+                if actual_root != expected_root {
+                    return Err(format!(
+                        "trusted state root mismatch for era {era_number}: \
+                         expected {expected_root:?}, got {actual_root:?}"
+                    ));
+                }
+                (era_number, state)
+            }
+            EraImportTrust::Untrusted => {
+                let (n, path) = era_files
+                    .last()
+                    .ok_or_else(|| "era files directory is empty".to_string())?;
+                let state = read_era_state::<E>(path, &network_name, spec)?;
+                (*n, state)
+            }
         };
 
-        let reference_state = read_era_state::<E>(&reference_path, &network_name, spec)?;
+        if reference_state.genesis_validators_root() != genesis_validators_root {
+            return Err(format!(
+                "ERA files genesis_validators_root ({:?}) does not match expected ({:?}). \
+                 Are the ERA files from the correct network?",
+                reference_state.genesis_validators_root(),
+                genesis_validators_root,
+            ));
+        }
 
         // historical_roots was frozen in capella, and continued as historical_summaries
         let historical_roots = reference_state.historical_roots().to_vec();
@@ -96,7 +164,7 @@ impl EraFileDir {
         let era_dir = Self {
             dir,
             network_name,
-            genesis_validators_root: reference_state.genesis_validators_root(),
+            genesis_validators_root,
             historical_roots,
             historical_summaries,
             max_era,
@@ -121,53 +189,25 @@ impl EraFileDir {
         self.genesis_validators_root
     }
 
-    /// Import all ERA files into a fresh store.
+    /// Import ERA files 1 through `max_era` into the store.
     ///
-    /// 1. Verifies that the ERA files' `genesis_validators_root` matches the provided genesis state.
-    /// 2. Stores the genesis state in the cold DB.
-    /// 3. Imports ERA files 1 through `max_era` sequentially, verifying each against
-    ///    `historical_roots` / `historical_summaries`.
+    /// The caller is responsible for storing the genesis state in the cold DB before calling
+    /// this method. All trust checks (genesis_validators_root, trusted state root) are
+    /// performed during [`EraFileDir::new`].
     pub fn import_all<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         &self,
         store: &HotColdDB<E, Hot, Cold>,
-        genesis_state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), String> {
-        if self.genesis_validators_root != genesis_state.genesis_validators_root() {
-            return Err(format!(
-                "ERA files genesis_validators_root ({:?}) does not match network genesis ({:?}). \
-                 Are the ERA files from the correct network?",
-                self.genesis_validators_root,
-                genesis_state.genesis_validators_root(),
-            ));
-        }
-
-        let genesis_root = genesis_state
-            .canonical_root()
-            .map_err(|e| format!("Failed to hash genesis state: {e:?}"))?;
-        store
-            .put_cold_state(&genesis_root, genesis_state)
-            .map_err(|e| format!("Failed to store genesis state: {e:?}"))?;
-
         let start = std::time::Instant::now();
-        for era_number in 1..=self.max_era {
-            self.import_era_file(store, era_number, spec, None)?;
-
-            if era_number % 100 == 0 || era_number == self.max_era {
-                let elapsed = start.elapsed();
-                let rate = era_number as f64 / elapsed.as_secs_f64();
-                info!(
-                    era_number,
-                    max_era = self.max_era,
-                    ?elapsed,
-                    rate = format!("{rate:.1} era/s"),
-                    "Progress"
-                );
-            }
+        let max_era = self.max_era;
+        for era_number in 1..=max_era {
+            self.import_era_file(store, era_number, spec)?;
+            info!(era_number, max_era, "Imported era file");
         }
 
         info!(
-            max_era = self.max_era,
+            max_era,
             elapsed = ?start.elapsed(),
             "ERA file import complete"
         );
@@ -181,7 +221,6 @@ impl EraFileDir {
         store: &HotColdDB<E, Hot, Cold>,
         era_number: u64,
         spec: &ChainSpec,
-        trusted_state: Option<(Hash256, Slot)>,
     ) -> Result<(), String> {
         let path = self.expected_path(era_number);
         debug!(?path, era_number, "Importing era file");
@@ -199,25 +238,6 @@ impl EraFileDir {
             let _ = debug_span!("era_import_decode_state").entered();
             decode_state::<E>(era_file.group.era_state, spec)?
         };
-
-        // Verify trusted state root if provided
-        if let Some((expected_root, expected_slot)) = trusted_state {
-            if state.slot() != expected_slot {
-                return Err(format!(
-                    "trusted slot mismatch: expected {expected_slot}, got {}",
-                    state.slot()
-                ));
-            }
-            let actual_root = state
-                .canonical_root()
-                .map_err(|e| format!("Failed to compute state root: {e:?}"))?;
-            if actual_root != expected_root {
-                return Err(format!(
-                    "trusted state root mismatch at slot {expected_slot}: \
-                     expected {expected_root:?}, got {actual_root:?}"
-                ));
-            }
-        }
 
         let expected_root = self
             .era_file_name_root(era_number)

@@ -594,6 +594,14 @@ fn main() {
                         .help("Directory containing ERA files to import.")
                         .display_order(0)
                 )
+                .arg(
+                    Arg::new("era-trusted-state")
+                        .long("era-trusted-state")
+                        .value_name("ERA_NUMBER:STATE_ROOT")
+                        .action(ArgAction::Set)
+                        .help("Use the given ERA as the reference state and verify its root. Only imports ERAs 0..=ERA_NUMBER. Example: '758:0xabcd...'")
+                        .display_order(0)
+                )
         )
         .subcommand(
             Command::new("produce-era-files")

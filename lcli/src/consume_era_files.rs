@@ -1,4 +1,4 @@
-use beacon_chain::era::consumer::EraFileDir;
+use beacon_chain::era::consumer::{EraFileDir, EraImportTrust};
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use environment::Environment;
@@ -8,7 +8,7 @@ use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
 use tracing::info;
-use types::EthSpec;
+use types::{EthSpec, Hash256};
 
 fn is_dir_non_empty(path: &PathBuf) -> bool {
     path.exists()
@@ -70,10 +70,35 @@ pub fn run<E: EthSpec>(
         .map_err(|e| format!("Failed to load genesis state: {e}"))?
         .ok_or("No genesis state available for this network")?;
 
-    let era_file_dir = EraFileDir::new::<E>(&era_dir, &spec)
+    let genesis_validators_root = genesis_state.genesis_validators_root();
+    let genesis_state_root = genesis_state
+        .canonical_root()
+        .map_err(|e| format!("Failed to hash genesis state: {e:?}"))?;
+    db.put_cold_state(&genesis_state_root, &genesis_state)
+        .map_err(|e| format!("Failed to store genesis state: {e:?}"))?;
+
+    let trust = match matches.get_one::<String>("era-trusted-state") {
+        Some(value) => {
+            let (era_str, root_hex) = value
+                .split_once(':')
+                .ok_or("--era-trusted-state must be ERA_NUMBER:STATE_ROOT")?;
+            let era_number: u64 = era_str
+                .parse()
+                .map_err(|e| format!("invalid era number in --era-trusted-state: {e}"))?;
+            let root = root_hex
+                .strip_prefix("0x")
+                .unwrap_or(root_hex)
+                .parse::<Hash256>()
+                .map_err(|e| format!("invalid state root in --era-trusted-state: {e}"))?;
+            EraImportTrust::TrustedStateRoot(era_number, root)
+        }
+        None => EraImportTrust::Untrusted,
+    };
+
+    let era_file_dir = EraFileDir::new::<E>(&era_dir, genesis_validators_root, trust, &spec)
         .map_err(|e| format!("Failed to open ERA dir: {e}"))?;
 
-    era_file_dir.import_all(&db, &mut genesis_state, &spec)?;
+    era_file_dir.import_all(&db, &spec)?;
 
     Ok(())
 }
