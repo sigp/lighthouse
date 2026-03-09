@@ -85,8 +85,6 @@ pub enum InvariantViolation {
         oldest_block_slot: Slot,
         split_slot: Slot,
     },
-    /// Cold block root index has invalid byte length.
-    ColdBlockRootInvalidLength { slot: Slot, length: usize },
     /// Cold block root index references a block not in hot DB.
     ColdBlockRootOrphan { slot: Slot, block_root: Hash256 },
     /// Cold state root index missing for a slot.
@@ -96,10 +94,6 @@ pub enum InvariantViolation {
         state_upper_limit: Slot,
         split_slot: Slot,
     },
-    /// Cold state root index has invalid key length.
-    ColdStateRootInvalidKeyLength { length: usize },
-    /// Cold state root index has invalid root length.
-    ColdStateRootInvalidRootLength { slot: Slot, length: usize },
     /// Cold state root index references a state with no cold summary.
     ColdStateRootMissingSummary { slot: Slot, state_root: Hash256 },
     /// Cold state summary slot doesn't match the state root index slot.
@@ -470,33 +464,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .cold_db
                 .get_bytes(DBColumn::BeaconBlockRoots, &slot_bytes)?;
 
-            match block_root_bytes {
-                Some(root_bytes) => {
-                    if root_bytes.len() == 32 {
-                        let block_root = Hash256::from_slice(&root_bytes);
-                        let block_exists = self
-                            .hot_db
-                            .key_exists(DBColumn::BeaconBlock, block_root.as_slice())?;
-                        if !block_exists {
-                            result.add_violation(InvariantViolation::ColdBlockRootOrphan {
-                                slot,
-                                block_root,
-                            });
-                        }
-                    } else {
-                        result.add_violation(InvariantViolation::ColdBlockRootInvalidLength {
-                            slot,
-                            length: root_bytes.len(),
-                        });
-                    }
-                }
-                None => {
-                    result.add_violation(InvariantViolation::ColdBlockRootMissing {
-                        slot,
-                        oldest_block_slot: anchor_info.oldest_block_slot,
-                        split_slot: split.slot,
-                    });
-                }
+            let Some(root_bytes) = block_root_bytes else {
+                result.add_violation(InvariantViolation::ColdBlockRootMissing {
+                    slot,
+                    oldest_block_slot: anchor_info.oldest_block_slot,
+                    split_slot: split.slot,
+                });
+                continue;
+            };
+
+            if root_bytes.len() != 32 {
+                return Err(Error::InvalidKey(format!(
+                    "cold block root at slot {slot} has invalid length {}",
+                    root_bytes.len()
+                )));
+            }
+
+            let block_root = Hash256::from_slice(&root_bytes);
+            let block_exists = self
+                .hot_db
+                .key_exists(DBColumn::BeaconBlock, block_root.as_slice())?;
+            if !block_exists {
+                result.add_violation(InvariantViolation::ColdBlockRootOrphan { slot, block_root });
             }
         }
 
@@ -521,8 +510,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let anchor_info = self.get_anchor_info();
 
-        // Forward check: verify that every expected slot has a state root entry.
-        //
         // Expected slots are: (i <= state_lower_limit || i >= effective_upper) && i < split.slot
         // where effective_upper = min(split.slot, state_upper_limit).
         for slot_val in 0..split.slot.as_u64() {
@@ -532,69 +519,49 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 || slot >= cmp::min(split.slot, anchor_info.state_upper_limit)
             {
                 result.inc_checks();
+
                 let slot_bytes = slot_val.to_be_bytes();
-                let has_entry = self
+                let Some(root_bytes) = self
                     .cold_db
-                    .key_exists(DBColumn::BeaconStateRoots, &slot_bytes)?;
-                if !has_entry {
+                    .get_bytes(DBColumn::BeaconStateRoots, &slot_bytes)?
+                else {
                     result.add_violation(InvariantViolation::ColdStateRootMissing {
                         slot,
                         state_lower_limit: anchor_info.state_lower_limit,
                         state_upper_limit: anchor_info.state_upper_limit,
                         split_slot: split.slot,
                     });
+                    continue;
+                };
+
+                if root_bytes.len() != 32 {
+                    return Err(Error::InvalidKey(format!(
+                        "cold state root at slot {slot} has invalid length {}",
+                        root_bytes.len()
+                    )));
                 }
-            }
-        }
 
-        // Reverse check: verify every existing state root entry has a valid summary.
-        for res in self
-            .cold_db
-            .iter_column::<Vec<u8>>(DBColumn::BeaconStateRoots)
-        {
-            let (slot_bytes, root_bytes) = res?;
-            result.inc_checks();
+                let state_root = Hash256::from_slice(&root_bytes);
 
-            if slot_bytes.len() != 8 {
-                result.add_violation(InvariantViolation::ColdStateRootInvalidKeyLength {
-                    length: slot_bytes.len(),
-                });
-                continue;
-            }
-
-            let slot_val = u64::from_be_bytes(slot_bytes.try_into().map_err(|_| {
-                Error::InvalidKey("cold state root index key conversion failed".to_string())
-            })?);
-            let slot = Slot::new(slot_val);
-
-            if root_bytes.len() != 32 {
-                result.add_violation(InvariantViolation::ColdStateRootInvalidRootLength {
-                    slot,
-                    length: root_bytes.len(),
-                });
-                continue;
-            }
-
-            let state_root = Hash256::from_slice(&root_bytes);
-
-            match self
-                .cold_db
-                .get_bytes(DBColumn::BeaconColdStateSummary, state_root.as_slice())?
-            {
-                None => {
-                    result.add_violation(InvariantViolation::ColdStateRootMissingSummary {
-                        slot,
-                        state_root,
-                    });
-                }
-                Some(summary_bytes) => {
-                    let summary = ColdStateSummary::from_ssz_bytes(&summary_bytes)?;
-                    if summary.slot != slot {
-                        result.add_violation(InvariantViolation::ColdStateRootSlotMismatch {
+                match self
+                    .cold_db
+                    .get_bytes(DBColumn::BeaconColdStateSummary, state_root.as_slice())?
+                {
+                    None => {
+                        result.add_violation(InvariantViolation::ColdStateRootMissingSummary {
                             slot,
                             state_root,
-                            summary_slot: summary.slot,
                         });
+                    }
+                    Some(summary_bytes) => {
+                        let summary = ColdStateSummary::from_ssz_bytes(&summary_bytes)?;
+                        if summary.slot != slot {
+                            result.add_violation(InvariantViolation::ColdStateRootSlotMismatch {
+                                slot,
+                                state_root,
+                                summary_slot: summary.slot,
+                            });
+                        }
                     }
                 }
             }
