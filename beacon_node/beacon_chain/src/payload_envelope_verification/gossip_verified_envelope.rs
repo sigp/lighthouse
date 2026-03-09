@@ -47,7 +47,7 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
         });
     }
 
-    // Check that the slot of the envelope matches the slot of the parent block.
+    // Check that the slot of the envelope matches the slot of the block.
     if envelope.slot != block.slot() {
         return Err(EnvelopeError::SlotMismatch {
             block: block.slot(),

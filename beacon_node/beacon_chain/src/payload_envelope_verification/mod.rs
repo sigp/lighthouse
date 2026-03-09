@@ -255,7 +255,6 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
     }
 }
 
-#[allow(clippy::type_complexity)]
 #[instrument(skip_all, level = "debug", fields(beacon_block_root = %beacon_block_root))]
 /// Load state from store given a known state root and block root.
 /// Use this when the proto block has already been looked up from fork choice.

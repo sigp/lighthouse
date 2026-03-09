@@ -3389,6 +3389,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let _processing_start_time = Instant::now();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
 
+        #[allow(clippy::result_large_err)]
         let result = self
             .chain
             .process_execution_payload_envelope(
