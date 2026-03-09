@@ -13,6 +13,7 @@
 /// Format: <https://github.com/status-im/nimbus-eth2/blob/stable/docs/the_auditors_handbook/src/02.4_the_era_file_format.md>
 pub mod consumer;
 pub mod producer;
+pub mod store_init;
 
 #[cfg(test)]
 mod tests;

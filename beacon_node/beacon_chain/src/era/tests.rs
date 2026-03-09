@@ -7,7 +7,8 @@
 ///
 /// All subtests run from a single #[test] to avoid nextest download races
 /// (same pattern as slashing_protection/tests/interop.rs).
-use super::consumer::{EraFileDir, EraImportTrust, init_genesis_store};
+use super::consumer::{EraFileDir, EraImportTrust};
+use super::store_init::init_genesis_store;
 use crate::beacon_chain::WhenSlotSkipped;
 use crate::test_utils::BeaconChainHarness;
 use reth_era::common::file_ops::StreamReader;
