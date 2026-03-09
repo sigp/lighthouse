@@ -21,7 +21,7 @@ pub use beacon_state::{
 };
 pub use committee_cache::{
     CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,
-    epoch_committee_count, get_active_validator_indices,
+    get_active_validator_indices,
 };
 pub use epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use exit_cache::ExitCache;

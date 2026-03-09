@@ -554,8 +554,8 @@ pub fn get_config<E: EthSpec>(
         ClientGenesis::DepositContract
     };
 
-    if cli_args.get_flag("reconstruct-historic-states") {
-        client_config.chain.reconstruct_historic_states = true;
+    if cli_args.get_flag("archive") {
+        client_config.chain.archive = true;
         client_config.chain.genesis_backfill = true;
     }
 
