@@ -109,6 +109,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
     }
 
+    /// Reset the status of all internal requests
+    pub fn reset_requests(&mut self) {
+        self.block_request_state = BlockRequestState::new(self.block_root);
+        self.component_requests = ComponentRequests::WaitingForBlock;
+    }
+
     /// Return the slot of this lookup's block if it's currently cached as `AwaitingProcessing`
     pub fn peek_downloaded_block_slot(&self) -> Option<Slot> {
         self.block_request_state

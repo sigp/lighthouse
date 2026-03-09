@@ -10,6 +10,7 @@ beacon_node_fallback = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 execution_layer = { workspace = true }
+reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

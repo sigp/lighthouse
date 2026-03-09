@@ -185,7 +185,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_chain_segments(&mut self, count: usize) {
+    fn assert_chain_segments(&mut self, count: usize) {
         for i in 0..count {
             self.pop_received_processor_event(|ev| {
                 (ev.work_type() == beacon_processor::WorkType::ChainSegment).then_some(())
@@ -235,7 +235,7 @@ impl TestRig {
                 panic!("Should have a BlocksByRange request, filter {request_filter:?}: {e:?}")
             });
 
-        let by_range_data_requests = if self.after_fulu() {
+        let by_range_data_requests = if self.is_after_fulu() {
             let mut data_columns_requests = vec![];
             while let Ok(data_columns_request) = self.pop_received_network_event(|ev| match ev {
                 NetworkMessage::SendRequest {
@@ -254,7 +254,7 @@ impl TestRig {
                 panic!("Found zero DataColumnsByRange requests, filter {request_filter:?}");
             }
             ByRangeDataRequestIds::PostPeerDAS(data_columns_requests)
-        } else if self.after_deneb() {
+        } else if self.is_after_deneb() {
             let (id, peer) = self
                 .pop_received_network_event(|ev| match ev {
                     NetworkMessage::SendRequest {
@@ -489,7 +489,7 @@ fn build_rpc_block(
 fn head_chain_removed_while_finalized_syncing() {
     // NOTE: this is a regression test.
     // Added in PR https://github.com/sigp/lighthouse/pull/2821
-    let mut rig = TestRig::test_setup();
+    let mut rig = TestRig::default();
 
     // Get a peer with an advanced head
     let head_peer = rig.add_head_peer();
@@ -514,11 +514,11 @@ fn head_chain_removed_while_finalized_syncing() {
 async fn state_update_while_purging() {
     // NOTE: this is a regression test.
     // Added in PR https://github.com/sigp/lighthouse/pull/2827
-    let mut rig = TestRig::test_setup_with_custody_type(NodeCustodyType::SemiSupernode);
+    let mut rig = TestRig::with_custody_type(NodeCustodyType::SemiSupernode);
 
     // Create blocks on a separate harness
     // SemiSupernode ensures enough columns are stored for sampling + custody RPC block validation
-    let mut rig_2 = TestRig::test_setup_with_custody_type(NodeCustodyType::SemiSupernode);
+    let mut rig_2 = TestRig::with_custody_type(NodeCustodyType::SemiSupernode);
     // Need to create blocks that can be inserted into the fork-choice and fit the "known
     // conditions" below.
     let head_peer_block = rig_2.create_canonical_block().await;
@@ -550,7 +550,7 @@ async fn state_update_while_purging() {
 
 #[test]
 fn pause_and_resume_on_ee_offline() {
-    let mut rig = TestRig::test_setup();
+    let mut rig = TestRig::default();
 
     // add some peers
     let peer1 = rig.add_head_peer();
@@ -559,7 +559,7 @@ fn pause_and_resume_on_ee_offline() {
     // send the response to the request
     rig.find_and_complete_blocks_by_range_request(filter().peer(peer1).epoch(0));
     // the beacon processor shouldn't have received any work
-    rig.expect_empty_processor();
+    rig.assert_empty_processor();
 
     // while the ee is offline, more peers might arrive. Add a new finalized peer.
     let _peer2 = rig.add_finalized_peer();
@@ -570,14 +570,14 @@ fn pause_and_resume_on_ee_offline() {
     // epoch for the other batch. So we can either filter by epoch of by sync type.
     rig.find_and_complete_blocks_by_range_request(filter().epoch(0));
     // the beacon processor shouldn't have received any work
-    rig.expect_empty_processor();
+    rig.assert_empty_processor();
     // make the beacon processor available again.
     // update_execution_engine_state implicitly calls resume
     // now resume range, we should have two processing requests in the beacon processor.
     rig.update_execution_engine_state(EngineState::Online);
 
     // The head chain and finalized chain (2) should be in the processing queue
-    rig.expect_chain_segments(2);
+    rig.assert_chain_segments(2);
 }
 
 /// To attempt to finalize the peer's status finalized checkpoint we synced to its finalized epoch +
@@ -587,7 +587,7 @@ const EXTRA_SYNCED_EPOCHS: u64 = 2 + 1;
 #[test]
 fn finalized_sync_enough_global_custody_peers_few_chain_peers() {
     // Run for all forks
-    let mut r = TestRig::test_setup();
+    let mut r = TestRig::default();
 
     let advanced_epochs: u64 = 2;
     let remote_info = r.finalized_remote_info_advanced_by(advanced_epochs.into());
@@ -604,7 +604,7 @@ fn finalized_sync_enough_global_custody_peers_few_chain_peers() {
 
 #[test]
 fn finalized_sync_not_enough_custody_peers_on_start() {
-    let mut r = TestRig::test_setup();
+    let mut r = TestRig::default();
     // Only run post-PeerDAS
     if !r.fork_name.fulu_enabled() {
         return;
@@ -621,7 +621,7 @@ fn finalized_sync_not_enough_custody_peers_on_start() {
     // Because we don't have enough peers on all columns we haven't sent any request.
     // NOTE: There's a small chance that this single peer happens to custody exactly the set we
     // expect, in that case the test will fail. Find a way to make the test deterministic.
-    r.expect_empty_network();
+    r.assert_empty_network();
 
     // Generate enough peers and supernodes to cover all custody columns
     let peer_count = 100;

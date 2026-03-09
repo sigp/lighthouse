@@ -134,6 +134,9 @@ impl Kzg {
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<(), Error> {
+        if cfg!(feature = "fake_crypto") {
+            return Ok(());
+        }
         if !self.trusted_setup.verify_blob_kzg_proof(
             blob,
             &kzg_commitment.into(),
@@ -155,6 +158,9 @@ impl Kzg {
         kzg_commitments: &[KzgCommitment],
         kzg_proofs: &[KzgProof],
     ) -> Result<(), Error> {
+        if cfg!(feature = "fake_crypto") {
+            return Ok(());
+        }
         let commitments_bytes = kzg_commitments
             .iter()
             .map(|comm| Bytes48::from(*comm))
@@ -204,6 +210,9 @@ impl Kzg {
         y: &Bytes32,
         kzg_proof: KzgProof,
     ) -> Result<bool, Error> {
+        if cfg!(feature = "fake_crypto") {
+            return Ok(true);
+        }
         self.trusted_setup
             .verify_kzg_proof(&kzg_commitment.into(), z, y, &kzg_proof.into())
             .map_err(Into::into)
@@ -240,6 +249,9 @@ impl Kzg {
         indices: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
     ) -> Result<(), (Option<u64>, Error)> {
+        if cfg!(feature = "fake_crypto") {
+            return Ok(());
+        }
         let mut column_groups: HashMap<u64, Vec<(CellRef, Bytes48, Bytes48)>> = HashMap::new();
 
         let expected_len = cells.len();
