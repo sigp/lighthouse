@@ -1,11 +1,18 @@
 //! Import ERA files into a Lighthouse database.
 //!
-//! `EraFileDir` reads a directory of ERA files and imports them sequentially into the cold DB.
+//! [`EraFileDir`] reads a directory of ERA files and imports them sequentially into the cold DB.
 //! Each ERA file is verified against `historical_roots` / `historical_summaries` from the
 //! highest-numbered ERA state, ensuring block and state integrity without trusting the files.
 //!
 //! Block roots are cross-checked against the ERA boundary state's `block_roots` vector.
 //! Block signatures are NOT verified — ERA files are trusted at that level.
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let era_dir = EraFileDir::new::<E>(&path_to_era_files, &spec)?;
+//! era_dir.import_all(&store, &mut genesis_state, &spec)?;
+//! ```
 
 use bls::FixedBytesExtended;
 use rayon::prelude::*;
@@ -44,6 +51,14 @@ fn decode_state<E: EthSpec>(
         .map_err(|error| format!("failed to decode state: {error:?}"))
 }
 
+/// A directory of ERA files ready for import into a Lighthouse cold DB.
+///
+/// On construction, reads the highest-numbered ERA file's state to extract
+/// `historical_roots` and `historical_summaries`, which are used to verify every subsequent
+/// ERA file during import. Also checks that all expected ERA files (0 through max) are present.
+///
+/// Use [`EraFileDir::import_all`] to import genesis + all ERA files into a fresh store,
+/// or [`EraFileDir::import_era_file`] for individual ERA import.
 pub struct EraFileDir {
     dir: PathBuf,
     network_name: String,
@@ -106,7 +121,12 @@ impl EraFileDir {
         self.genesis_validators_root
     }
 
-    /// Import all ERA files into a fresh store, verifying genesis and importing ERAs 1..=max_era.
+    /// Import all ERA files into a fresh store.
+    ///
+    /// 1. Verifies that the ERA files' `genesis_validators_root` matches the provided genesis state.
+    /// 2. Stores the genesis state in the cold DB.
+    /// 3. Imports ERA files 1 through `max_era` sequentially, verifying each against
+    ///    `historical_roots` / `historical_summaries`.
     pub fn import_all<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         &self,
         store: &HotColdDB<E, Hot, Cold>,
@@ -167,7 +187,7 @@ impl EraFileDir {
         debug!(?path, era_number, "Importing era file");
         let file = File::open(path).map_err(|error| format!("failed to open era file: {error}"))?;
         let era_file = {
-            let _span = debug_span!("era_import_read").entered();
+            let _ = debug_span!("era_import_read").entered();
             EraReader::new(file)
                 .read_and_assemble(self.network_name.clone())
                 .map_err(|error| format!("failed to parse era file: {error:?}"))?
@@ -176,7 +196,7 @@ impl EraFileDir {
         // Consistency checks: ensure the era state matches the expected historical root and that
         // each block root matches the state block_roots for its slot.
         let mut state = {
-            let _span = debug_span!("era_import_decode_state").entered();
+            let _ = debug_span!("era_import_decode_state").entered();
             decode_state::<E>(era_file.group.era_state, spec)?
         };
 
@@ -210,7 +230,6 @@ impl EraFileDir {
         }
 
         let slots_per_historical_root = E::slots_per_historical_root() as u64;
-        let _start_slot = Slot::new(era_number.saturating_sub(1) * slots_per_historical_root);
         let end_slot = Slot::new(era_number * slots_per_historical_root);
         if state.slot() != end_slot {
             return Err(format!(
@@ -295,7 +314,7 @@ impl EraFileDir {
         // decode and hash is split in two loops to track timings better. If we add spans for each
         // block it's too short and the data is not really useful.
         let decoded_blocks = {
-            let _span = debug_span!("era_import_decode_blocks").entered();
+            let _ = debug_span!("era_import_decode_blocks").entered();
             era_file
                 .group
                 .blocks
@@ -304,7 +323,7 @@ impl EraFileDir {
                 .collect::<Result<Vec<_>, _>>()?
         };
         let blocks_with_roots = {
-            let _span = debug_span!("era_import_hash_blocks").entered();
+            let _ = debug_span!("era_import_hash_blocks").entered();
             decoded_blocks
                 .into_par_iter()
                 .map(|block| (block.canonical_root(), block))
@@ -342,13 +361,13 @@ impl EraFileDir {
 
         // Populate the cold DB slot -> block root index from the state.block_roots()
         {
-            let _span = debug_span!("era_import_write_block_index").entered();
+            let _ = debug_span!("era_import_write_block_index").entered();
             write_block_root_index_for_era(store, &state, era_number)?;
         }
 
         debug!(era_number, "Importing state from era file");
         {
-            let _span = debug_span!("era_import_write_state").entered();
+            let _ = debug_span!("era_import_write_state").entered();
             let state_root = state
                 .canonical_root()
                 .map_err(|error| format!("failed to hash state: {error:?}"))?;
@@ -471,6 +490,17 @@ fn write_block_root_index_for_era<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore
     Ok(())
 }
 
+/// Parse an ERA filename like `network-00042-aabbccdd.era` and return the era number.
+fn parse_era_filename(name: &str) -> Option<u64> {
+    let name = name.strip_suffix(".era")?;
+    // Split: network-00042-aabbccdd → ["network", "00042", "aabbccdd"] (at least 3 parts)
+    let mut parts = name.rsplitn(3, '-');
+    let _hash = parts.next()?;
+    let era_str = parts.next()?;
+    let _network = parts.next()?;
+    era_str.parse().ok()
+}
+
 fn list_era_files(dir: &Path) -> Result<Vec<(u64, PathBuf)>, String> {
     let entries = fs::read_dir(dir).map_err(|error| format!("failed to read era dir: {error}"))?;
     let mut era_files = Vec::new();
@@ -478,25 +508,10 @@ fn list_era_files(dir: &Path) -> Result<Vec<(u64, PathBuf)>, String> {
     for entry in entries {
         let entry = entry.map_err(|error| format!("failed to read era entry: {error}"))?;
         let path = entry.path();
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-
-        if !file_name.ends_with(".era") {
-            continue;
+        let file_name = path.file_name().and_then(|n| n.to_str());
+        if let Some(era_number) = file_name.and_then(parse_era_filename) {
+            era_files.push((era_number, path));
         }
-
-        let Some((prefix, _hash_part)) = file_name.rsplit_once('-') else {
-            continue;
-        };
-        let Some((_network_name, era_part)) = prefix.rsplit_once('-') else {
-            continue;
-        };
-        let Some(era_number) = era_part.parse().ok() else {
-            continue;
-        };
-
-        era_files.push((era_number, path));
     }
 
     if era_files.is_empty() {
@@ -504,4 +519,26 @@ fn list_era_files(dir: &Path) -> Result<Vec<(u64, PathBuf)>, String> {
     }
 
     Ok(era_files)
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::parse_era_filename;
+
+    #[test]
+    fn valid_filenames() {
+        assert_eq!(parse_era_filename("mainnet-00042-aabbccdd.era"), Some(42));
+        assert_eq!(parse_era_filename("minimal-00000-12345678.era"), Some(0));
+        assert_eq!(parse_era_filename("mainnet-01234-deadbeef.era"), Some(1234));
+    }
+
+    #[test]
+    fn rejects_invalid() {
+        assert_eq!(parse_era_filename("mainnet-00042-aabbccdd.txt"), None);
+        assert_eq!(parse_era_filename("no-extension"), None);
+        assert_eq!(parse_era_filename("mainnet-notanum-aabb.era"), None);
+        assert_eq!(parse_era_filename("singlepart.era"), None);
+        assert_eq!(parse_era_filename("two-parts.era"), None);
+        assert_eq!(parse_era_filename(""), None);
+    }
 }

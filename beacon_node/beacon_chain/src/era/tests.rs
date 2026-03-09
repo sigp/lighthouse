@@ -185,6 +185,7 @@ fn era_test_vectors() {
     rejects_wrong_block_root();
     rejects_mutated_state_with_trusted_root();
     rejects_wrong_trusted_state_root();
+    rejects_wrong_trusted_slot();
 }
 
 fn load_metadata() -> Metadata {
@@ -384,5 +385,29 @@ fn rejects_wrong_trusted_state_root() {
     assert!(
         err.contains("trusted state root mismatch"),
         "expected trusted state root mismatch: {err}"
+    );
+}
+
+fn rejects_wrong_trusted_slot() {
+    let spec = load_test_spec();
+    let store = empty_store(&spec);
+    let era_dir_path = test_vectors_dir().join("era");
+    let era_dir = EraFileDir::new::<MinimalEthSpec>(&era_dir_path, &spec).expect("open");
+
+    for era in 0..=2 {
+        era_dir
+            .import_era_file(&store, era, &spec, None)
+            .unwrap_or_else(|e| panic!("ERA {era}: {e}"));
+    }
+
+    let (correct_root, slot) = era3_correct_root_and_slot(&spec);
+    let wrong_slot = slot + 1;
+
+    let err = era_dir
+        .import_era_file(&store, 3, &spec, Some((correct_root, wrong_slot)))
+        .unwrap_err();
+    assert!(
+        err.contains("trusted slot mismatch"),
+        "expected trusted slot mismatch: {err}"
     );
 }
