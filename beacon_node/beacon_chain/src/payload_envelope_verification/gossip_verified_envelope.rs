@@ -31,11 +31,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
-/// and execution bid. This checks:
-/// - The envelope slot is not prior to finalization
-/// - The envelope slot matches the block slot
-/// - The builder index matches the committed bid
-/// - The payload block hash matches the committed bid
+/// and execution bid.
 pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     envelope: &ExecutionPayloadEnvelope<E>,
     block: &SignedBeaconBlock<E>,
