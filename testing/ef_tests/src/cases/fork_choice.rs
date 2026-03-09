@@ -482,6 +482,7 @@ impl<E: EthSpec> Tester<E> {
             .keypairs(vec![])
             .chain_config(ChainConfig {
                 archive: true,
+                enable_fast_confirmation: true,
                 ..ChainConfig::default()
             })
             .genesis_state_ephemeral_store(case.anchor_state.clone())

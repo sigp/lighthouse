@@ -132,7 +132,7 @@ fn build_chain(num_validators: usize) -> BenchData {
 
     // Build FCR state.
     let unrealized_justified_checkpoint = justified_checkpoint;
-    let mut fcr = FastConfirmationRule::new(finalized_checkpoint, 25);
+    let mut fcr = FastConfirmationRule::new(finalized_checkpoint, 25, 40);
     fcr.previous_slot_head = head_root;
     fcr.current_slot_head = head_root;
     fcr.current_balance_source = balance_source.clone();
@@ -147,7 +147,7 @@ fn build_chain(num_validators: usize) -> BenchData {
         assignments[val_idx * 2] = Slot::new((val_idx % spe) as u64);
         assignments[val_idx * 2 + 1] = Slot::new((val_idx % spe) as u64);
     }
-    fcr.set_head_slot_assignments(assignments);
+    fcr.set_head_slot_assignments(assignments, beacon_chain::AssignmentFormat::TwoColumn);
 
     BenchData {
         proto_array,

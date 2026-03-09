@@ -35,18 +35,24 @@
 use crate::metrics;
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::{BTreeSet, HashMap};
-use std::time::Instant;
-use tracing::{debug, debug_span, info};
+use tracing::{debug, debug_span};
 use types::{BeaconState, Checkpoint, EthSpec, Hash256, RelativeEpoch, Slot};
 
-#[derive(Debug)]
+#[derive(Debug, strum::IntoStaticStr)]
 pub enum Error {
+    #[strum(serialize = "node_not_found")]
     NodeNotFound(Hash256),
+    #[strum(serialize = "ancestor_lookup")]
     AncestorNotFound { block: Hash256, slot: Slot },
+    #[strum(serialize = "checkpoint_lookup")]
     UnrealizedJustificationNotFound(Hash256),
+    #[strum(serialize = "checkpoint_lookup")]
     CheckpointBlockNotFound { block: Hash256, epoch: types::Epoch },
+    #[strum(serialize = "missing_score")]
     MissingPrecomputedScore(Hash256),
+    #[strum(serialize = "block_epoch_none")]
     BlockEpochNone(Hash256),
+    #[strum(serialize = "committee_cache")]
     CommitteeCache(String),
 }
 
@@ -56,6 +62,15 @@ const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
+
+/// Format for `set_head_slot_assignments` input.
+#[derive(Debug, Clone, Copy)]
+pub enum AssignmentFormat {
+    /// Production format: `validator_count * 3` slots (one per epoch offset).
+    ThreeColumn,
+    /// Benchmark format: `validator_count * 2` slots (auto-expanded to 3-column).
+    TwoColumn,
+}
 
 /// Snapshot of a checkpoint state's balances and committee assignments.
 ///
@@ -146,6 +161,8 @@ pub struct FastConfirmationRule {
 
     // === Config ===
     pub byzantine_threshold: u64,
+    /// Proposer score boost percentage from ChainSpec (e.g. 40 for mainnet).
+    proposer_score_boost: u64,
 
     // === Committee data from head state ===
     /// Per-validator slot assignment for store epochs `current - 2`, `current - 1`,
@@ -169,7 +186,9 @@ pub struct FastConfirmationRule {
     // === Internal bookkeeping ===
     /// The last slot at which `update_fast_confirmation_variables` ran.
     /// Prevents double-rotation when `recompute_head` runs multiple times per slot.
-    last_update_slot: Slot,
+    /// `None` means no update has occurred yet (avoids using Slot(0) as sentinel,
+    /// since slot 0 is a real slot with real committee assignments).
+    last_update_slot: Option<Slot>,
 
     /// When `true`, `on_fast_confirmation` updates tracking variables but skips
     /// the `get_latest_confirmed` call. Spec tests set this so FCR is only
@@ -185,7 +204,11 @@ impl FastConfirmationRule {
     /// Initialize FCR from an anchor (finalized) checkpoint.
     ///
     /// `byzantine_threshold` is clamped to [0, 25].
-    pub fn new(finalized_checkpoint: Checkpoint, byzantine_threshold: u64) -> Self {
+    pub fn new(
+        finalized_checkpoint: Checkpoint,
+        byzantine_threshold: u64,
+        proposer_score_boost: u64,
+    ) -> Self {
         let byzantine_threshold = byzantine_threshold.min(Self::MAX_BYZANTINE_THRESHOLD);
         Self {
             confirmed_root: finalized_checkpoint.root,
@@ -197,10 +220,11 @@ impl FastConfirmationRule {
             previous_balance_source: BalanceSourceData::default(),
             current_balance_source: BalanceSourceData::default(),
             byzantine_threshold,
+            proposer_score_boost,
             head_slot_assignments: Vec::new(),
             head_slot_assignment_epochs: [types::Epoch::new(0); 3],
             head_balance_source: BalanceSourceData::default(),
-            last_update_slot: Slot::new(0),
+            last_update_slot: None,
             spec_test_mode: false,
         }
     }
@@ -212,19 +236,24 @@ impl FastConfirmationRule {
     }
 
     /// Directly set committee slot assignments (for benchmarks that lack a real BeaconState).
-    pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>) {
-        if assignments.len().is_multiple_of(3) {
-            self.head_slot_assignments = assignments;
-        } else if assignments.len().is_multiple_of(2) {
-            let validator_count = assignments.len() / 2;
-            let mut expanded = vec![Slot::new(0); validator_count * 3];
-            for val_idx in 0..validator_count {
-                expanded[val_idx * 3 + 1] = assignments[val_idx * 2];
-                expanded[val_idx * 3 + 2] = assignments[val_idx * 2 + 1];
+    ///
+    /// `format`: assignment format
+    /// - `ThreeColumn`: `assignments.len() == validator_count * 3` (production format)
+    /// - `TwoColumn`: `assignments.len() == validator_count * 2` (benchmark format, auto-expands to 3-column)
+    pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>, format: AssignmentFormat) {
+        match format {
+            AssignmentFormat::ThreeColumn => {
+                self.head_slot_assignments = assignments;
             }
-            self.head_slot_assignments = expanded;
-        } else {
-            self.head_slot_assignments = assignments;
+            AssignmentFormat::TwoColumn => {
+                let validator_count = assignments.len() / 2;
+                let mut expanded = vec![Slot::new(0); validator_count * 3];
+                for val_idx in 0..validator_count {
+                    expanded[val_idx * 3 + 1] = assignments[val_idx * 2];
+                    expanded[val_idx * 3 + 2] = assignments[val_idx * 2 + 1];
+                }
+                self.head_slot_assignments = expanded;
+            }
         }
     }
 
@@ -398,33 +427,21 @@ impl FastConfirmationRule {
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
         let _span = debug_span!("fcr_on_fast_confirmation", slot = %current_slot).entered();
-        let t_total = Instant::now();
 
-        let t0 = Instant::now();
         self.update_fast_confirmation_variables::<E>(
             head_root,
             unrealized_justified_checkpoint,
             current_slot,
         );
-        let update_vars_ms = t0.elapsed().as_millis();
 
         // Rebuild committee assignments from the head state.
-        let t0 = Instant::now();
         self.rebuild_head_slot_assignments::<E>(state, current_slot)?;
-        let rebuild_assignments_ms = t0.elapsed().as_millis();
-
-        let t0 = Instant::now();
         self.rebuild_head_balance_source::<E>(state, current_slot)?;
-        let rebuild_balance_ms = t0.elapsed().as_millis();
 
         // Rebuild balance sources if the observed justified checkpoints changed.
-        let t0 = Instant::now();
         self.update_balance_sources(state)?;
-        let update_balance_sources_ms = t0.elapsed().as_millis();
 
-        let mut get_latest_confirmed_ms = 0u128;
         if !self.spec_test_mode {
-            let t0 = Instant::now();
             self.confirmed_root = self.get_latest_confirmed::<E>(
                 head_root,
                 finalized_checkpoint,
@@ -435,21 +452,7 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )?;
-            get_latest_confirmed_ms = t0.elapsed().as_millis();
         }
-
-        let total_ms = t_total.elapsed().as_millis();
-        info!(
-            slot = %current_slot,
-            total_ms = total_ms,
-            update_vars_ms = update_vars_ms,
-            rebuild_assignments_ms = rebuild_assignments_ms,
-            rebuild_balance_ms = rebuild_balance_ms,
-            update_balance_sources_ms = update_balance_sources_ms,
-            get_latest_confirmed_ms = get_latest_confirmed_ms,
-            confirmed_slot = ?self.block_slot(self.confirmed_root, proto_array).ok(),
-            "FCR timing breakdown"
-        );
 
         Ok(())
     }
@@ -511,7 +514,7 @@ impl FastConfirmationRule {
         // The spec's slot-head tracking (previous_slot_head / current_slot_head) records
         // the head at the *start* of each slot. Mid-slot block processing should NOT update
         // these values. Only rotate at slot boundaries.
-        if current_slot > self.last_update_slot {
+        if self.last_update_slot.is_none_or(|s| current_slot > s) {
             // Rotate slot heads once per slot boundary.
             self.previous_slot_head = self.current_slot_head;
 
@@ -529,7 +532,7 @@ impl FastConfirmationRule {
                     self.previous_epoch_greatest_unrealized_checkpoint;
             }
 
-            self.last_update_slot = current_slot;
+            self.last_update_slot = Some(current_slot);
         }
 
         // Keep current_slot_head aligned with the latest head seen in this slot.
@@ -553,12 +556,10 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<Hash256, Error> {
-        let t_glc = Instant::now();
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let mut confirmed_root = self.confirmed_root;
 
         // Phase 1: Revert to finalized if needed.
-        let t_phase1 = Instant::now();
         let confirmed_epoch = self.block_epoch::<E>(confirmed_root, proto_array);
         let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
 
@@ -593,10 +594,7 @@ impl FastConfirmationRule {
             confirmed_root = finalized_checkpoint.root;
             metrics::inc_counter(&metrics::FCR_PHASE1_REVERT);
         }
-        let phase1_ms = t_phase1.elapsed().as_millis();
-
         // Phase 2: Restart from justified if conditions met.
-        let t_phase2 = Instant::now();
         let observed_jcp = &self.current_epoch_observed_justified_checkpoint;
         if is_epoch_start
             && observed_jcp.epoch.saturating_add(1u64) == current_epoch
@@ -613,12 +611,9 @@ impl FastConfirmationRule {
             confirmed_root = observed_jcp.root;
             metrics::inc_counter(&metrics::FCR_PHASE2_RESTART);
         }
-        let phase2_ms = t_phase2.elapsed().as_millis();
-
         let pre_advance_root = confirmed_root;
 
         // Phase 3: Advance via find_latest_confirmed_descendant.
-        let t_phase3 = Instant::now();
         let confirmed_epoch = self.block_epoch::<E>(confirmed_root, proto_array);
         if confirmed_epoch.is_some_and(|e| e.saturating_add(1u64) >= current_epoch) {
             confirmed_root = self.find_latest_confirmed_descendant::<E>(
@@ -631,22 +626,9 @@ impl FastConfirmationRule {
                 equivocating_indices,
             )?;
         }
-        let phase3_ms = t_phase3.elapsed().as_millis();
-
         if confirmed_root != pre_advance_root {
             metrics::inc_counter(&metrics::FCR_PHASE3_ADVANCE);
         }
-
-        let glc_total_ms = t_glc.elapsed().as_millis();
-        info!(
-            slot = %current_slot,
-            glc_total_ms = glc_total_ms,
-            phase1_ms = phase1_ms,
-            phase2_ms = phase2_ms,
-            phase3_ms = phase3_ms,
-            is_epoch_start = is_epoch_start,
-            "FCR get_latest_confirmed timing"
-        );
 
         Ok(confirmed_root)
     }
@@ -672,7 +654,6 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<Hash256, Error> {
         let _span = debug_span!("fcr_find_confirmed_descendant").entered();
-        let t_desc = Instant::now();
 
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let mut confirmed_root = latest_confirmed_root;
@@ -681,7 +662,6 @@ impl FastConfirmationRule {
         // Precompute attestation scores for the full chain from confirmed → head in one
         // O(V × depth) pass. Both loops below use these scores instead of calling
         // get_attestation_score per block (which would be O(B × V × depth) total).
-        let t_precompute = Instant::now();
         let precomputed_scores = self.precompute_chain_attestation_scores(
             head_root,
             latest_confirmed_root,
@@ -690,8 +670,6 @@ impl FastConfirmationRule {
             votes,
             equivocating_indices,
         )?;
-        let precompute_ms = t_precompute.elapsed().as_millis();
-
         // --- Loop 1: Previous epoch blocks ---
         let prev_head_voting_source_epoch =
             self.get_voting_source_epoch::<E>(self.previous_slot_head, current_slot, proto_array);
@@ -827,16 +805,6 @@ impl FastConfirmationRule {
                 "FCR advanced"
             );
         }
-        let desc_total_ms = t_desc.elapsed().as_millis();
-        info!(
-            slot = %current_slot,
-            desc_total_ms = desc_total_ms,
-            precompute_scores_ms = precompute_ms,
-            chain_len = precomputed_scores.len(),
-            loop1_entered = loop1_guard,
-            loop2_entered = loop2_guard,
-            "FCR find_latest_confirmed_descendant timing"
-        );
         Ok(confirmed_root)
     }
 
@@ -954,10 +922,11 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `compute_proposer_score(balance_source)`.
+    /// Uses `(committee_weight * proposer_score_boost) // 100` (multiply-first) to match
+    /// the spec and avoid precision loss from divide-first ordering.
     fn compute_proposer_score<E: EthSpec>(&self, balance_source: &BalanceSourceData) -> u64 {
         let committee_weight = balance_source.total_active_balance / E::slots_per_epoch();
-        // Proposer boost is 40% of committee weight (matching Lighthouse's default).
-        (committee_weight / 100).saturating_mul(40)
+        committee_weight.saturating_mul(self.proposer_score_boost) / 100
     }
 
     /// Spec: `get_support_discount`.
@@ -1180,7 +1149,7 @@ impl FastConfirmationRule {
             //        get_latest_message_epoch(latest_messages[i]))
             // Use the VOTE's epoch, not the current epoch.
             let vote_root = vote.current_root();
-            let vote_epoch = vote.current_epoch();
+            let vote_epoch = vote.latest_message_epoch();
             let vote_target =
                 if cached_valid && vote_root == cached_root && vote_epoch == cached_epoch {
                     cached_target

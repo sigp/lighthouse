@@ -25,6 +25,7 @@ mod errors;
 pub mod events;
 pub mod execution_payload;
 pub mod fast_confirmation;
+pub use fast_confirmation::AssignmentFormat;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod graffiti_calculator;

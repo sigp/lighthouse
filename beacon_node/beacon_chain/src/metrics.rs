@@ -617,9 +617,10 @@ pub static FORK_CHOICE_COMPRESS_TIMES: LazyLock<Result<Histogram>> = LazyLock::n
  * Fast Confirmation Rule (FCR)
  */
 pub static FCR_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "beacon_fcr_seconds",
         "Runtime of the fast confirmation rule computation",
+        exponential_buckets(1e-3, 2.0, 12),
     )
 });
 pub static FCR_CONFIRMED_ROOT_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {

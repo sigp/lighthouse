@@ -36,7 +36,8 @@ impl VoteTracker {
     }
 
     /// The epoch of this validator's latest message (next_epoch in proto_array parlance).
-    pub fn current_epoch(&self) -> Epoch {
+    /// Renamed from `current_epoch` to match the spec's `get_latest_message_epoch`.
+    pub fn latest_message_epoch(&self) -> Epoch {
         self.next_epoch
     }
 }

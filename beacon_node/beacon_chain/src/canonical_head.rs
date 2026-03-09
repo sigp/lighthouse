@@ -290,6 +290,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             Some(Mutex::new(FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
                 spec.confirmation_byzantine_threshold,
+                spec.proposer_score_boost.unwrap_or(40),
             )))
         } else {
             None
@@ -365,6 +366,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             *fcr_mutex.lock() = FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
                 spec.confirmation_byzantine_threshold,
+                spec.proposer_score_boost.unwrap_or(40),
             );
         }
 
@@ -709,7 +711,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &old_cached_head.snapshot.beacon_state,
             ) {
                 error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
-                let label = fcr_error_label(&e);
+                let label: &'static str = (&e).into();
                 metrics::inc_counter_vec(&metrics::FCR_ERRORS, &[label]);
             } else {
                 if fcr.confirmed_root != old_confirmed {
@@ -741,6 +743,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Exit early if the head or justified/finalized checkpoints have not changed, there's
         // nothing to do.
+        //
+        // NOTE: FCR updates `confirmed_root` above this check, so if new attestations
+        // advance the confirmed root without changing head/checkpoints, the EL won't see
+        // the updated `safe_block_hash` until the next head change. This lag is at most
+        // one slot in practice.
         if new_view == old_view {
             debug!(
                 head = ?new_view.head_block_root,
@@ -1202,21 +1209,6 @@ fn check_against_finality_reversion(
             old: old_view.finalized_checkpoint,
             new: new_view.finalized_checkpoint,
         })
-    }
-}
-
-/// Categorize an FCR error string into a stable label for the error counter metric.
-/// Must not include variable data (roots, slots) to avoid cardinality explosion.
-fn fcr_error_label(error: &crate::fast_confirmation::Error) -> &'static str {
-    use crate::fast_confirmation::Error;
-    match error {
-        Error::NodeNotFound(_) => "node_not_found",
-        Error::AncestorNotFound { .. } => "ancestor_lookup",
-        Error::UnrealizedJustificationNotFound(_) => "checkpoint_lookup",
-        Error::CheckpointBlockNotFound { .. } => "checkpoint_lookup",
-        Error::MissingPrecomputedScore(_) => "missing_score",
-        Error::BlockEpochNone(_) => "block_epoch_none",
-        Error::CommitteeCache(_) => "committee_cache",
     }
 }
 
