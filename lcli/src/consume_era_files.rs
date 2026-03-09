@@ -64,65 +64,16 @@ pub fn run<E: EthSpec>(
     )
     .map_err(|e| format!("Failed to open database: {e:?}"))?;
 
-    // Load genesis state from the network config
     let mut genesis_state = env
         .runtime()
         .block_on(network_config.genesis_state::<E>(None, Duration::from_secs(120)))
         .map_err(|e| format!("Failed to load genesis state: {e}"))?
         .ok_or("No genesis state available for this network")?;
 
-    // Open ERA files directory and validate against genesis
     let era_file_dir = EraFileDir::new::<E>(&era_dir, &spec)
         .map_err(|e| format!("Failed to open ERA dir: {e}"))?;
 
-    // Verify ERA files match the network's genesis
-    if era_file_dir.genesis_validators_root() != genesis_state.genesis_validators_root() {
-        return Err(format!(
-            "ERA files genesis_validators_root ({:?}) does not match network genesis ({:?}). \
-             Are the ERA files from the correct network?",
-            era_file_dir.genesis_validators_root(),
-            genesis_state.genesis_validators_root(),
-        ));
-    }
-
-    info!(
-        genesis_validators_root = %genesis_state.genesis_validators_root(),
-        "Storing genesis state"
-    );
-
-    let genesis_root = genesis_state
-        .canonical_root()
-        .map_err(|e| format!("Failed to hash genesis state: {e:?}"))?;
-    db.put_cold_state(&genesis_root, &genesis_state)
-        .map_err(|e| format!("Failed to store genesis state: {e:?}"))?;
-
-    let max_era = era_file_dir.max_era();
-    info!(max_era, "Importing ERA files");
-
-    let start = std::time::Instant::now();
-    for era_number in 1..=max_era {
-        era_file_dir
-            .import_era_file(&db, era_number, &spec, None)
-            .map_err(|e| format!("Failed to import ERA {era_number}: {e}"))?;
-
-        if era_number % 100 == 0 || era_number == max_era {
-            let elapsed = start.elapsed();
-            let rate = era_number as f64 / elapsed.as_secs_f64();
-            info!(
-                era_number,
-                max_era,
-                ?elapsed,
-                rate = format!("{rate:.1} era/s"),
-                "Progress"
-            );
-        }
-    }
-
-    info!(
-        max_era,
-        elapsed = ?start.elapsed(),
-        "ERA file import complete. Database is ready."
-    );
+    era_file_dir.import_all(&db, &mut genesis_state, &spec)?;
 
     Ok(())
 }
