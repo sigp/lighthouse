@@ -681,7 +681,8 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 }
 
 /// Used to await the result of executing payload with an EE.
-type PayloadVerificationHandle = JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+pub type PayloadVerificationHandle =
+    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
@@ -1357,7 +1358,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// verification must be done upstream (e.g., via a `SignatureVerifiedBlock`
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(skip_all, level = "debug", fields(?block_root))]
     pub fn from_signature_verified_components(
         block: MaybeAvailableBlock<T::EthSpec>,
         block_root: Hash256,
