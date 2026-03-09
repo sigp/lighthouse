@@ -6,7 +6,7 @@ use reth_era::era::types::consensus::{CompressedBeaconState, CompressedSignedBea
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use store::{DBColumn, HotColdDB, ItemStore, KeyValueStoreOp};
-use tracing::{debug, debug_span, instrument, warn};
+use tracing::{debug, debug_span, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     BeaconState, ChainSpec, EthSpec, Hash256, HistoricalBatch, HistoricalSummary,
@@ -95,6 +95,55 @@ impl EraFileDir {
 
     pub fn genesis_validators_root(&self) -> Hash256 {
         self.genesis_validators_root
+    }
+
+    /// Import all ERA files into a fresh store, verifying genesis and importing ERAs 1..=max_era.
+    pub fn import_all<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+        &self,
+        store: &HotColdDB<E, Hot, Cold>,
+        genesis_state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
+        if self.genesis_validators_root != genesis_state.genesis_validators_root() {
+            return Err(format!(
+                "ERA files genesis_validators_root ({:?}) does not match network genesis ({:?}). \
+                 Are the ERA files from the correct network?",
+                self.genesis_validators_root,
+                genesis_state.genesis_validators_root(),
+            ));
+        }
+
+        let genesis_root = genesis_state
+            .canonical_root()
+            .map_err(|e| format!("Failed to hash genesis state: {e:?}"))?;
+        store
+            .put_cold_state(&genesis_root, genesis_state)
+            .map_err(|e| format!("Failed to store genesis state: {e:?}"))?;
+
+        let start = std::time::Instant::now();
+        for era_number in 1..=self.max_era {
+            self.import_era_file(store, era_number, spec, None)?;
+
+            if era_number % 100 == 0 || era_number == self.max_era {
+                let elapsed = start.elapsed();
+                let rate = era_number as f64 / elapsed.as_secs_f64();
+                info!(
+                    era_number,
+                    max_era = self.max_era,
+                    ?elapsed,
+                    rate = format!("{rate:.1} era/s"),
+                    "Progress"
+                );
+            }
+        }
+
+        info!(
+            max_era = self.max_era,
+            elapsed = ?start.elapsed(),
+            "ERA file import complete"
+        );
+
+        Ok(())
     }
 
     #[instrument(level = "debug", skip_all, fields(era_number = %era_number))]
