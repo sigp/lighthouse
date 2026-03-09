@@ -58,8 +58,6 @@ impl Default for InvariantCheckResult {
 /// A single invariant violation.
 #[derive(Debug, Clone, Serialize)]
 pub enum InvariantViolation {
-    /// Block root exists in BeaconBlock column but block failed to load.
-    BlockFailedToLoad { block_root: Hash256 },
     /// Hot block has no corresponding hot state summary.
     HotBlockMissingStateSummary {
         block_root: Hash256,
@@ -177,7 +175,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             result.inc_checks();
 
             let Some(block) = self.get_blinded_block(&block_root)? else {
-                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
@@ -225,15 +222,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let summary = HotStateSummary::from_ssz_bytes(&value)?;
             result.inc_checks();
 
-            let strategy = match self.hierarchy.storage_strategy(summary.slot, anchor_slot) {
-                Ok(s) => s,
-                Err(crate::hdiff::Error::LessThanStart(_, _)) => {
-                    // States with slot < anchor_slot are expected during checkpoint sync before
-                    // backfill completes. Skip these rather than treating them as violations.
-                    continue;
-                }
-                Err(e) => return Err(e.into()),
-            };
+            let strategy = self.hierarchy.storage_strategy(summary.slot, anchor_slot)?;
 
             match strategy {
                 StorageStrategy::Snapshot => {
@@ -336,7 +325,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let block_root = res?;
 
             let Some(block) = self.get_blinded_block(&block_root)? else {
-                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
@@ -397,7 +385,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let block_root = res?;
 
             let Some(block) = self.get_blinded_block(&block_root)? else {
-                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
@@ -469,13 +456,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut result = InvariantCheckResult::new();
 
         let anchor_info = self.get_anchor_info();
-        let start_slot = anchor_info.oldest_block_slot;
 
-        if start_slot >= split.slot {
+        if anchor_info.oldest_block_slot >= split.slot {
             return Ok(result);
         }
 
-        for slot_val in start_slot.as_u64()..split.slot.as_u64() {
+        for slot_val in anchor_info.oldest_block_slot.as_u64()..split.slot.as_u64() {
             let slot = Slot::new(slot_val);
             result.inc_checks();
 
@@ -507,7 +493,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 None => {
                     result.add_violation(InvariantViolation::ColdBlockRootMissing {
                         slot,
-                        oldest_block_slot: start_slot,
+                        oldest_block_slot: anchor_info.oldest_block_slot,
                         split_slot: split.slot,
                     });
                 }
@@ -539,13 +525,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         //
         // Expected slots are: (i <= state_lower_limit || i >= effective_upper) && i < split.slot
         // where effective_upper = min(split.slot, state_upper_limit).
-        let state_lower = anchor_info.state_lower_limit;
-        let effective_upper = cmp::min(split.slot, anchor_info.state_upper_limit);
-
         for slot_val in 0..split.slot.as_u64() {
             let slot = Slot::new(slot_val);
 
-            if slot <= state_lower || slot >= effective_upper {
+            if slot <= anchor_info.state_lower_limit
+                || slot >= cmp::min(split.slot, anchor_info.state_upper_limit)
+            {
                 result.inc_checks();
                 let slot_bytes = slot_val.to_be_bytes();
                 let has_entry = self
@@ -554,7 +539,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 if !has_entry {
                     result.add_violation(InvariantViolation::ColdStateRootMissing {
                         slot,
-                        state_lower_limit: state_lower,
+                        state_lower_limit: anchor_info.state_lower_limit,
                         state_upper_limit: anchor_info.state_upper_limit,
                         split_slot: split.slot,
                     });

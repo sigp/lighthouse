@@ -3402,13 +3402,9 @@ async fn weak_subjectivity_sync_test(
         .expect("invariant check should not error");
     assert!(
         invariants_result.is_ok(),
-        "database invariant violations after weak subjectivity sync:\n{}",
-        invariants_result
-            .violations
-            .iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
+        "database invariant violations after weak subjectivity sync ({} checks):\n{:#?}",
+        invariants_result.checks_performed,
+        invariants_result.violations
     );
 }
 

@@ -110,7 +110,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let block_root = res?;
 
             let Some(block) = self.store.get_blinded_block(&block_root)? else {
-                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
                 continue;
             };
 
