@@ -15,6 +15,8 @@ use std::sync::{Arc, LazyLock};
 use store::{DBColumn, HotColdDB, KeyValueStore, StoreConfig};
 use types::{BeaconState, ChainSpec, Config, EthSpec, Hash256, MinimalEthSpec, Slot};
 
+const MAX_ERA: u64 = 12;
+
 #[derive(Deserialize)]
 struct Metadata {
     head_slot: u64,
@@ -37,40 +39,57 @@ static TEST_VECTORS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     dir.join("vectors")
 });
 
-fn test_vectors_dir() -> &'static PathBuf {
+fn vectors() -> &'static PathBuf {
     &TEST_VECTORS_DIR
 }
 
-fn load_test_spec() -> ChainSpec {
-    let config_str =
-        std::fs::read_to_string(test_vectors_dir().join("config.yaml")).expect("read config.yaml");
-    let config: Config = yaml_serde::from_str(&config_str).expect("parse config");
+fn era_path() -> PathBuf {
+    vectors().join("era")
+}
+
+fn load_spec() -> ChainSpec {
+    let yaml = std::fs::read_to_string(vectors().join("config.yaml")).expect("read config.yaml");
+    let config: Config = yaml_serde::from_str(&yaml).expect("parse config");
     config
         .apply_to_chain_spec::<MinimalEthSpec>(&ChainSpec::minimal())
         .expect("apply config")
 }
 
+fn load_metadata() -> Metadata {
+    let data =
+        std::fs::read_to_string(vectors().join("metadata.json")).expect("read metadata.json");
+    serde_json::from_str(&data).expect("parse metadata.json")
+}
+
 fn load_genesis_state(spec: &ChainSpec) -> BeaconState<MinimalEthSpec> {
-    let era_dir = test_vectors_dir().join("era");
-    let era0_path = std::fs::read_dir(&era_dir)
+    let era0 = std::fs::read_dir(era_path())
         .expect("read era dir")
         .filter_map(|e| e.ok())
         .find(|e| e.file_name().to_string_lossy().contains("-00000-"))
         .expect("ERA 0 file must exist");
-    let file = std::fs::File::open(era0_path.path()).expect("open ERA 0");
+    let file = std::fs::File::open(era0.path()).expect("open ERA 0");
     let era = reth_era::era::file::EraReader::new(file)
         .read_and_assemble("minimal".to_string())
         .expect("parse ERA 0");
-    let state_bytes = era
-        .group
-        .era_state
-        .decompress()
-        .expect("decompress ERA 0 state");
-    BeaconState::from_ssz_bytes(&state_bytes, spec).expect("decode genesis state from ERA 0")
+    let bytes = era.group.era_state.decompress().expect("decompress ERA 0");
+    BeaconState::from_ssz_bytes(&bytes, spec).expect("decode genesis state")
 }
 
-fn genesis_validators_root(spec: &ChainSpec) -> Hash256 {
-    load_genesis_state(spec).genesis_validators_root()
+fn reference_state_root(spec: &ChainSpec) -> Hash256 {
+    let last = std::fs::read_dir(era_path())
+        .expect("readdir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".era"))
+        .max_by_key(|e| e.file_name().to_string_lossy().to_string())
+        .expect("reference ERA file");
+    let file = std::fs::File::open(last.path()).expect("open");
+    let era = reth_era::era::file::EraReader::new(file)
+        .read_and_assemble("minimal".to_string())
+        .expect("parse");
+    let bytes = era.group.era_state.decompress().expect("decompress");
+    let mut state: BeaconState<MinimalEthSpec> =
+        BeaconState::from_ssz_bytes(&bytes, spec).expect("decode");
+    state.canonical_root().expect("root")
 }
 
 type TestStore = HotColdDB<
@@ -79,30 +98,28 @@ type TestStore = HotColdDB<
     store::MemoryStore<MinimalEthSpec>,
 >;
 
-fn import_all_era_files() -> (TestStore, ChainSpec, u64) {
-    let spec = load_test_spec();
-    let gvr = genesis_validators_root(&spec);
-    let era_dir_path = test_vectors_dir().join("era");
-    let era_dir = EraFileDir::new::<MinimalEthSpec>(&era_dir_path, gvr, EraImportTrust::Untrusted, &spec)
-        .expect("open ERA dir");
-    let max_era = era_dir.max_era();
+/// Open ERA dir, store genesis, import all ERAs, return store.
+fn import_eras(trust: EraImportTrust) -> (TestStore, ChainSpec) {
+    let spec = load_spec();
+    let mut genesis = load_genesis_state(&spec);
+    let gvr = genesis.genesis_validators_root();
 
-    let store = HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
-        .expect("create store");
+    let era_dir =
+        EraFileDir::new::<MinimalEthSpec>(&era_path(), gvr, trust, &spec).expect("open ERA dir");
 
-    let mut genesis_state = load_genesis_state(&spec);
-    let genesis_root = genesis_state.canonical_root().expect("hash genesis");
+    let store =
+        HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone())).expect("store");
+    let root = genesis.canonical_root().expect("hash genesis");
     store
-        .put_cold_state(&genesis_root, &genesis_state)
+        .put_cold_state(&root, &genesis)
         .expect("store genesis");
-    era_dir
-        .import_all(&store, &spec)
-        .expect("import all ERA files");
+    era_dir.import_all(&store, &spec).expect("import");
 
-    (store, spec, max_era)
+    (store, spec)
 }
 
-fn empty_store(spec: &ChainSpec) -> TestStore {
+/// Store with genesis only (for individual import_era_file tests).
+fn store_with_genesis(spec: &ChainSpec) -> TestStore {
     let store =
         HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone())).expect("store");
     let mut genesis = load_genesis_state(spec);
@@ -115,37 +132,38 @@ fn empty_store(spec: &ChainSpec) -> TestStore {
     store
 }
 
+/// Copy ERA dir with one file replaced by a corrupt version.
 fn era_dir_with_corrupt(corrupt_file: &str, target_pattern: &str) -> tempfile::TempDir {
     let tmp = tempfile::TempDir::new().expect("tmp");
-    let src = test_vectors_dir();
     let dst = tmp.path().join("era");
     std::fs::create_dir_all(&dst).expect("mkdir");
 
-    for entry in std::fs::read_dir(src.join("era")).expect("readdir") {
+    for entry in std::fs::read_dir(era_path()).expect("readdir") {
         let entry = entry.expect("entry");
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.contains(target_pattern) {
-            std::fs::copy(src.join("corrupt").join(corrupt_file), dst.join(&name))
-                .expect("copy corrupt");
+        let src = if name.contains(target_pattern) {
+            vectors().join("corrupt").join(corrupt_file)
         } else {
-            std::fs::copy(entry.path(), dst.join(&name)).expect("copy");
-        }
+            entry.path()
+        };
+        std::fs::copy(src, dst.join(&name)).expect("copy");
     }
     tmp
 }
 
-fn assert_import_fails(
-    corrupt_file: &str,
-    target_pattern: &str,
-    target_era: u64,
-    expected_err: &str,
-) {
+/// Import ERAs up to target_era with one corrupt file, assert failure message.
+fn assert_import_fails(corrupt_file: &str, target_pattern: &str, target_era: u64, expected: &str) {
     let tmp = era_dir_with_corrupt(corrupt_file, target_pattern);
-    let spec = load_test_spec();
-    let gvr = genesis_validators_root(&spec);
-    let era_dir = EraFileDir::new::<MinimalEthSpec>(&tmp.path().join("era"), gvr, EraImportTrust::Untrusted, &spec)
-        .expect("init should succeed");
-    let store = empty_store(&spec);
+    let spec = load_spec();
+    let gvr = load_genesis_state(&spec).genesis_validators_root();
+    let era_dir = EraFileDir::new::<MinimalEthSpec>(
+        &tmp.path().join("era"),
+        gvr,
+        EraImportTrust::Untrusted,
+        &spec,
+    )
+    .expect("init should succeed");
+    let store = store_with_genesis(&spec);
 
     for era in 0..target_era {
         era_dir
@@ -157,26 +175,27 @@ fn assert_import_fails(
         .import_era_file(&store, target_era, &spec)
         .unwrap_err();
     assert!(
-        err.contains(expected_err),
-        "expected \"{expected_err}\", got: {err}"
+        err.contains(expected),
+        "expected \"{expected}\", got: {err}"
     );
 }
 
-fn reference_state_root(spec: &ChainSpec) -> Hash256 {
-    let ref_file = std::fs::read_dir(test_vectors_dir().join("era"))
-        .expect("readdir")
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".era"))
-        .max_by_key(|e| e.file_name().to_string_lossy().to_string())
-        .expect("reference ERA file");
-    let file = std::fs::File::open(ref_file.path()).expect("open");
-    let era = reth_era::era::file::EraReader::new(file)
-        .read_and_assemble("minimal".to_string())
-        .expect("parse");
-    let state_bytes = era.group.era_state.decompress().expect("decompress");
-    let mut state: BeaconState<MinimalEthSpec> =
-        BeaconState::from_ssz_bytes(&state_bytes, spec).expect("decode");
-    state.canonical_root().expect("root")
+/// Assert that EraFileDir::new fails with a corrupt file.
+fn assert_init_fails(corrupt_file: &str, target_pattern: &str, expected: &str) {
+    let tmp = era_dir_with_corrupt(corrupt_file, target_pattern);
+    let spec = load_spec();
+    let gvr = load_genesis_state(&spec).genesis_validators_root();
+    let err = EraFileDir::new::<MinimalEthSpec>(
+        &tmp.path().join("era"),
+        gvr,
+        EraImportTrust::Untrusted,
+        &spec,
+    )
+    .unwrap_err();
+    assert!(
+        err.contains(expected),
+        "expected \"{expected}\", got: {err}"
+    );
 }
 
 // Single #[test] to avoid nextest parallel download races.
@@ -198,112 +217,75 @@ fn era_test_vectors() {
     rejects_wrong_trusted_state_root();
 }
 
-fn load_metadata() -> Metadata {
-    let path = test_vectors_dir().join("metadata.json");
-    let data = std::fs::read_to_string(&path).expect("read metadata.json");
-    serde_json::from_str(&data).expect("parse metadata.json")
-}
-
 fn consumer_imports_and_verifies() {
     let metadata = load_metadata();
-    let (store, _spec, max_era) = import_all_era_files();
+    let (store, _spec) = import_eras(EraImportTrust::Untrusted);
     let slots_per_era = MinimalEthSpec::slots_per_historical_root() as u64;
 
-    assert_eq!(max_era + 1, metadata.era_count, "era count mismatch");
+    assert_eq!(MAX_ERA + 1, metadata.era_count, "era count mismatch");
 
-    // The last indexed slot is (max_era * slots_per_era - 1), since the ERA boundary
-    // state covers [start_slot, end_slot) where end_slot = era_number * slots_per_era.
-    let last_slot = max_era * slots_per_era - 1;
-
-    // Verify head block root matches metadata
     let head_key = metadata.head_slot.to_be_bytes().to_vec();
     let head_root_bytes = store
         .cold_db
         .get_bytes(DBColumn::BeaconBlockRoots, &head_key)
-        .expect("read head root index")
-        .unwrap_or_else(|| panic!("no block root at head slot {}", metadata.head_slot));
+        .expect("read")
+        .expect("head root exists");
     let head_root = Hash256::from_slice(&head_root_bytes);
+    let expected = Hash256::from_slice(&hex::decode(&metadata.head_root).expect("hex"));
+    assert_eq!(head_root, expected, "head root mismatch");
 
-    let expected_head_root_bytes = hex::decode(&metadata.head_root).expect("decode head_root hex");
-    let expected_head_root = Hash256::from_slice(&expected_head_root_bytes);
-    assert_eq!(
-        head_root, expected_head_root,
-        "head root mismatch at slot {}: got {head_root:?}",
-        metadata.head_slot
-    );
-
-    // Verify the head block exists and has the correct root
     let head_block = store
         .get_full_block(&head_root)
-        .expect("query head block")
-        .unwrap_or_else(|| panic!("head block missing at slot {}", metadata.head_slot));
+        .expect("query")
+        .expect("head block exists");
     assert_eq!(head_block.canonical_root(), head_root);
     assert_eq!(
         head_block.slot(),
         Slot::new(metadata.head_slot),
-        "last indexed slot is {last_slot}"
+        "last indexed slot is {}",
+        MAX_ERA * slots_per_era - 1
     );
 }
 
 fn consumer_imports_with_trusted_state_root() {
     let metadata = load_metadata();
-    let spec = load_test_spec();
-    let gvr = genesis_validators_root(&spec);
-    let correct_root = reference_state_root(&spec);
-    let era_dir_path = test_vectors_dir().join("era");
-    let era_dir = EraFileDir::new::<MinimalEthSpec>(
-        &era_dir_path,
-        gvr,
-        EraImportTrust::TrustedStateRoot(12, correct_root),
-        &spec,
-    )
-    .expect("open ERA dir with trusted root");
+    let spec = load_spec();
+    let root = reference_state_root(&spec);
+    let (store, _spec) = import_eras(EraImportTrust::TrustedStateRoot(MAX_ERA, root));
 
-    let store = HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
-        .expect("create store");
-    let mut genesis_state = load_genesis_state(&spec);
-    let genesis_root = genesis_state.canonical_root().expect("hash genesis");
-    store
-        .put_cold_state(&genesis_root, &genesis_state)
-        .expect("store genesis");
-    era_dir.import_all(&store, &spec).expect("import all");
-
-    // Verify head block matches metadata, same as untrusted path
     let head_key = metadata.head_slot.to_be_bytes().to_vec();
     let head_root_bytes = store
         .cold_db
         .get_bytes(DBColumn::BeaconBlockRoots, &head_key)
-        .expect("read head root")
+        .expect("read")
         .expect("head root exists");
-    let expected_root_bytes = hex::decode(&metadata.head_root).expect("decode hex");
-    assert_eq!(head_root_bytes, expected_root_bytes);
+    let expected = hex::decode(&metadata.head_root).expect("hex");
+    assert_eq!(head_root_bytes, expected);
 }
 
 fn producer_output_is_byte_identical() {
-    let (store, _spec, max_era) = import_all_era_files();
+    let (store, _spec) = import_eras(EraImportTrust::Untrusted);
     let output = PathBuf::from("/tmp/era_producer_test_output");
     let _ = std::fs::remove_dir_all(&output);
     std::fs::create_dir_all(&output).expect("mkdir");
 
-    for era in 0..=max_era {
+    for era in 0..=MAX_ERA {
         super::producer::create_era_file(&store, era, &output)
             .unwrap_or_else(|e| panic!("produce ERA {era}: {e}"));
     }
 
-    let mut originals: Vec<_> = std::fs::read_dir(test_vectors_dir().join("era"))
-        .expect("readdir")
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".era"))
-        .collect();
-    originals.sort_by_key(|e| e.file_name());
+    let list_era = |dir: PathBuf| -> Vec<_> {
+        let mut files: Vec<_> = std::fs::read_dir(dir)
+            .expect("readdir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".era"))
+            .collect();
+        files.sort_by_key(|e| e.file_name());
+        files
+    };
 
-    let mut produced: Vec<_> = std::fs::read_dir(&output)
-        .expect("readdir")
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".era"))
-        .collect();
-    produced.sort_by_key(|e| e.file_name());
-
+    let originals = list_era(era_path());
+    let produced = list_era(output);
     assert_eq!(originals.len(), produced.len(), "file count mismatch");
 
     for (orig, prod) in originals.iter().zip(produced.iter()) {
@@ -329,13 +311,7 @@ fn rejects_corrupted_middle_state() {
 }
 
 fn rejects_corrupted_reference_state() {
-    let tmp = era_dir_with_corrupt("era12-corrupt-state.era", "-00012-");
-    let spec = load_test_spec();
-    let gvr = genesis_validators_root(&spec);
-    match EraFileDir::new::<MinimalEthSpec>(&tmp.path().join("era"), gvr, EraImportTrust::Untrusted, &spec) {
-        Ok(_) => panic!("should fail with corrupted reference state"),
-        Err(err) => assert!(err.contains("decompress"), "expected decompress: {err}"),
-    }
+    assert_init_fails("era12-corrupt-state.era", "-00012-", "decompress");
 }
 
 fn rejects_wrong_era_content() {
@@ -370,42 +346,44 @@ fn rejects_wrong_block_root() {
 }
 
 fn rejects_mutated_reference_state_with_trusted_root() {
-    // Corrupt ERA 12 (the reference state), then open with the correct root — should fail
     let tmp = era_dir_with_corrupt("era12-corrupt-state.era", "-00012-");
-    let spec = load_test_spec();
-    let gvr = genesis_validators_root(&spec);
-    let correct_root = reference_state_root(&spec);
-    let trust = EraImportTrust::TrustedStateRoot(12, correct_root);
-
-    let err = EraFileDir::new::<MinimalEthSpec>(&tmp.path().join("era"), gvr, trust, &spec)
-        .unwrap_err();
-    // Corrupt state fails to decompress before we can check the root
-    assert!(
-        err.contains("decompress"),
-        "expected decompress error: {err}"
-    );
+    let spec = load_spec();
+    let gvr = load_genesis_state(&spec).genesis_validators_root();
+    let root = reference_state_root(&spec);
+    let err = EraFileDir::new::<MinimalEthSpec>(
+        &tmp.path().join("era"),
+        gvr,
+        EraImportTrust::TrustedStateRoot(MAX_ERA, root),
+        &spec,
+    )
+    .unwrap_err();
+    assert!(err.contains("decompress"), "expected decompress: {err}");
 }
 
 fn rejects_wrong_trusted_state_root() {
-    let spec = load_test_spec();
-    let gvr = genesis_validators_root(&spec);
-    let era_dir_path = test_vectors_dir().join("era");
+    let spec = load_spec();
+    let gvr = load_genesis_state(&spec).genesis_validators_root();
+    let correct = reference_state_root(&spec);
 
-    // Correct root should succeed
-    let correct_root = reference_state_root(&spec);
-    let trust = EraImportTrust::TrustedStateRoot(12, correct_root);
-    EraFileDir::new::<MinimalEthSpec>(&era_dir_path, gvr, trust, &spec)
-        .expect("correct root should pass");
+    // Correct root succeeds
+    EraFileDir::new::<MinimalEthSpec>(
+        &era_path(),
+        gvr,
+        EraImportTrust::TrustedStateRoot(MAX_ERA, correct),
+        &spec,
+    )
+    .expect("correct root should pass");
 
-    // Wrong root should fail
-    let wrong_root = {
-        let mut bytes: [u8; 32] = correct_root.into();
-        bytes[0] ^= 0x01;
-        Hash256::from(bytes)
-    };
-    let trust = EraImportTrust::TrustedStateRoot(12, wrong_root);
-    let err = EraFileDir::new::<MinimalEthSpec>(&era_dir_path, gvr, trust, &spec)
-        .unwrap_err();
+    // Wrong root fails
+    let mut bytes: [u8; 32] = correct.into();
+    bytes[0] ^= 0x01;
+    let err = EraFileDir::new::<MinimalEthSpec>(
+        &era_path(),
+        gvr,
+        EraImportTrust::TrustedStateRoot(MAX_ERA, Hash256::from(bytes)),
+        &spec,
+    )
+    .unwrap_err();
     assert!(
         err.contains("trusted state root mismatch"),
         "expected trusted state root mismatch: {err}"
