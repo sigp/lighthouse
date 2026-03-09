@@ -131,13 +131,15 @@ pub enum InvariantViolation {
     /// Invariant 6: block and blobs consistency.
     ///
     /// ```text
-    /// block in hot_db -> blob_list for block.root in hot_db
+    /// block in hot_db && num_blob_commitments > 0
+    ///   -> blob_list for block.root in hot_db
     /// ```
     BlobSidecarMissing { block_root: Hash256, slot: Slot },
     /// Invariant 7: block and data columns consistency.
     ///
     /// ```text
-    /// block in hot_db && block.slot >= earliest_available_slot
+    /// block in hot_db && num_blob_commitments > 0
+    ///   && block.slot >= earliest_available_slot
     ///   && data_column_idx in custody_columns
     ///   -> (block_root, data_column_idx) in hot_db
     /// ```
@@ -358,11 +360,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             // Invariant 6: blob sidecar consistency.
+            // Only check blocks that actually have blob KZG commitments — blocks with 0
+            // commitments legitimately have no blob sidecars stored.
             if let Some(deneb_slot) = deneb_fork_slot
                 && let Some(oldest_blob) = oldest_blob_slot
                 && slot >= deneb_slot
                 && slot >= oldest_blob
                 && fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot)
+                && block.num_expected_blobs() > 0
             {
                 result.inc_checks();
                 let has_blob = self
@@ -375,11 +380,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             // Invariant 7: data column consistency.
+            // Only check blocks that actually have blob KZG commitments.
             if !ctx.custody_columns.is_empty()
                 && let Some(fulu_slot) = fulu_fork_slot
                 && let Some(oldest_dc) = oldest_data_column_slot
                 && slot >= fulu_slot
                 && slot >= oldest_dc
+                && block.num_expected_blobs() > 0
             {
                 result.inc_checks();
                 let stored_columns = self.get_data_column_keys(block_root)?;
