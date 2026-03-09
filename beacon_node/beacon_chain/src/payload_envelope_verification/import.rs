@@ -13,17 +13,14 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
-    NotifyExecutionLayer,
-    block_verification_types::AvailableBlockData,
-    metrics,
-    payload_envelope_verification::ExecutionPendingEnvelope,
-    validator_monitor::{get_slot_delay_ms, timestamp_now},
+    NotifyExecutionLayer, block_verification_types::AvailableBlockData, metrics,
+    payload_envelope_verification::ExecutionPendingEnvelope, validator_monitor::get_slot_delay_ms,
 };
 
 const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u32 = 64;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Returns `Ok(block_root)` if the given `unverified_envelope` was successfully verified and
+    /// Returns `Ok(status)` if the given `unverified_envelope` was successfully verified and
     /// imported into the chain.
     ///
     /// ## Errors
@@ -76,6 +73,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let envelope_times_cache = chain.envelope_times_cache.clone();
             let slot_clock = chain.slot_clock.clone();
 
+            // TODO(gloas): rename/refactor these `into_` names to be less similar and more clear
+            // about what the function actually does.
             let executed_envelope = chain
                 .into_executed_payload_envelope(execution_pending)
                 .await
@@ -310,7 +309,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // We're declaring the envelope "imported" at this point, since fork choice and the DB know
         // about it.
-        let envelope_time_imported = timestamp_now();
+        let envelope_time_imported = self.slot_clock.now_duration().unwrap_or(Duration::MAX);
 
         // TODO(gloas) depending on what happens with light clients
         // we might need to do some light client related computations here

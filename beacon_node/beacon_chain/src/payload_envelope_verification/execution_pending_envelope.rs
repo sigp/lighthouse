@@ -13,7 +13,7 @@ use crate::{
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
         EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
-        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot,
+        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
         payload_notifier::PayloadNotifier,
     },
 };
@@ -80,11 +80,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let snapshot = if let Some(snapshot) = self.snapshot {
             *snapshot
         } else {
-            load_snapshot(
-                signed_envelope.as_ref(),
-                &chain.canonical_head,
-                &chain.store,
-            )?
+            load_snapshot_from_state_root::<T>(block_root, self.block.state_root(), &chain.store)?
         };
         let mut state = snapshot.pre_state;
 
