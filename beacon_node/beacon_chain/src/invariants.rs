@@ -22,7 +22,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn check_database_invariants(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = self.store.check_invariants()?;
 
-        result.merge(self.check_fork_choice_block_consistency());
+        result.merge(self.check_fork_choice_block_consistency()?);
         result.merge(self.check_execution_payload_consistency()?);
         result.merge(self.check_blob_consistency()?);
         result.merge(self.check_data_column_consistency()?);
@@ -40,7 +40,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Every block tracked by the fork choice proto-array must exist in the hot database.
     /// This ensures the fork choice tree never references blocks that have been pruned or lost.
-    fn check_fork_choice_block_consistency(&self) -> InvariantCheckResult {
+    fn check_fork_choice_block_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = InvariantCheckResult::new();
         let invariant_name = "fork_choice_block_consistency";
 
@@ -59,33 +59,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for (block_root, slot) in block_roots {
             result.inc_checks();
 
-            match self
+            let exists = self
                 .store
                 .hot_db
-                .key_exists(DBColumn::BeaconBlock, block_root.as_slice())
-            {
-                Ok(true) => {}
-                Ok(false) => {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "block {block_root:?} at slot {slot} exists in fork choice \
-                             but not in hot DB",
-                        ),
-                    });
-                }
-                Err(e) => {
-                    result.add_violation(InvariantViolation {
-                        invariant: invariant_name.to_string(),
-                        message: format!(
-                            "error checking block {block_root:?} existence in hot DB: {e:?}"
-                        ),
-                    });
-                }
+                .key_exists(DBColumn::BeaconBlock, block_root.as_slice())?;
+
+            if !exists {
+                result.add_violation(InvariantViolation {
+                    invariant: invariant_name.to_string(),
+                    message: format!(
+                        "block {block_root:?} at slot {slot} exists in fork choice \
+                         but not in hot DB",
+                    ),
+                });
             }
         }
 
-        result
+        Ok(result)
     }
 
     /// Invariant 5 (Hot DB): Execution payload consistency.
