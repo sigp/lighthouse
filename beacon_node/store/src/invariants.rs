@@ -12,7 +12,6 @@ use crate::{HotColdDB, Split};
 use serde::Serialize;
 use ssz::Decode;
 use std::cmp;
-use std::fmt;
 use types::*;
 
 /// Result of running invariant checks on the database.
@@ -76,6 +75,12 @@ pub enum InvariantViolation {
         slot: Slot,
         previous_state_root: Hash256,
     },
+    /// Block has no execution payload or envelope (prune_payloads=false).
+    ExecutionPayloadMissing { block_root: Hash256, slot: Slot },
+    /// Block has no blob sidecar entry.
+    BlobSidecarMissing { block_root: Hash256, slot: Slot },
+    /// State in cache has no hot state summary on disk.
+    StateCacheMissingSummary { state_root: Hash256 },
     /// Cold block root index missing for a slot.
     ColdBlockRootMissing {
         slot: Slot,
@@ -111,195 +116,27 @@ pub enum InvariantViolation {
     ColdStateMissingDiff { state_root: Hash256, slot: Slot },
     /// Fork choice references a block not in hot DB.
     ForkChoiceBlockMissing { block_root: Hash256, slot: Slot },
-    /// Block has no execution payload or envelope (prune_payloads=false).
-    ExecutionPayloadMissing { block_root: Hash256, slot: Slot },
-    /// Block has no blob sidecar entry.
-    BlobSidecarMissing { block_root: Hash256, slot: Slot },
     /// Block missing a custody data column.
     DataColumnMissing {
         block_root: Hash256,
         slot: Slot,
         column_index: ColumnIndex,
     },
-    /// State in cache has no hot state summary on disk.
-    StateCacheMissingSummary { state_root: Hash256 },
     /// Pubkey cache count mismatch between memory and disk.
     PubkeyCacheCountMismatch { in_memory: usize, on_disk: usize },
-}
-
-impl fmt::Display for InvariantViolation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BlockFailedToLoad { block_root } => {
-                write!(
-                    f,
-                    "block root {block_root:?} exists in BeaconBlock column but failed to load"
-                )
-            }
-            Self::HotBlockMissingStateSummary {
-                block_root,
-                slot,
-                state_root,
-            } => {
-                write!(
-                    f,
-                    "hot block {block_root:?} at slot {slot} has state root {state_root:?} \
-                     but no hot state summary exists"
-                )
-            }
-            Self::HotStateMissingSnapshot { state_root, slot } => {
-                write!(
-                    f,
-                    "state {state_root:?} at slot {slot} should have a snapshot but none found"
-                )
-            }
-            Self::HotStateMissingDiff { state_root, slot } => {
-                write!(
-                    f,
-                    "state {state_root:?} at slot {slot} should have a diff but none found"
-                )
-            }
-            Self::HotStateMissingPreviousSummary {
-                slot,
-                previous_state_root,
-            } => {
-                write!(
-                    f,
-                    "state summary at slot {slot} references previous_state_root \
-                     {previous_state_root:?} which has no hot state summary"
-                )
-            }
-            Self::ColdBlockRootMissing {
-                slot,
-                oldest_block_slot,
-                split_slot,
-            } => {
-                write!(
-                    f,
-                    "missing cold block root index at slot {slot} \
-                     (oldest_block_slot={oldest_block_slot}, split.slot={split_slot})"
-                )
-            }
-            Self::ColdBlockRootInvalidLength { slot, length } => {
-                write!(
-                    f,
-                    "cold block root index at slot {slot} has invalid length {length}"
-                )
-            }
-            Self::ColdBlockRootOrphan { slot, block_root } => {
-                write!(
-                    f,
-                    "cold block root index at slot {slot} references block root \
-                     {block_root:?} which does not exist in hot DB"
-                )
-            }
-            Self::ColdStateRootMissing {
-                slot,
-                state_lower_limit,
-                state_upper_limit,
-                split_slot,
-            } => {
-                write!(
-                    f,
-                    "missing cold state root index at slot {slot} \
-                     (state_lower_limit={state_lower_limit}, \
-                     state_upper_limit={state_upper_limit}, split.slot={split_slot})"
-                )
-            }
-            Self::ColdStateRootInvalidKeyLength { length } => {
-                write!(f, "state root index has invalid key length {length}")
-            }
-            Self::ColdStateRootInvalidRootLength { slot, length } => {
-                write!(
-                    f,
-                    "state root index at slot {slot} has invalid root length {length}"
-                )
-            }
-            Self::ColdStateRootMissingSummary { slot, state_root } => {
-                write!(
-                    f,
-                    "state root index at slot {slot} has state root {state_root:?} \
-                     but no cold state summary exists"
-                )
-            }
-            Self::ColdStateRootSlotMismatch {
-                slot,
-                state_root,
-                summary_slot,
-            } => {
-                write!(
-                    f,
-                    "cold state summary for {state_root:?} has slot {summary_slot} \
-                     but state root index has slot {slot}"
-                )
-            }
-            Self::ColdStateMissingSnapshot { state_root, slot } => {
-                write!(
-                    f,
-                    "cold state {state_root:?} at slot {slot} should have a snapshot \
-                     but none found"
-                )
-            }
-            Self::ColdStateMissingDiff { state_root, slot } => {
-                write!(
-                    f,
-                    "cold state {state_root:?} at slot {slot} should have a diff but none found"
-                )
-            }
-            Self::ForkChoiceBlockMissing { block_root, slot } => {
-                write!(
-                    f,
-                    "block {block_root:?} at slot {slot} exists in fork choice but not in hot DB"
-                )
-            }
-            Self::ExecutionPayloadMissing { block_root, slot } => {
-                write!(
-                    f,
-                    "block {block_root:?} at slot {slot} has no execution payload \
-                     or payload envelope (prune_payloads=false)"
-                )
-            }
-            Self::BlobSidecarMissing { block_root, slot } => {
-                write!(
-                    f,
-                    "block {block_root:?} at slot {slot} has no blob sidecar entry"
-                )
-            }
-            Self::DataColumnMissing {
-                block_root,
-                slot,
-                column_index,
-            } => {
-                write!(
-                    f,
-                    "block {block_root:?} at slot {slot} missing custody data column \
-                     {column_index}"
-                )
-            }
-            Self::StateCacheMissingSummary { state_root } => {
-                write!(
-                    f,
-                    "state {state_root:?} is in state cache but has no hot state summary"
-                )
-            }
-            Self::PubkeyCacheCountMismatch { in_memory, on_disk } => {
-                write!(
-                    f,
-                    "pubkey cache has {in_memory} keys in memory but {on_disk} on disk"
-                )
-            }
-        }
-    }
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Run all store-level database invariant checks.
     ///
-    /// Checks invariants 2-4 (hot DB) and 10-12 (cold DB).
+    /// Checks invariants 2-6, 8, 10-12.
     ///
-    /// This function does NOT check fork-choice related invariants (1) or those requiring
-    /// beacon chain state (5-9), as those live outside the store. Use
-    /// `BeaconChain::check_database_invariants` for a complete check including all 12 invariants.
+    /// This function does NOT check invariants requiring beacon chain state:
+    /// - Invariant 1 (fork choice block consistency) — requires fork choice
+    /// - Invariant 7 (data column consistency) — requires custody context
+    /// - Invariant 9 (pubkey cache) — requires validator pubkey cache
+    ///
+    /// Use `BeaconChain::check_database_invariants` for a complete check.
     pub fn check_invariants(&self) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
         let split = self.get_split_info();
@@ -307,6 +144,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         result.merge(self.check_hot_block_state_consistency(&split)?);
         result.merge(self.check_hot_state_summary_diff_consistency(&split)?);
         result.merge(self.check_hot_state_summary_chain_consistency(&split)?);
+        result.merge(self.check_execution_payload_consistency()?);
+        result.merge(self.check_blob_consistency()?);
+        result.merge(self.check_state_cache_consistency()?);
         result.merge(self.check_cold_block_root_indices(&split)?);
         result.merge(self.check_cold_state_root_indices(&split)?);
         result.merge(self.check_cold_state_diff_consistency(&split)?);
@@ -461,6 +301,152 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         previous_state_root: prev_root,
                     });
                 }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Invariant 5 (Hot DB): Execution payload consistency.
+    ///
+    /// ```text
+    /// block in hot_db && !prune_payloads
+    ///   -> execution payload or payload envelope for block.root in hot_db
+    /// ```
+    ///
+    /// When payload pruning is disabled, every post-Bellatrix block should have its execution
+    /// payload (pre-Gloas) or payload envelope (post-Gloas) stored. When `prune_payloads` is
+    /// true (the default), payloads are pruned at finalization and this check is skipped.
+    fn check_execution_payload_consistency(&self) -> Result<InvariantCheckResult, Error> {
+        let mut result = InvariantCheckResult::new();
+
+        if self.get_config().prune_payloads {
+            return Ok(result);
+        }
+
+        let bellatrix_fork_slot = match self.spec.bellatrix_fork_epoch {
+            Some(epoch) => epoch.start_slot(E::slots_per_epoch()),
+            None => return Ok(result),
+        };
+
+        for res in self
+            .hot_db
+            .iter_column_keys::<Hash256>(DBColumn::BeaconBlock)
+        {
+            let block_root = res?;
+
+            let Some(block) = self.get_blinded_block(&block_root)? else {
+                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
+                continue;
+            };
+
+            if block.slot() < bellatrix_fork_slot {
+                continue;
+            }
+
+            result.inc_checks();
+
+            let has_payload = self.execution_payload_exists(&block_root)?;
+            if !has_payload {
+                let has_envelope = self.payload_envelope_exists(&block_root)?;
+                if !has_envelope {
+                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                        block_root,
+                        slot: block.slot(),
+                    });
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Invariant 6 (Hot DB): Blob sidecar consistency (Deneb to Fulu).
+    ///
+    /// ```text
+    /// block in hot_db && block.slot >= deneb_fork_slot && block.slot < fulu_fork_slot
+    ///   && block.slot >= oldest_blob_slot
+    ///   -> blob sidecar list for block.root in blob_db
+    /// ```
+    ///
+    /// Every post-Deneb, pre-Fulu block within the blob availability window should have a blob
+    /// sidecar entry (which may be an empty list for blocks with no blobs). Post-Fulu blocks
+    /// use data columns instead of blobs and are checked by invariant 7.
+    fn check_blob_consistency(&self) -> Result<InvariantCheckResult, Error> {
+        let mut result = InvariantCheckResult::new();
+
+        let deneb_fork_slot = match self.spec.deneb_fork_epoch {
+            Some(epoch) => epoch.start_slot(E::slots_per_epoch()),
+            None => return Ok(result),
+        };
+
+        let fulu_fork_slot = self
+            .spec
+            .fulu_fork_epoch
+            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+
+        let blob_info = self.get_blob_info();
+        let Some(oldest_blob_slot) = blob_info.oldest_blob_slot else {
+            return Ok(result);
+        };
+
+        for res in self
+            .hot_db
+            .iter_column_keys::<Hash256>(DBColumn::BeaconBlock)
+        {
+            let block_root = res?;
+
+            let Some(block) = self.get_blinded_block(&block_root)? else {
+                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
+                continue;
+            };
+
+            let slot = block.slot();
+
+            if slot < deneb_fork_slot || slot < oldest_blob_slot {
+                continue;
+            }
+            if let Some(fulu_slot) = fulu_fork_slot
+                && slot >= fulu_slot
+            {
+                continue;
+            }
+
+            result.inc_checks();
+
+            let has_blob_entry = self
+                .blobs_db
+                .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
+
+            if !has_blob_entry {
+                result.add_violation(InvariantViolation::BlobSidecarMissing { block_root, slot });
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Invariant 8 (Hot DB): State cache and disk consistency.
+    ///
+    /// ```text
+    /// state in state_cache -> state_summary in hot_db
+    /// ```
+    ///
+    /// Every state held in the in-memory state cache (including the finalized state) should
+    /// have a corresponding hot state summary on disk.
+    fn check_state_cache_consistency(&self) -> Result<InvariantCheckResult, Error> {
+        let mut result = InvariantCheckResult::new();
+
+        let state_roots = self.state_cache.lock().state_roots();
+
+        for state_root in state_roots {
+            result.inc_checks();
+
+            let has_summary = self
+                .hot_db
+                .key_exists(DBColumn::BeaconStateHotSummary, state_root.as_slice())?;
+            if !has_summary {
+                result.add_violation(InvariantViolation::StateCacheMissingSummary { state_root });
             }
         }
 

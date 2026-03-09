@@ -159,14 +159,9 @@ fn check_db_invariants(harness: &TestHarness) {
 
     assert!(
         result.is_ok(),
-        "database invariant violations found ({} checks performed):\n{}",
+        "database invariant violations found ({} checks performed):\n{:#?}",
         result.checks_performed,
-        result
-            .violations
-            .iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
+        result.violations,
     );
 }
 

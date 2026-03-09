@@ -1,7 +1,7 @@
 //! Beacon chain database invariant checks.
 //!
 //! This module extends the store-level invariant checks with additional checks that require
-//! access to fork choice, state cache, and other beacon chain components.
+//! access to fork choice, data availability checker, and validator pubkey cache.
 //!
 //! See `BeaconChain::check_database_invariants` for the full list.
 
@@ -17,16 +17,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This is the top-level entry point that checks all 12 database invariants.
     ///
-    /// Invariants 2-4, 10-12 are checked at the store level via `HotColdDB::check_invariants`.
-    /// Invariants 1, 5-9 are checked here at the beacon chain level.
+    /// Invariants 2-6, 8, 10-12 are checked at the store level via `HotColdDB::check_invariants`.
+    /// Invariants 1, 7, 9 are checked here at the beacon chain level.
     pub fn check_database_invariants(&self) -> Result<InvariantCheckResult, store::Error> {
         let mut result = self.store.check_invariants()?;
 
         result.merge(self.check_fork_choice_block_consistency()?);
-        result.merge(self.check_execution_payload_consistency()?);
-        result.merge(self.check_blob_consistency()?);
         result.merge(self.check_data_column_consistency()?);
-        result.merge(self.check_state_cache_consistency()?);
         result.merge(self.check_pubkey_cache_consistency()?);
 
         Ok(result)
@@ -72,133 +69,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(result)
     }
 
-    /// Invariant 5 (Hot DB): Execution payload consistency.
-    ///
-    /// ```text
-    /// block in hot_db && !prune_payloads
-    ///   -> execution payload or payload envelope for block.root in hot_db
-    /// ```
-    ///
-    /// When payload pruning is disabled, every post-Bellatrix block should have its execution
-    /// payload (pre-Gloas) or payload envelope (post-Gloas) stored. When `prune_payloads` is
-    /// true (the default), payloads are pruned at finalization and this check is skipped.
-    fn check_execution_payload_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
-        let mut result = InvariantCheckResult::new();
-
-        if self.store.get_config().prune_payloads {
-            return Ok(result);
-        }
-
-        let bellatrix_fork_slot = match self.spec.bellatrix_fork_epoch {
-            Some(epoch) => epoch.start_slot(T::EthSpec::slots_per_epoch()),
-            None => return Ok(result),
-        };
-
-        for res in self
-            .store
-            .hot_db
-            .iter_column_keys::<Hash256>(DBColumn::BeaconBlock)
-        {
-            let block_root = res?;
-
-            let Some(block) = self.store.get_blinded_block(&block_root)? else {
-                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
-                continue;
-            };
-
-            // Only post-merge blocks have execution payloads.
-            if block.slot() < bellatrix_fork_slot {
-                continue;
-            }
-
-            result.inc_checks();
-
-            let has_payload = self.store.execution_payload_exists(&block_root)?;
-            if !has_payload {
-                // Post-Gloas blocks store a payload envelope instead.
-                let has_envelope = self.store.payload_envelope_exists(&block_root)?;
-                if !has_envelope {
-                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
-                        block_root,
-                        slot: block.slot(),
-                    });
-                }
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Invariant 6 (Hot DB): Blob sidecar consistency (Deneb to Fulu).
-    ///
-    /// ```text
-    /// block in hot_db && block.slot >= deneb_fork_slot && block.slot < fulu_fork_slot
-    ///   && block.slot >= oldest_blob_slot
-    ///   -> blob sidecar list for block.root in blob_db
-    /// ```
-    ///
-    /// Every post-Deneb, pre-Fulu block within the blob availability window should have a blob
-    /// sidecar entry (which may be an empty list for blocks with no blobs). Post-Fulu blocks
-    /// use data columns instead of blobs and are checked by invariant 7.
-    fn check_blob_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
-        let mut result = InvariantCheckResult::new();
-
-        let deneb_fork_slot = match self.spec.deneb_fork_epoch {
-            Some(epoch) => epoch.start_slot(T::EthSpec::slots_per_epoch()),
-            None => return Ok(result),
-        };
-
-        // Post-Fulu blocks use data columns, not blobs.
-        let fulu_fork_slot = self
-            .spec
-            .fulu_fork_epoch
-            .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
-
-        let blob_info = self.store.get_blob_info();
-        let oldest_blob_slot = match blob_info.oldest_blob_slot {
-            Some(slot) => slot,
-            None => return Ok(result),
-        };
-
-        for res in self
-            .store
-            .hot_db
-            .iter_column_keys::<Hash256>(DBColumn::BeaconBlock)
-        {
-            let block_root = res?;
-
-            let Some(block) = self.store.get_blinded_block(&block_root)? else {
-                result.add_violation(InvariantViolation::BlockFailedToLoad { block_root });
-                continue;
-            };
-
-            let slot = block.slot();
-
-            // Only check Deneb+ blocks within blob availability, excluding Fulu+ blocks.
-            if slot < deneb_fork_slot || slot < oldest_blob_slot {
-                continue;
-            }
-            if let Some(fulu_slot) = fulu_fork_slot
-                && slot >= fulu_slot
-            {
-                continue;
-            }
-
-            result.inc_checks();
-
-            let has_blob_entry = self
-                .store
-                .blobs_db
-                .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
-
-            if !has_blob_entry {
-                result.add_violation(InvariantViolation::BlobSidecarMissing { block_root, slot });
-            }
-        }
-
-        Ok(result)
-    }
-
     /// Invariant 7 (Hot DB): Data column consistency (post-Fulu).
     ///
     /// ```text
@@ -221,9 +91,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let data_column_info = self.store.get_data_column_info();
-        let oldest_data_column_slot = match data_column_info.oldest_data_column_slot {
-            Some(slot) => slot,
-            None => return Ok(result),
+        let Some(oldest_data_column_slot) = data_column_info.oldest_data_column_slot else {
+            return Ok(result);
         };
 
         // Get custody columns for the current head epoch. Historical epochs may have different
@@ -260,34 +129,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         column_index: *col_idx,
                     });
                 }
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Invariant 8 (Hot DB): State cache and disk consistency.
-    ///
-    /// ```text
-    /// state in state_cache -> state_summary in hot_db
-    /// ```
-    ///
-    /// Every state held in the in-memory state cache (including the finalized state) should
-    /// have a corresponding hot state summary on disk.
-    fn check_state_cache_consistency(&self) -> Result<InvariantCheckResult, store::Error> {
-        let mut result = InvariantCheckResult::new();
-
-        let state_roots = self.store.state_cache.lock().state_roots();
-
-        for state_root in state_roots {
-            result.inc_checks();
-
-            let has_summary = self
-                .store
-                .hot_db
-                .key_exists(DBColumn::BeaconStateHotSummary, state_root.as_slice())?;
-            if !has_summary {
-                result.add_violation(InvariantViolation::StateCacheMissingSummary { state_root });
             }
         }
 
