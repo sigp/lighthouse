@@ -56,6 +56,21 @@ impl Default for InvariantCheckResult {
     }
 }
 
+/// Context data from the beacon chain needed for invariant checks.
+///
+/// This allows all invariant checks to live in the store crate while still checking
+/// invariants that depend on fork choice, state cache, and custody context.
+pub struct InvariantContext {
+    /// Block roots tracked by fork choice (invariant 1).
+    pub fork_choice_blocks: Vec<(Hash256, Slot)>,
+    /// State roots held in the in-memory state cache (invariant 8).
+    pub state_cache_roots: Vec<Hash256>,
+    /// Custody columns for the current epoch (invariant 7).
+    pub custody_columns: Vec<ColumnIndex>,
+    /// Number of pubkeys in the in-memory validator pubkey cache (invariant 9).
+    pub pubkey_cache_count: usize,
+}
+
 /// A single invariant violation.
 #[derive(Debug, Clone, Serialize)]
 pub enum InvariantViolation {
@@ -124,30 +139,50 @@ pub enum InvariantViolation {
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
-    /// Run all store-level database invariant checks.
+    /// Run all database invariant checks.
     ///
-    /// Checks invariants 2-6, 8, 10-12.
-    ///
-    /// This function does NOT check invariants requiring beacon chain state:
-    /// - Invariant 1 (fork choice block consistency) — requires fork choice
-    /// - Invariant 7 (data column consistency) — requires custody context
-    /// - Invariant 9 (pubkey cache) — requires validator pubkey cache
-    ///
-    /// Use `BeaconChain::check_database_invariants` for a complete check.
-    pub fn check_invariants(
-        &self,
-        custody_columns: Option<&[ColumnIndex]>,
-    ) -> Result<InvariantCheckResult, Error> {
+    /// The `ctx` parameter provides data from the beacon chain layer (fork choice, state cache,
+    /// custody columns, pubkey cache) so that all invariant checks can live in this single file.
+    pub fn check_invariants(&self, ctx: &InvariantContext) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
         let split = self.get_split_info();
 
-        result.merge(self.check_hot_block_invariants(&split, custody_columns)?);
+        result.merge(self.check_fork_choice_block_consistency(ctx)?);
+        result.merge(self.check_hot_block_invariants(&split, ctx)?);
         result.merge(self.check_hot_state_summary_diff_consistency(&split)?);
         result.merge(self.check_hot_state_summary_chain_consistency(&split)?);
-        result.merge(self.check_state_cache_consistency()?);
+        result.merge(self.check_state_cache_consistency(ctx)?);
         result.merge(self.check_cold_block_root_indices(&split)?);
         result.merge(self.check_cold_state_root_indices(&split)?);
         result.merge(self.check_cold_state_diff_consistency(&split)?);
+        result.merge(self.check_pubkey_cache_consistency(ctx)?);
+
+        Ok(result)
+    }
+
+    /// Invariant 1 (Hot DB): Fork choice block consistency.
+    ///
+    /// ```text
+    /// block in fork_choice -> block in hot_db
+    /// ```
+    ///
+    /// Every block tracked by the fork choice proto-array must exist in the hot database.
+    fn check_fork_choice_block_consistency(
+        &self,
+        ctx: &InvariantContext,
+    ) -> Result<InvariantCheckResult, Error> {
+        let mut result = InvariantCheckResult::new();
+
+        for &(block_root, slot) in &ctx.fork_choice_blocks {
+            result.inc_checks();
+            let exists = self
+                .hot_db
+                .key_exists(DBColumn::BeaconBlock, block_root.as_slice())?;
+            if !exists {
+                result
+                    .add_violation(InvariantViolation::ForkChoiceBlockMissing { block_root, slot });
+            }
+        }
 
         Ok(result)
     }
@@ -162,7 +197,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     fn check_hot_block_invariants(
         &self,
         split: &Split,
-        custody_columns: Option<&[ColumnIndex]>,
+        ctx: &InvariantContext,
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
 
@@ -207,58 +242,54 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             // Invariant 5: execution payload consistency.
-            if check_payloads {
-                if let Some(bellatrix_slot) = bellatrix_fork_slot {
-                    if slot >= bellatrix_slot {
-                        result.inc_checks();
-                        if !self.execution_payload_exists(&block_root)?
-                            && !self.payload_envelope_exists(&block_root)?
-                        {
-                            result.add_violation(InvariantViolation::ExecutionPayloadMissing {
-                                block_root,
-                                slot,
-                            });
-                        }
-                    }
+            if check_payloads
+                && let Some(bellatrix_slot) = bellatrix_fork_slot
+                && slot >= bellatrix_slot
+            {
+                result.inc_checks();
+                if !self.execution_payload_exists(&block_root)?
+                    && !self.payload_envelope_exists(&block_root)?
+                {
+                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                        block_root,
+                        slot,
+                    });
                 }
             }
 
             // Invariant 6: blob sidecar consistency.
-            if let Some(deneb_slot) = deneb_fork_slot {
-                if let Some(oldest_blob) = oldest_blob_slot {
-                    let is_pre_fulu = fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot);
-                    if slot >= deneb_slot && slot >= oldest_blob && is_pre_fulu {
-                        result.inc_checks();
-                        let has_blob = self
-                            .blobs_db
-                            .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
-                        if !has_blob {
-                            result.add_violation(InvariantViolation::BlobSidecarMissing {
-                                block_root,
-                                slot,
-                            });
-                        }
-                    }
+            if let Some(deneb_slot) = deneb_fork_slot
+                && let Some(oldest_blob) = oldest_blob_slot
+                && slot >= deneb_slot
+                && slot >= oldest_blob
+                && fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot)
+            {
+                result.inc_checks();
+                let has_blob = self
+                    .blobs_db
+                    .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
+                if !has_blob {
+                    result
+                        .add_violation(InvariantViolation::BlobSidecarMissing { block_root, slot });
                 }
             }
 
             // Invariant 7: data column consistency.
-            if let Some(custody_cols) = custody_columns {
-                if let Some(fulu_slot) = fulu_fork_slot {
-                    if let Some(oldest_dc) = oldest_data_column_slot {
-                        if slot >= fulu_slot && slot >= oldest_dc {
-                            result.inc_checks();
-                            let stored_columns = self.get_data_column_keys(block_root)?;
-                            for col_idx in custody_cols {
-                                if !stored_columns.contains(col_idx) {
-                                    result.add_violation(InvariantViolation::DataColumnMissing {
-                                        block_root,
-                                        slot,
-                                        column_index: *col_idx,
-                                    });
-                                }
-                            }
-                        }
+            if !ctx.custody_columns.is_empty()
+                && let Some(fulu_slot) = fulu_fork_slot
+                && let Some(oldest_dc) = oldest_data_column_slot
+                && slot >= fulu_slot
+                && slot >= oldest_dc
+            {
+                result.inc_checks();
+                let stored_columns = self.get_data_column_keys(block_root)?;
+                for col_idx in &ctx.custody_columns {
+                    if !stored_columns.contains(col_idx) {
+                        result.add_violation(InvariantViolation::DataColumnMissing {
+                            block_root,
+                            slot,
+                            column_index: *col_idx,
+                        });
                     }
                 }
             }
@@ -393,12 +424,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Every state held in the in-memory state cache (including the finalized state) should
     /// have a corresponding hot state summary on disk.
-    fn check_state_cache_consistency(&self) -> Result<InvariantCheckResult, Error> {
+    fn check_state_cache_consistency(
+        &self,
+        ctx: &InvariantContext,
+    ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
 
-        let state_roots = self.state_cache.lock().state_roots();
-
-        for state_root in state_roots {
+        for &state_root in &ctx.state_cache_roots {
             result.inc_checks();
 
             let has_summary = self
@@ -622,6 +654,41 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     base_slot,
                 });
             }
+        }
+
+        Ok(result)
+    }
+
+    /// Invariant 9 (Hot DB): Pubkey cache consistency.
+    ///
+    /// ```text
+    /// all validator pubkeys from states are in hot_db(PubkeyCache)
+    /// ```
+    ///
+    /// The number of pubkeys in the in-memory validator pubkey cache should match the number
+    /// stored on disk in the PubkeyCache column.
+    fn check_pubkey_cache_consistency(
+        &self,
+        ctx: &InvariantContext,
+    ) -> Result<InvariantCheckResult, Error> {
+        let mut result = InvariantCheckResult::new();
+
+        result.inc_checks();
+
+        let mut on_disk_count = 0usize;
+        for res in self
+            .hot_db
+            .iter_column_keys::<Vec<u8>>(DBColumn::PubkeyCache)
+        {
+            let _ = res?;
+            on_disk_count += 1;
+        }
+
+        if ctx.pubkey_cache_count != on_disk_count {
+            result.add_violation(InvariantViolation::PubkeyCacheCountMismatch {
+                in_memory: ctx.pubkey_cache_count,
+                on_disk: on_disk_count,
+            });
         }
 
         Ok(result)
