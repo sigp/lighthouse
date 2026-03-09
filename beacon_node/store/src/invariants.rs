@@ -3,7 +3,7 @@
 //! These checks verify the consistency of data stored in the database. They are designed to be
 //! called from the HTTP API and from tests to detect data corruption or bugs in the store logic.
 //!
-//! See: https://hackmd.io/@sproul/database-invariants
+//! See the `check_invariants` and `check_database_invariants` methods for the full list.
 
 use crate::hdiff::StorageStrategy;
 use crate::hot_cold_store::{ColdStateSummary, HotStateSummary};
@@ -72,8 +72,7 @@ impl fmt::Display for InvariantViolation {
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Run all store-level database invariant checks.
     ///
-    /// Checks invariants 2-4 (hot DB) and 10-12 (cold DB) from the spec at
-    /// https://hackmd.io/@sproul/database-invariants.
+    /// Checks invariants 2-4 (hot DB) and 10-12 (cold DB).
     ///
     /// This function does NOT check fork-choice related invariants (1) or those requiring
     /// beacon chain state (5-9), as those live outside the store. Use

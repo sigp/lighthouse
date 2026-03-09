@@ -3,7 +3,7 @@
 //! This module extends the store-level invariant checks with additional checks that require
 //! access to fork choice, state cache, and other beacon chain components.
 //!
-//! See: https://hackmd.io/@sproul/database-invariants
+//! See `BeaconChain::check_database_invariants` for the full list.
 
 use crate::BeaconChain;
 use crate::beacon_chain::BeaconChainTypes;
@@ -15,8 +15,7 @@ use types::*;
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Run all database invariant checks, including those requiring fork choice and state cache.
     ///
-    /// This is the top-level entry point that checks all 12 invariants from:
-    /// https://hackmd.io/@sproul/database-invariants
+    /// This is the top-level entry point that checks all 12 database invariants.
     ///
     /// Invariants 2-4, 10-12 are checked at the store level via `HotColdDB::check_invariants`.
     /// Invariants 1, 5-9 are checked here at the beacon chain level.
