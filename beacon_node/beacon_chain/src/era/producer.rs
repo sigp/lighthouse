@@ -1,3 +1,12 @@
+//! Export ERA files from a Lighthouse database.
+//!
+//! Reads blocks and states from the cold DB and writes them into the standardized ERA format.
+//! ERA files are produced either during historical reconstruction (backfilling) or upon
+//! finalization of new eras. Each file is named `{network}-{era_number}-{short_root}.era`.
+//!
+//! Files are written atomically (temp file + rename) so partial writes never appear as valid
+//! ERA files. Existing files are skipped, making production idempotent.
+
 use rand::random;
 use reth_era::common::file_ops::{EraFileFormat, EraFileId, StreamWriter};
 use reth_era::era::file::{EraFile, EraWriter};

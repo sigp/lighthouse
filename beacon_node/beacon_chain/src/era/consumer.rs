@@ -1,3 +1,12 @@
+//! Import ERA files into a Lighthouse database.
+//!
+//! `EraFileDir` reads a directory of ERA files and imports them sequentially into the cold DB.
+//! Each ERA file is verified against `historical_roots` / `historical_summaries` from the
+//! highest-numbered ERA state, ensuring block and state integrity without trusting the files.
+//!
+//! Block roots are cross-checked against the ERA boundary state's `block_roots` vector.
+//! Block signatures are NOT verified — ERA files are trusted at that level.
+
 use bls::FixedBytesExtended;
 use rayon::prelude::*;
 use reth_era::common::file_ops::StreamReader;
