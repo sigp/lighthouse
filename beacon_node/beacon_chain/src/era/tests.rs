@@ -184,6 +184,7 @@ fn reference_state_root(spec: &ChainSpec) -> Hash256 {
 #[test]
 fn era_test_vectors() {
     consumer_imports_and_verifies();
+    consumer_imports_with_trusted_state_root();
     producer_output_is_byte_identical();
     rejects_corrupted_block_decompression();
     rejects_corrupted_genesis_state();
@@ -242,6 +243,40 @@ fn consumer_imports_and_verifies() {
         Slot::new(metadata.head_slot),
         "last indexed slot is {last_slot}"
     );
+}
+
+fn consumer_imports_with_trusted_state_root() {
+    let metadata = load_metadata();
+    let spec = load_test_spec();
+    let gvr = genesis_validators_root(&spec);
+    let correct_root = reference_state_root(&spec);
+    let era_dir_path = test_vectors_dir().join("era");
+    let era_dir = EraFileDir::new::<MinimalEthSpec>(
+        &era_dir_path,
+        gvr,
+        EraImportTrust::TrustedStateRoot(12, correct_root),
+        &spec,
+    )
+    .expect("open ERA dir with trusted root");
+
+    let store = HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
+        .expect("create store");
+    let mut genesis_state = load_genesis_state(&spec);
+    let genesis_root = genesis_state.canonical_root().expect("hash genesis");
+    store
+        .put_cold_state(&genesis_root, &genesis_state)
+        .expect("store genesis");
+    era_dir.import_all(&store, &spec).expect("import all");
+
+    // Verify head block matches metadata, same as untrusted path
+    let head_key = metadata.head_slot.to_be_bytes().to_vec();
+    let head_root_bytes = store
+        .cold_db
+        .get_bytes(DBColumn::BeaconBlockRoots, &head_key)
+        .expect("read head root")
+        .expect("head root exists");
+    let expected_root_bytes = hex::decode(&metadata.head_root).expect("decode hex");
+    assert_eq!(head_root_bytes, expected_root_bytes);
 }
 
 fn producer_output_is_byte_identical() {
