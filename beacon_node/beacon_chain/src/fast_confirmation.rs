@@ -54,6 +54,8 @@ pub enum Error {
     BlockEpochNone(Hash256),
     #[strum(serialize = "committee_cache")]
     CommitteeCache(String),
+    #[strum(serialize = "unset_slot")]
+    UnsetSlotAssignment(usize),
 }
 
 /// Per-mille adjustment factor for committee weight estimates that don't cover a full epoch.
@@ -70,6 +72,172 @@ pub enum AssignmentFormat {
     ThreeColumn,
     /// Benchmark format: `validator_count * 2` slots (auto-expanded to 3-column).
     TwoColumn,
+}
+
+/// Per-validator committee slot assignments across a 3-epoch window.
+///
+/// Each active validator is assigned to exactly one committee slot per epoch.
+/// This structure tracks those assignments for epochs `[current-2, current-1, current]`,
+/// stored as a flat `Vec<Slot>` with stride 3 for cache-friendly iteration over all
+/// validators.
+///
+/// # Layout
+///
+/// ```text
+///                    epoch-2    epoch-1    current
+/// validator 0:       slot_a     slot_b     slot_c
+/// validator 1:       slot_d     slot_e     slot_f
+/// ...
+/// ```
+///
+/// Stored flat: `[slot_a, slot_b, slot_c, slot_d, slot_e, slot_f, ...]`
+///
+/// Access: `slots[validator_index * 3 + column]` where column 0/1/2 maps to
+/// the epoch at `epochs[column]`.
+///
+/// # Sentinel
+///
+/// `UNSET_SLOT` (`Slot(u64::MAX)`) marks uninitialized entries. Reading an unset
+/// slot via `is_in_range` returns an error, catching rebuild bugs early.
+#[derive(Clone, Debug)]
+struct SlotAssignments {
+    /// Flat array of slot assignments. Length = `validator_count * 3`.
+    slots: Vec<Slot>,
+    /// The 3 epochs covered by columns 0, 1, 2 (typically `[current-2, current-1, current]`).
+    epochs: [types::Epoch; 3],
+}
+
+/// Number of epoch columns in the slot assignment table.
+const NUM_EPOCH_COLUMNS: usize = 3;
+
+/// Sentinel value for unset slot assignments. Using `u64::MAX` instead of `Slot(0)`
+/// avoids ambiguity with genesis slot 0 and allows hard error detection on read.
+const UNSET_SLOT: Slot = Slot::new(u64::MAX);
+
+impl SlotAssignments {
+    /// Create an empty assignment table.
+    fn new() -> Self {
+        Self {
+            slots: Vec::new(),
+            epochs: [types::Epoch::new(0); NUM_EPOCH_COLUMNS],
+        }
+    }
+
+    /// Get the assigned slot for a validator in a given column (0, 1, or 2).
+    fn get(&self, val_idx: usize, col: usize) -> Option<Slot> {
+        self.slots.get(val_idx * NUM_EPOCH_COLUMNS + col).copied()
+    }
+
+    /// Check if a validator is assigned to any committee in the slot range `[start, end]`.
+    ///
+    /// Iterates over all 3 epoch columns and returns `true` if any assigned slot
+    /// falls within the range (inclusive). Returns an error if an `UNSET_SLOT`
+    /// sentinel is encountered, indicating a rebuild bug.
+    fn is_in_range(&self, val_idx: usize, start_slot: Slot, end_slot: Slot) -> Result<bool, Error> {
+        for col in 0..NUM_EPOCH_COLUMNS {
+            let Some(slot) = self.get(val_idx, col) else {
+                continue;
+            };
+            if slot == UNSET_SLOT {
+                return Err(Error::UnsetSlotAssignment(val_idx));
+            }
+            if slot >= start_slot && slot <= end_slot {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Set assignments from external data (for benchmarks).
+    ///
+    /// - `ThreeColumn`: `assignments.len() == validator_count * 3` (direct use)
+    /// - `TwoColumn`: `assignments.len() == validator_count * 2` (auto-expanded,
+    ///    fills columns 1 and 2, leaving column 0 as `Slot(0)`)
+    fn set_from(&mut self, assignments: Vec<Slot>, format: AssignmentFormat) {
+        match format {
+            AssignmentFormat::ThreeColumn => {
+                self.slots = assignments;
+            }
+            AssignmentFormat::TwoColumn => {
+                let validator_count = assignments.len() / 2;
+                let mut expanded = vec![UNSET_SLOT; validator_count * NUM_EPOCH_COLUMNS];
+                for val_idx in 0..validator_count {
+                    expanded[val_idx * NUM_EPOCH_COLUMNS + 1] = assignments[val_idx * 2];
+                    expanded[val_idx * NUM_EPOCH_COLUMNS + 2] = assignments[val_idx * 2 + 1];
+                }
+                self.slots = expanded;
+            }
+        }
+    }
+
+    /// Rebuild assignments from a beacon state for the given slot.
+    ///
+    /// Computes the 3-epoch window `[current-2, current-1, current]` and fills
+    /// assignments from the state's committee caches. Preserves old assignments
+    /// that still fall within the new window (epoch column remapping).
+    ///
+    /// Returns early (cache hit) if the epoch window and validator count haven't changed.
+    fn rebuild<E: EthSpec>(
+        &mut self,
+        state: &BeaconState<E>,
+        current_slot: Slot,
+    ) -> Result<(), Error> {
+        let validator_count = state.validators().len();
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let desired_epochs = [
+            current_epoch.saturating_sub(2u64),
+            current_epoch.saturating_sub(1u64),
+            current_epoch,
+        ];
+
+        // Fast path: skip if epoch window and validator count are unchanged.
+        if self.epochs == desired_epochs && self.slots.len() == validator_count * NUM_EPOCH_COLUMNS
+        {
+            return Ok(());
+        }
+
+        let mut new_slots = vec![UNSET_SLOT; validator_count * NUM_EPOCH_COLUMNS];
+
+        // Preserve old assignments that overlap the new epoch window.
+        if self.slots.len() == validator_count * NUM_EPOCH_COLUMNS {
+            for val_idx in 0..validator_count {
+                for (old_col, old_epoch) in self.epochs.iter().enumerate() {
+                    if let Some(new_col) = desired_epochs.iter().position(|e| e == old_epoch) {
+                        new_slots[val_idx * NUM_EPOCH_COLUMNS + new_col] =
+                            self.slots[val_idx * NUM_EPOCH_COLUMNS + old_col];
+                    }
+                }
+            }
+        }
+
+        // Fill from the state's committee caches.
+        for val_idx in 0..validator_count {
+            for relative_epoch in [RelativeEpoch::Previous, RelativeEpoch::Current] {
+                match state.get_attestation_duties(val_idx, relative_epoch) {
+                    Ok(Some(duty)) => {
+                        let duty_epoch = match relative_epoch {
+                            RelativeEpoch::Previous => state.previous_epoch(),
+                            RelativeEpoch::Current => state.current_epoch(),
+                            _ => unreachable!(),
+                        };
+                        if let Some(col) = desired_epochs.iter().position(|e| *e == duty_epoch) {
+                            new_slots[val_idx * NUM_EPOCH_COLUMNS + col] = duty.slot;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        return Err(Error::CommitteeCache(format!(
+                            "attestation duties for validator {val_idx}: {e:?}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        self.slots = new_slots;
+        self.epochs = desired_epochs;
+        Ok(())
+    }
 }
 
 /// Snapshot of a checkpoint state's balances and committee assignments.
@@ -165,16 +333,9 @@ pub struct FastConfirmationRule {
     proposer_score_boost: u64,
 
     // === Committee data from head state ===
-    /// Per-validator slot assignment for store epochs `current - 2`, `current - 1`,
-    /// and `current`.
-    ///
-    /// Built from the HEAD state each time `on_fast_confirmation` runs and retains the
-    /// oldest epoch assignment across an epoch transition so reconfirmation can account
-    /// for empty-slot support in `current_epoch - 2`, matching the spec requirement for
-    /// `get_slot_committee`.
-    /// Used by `get_block_support_between_slots` and `get_equivocation_score`.
-    head_slot_assignments: Vec<Slot>,
-    head_slot_assignment_epochs: [types::Epoch; 3],
+    /// Per-validator committee slot assignments across the last 3 epochs.
+    /// Used by `get_block_support_between_slots` and `compute_adversarial_weight`.
+    head_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
     /// Effective balances for the current store epoch as seen from the head state.
@@ -221,8 +382,7 @@ impl FastConfirmationRule {
             current_balance_source: BalanceSourceData::default(),
             byzantine_threshold,
             proposer_score_boost,
-            head_slot_assignments: Vec::new(),
-            head_slot_assignment_epochs: [types::Epoch::new(0); 3],
+            head_assignments: SlotAssignments::new(),
             head_balance_source: BalanceSourceData::default(),
             last_update_slot: None,
             spec_test_mode: false,
@@ -236,108 +396,8 @@ impl FastConfirmationRule {
     }
 
     /// Directly set committee slot assignments (for benchmarks that lack a real BeaconState).
-    ///
-    /// `format`: assignment format
-    /// - `ThreeColumn`: `assignments.len() == validator_count * 3` (production format)
-    /// - `TwoColumn`: `assignments.len() == validator_count * 2` (benchmark format, auto-expands to 3-column)
     pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>, format: AssignmentFormat) {
-        match format {
-            AssignmentFormat::ThreeColumn => {
-                self.head_slot_assignments = assignments;
-            }
-            AssignmentFormat::TwoColumn => {
-                let validator_count = assignments.len() / 2;
-                let mut expanded = vec![Slot::new(0); validator_count * 3];
-                for val_idx in 0..validator_count {
-                    expanded[val_idx * 3 + 1] = assignments[val_idx * 2];
-                    expanded[val_idx * 3 + 2] = assignments[val_idx * 2 + 1];
-                }
-                self.head_slot_assignments = expanded;
-            }
-        }
-    }
-
-    /// Rebuild committee slot assignments from the head state.
-    ///
-    /// The spec's `get_slot_committee` uses `store.block_states[head]` for shuffling,
-    /// which is separate from the balance source. We retain up to three epoch-relative
-    /// slot assignments per validator so committee membership checks remain valid across
-    /// the reconfirmation boundary.
-    fn rebuild_head_slot_assignments<E: EthSpec>(
-        &mut self,
-        state: &BeaconState<E>,
-        current_slot: Slot,
-    ) -> Result<(), Error> {
-        let validator_count = state.validators().len();
-        let current_epoch = current_slot.epoch(E::slots_per_epoch());
-        let desired_epochs = [
-            current_epoch.saturating_sub(2u64),
-            current_epoch.saturating_sub(1u64),
-            current_epoch,
-        ];
-
-        // Fast path: if the desired epoch window hasn't changed and the assignments
-        // are already populated with the correct validator count, skip the rebuild.
-        // Committee assignments are deterministic per-epoch — they only need to be
-        // recomputed when crossing an epoch boundary or on first initialization.
-        if self.head_slot_assignment_epochs == desired_epochs
-            && self.head_slot_assignments.len() == validator_count * 3
-        {
-            return Ok(());
-        }
-
-        let mut assignments = vec![Slot::new(0); validator_count * 3];
-
-        // Preserve any previously-known assignment that still falls into the desired epoch window.
-        if self.head_slot_assignments.len() == validator_count * 3 {
-            for val_idx in 0..validator_count {
-                for (old_col, old_epoch) in self.head_slot_assignment_epochs.iter().enumerate() {
-                    if let Some(new_col) =
-                        desired_epochs.iter().position(|epoch| epoch == old_epoch)
-                    {
-                        assignments[val_idx * 3 + new_col] =
-                            self.head_slot_assignments[val_idx * 3 + old_col];
-                    }
-                }
-            }
-        }
-
-        for val_idx in 0..validator_count {
-            match state.get_attestation_duties(val_idx, RelativeEpoch::Previous) {
-                Ok(Some(duty)) => {
-                    let duty_epoch = state.previous_epoch();
-                    if let Some(col) = desired_epochs.iter().position(|epoch| *epoch == duty_epoch)
-                    {
-                        assignments[val_idx * 3 + col] = duty.slot;
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    return Err(Error::CommitteeCache(format!(
-                        "attestation duties for validator {val_idx}: {e:?}"
-                    )));
-                }
-            }
-            match state.get_attestation_duties(val_idx, RelativeEpoch::Current) {
-                Ok(Some(duty)) => {
-                    let duty_epoch = state.current_epoch();
-                    if let Some(col) = desired_epochs.iter().position(|epoch| *epoch == duty_epoch)
-                    {
-                        assignments[val_idx * 3 + col] = duty.slot;
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    return Err(Error::CommitteeCache(format!(
-                        "attestation duties for validator {val_idx}: {e:?}"
-                    )));
-                }
-            }
-        }
-
-        self.head_slot_assignments = assignments;
-        self.head_slot_assignment_epochs = desired_epochs;
-        Ok(())
+        self.head_assignments.set_from(assignments, format);
     }
 
     fn rebuild_head_balance_source<E: EthSpec>(
@@ -367,16 +427,6 @@ impl FastConfirmationRule {
         self.head_balance_source =
             BalanceSourceData::from_state(state, checkpoint, relative_epoch)?;
         Ok(())
-    }
-
-    /// Check if a validator is assigned to any committee in the slot range [start, end].
-    fn is_in_committee_range(&self, val_idx: usize, start_slot: Slot, end_slot: Slot) -> bool {
-        (0..3).any(|col| {
-            let Some(&slot) = self.head_slot_assignments.get(val_idx * 3 + col) else {
-                return false;
-            };
-            slot > Slot::new(0) && slot >= start_slot && slot <= end_slot
-        })
     }
 
     /// Update balance sources from a beacon state.
@@ -435,7 +485,7 @@ impl FastConfirmationRule {
         );
 
         // Rebuild committee assignments from the head state.
-        self.rebuild_head_slot_assignments::<E>(state, current_slot)?;
+        self.head_assignments.rebuild::<E>(state, current_slot)?;
         self.rebuild_head_balance_source::<E>(state, current_slot)?;
 
         // Rebuild balance sources if the observed justified checkpoints changed.
@@ -480,7 +530,7 @@ impl FastConfirmationRule {
             unrealized_justified_checkpoint,
             current_slot,
         );
-        self.rebuild_head_slot_assignments::<E>(state, current_slot)?;
+        self.head_assignments.rebuild::<E>(state, current_slot)?;
         self.rebuild_head_balance_source::<E>(state, current_slot)?;
         self.update_balance_sources(state)?;
 
@@ -892,7 +942,7 @@ impl FastConfirmationRule {
     /// Spec: `get_block_support_between_slots`.
     /// Counts weight of validators whose latest vote is for EXACTLY `block_root`
     /// (not descendants) and whose committee assignment is in [start_slot, end_slot].
-    /// Committee assignments come from the HEAD state (stored in `head_slot_assignments`).
+    /// Committee assignments come from the HEAD state (stored in `head_assignments`).
     fn get_block_support_between_slots(
         &self,
         balance_source: &BalanceSourceData,
@@ -914,7 +964,10 @@ impl FastConfirmationRule {
             if balance == 0 {
                 continue;
             }
-            if self.is_in_committee_range(val_idx, start_slot, end_slot) {
+            if self
+                .head_assignments
+                .is_in_range(val_idx, start_slot, end_slot)?
+            {
                 score = score.saturating_add(balance);
             }
         }
@@ -1029,7 +1082,7 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_equivocation_score`.
-    /// Uses HEAD state committee assignments (via `is_in_committee_range`).
+    /// Uses HEAD state committee assignments (via `head_assignments.is_in_range`).
     fn get_equivocation_score(
         &self,
         balance_source: &BalanceSourceData,
@@ -1044,7 +1097,10 @@ impl FastConfirmationRule {
             if balance == 0 {
                 continue;
             }
-            if self.is_in_committee_range(idx, start_slot, end_slot) {
+            if self
+                .head_assignments
+                .is_in_range(idx, start_slot, end_slot)?
+            {
                 score = score.saturating_add(balance);
             }
         }
