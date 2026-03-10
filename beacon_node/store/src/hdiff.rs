@@ -653,9 +653,6 @@ impl HierarchyModuli {
     ///   exponents [5,13,21], to reconstruct state at slot 3,000,003: if start = 3,000,002
     ///   layer 2 diff will point to the start snapshot instead of the layer 1 diff at
     ///   2998272.
-    /// * `payload_status` - whether the state is `Full` (came from processing a payload), or
-    ///   `Pending` (came from processing a block). Prior to Gloas all states are `Pending`.
-    ///   Skipped slots post-Gloas should also use a `Pending` status.
     pub fn storage_strategy(&self, slot: Slot, start_slot: Slot) -> Result<StorageStrategy, Error> {
         // Initially had the idea of using different storage strategies for full and pending states,
         // but it was very complex. However without this concept we end up storing two diffs/two
