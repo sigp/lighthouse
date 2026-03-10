@@ -332,7 +332,12 @@ impl<E: EthSpec> StateCache<E> {
     }
 
     pub fn delete_block_states(&mut self, block_root: &Hash256) {
-        if let Some(slot_map) = self.block_map.delete_block_states(block_root) {
+        let (pending_state_roots, full_state_roots) =
+            self.block_map.delete_block_states(block_root);
+        for slot_map in [pending_state_roots, full_state_roots]
+            .into_iter()
+            .flatten()
+        {
             for state_root in slot_map.slots.values() {
                 self.states.pop(state_root);
             }
@@ -443,11 +448,12 @@ impl BlockMap {
         });
     }
 
-    fn delete_block_states(&mut self, block_root: &Hash256) -> Option<SlotMap> {
-        // TODO(gloas): update return type
-        self.blocks
+    fn delete_block_states(&mut self, block_root: &Hash256) -> (Option<SlotMap>, Option<SlotMap>) {
+        let pending_state_roots = self
+            .blocks
             .remove(&(*block_root, StatePayloadStatus::Pending));
-        self.blocks.remove(&(*block_root, StatePayloadStatus::Full))
+        let full_state_roots = self.blocks.remove(&(*block_root, StatePayloadStatus::Full));
+        (pending_state_roots, full_state_roots)
     }
 }
 

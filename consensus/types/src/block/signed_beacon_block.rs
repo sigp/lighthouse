@@ -377,7 +377,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .map(|bid| bid.message.block_hash)
     }
 
-    /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `block_hash`.
+    /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `parent_block_hash`.
     ///
     /// This function is useful post-Gloas for determining if the parent block is full, *without*
     /// necessarily needing access to a beacon state. The passed in `parent_block_hash` MUST be the

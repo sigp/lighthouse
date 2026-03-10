@@ -41,11 +41,7 @@ pub const BID_VALUE_SELF_BUILD: u64 = 0;
 pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
 type ConsensusBlockValue = u64;
-type BlockProductionResult<E> = (
-    BeaconBlock<E, FullPayload<E>>,
-    BeaconState<E>,
-    ConsensusBlockValue,
-);
+type BlockProductionResult<E> = (BeaconBlock<E>, BeaconState<E>, ConsensusBlockValue);
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
 pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
@@ -429,6 +425,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ))
     }
 
+    /// Complete a block by computing its state root, and
+    ///
+    /// Return `(block, pending_state, block_value)` where:
+    ///
+    /// - `pending_state` is the state post block application (prior to payload application)
+    /// - `block_value` is the consensus-layer rewards for `block`
     #[allow(clippy::type_complexity)]
     fn complete_partial_beacon_block_gloas(
         &self,
