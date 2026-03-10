@@ -1796,7 +1796,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         validators: &[ValidatorId],
-    ) -> Result<StandardAttestationRewards, Error> {
+    ) -> Result<ExecutionOptimisticResponse<StandardAttestationRewards>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
