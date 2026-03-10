@@ -1,5 +1,5 @@
 #![cfg(not(debug_assertions))]
-
+// TODO(gloas) we probably need similar test for payload envelope verification
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
 use beacon_chain::data_column_verification::CustodyDataColumn;
