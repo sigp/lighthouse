@@ -8,7 +8,7 @@ use crate::version::{
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::{
-    ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
+    self as api_types, ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
     ValidatorsRequestBody,
 };
 use ssz::Encode;
@@ -171,12 +171,12 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("proposer_lookahead"))
         .and(warp::path::end())
-        .and(warp::header::optional::<eth2::types::Accept>("accept"))
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             accept_header: Option<eth2::types::Accept>| {
+             accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
@@ -199,7 +199,7 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
                         )?;
 
                     match accept_header {
-                        Some(eth2::types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
                             .body(data.as_ssz_bytes().into())
                             .map(|res: Response<Body>| add_ssz_content_type_header(res))
