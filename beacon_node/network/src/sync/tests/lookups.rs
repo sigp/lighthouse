@@ -1,10 +1,12 @@
 use super::*;
 use crate::NetworkMessage;
-use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
+};
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
 use crate::sync::{
     SyncMessage,
-    manager::{BlockProcessType, BlockProcessingResult, SyncManager},
+    manager::{BatchProcessResult, BlockProcessType, BlockProcessingResult, SyncManager},
 };
 use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -22,7 +24,7 @@ use educe::Educe;
 use itertools::Itertools;
 use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
-    NetworkConfig, NetworkGlobals, PeerId,
+    NetworkConfig, NetworkGlobals, PeerAction, PeerId,
     rpc::{RPCError, RequestType},
     service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
@@ -63,14 +65,26 @@ pub struct SimulateConfig {
         Option<Box<dyn Fn(Hash256) -> Option<BlockProcessingResult> + Send + Sync>>,
     // Import a block directly before processing it (for simulating race conditions)
     import_block_before_process: HashSet<Hash256>,
+    /// Number of range batch processing attempts that return FaultyFailure
+    range_faulty_failures: usize,
+    /// Number of range batch processing attempts that return NonFaultyFailure
+    range_non_faulty_failures: usize,
+    /// Number of BlocksByRange requests that return empty (no blocks)
+    return_no_range_blocks_n_times: usize,
+    /// Number of DataColumnsByRange requests that return empty (no columns)
+    return_no_range_columns_n_times: usize,
+    /// Number of DataColumnsByRange requests that return columns with wrong indices
+    return_wrong_range_columns_n_times: usize,
+    /// Disconnect all peers after responding to this many BlocksByRange requests
+    disconnect_peers_after_range_requests: Option<usize>,
 }
 
 impl SimulateConfig {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self::default()
     }
 
-    fn happy_path() -> Self {
+    pub(super) fn happy_path() -> Self {
         Self::default()
     }
 
@@ -110,7 +124,7 @@ impl SimulateConfig {
         self
     }
 
-    fn return_rpc_error(mut self, error: RPCError) -> Self {
+    pub(super) fn return_rpc_error(mut self, error: RPCError) -> Self {
         self.return_rpc_error = Some(error);
         self
     }
@@ -130,6 +144,36 @@ impl SimulateConfig {
 
     fn with_import_block_before_process(mut self, block_root: Hash256) -> Self {
         self.import_block_before_process.insert(block_root);
+        self
+    }
+
+    pub(super) fn with_range_faulty_failures(mut self, n: usize) -> Self {
+        self.range_faulty_failures = n;
+        self
+    }
+
+    pub(super) fn with_range_non_faulty_failures(mut self, n: usize) -> Self {
+        self.range_non_faulty_failures = n;
+        self
+    }
+
+    pub(super) fn with_no_range_blocks_n_times(mut self, n: usize) -> Self {
+        self.return_no_range_blocks_n_times = n;
+        self
+    }
+
+    pub(super) fn with_no_range_columns_n_times(mut self, n: usize) -> Self {
+        self.return_no_range_columns_n_times = n;
+        self
+    }
+
+    pub(super) fn with_wrong_range_columns_n_times(mut self, n: usize) -> Self {
+        self.return_wrong_range_columns_n_times = n;
+        self
+    }
+
+    pub(super) fn with_disconnect_after_range_requests(mut self, n: usize) -> Self {
+        self.disconnect_peers_after_range_requests = Some(n);
         self
     }
 }
@@ -266,7 +310,7 @@ impl TestRig {
     ///
     /// Processes events from sync_rx (sink), beacon processor, and network queues in fixed
     /// priority order each tick. Handles completed work before pulling new requests.
-    async fn simulate(&mut self, complete_strategy: SimulateConfig) {
+    pub(super) async fn simulate(&mut self, complete_strategy: SimulateConfig) {
         self.complete_strategy = complete_strategy;
         self.log(&format!(
             "Running simulate with config {:?}",
@@ -351,9 +395,15 @@ impl TestRig {
                             process_fn.await
                         }
                     }
-                    Work::RpcBlobs { process_fn }
-                    | Work::RpcCustodyColumn(process_fn)
-                    | Work::ChainSegment(process_fn) => process_fn.await,
+                    Work::RpcBlobs { process_fn } | Work::RpcCustodyColumn(process_fn) => {
+                        process_fn.await
+                    }
+                    Work::ChainSegment {
+                        process_fn,
+                        process_id,
+                    } => {
+                        self.simulate_chain_segment(process_fn, process_id).await;
+                    }
                     Work::Reprocess(_) => {} // ignore
                     other => panic!("Unsupported Work event {}", other.str_id()),
                 }
@@ -398,6 +448,38 @@ impl TestRig {
             self.requests.len(),
             self.requests_count()
         ))
+    }
+
+    /// Process a ChainSegment work event, optionally injecting batch processing failures.
+    /// When injecting failures, the actual processing is skipped entirely — blocks are NOT
+    /// imported, and a failure result is sent directly to the sync manager.
+    async fn simulate_chain_segment(
+        &mut self,
+        process_fn: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+        (chain_id, batch_epoch): (u32, u64),
+    ) {
+        let sync_type = ChainSegmentProcessId::RangeBatchId(chain_id, batch_epoch.into());
+
+        if self.complete_strategy.range_faulty_failures > 0 {
+            self.complete_strategy.range_faulty_failures -= 1;
+            drop(process_fn);
+            self.push_sync_message(SyncMessage::BatchProcessed {
+                sync_type,
+                result: BatchProcessResult::FaultyFailure {
+                    imported_blocks: 0,
+                    penalty: PeerAction::LowToleranceError,
+                },
+            });
+        } else if self.complete_strategy.range_non_faulty_failures > 0 {
+            self.complete_strategy.range_non_faulty_failures -= 1;
+            drop(process_fn);
+            self.push_sync_message(SyncMessage::BatchProcessed {
+                sync_type,
+                result: BatchProcessResult::NonFaultyFailure,
+            });
+        } else {
+            process_fn.await;
+        }
     }
 
     fn simulate_on_request(
@@ -572,15 +654,35 @@ impl TestRig {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
-                let blocks = (*req.start_slot()..req.start_slot() + req.count())
-                    .filter_map(|slot| {
-                        self.network_blocks_by_slot
-                            .get(&Slot::new(slot))
-                            .map(|block| block.block_cloned())
-                    })
-                    .collect::<Vec<_>>();
 
-                self.send_rpc_blocks_response(req_id, peer_id, &blocks);
+                // Check if we should disconnect all peers instead of continuing
+                if let Some(ref mut remaining) =
+                    self.complete_strategy.disconnect_peers_after_range_requests
+                {
+                    if *remaining == 0 {
+                        // Disconnect all peers — remaining responses become "late"
+                        for peer in self.get_connected_peers() {
+                            self.peer_disconnected(peer);
+                        }
+                        return;
+                    }
+                    *remaining -= 1;
+                }
+
+                // Return empty response N times to simulate peer returning no blocks
+                if self.complete_strategy.return_no_range_blocks_n_times > 0 {
+                    self.complete_strategy.return_no_range_blocks_n_times -= 1;
+                    self.send_rpc_blocks_response(req_id, peer_id, &[]);
+                } else {
+                    let blocks = (*req.start_slot()..req.start_slot() + req.count())
+                        .filter_map(|slot| {
+                            self.network_blocks_by_slot
+                                .get(&Slot::new(slot))
+                                .map(|block| block.block_cloned())
+                        })
+                        .collect::<Vec<_>>();
+                    self.send_rpc_blocks_response(req_id, peer_id, &blocks);
+                }
             }
 
             (RequestType::BlobsByRange(req), AppRequestId::Sync(req_id)) => {
@@ -604,6 +706,32 @@ impl TestRig {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
+
+                // Return empty columns N times
+                if self.complete_strategy.return_no_range_columns_n_times > 0 {
+                    self.complete_strategy.return_no_range_columns_n_times -= 1;
+                    self.send_rpc_columns_response(req_id, peer_id, &[]);
+                    return;
+                }
+
+                // Return wrong column indices N times (shift all indices by 1)
+                if self.complete_strategy.return_wrong_range_columns_n_times > 0 {
+                    self.complete_strategy.return_wrong_range_columns_n_times -= 1;
+                    // Collect columns that were NOT requested (wrong indices)
+                    let wrong_columns = (req.start_slot..req.start_slot + req.count)
+                        .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
+                        .filter_map(|block| block.block_data().and_then(|d| d.data_columns()))
+                        .flat_map(|columns| {
+                            columns
+                                .into_iter()
+                                .filter(|c| !req.columns.contains(c.index()))
+                        })
+                        .take(req.columns.len())
+                        .collect::<Vec<_>>();
+                    self.send_rpc_columns_response(req_id, peer_id, &wrong_columns);
+                    return;
+                }
+
                 // Note: This function is permissive, blocks may have zero columns and it won't
                 // error. Some caveats:
                 // - The genesis block never has columns
@@ -725,7 +853,7 @@ impl TestRig {
     // Preparation steps
 
     /// Returns the block root of the tip of the built chain
-    async fn build_chain(&mut self, block_count: usize) -> Hash256 {
+    pub(super) async fn build_chain(&mut self, block_count: usize) -> Hash256 {
         let mut blocks = vec![];
 
         // Initialise a new beacon chain
@@ -998,7 +1126,7 @@ impl TestRig {
 
     // Post-test assertions
 
-    fn head_slot(&self) -> Slot {
+    pub(super) fn head_slot(&self) -> Slot {
         self.harness.chain.head().head_slot()
     }
 
@@ -1006,15 +1134,24 @@ impl TestRig {
         assert_eq!(self.head_slot(), Slot::new(slot), "Unexpected head slot");
     }
 
-    fn max_known_slot(&self) -> Slot {
+    pub(super) fn max_known_slot(&self) -> Slot {
         self.network_blocks_by_slot
             .keys()
             .max()
             .copied()
-            .expect("no blocks")
+            .unwrap_or_default()
     }
 
-    fn assert_penalties(&self, expected_penalties: &[&'static str]) {
+    pub(super) fn finalized_epoch(&self) -> types::Epoch {
+        self.harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+    }
+
+    pub(super) fn assert_penalties(&self, expected_penalties: &[&'static str]) {
         let penalties = self
             .penalties
             .iter()
@@ -1032,7 +1169,7 @@ impl TestRig {
         }
     }
 
-    fn assert_penalties_of_type(&self, expected_penalty: &'static str) {
+    pub(super) fn assert_penalties_of_type(&self, expected_penalty: &'static str) {
         if self.penalties.is_empty() {
             panic!("No penalties but expected some of type {expected_penalty}");
         }
@@ -1049,7 +1186,7 @@ impl TestRig {
         }
     }
 
-    fn assert_no_penalties(&mut self) {
+    pub(super) fn assert_no_penalties(&mut self) {
         if !self.penalties.is_empty() {
             panic!("Some downscore events: {:?}", self.penalties);
         }
@@ -1100,7 +1237,7 @@ impl TestRig {
     }
 
     /// Assert there is at least one range sync chain created and that all sync chains completed
-    fn assert_successful_range_sync(&self) {
+    pub(super) fn assert_successful_range_sync(&self) {
         assert!(
             self.range_sync_chains_added() > 0,
             "No created range sync chains"
