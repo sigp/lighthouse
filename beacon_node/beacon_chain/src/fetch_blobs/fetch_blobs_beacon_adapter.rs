@@ -1,4 +1,5 @@
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
+use crate::observed_data_sidecars::ObservationKey;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::BlobAndProofV2;
 use kzg::Kzg;
@@ -50,11 +51,14 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::RequestFailed)
     }
 
-    pub(crate) fn data_column_known_for_slot(&self, slot: Slot) -> Option<HashSet<ColumnIndex>> {
+    pub(crate) fn data_column_known_for_observation_key(
+        &self,
+        observation_key: ObservationKey,
+    ) -> Option<HashSet<ColumnIndex>> {
         self.chain
             .observed_column_sidecars
             .read()
-            .known_for_slot(&slot)
+            .known_for_observation_key(&observation_key)
             .cloned()
     }
 

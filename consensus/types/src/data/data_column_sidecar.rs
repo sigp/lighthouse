@@ -39,11 +39,6 @@ pub struct DataColumnsByRootIdentifier<E: EthSpec> {
 
 pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Error {
-    IncorrectStateVariant,
-}
-
 #[superstruct(
     variants(Fulu, Gloas),
     variant_attributes(
@@ -68,26 +63,27 @@ pub enum Error {
         )
     ),
     ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
-    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+    cast_error(ty = "DataColumnSidecarError", expr = "DataColumnSidecarError::IncorrectStateVariant"),
+    partial_getter_error(ty = "DataColumnSidecarError", expr = "DataColumnSidecarError::IncorrectStateVariant")
 )]
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, Decode, Educe, Deserialize)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(untagged)]
+#[serde(bound = "E: EthSpec", untagged, deny_unknown_fields)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub column: DataColumn<E>,
-    /// All the KZG commitments and proofs associated with the block, used for verifying sample cells.
+    /// All the KZG commitments associated with the block, used for verifying sample cells.
+    /// In Gloas, commitments come from `block.body.signed_execution_payload_bid.message.blob_kzg_commitments`.
+    #[superstruct(only(Fulu))]
     pub kzg_commitments: KzgCommitments<E>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu))]
@@ -125,14 +121,19 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         bytes: &[u8],
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
-        if fork_name.gloas_enabled() {
-            Ok(DataColumnSidecar::Gloas(
-                DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
-            ))
-        } else {
-            Ok(DataColumnSidecar::Fulu(
+        match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => Err(ssz::DecodeError::NoMatchingVariant),
+            ForkName::Fulu => Ok(DataColumnSidecar::Fulu(
                 DataColumnSidecarFulu::from_ssz_bytes(bytes)?,
-            ))
+            )),
+            ForkName::Gloas => Ok(DataColumnSidecar::Gloas(
+                DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
+            )),
         }
     }
 }
@@ -211,7 +212,6 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
         Self {
             index: 0,
             column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
-            kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
@@ -224,11 +224,6 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
         Self {
             index: 0,
             column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
-            kzg_commitments: VariableList::new(vec![
-                KzgCommitment::empty_for_testing();
-                max_blobs_per_block
-            ])
-            .unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
@@ -251,6 +246,7 @@ pub enum DataColumnSidecarError {
     SszError(SszError),
     BuildSidecarFailed(String),
     InvalidCellProofLength { expected: usize, actual: usize },
+    IncorrectStateVariant,
 }
 
 impl From<ArithError> for DataColumnSidecarError {
@@ -274,5 +270,45 @@ impl From<KzgError> for DataColumnSidecarError {
 impl From<SszError> for DataColumnSidecarError {
     fn from(e: SszError) -> Self {
         Self::SszError(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{MainnetEthSpec, max_data_columns_by_root_request_common};
+    use fixed_bytes::FixedBytesExtended;
+    use ssz_types::RuntimeVariableList;
+
+    // This is the "correct" implementation of max_data_columns_by_root_request.
+    // This test ensures that the simplified implementation doesn't deviate from it.
+    fn max_data_columns_by_root_request_implementation<E: EthSpec>(
+        max_request_blocks: u64,
+    ) -> usize {
+        let max_request_blocks = max_request_blocks as usize;
+
+        let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
+            block_root: Hash256::zero(),
+            columns: VariableList::repeat_full(0),
+        };
+
+        RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
+            vec![empty_data_columns_by_root_id; max_request_blocks],
+            max_request_blocks,
+        )
+        .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
+        .as_ssz_bytes()
+        .len()
+    }
+
+    #[test]
+    fn max_data_columns_by_root_request_matches_simplified() {
+        for n in [0, 1, 2, 8, 16, 32, 64, 128, 256, 512, 1024] {
+            assert_eq!(
+                max_data_columns_by_root_request_common::<MainnetEthSpec>(n),
+                max_data_columns_by_root_request_implementation::<MainnetEthSpec>(n),
+                "Mismatch at n={n}"
+            );
+        }
     }
 }

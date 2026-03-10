@@ -17,7 +17,7 @@ use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
 use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
@@ -31,7 +31,6 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
-use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -546,7 +545,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<Id, RpcRequestSendError> {
         let range_request_span = debug_span!(
             parent: None,
-            SPAN_OUTGOING_RANGE_REQUEST,
+            "lh_outgoing_range_request",
             range_req_id = %requester,
             block_peers = block_peers.len(),
             column_peers = column_peers.len()
@@ -777,7 +776,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         let range_req = entry.get_mut();
-        if let Some(blocks_result) = range_req.responses(&self.chain.spec) {
+        if let Some(blocks_result) = range_req.responses(
+            self.chain.data_availability_checker.clone(),
+            self.chain.spec.clone(),
+        ) {
             if let Err(CouplingError::DataColumnPeerFailure {
                 error,
                 faulty_peers: _,
@@ -908,7 +910,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let request_span = debug_span!(
             parent: Span::current(),
-            SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST,
+            "lh_outgoing_block_by_root_request",
             %block_root,
         );
         self.blocks_by_root_requests.insert(
@@ -1093,13 +1095,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })?;
 
         // Include only the blob indexes not yet imported (received through gossip)
-        let custody_indexes_to_fetch = self
+        let mut custody_indexes_to_fetch = self
             .chain
             .sampling_columns_for_epoch(current_epoch)
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
+        custody_indexes_to_fetch.sort_unstable();
 
         if custody_indexes_to_fetch.is_empty() {
             // No indexes required, do not issue any request
@@ -1428,7 +1431,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             })
         });
-        self.on_rpc_response_result(id, "BlocksByRoot", resp, peer_id, |_| 1)
+        self.on_rpc_response_result(resp, peer_id)
     }
 
     pub(crate) fn on_single_blob_response(
@@ -1457,7 +1460,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             })
         });
-        self.on_rpc_response_result(id, "BlobsByRoot", resp, peer_id, |_| 1)
+        self.on_rpc_response_result(resp, peer_id)
     }
 
     #[allow(clippy::type_complexity)]
@@ -1470,7 +1473,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let resp = self
             .data_columns_by_root_requests
             .on_response(id, rpc_event);
-        self.on_rpc_response_result(id, "DataColumnsByRoot", resp, peer_id, |_| 1)
+        self.on_rpc_response_result(resp, peer_id)
     }
 
     #[allow(clippy::type_complexity)]
@@ -1481,7 +1484,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         rpc_event: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Vec<Arc<SignedBeaconBlock<T::EthSpec>>>>> {
         let resp = self.blocks_by_range_requests.on_response(id, rpc_event);
-        self.on_rpc_response_result(id, "BlocksByRange", resp, peer_id, |b| b.len())
+        self.on_rpc_response_result(resp, peer_id)
     }
 
     #[allow(clippy::type_complexity)]
@@ -1492,7 +1495,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         rpc_event: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Vec<Arc<BlobSidecar<T::EthSpec>>>>> {
         let resp = self.blobs_by_range_requests.on_response(id, rpc_event);
-        self.on_rpc_response_result(id, "BlobsByRangeRequest", resp, peer_id, |b| b.len())
+        self.on_rpc_response_result(resp, peer_id)
     }
 
     #[allow(clippy::type_complexity)]
@@ -1505,36 +1508,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let resp = self
             .data_columns_by_range_requests
             .on_response(id, rpc_event);
-        self.on_rpc_response_result(id, "DataColumnsByRange", resp, peer_id, |d| d.len())
+        self.on_rpc_response_result(resp, peer_id)
     }
 
-    fn on_rpc_response_result<I: std::fmt::Display, R, F: FnOnce(&R) -> usize>(
+    /// Common handler for consistent scoring of RpcResponseError
+    fn on_rpc_response_result<R>(
         &mut self,
-        id: I,
-        method: &'static str,
         resp: Option<RpcResponseResult<R>>,
         peer_id: PeerId,
-        get_count: F,
     ) -> Option<RpcResponseResult<R>> {
-        match &resp {
-            None => {}
-            Some(Ok((v, _))) => {
-                debug!(
-                    %id,
-                    method,
-                    count = get_count(v),
-                    "Sync RPC request completed"
-                );
-            }
-            Some(Err(e)) => {
-                debug!(
-                    %id,
-                    method,
-                    error = ?e,
-                    "Sync RPC request error"
-                );
-            }
-        }
         if let Some(Err(RpcResponseError::VerifyError(e))) = &resp {
             self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
         }
@@ -1606,9 +1588,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let block = RpcBlock::new_without_blobs(Some(block_root), block);
+        let block = RpcBlock::new(
+            block,
+            None,
+            &self.chain.data_availability_checker,
+            self.chain.spec.clone(),
+        )
+        .map_err(|_| SendErrorProcessor::SendError)?;
 
-        debug!(block = ?block_root, id, "Sending block for processing");
+        debug!(block = ?block_root, block_slot = %block.slot(), id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
         beacon_processor

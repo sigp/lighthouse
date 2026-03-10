@@ -3,11 +3,10 @@ use crate::rpc::{MetaData, MetaDataV2, MetaDataV3};
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind};
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
-use gossipsub;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::identity::{Keypair, secp256k1};
 use libp2p::metrics::Registry;
-use libp2p::{PeerId, Transport, core, noise, yamux};
+use libp2p::{PeerId, Transport, core, gossipsub, noise, yamux};
 use ssz::Decode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -273,6 +272,10 @@ pub(crate) fn create_whitelist_filter(
         add(AttesterSlashing);
         add(SignedContributionAndProof);
         add(BlsToExecutionChange);
+        add(ExecutionPayload);
+        add(ExecutionPayloadBid);
+        add(PayloadAttestation);
+        add(ProposerPreferences);
         add(LightClientFinalityUpdate);
         add(LightClientOptimisticUpdate);
         for id in 0..spec.attestation_subnet_count {

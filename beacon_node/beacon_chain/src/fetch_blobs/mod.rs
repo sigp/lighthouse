@@ -18,6 +18,7 @@ use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedD
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
+use crate::observed_data_sidecars::ObservationKey;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     metrics,
@@ -290,8 +291,10 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
+                let observation_key = ObservationKey::from_block(&block, block_root, &spec);
+
                 if let Some(observed_columns) =
-                    chain_adapter_cloned.data_column_known_for_slot(block.slot())
+                    chain_adapter_cloned.data_column_known_for_observation_key(observation_key)
                 {
                     custody_columns.retain(|col| !observed_columns.contains(&col.index()));
                     if custody_columns.is_empty() {

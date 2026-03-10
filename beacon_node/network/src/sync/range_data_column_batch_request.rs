@@ -189,6 +189,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 .unique()
                 .collect::<Vec<_>>();
 
+            // TODO(gloas) no block signatures to check post-gloas, double check what to do here
             let column_block_signatures = columns
                 .iter()
                 .filter_map(|column| match column.as_ref() {

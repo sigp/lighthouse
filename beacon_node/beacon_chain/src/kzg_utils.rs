@@ -12,7 +12,7 @@ use types::kzg_ext::KzgCommitments;
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
     DataColumnSidecarGloas, DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
 };
 
 /// Converts a blob ssz List object to an array to be used with the kzg
@@ -75,7 +75,21 @@ where
             proofs.push(Bytes48::from(proof));
         }
 
-        for &commitment in data_column.kzg_commitments() {
+        // In Gloas, commitments come from the block's ExecutionPayloadBid, not the sidecar.
+        // This function requires Fulu sidecars with embedded commitments.
+        let kzg_commitments = match data_column.as_ref() {
+            DataColumnSidecar::Fulu(dc) => &dc.kzg_commitments,
+            DataColumnSidecar::Gloas(_) => {
+                return Err((
+                    Some(col_index),
+                    KzgError::InconsistentArrayLength(
+                        "Gloas data columns require commitments from block".to_string(),
+                    ),
+                ));
+            }
+        };
+
+        for &commitment in kzg_commitments.iter() {
             commitments.push(Bytes48::from(commitment));
         }
 
@@ -209,8 +223,8 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
 
     if block.fork_name_unchecked().gloas_enabled() {
         build_data_column_sidecars_gloas(
-            kzg_commitments.clone(),
-            signed_block_header,
+            signed_block_header.message.tree_hash_root(),
+            block.slot(),
             blob_cells_and_proofs_vec,
             spec,
         )
@@ -320,22 +334,17 @@ pub(crate) fn build_data_column_sidecars_fulu<E: EthSpec>(
 }
 
 pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
-    kzg_commitments: KzgCommitments<E>,
-    signed_block_header: SignedBeaconBlockHeader,
+    beacon_block_root: Hash256,
+    slot: Slot,
     blob_cells_and_proofs_vec: Vec<CellsAndKzgProofs>,
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, String> {
-    if spec
-        .fork_name_at_slot::<E>(signed_block_header.message.slot)
-        .gloas_enabled()
-    {
+    if !spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
         return Err("Attempting to construct Gloas data columns pre-Gloas".to_owned());
     }
 
     let number_of_columns = E::number_of_columns();
-    let max_blobs_per_block = spec
-        .max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch()))
-        as usize;
+    let max_blobs_per_block = spec.max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
     let mut columns = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
     let mut column_kzg_proofs = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
 
@@ -367,9 +376,6 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
         }
     }
 
-    let beacon_block_root = signed_block_header.message.tree_hash_root();
-    let slot = signed_block_header.message.slot;
-
     let sidecars: Result<Vec<Arc<DataColumnSidecar<E>>>, String> = columns
         .into_iter()
         .zip(column_kzg_proofs)
@@ -380,7 +386,6 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
                     index: index as u64,
                     column: DataColumn::<E>::try_from(col)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    kzg_commitments: kzg_commitments.clone(),
                     kzg_proofs: VariableList::try_from(proofs)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                     beacon_block_root,
@@ -393,6 +398,8 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
     sidecars
 }
 
+// TODO(gloas) blob reconstruction will fail post gloas. We should just return `Blob`s
+// instead of a `BlobSidecar`. This might require a beacon api spec change as well.
 /// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
 ///
 /// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
@@ -416,7 +423,12 @@ pub fn reconstruct_blobs<E: EthSpec>(
     let blob_indices: Vec<usize> = match blob_indices_opt {
         Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
         None => {
-            let num_of_blobs = first_data_column.kzg_commitments().len();
+            // TODO(gloas): support blob reconstruction for Gloas
+            // https://github.com/sigp/lighthouse/issues/7413
+            let num_of_blobs = first_data_column
+                .kzg_commitments()
+                .map_err(|_| "Gloas blob reconstruction not yet supported".to_string())?
+                .len();
             (0..num_of_blobs).collect()
         }
     };
@@ -501,7 +513,16 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             "data_columns should have at least one element".to_string(),
         ))?;
 
-    let num_of_blobs = first_data_column.kzg_commitments().len();
+    // TODO(gloas): support data column reconstruction for Gloas
+    // https://github.com/sigp/lighthouse/issues/7413
+    let num_of_blobs = first_data_column
+        .kzg_commitments()
+        .map_err(|_| {
+            KzgError::InconsistentArrayLength(
+                "Gloas data column reconstruction not yet supported".to_string(),
+            )
+        })?
+        .len();
 
     let blob_cells_and_proofs_vec = (0..num_of_blobs)
         .into_par_iter()
@@ -533,8 +554,13 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             )
             .map_err(KzgError::ReconstructFailed)
         }
-        // TODO(gloas) resolve TODO
-        DataColumnSidecar::Gloas(_) => todo!(),
+        DataColumnSidecar::Gloas(first_column) => build_data_column_sidecars_gloas(
+            first_column.beacon_block_root,
+            first_column.slot,
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .map_err(KzgError::ReconstructFailed),
     }
 }
 
@@ -557,6 +583,7 @@ mod test {
 
     // Loading and initializing PeerDAS KZG is expensive and slow, so we group the tests together
     // only load it once.
+    // TODO(Gloas) make this generic over fulu/gloas, or write a separate function for Gloas
     #[test]
     fn test_build_data_columns_sidecars() {
         let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
@@ -596,6 +623,8 @@ mod test {
         assert!(column_sidecars.is_empty());
     }
 
+    // TODO(gloas) create `test_build_data_columns_gloas` and make sure its called
+    // in the relevant places
     #[track_caller]
     fn test_build_data_columns_fulu(kzg: &Kzg, spec: &ChainSpec) {
         // Using at least 2 blobs to make sure we're arranging the data columns correctly.
@@ -624,11 +653,14 @@ mod test {
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(*col_sidecar.index(), idx as u64);
 
-            assert_eq!(col_sidecar.kzg_commitments().len(), num_of_blobs);
+            assert_eq!(col_sidecar.kzg_commitments().unwrap().len(), num_of_blobs);
             assert_eq!(col_sidecar.column().len(), num_of_blobs);
             assert_eq!(col_sidecar.kzg_proofs().len(), num_of_blobs);
 
-            assert_eq!(col_sidecar.kzg_commitments().clone(), block_kzg_commitments);
+            assert_eq!(
+                col_sidecar.kzg_commitments().unwrap().clone(),
+                block_kzg_commitments
+            );
             assert_eq!(
                 col_sidecar
                     .kzg_commitments_inclusion_proof()
