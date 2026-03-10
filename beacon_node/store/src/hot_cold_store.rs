@@ -1926,8 +1926,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Err(Error::MissingHotStateSummary(state_root));
         };
 
-        let _payload_status = self.get_hot_state_summary_payload_status(&summary)?;
-
         let buffer = match self.hot_storage_strategy(slot)? {
             StorageStrategy::Snapshot => {
                 let Some(state) = self.load_hot_state_as_snapshot(state_root)? else {
