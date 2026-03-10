@@ -77,7 +77,7 @@ pub enum InvariantViolation {
     /// Invariant 1: fork choice block consistency.
     ///
     /// ```text
-    /// block in fork_choice -> block in hot_db
+    /// block in fork_choice && descends_from_finalized -> block in hot_db
     /// ```
     ForkChoiceBlockMissing { block_root: Hash256, slot: Slot },
     /// Invariant 2: block and state consistency.
@@ -265,10 +265,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Invariant 1 (Hot DB): Fork choice block consistency.
     ///
     /// ```text
-    /// block in fork_choice -> block in hot_db
+    /// block in fork_choice && descends_from_finalized -> block in hot_db
     /// ```
     ///
-    /// Every block tracked by the fork choice proto-array must exist in the hot database.
+    /// Every canonical fork choice block (descending from finalized) must exist in the hot
+    /// database. Pruned non-canonical fork blocks may linger in the proto-array and are
+    /// excluded from this check.
     fn check_fork_choice_block_consistency(
         &self,
         ctx: &InvariantContext,

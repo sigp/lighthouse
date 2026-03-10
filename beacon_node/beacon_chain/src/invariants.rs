@@ -19,6 +19,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proto_array
                 .nodes
                 .iter()
+                .filter(|node| {
+                    // Only check blocks that are descendants of the finalized checkpoint.
+                    // Pruned non-canonical fork blocks may linger in the proto-array but
+                    // are legitimately absent from the database.
+                    fc.is_finalized_checkpoint_or_descendant(node.root)
+                })
                 .map(|node| (node.root, node.slot))
                 .collect()
         };
