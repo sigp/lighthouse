@@ -558,11 +558,6 @@ async fn http_api_spec_test() -> Result<(), String> {
     let object_schema_by_endpoint = extract_all_endpoints().await;
 
     for (endpoint, object_schema) in &object_schema_by_endpoint {
-        // Temporarily ignore the following endpoint
-        if endpoint == "/eth/v1/beacon/states/{state_id}/proposer_lookahead" {
-            continue;
-        }
-
         let url = format!(
             "http://127.0.0.1:{}{}",
             port,
