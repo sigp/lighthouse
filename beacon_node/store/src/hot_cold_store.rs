@@ -1915,13 +1915,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(buffer);
         }
 
-        let Some(
-            summary @ HotStateSummary {
-                slot,
-                diff_base_state,
-                ..
-            },
-        ) = self.load_hot_state_summary(&state_root)?
+        let Some(HotStateSummary {
+            slot,
+            diff_base_state,
+            ..
+        }) = self.load_hot_state_summary(&state_root)?
         else {
             return Err(Error::MissingHotStateSummary(state_root));
         };
