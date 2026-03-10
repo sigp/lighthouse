@@ -727,6 +727,18 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                                 debug!(error = %e, "Could not send message to the network service. \
                                 Likely shutdown")
                             });
+
+                            // Write the updated custody context to disk. This happens at most 128
+                            // times ever, so the I/O burden should be extremely minimal. Without a
+                            // write here we risk forgetting custody backfill progress upon an
+                            // unclean shutdown. The custody context is otherwise only persisted in
+                            // `BeaconChain::drop`.
+                            if let Err(error) = chain.persist_custody_context() {
+                                error!(
+                                    ?error,
+                                    "Failed to persist custody context after CGC update"
+                                );
+                            }
                         }
                     }
 

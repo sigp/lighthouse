@@ -29,4 +29,4 @@ beacon_chain = { workspace = true }
 http_api = { workspace = true }
 regex = { workspace = true }
 tempfile = { workspace = true }
-validator_http_api = { workspace = true }
+validator_http_api = { workspace = true, features = ["testing"] }

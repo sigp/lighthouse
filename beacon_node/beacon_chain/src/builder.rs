@@ -1023,6 +1023,7 @@ where
             )),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
+            envelope_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             early_attester_cache: <_>::default(),
@@ -1083,6 +1084,11 @@ where
             let cgc_change_effective_slot =
                 cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
             beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
+
+            // Persist change to disk.
+            beacon_chain
+                .persist_custody_context()
+                .map_err(|e| format!("Failed writing updated CGC: {e:?}"))?;
         }
 
         info!(
