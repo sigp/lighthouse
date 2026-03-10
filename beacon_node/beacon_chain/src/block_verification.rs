@@ -1918,8 +1918,9 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // block builds upon the payload of its parent block, then we know the parent block is FULL
         // and we need to load the full state.
         let (payload_status, parent_state_root) =
-            if block.as_block().fork_name_unchecked().gloas_enabled() {
-                let parent_bid_block_hash = parent_block.payload_bid_block_hash()?;
+            if block.as_block().fork_name_unchecked().gloas_enabled()
+                && let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
+            {
                 if block.as_block().is_parent_block_full(parent_bid_block_hash) {
                     // TODO(gloas): loading the envelope here is not very efficient
                     let envelope = chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
