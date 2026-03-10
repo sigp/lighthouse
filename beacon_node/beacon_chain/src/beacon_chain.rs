@@ -2031,6 +2031,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // required information.
                 (justified_checkpoint, committee_len)
             } else {
+                // We assume that the `Pending` state has the same shufflings as a `Full` state
+                // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (advanced_state_root, mut state) = self
                     .store
                     .get_advanced_hot_state(
@@ -4667,6 +4669,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
             } else {
+                // TODO(gloas): this function needs updating to be envelope-aware
+                // See: https://github.com/sigp/lighthouse/issues/8957
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
@@ -6609,6 +6613,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
+                // We assume that the `Pending` state has the same shufflings as a `Full` state
+                // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (state_root, state) = self
                     .store
                     .get_advanced_hot_state(
