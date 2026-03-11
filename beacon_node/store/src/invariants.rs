@@ -376,6 +376,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // Invariant 7: data column consistency.
             // Only check blocks that actually have blob KZG commitments.
+            // TODO(gloas): reconsider this invariant — non-canonical payloads won't have
+            // their data column sidecars stored.
             if !ctx.custody_columns.is_empty()
                 && let Some(fulu_slot) = fulu_fork_slot
                 && let Some(oldest_dc) = oldest_data_column_slot
