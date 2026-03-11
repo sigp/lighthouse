@@ -1801,13 +1801,12 @@ pub fn serve<T: BeaconChainTypes>(
                     let execution_optimistic =
                         chain.is_optimistic_or_invalid_head().unwrap_or_default();
 
-                    let finalized = epoch.start_slot(T::EthSpec::slots_per_epoch())
+                    let finalized = epoch + 2
                         <= chain
                             .canonical_head
                             .cached_head()
                             .finalized_checkpoint()
-                            .epoch
-                            .start_slot(T::EthSpec::slots_per_epoch());
+                            .epoch;
 
                     Ok(api_types::GenericResponse::from(attestation_rewards)).map(|resp| {
                         resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
