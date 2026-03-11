@@ -35,8 +35,8 @@
 use crate::metrics;
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::{BTreeSet, HashMap};
-use tracing::{debug, debug_span};
-use types::{BeaconState, Checkpoint, EthSpec, Hash256, RelativeEpoch, Slot};
+use tracing::{debug, debug_span, info};
+use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch, Slot};
 
 #[derive(Debug, strum::IntoStaticStr)]
 pub enum Error {
@@ -56,6 +56,14 @@ pub enum Error {
     CommitteeCache(String),
     #[strum(serialize = "unset_slot")]
     UnsetSlotAssignment(usize),
+    /// The state's epoch window does not cover `current_slot`'s epoch.
+    /// This means the state is too stale to provide committee assignments for the
+    /// slots FCR needs to query.
+    #[strum(serialize = "stale_state")]
+    StaleStateForAssignments {
+        current_slot_epoch: Epoch,
+        state_epoch: Epoch,
+    },
 }
 
 /// Per-mille adjustment factor for committee weight estimates that don't cover a full epoch.
@@ -138,8 +146,10 @@ impl SlotAssignments {
             let Some(slot) = self.get(val_idx, col) else {
                 continue;
             };
+            // UNSET_SLOT means no assignment in this epoch column (inactive validator
+            // or epoch not yet loaded). Treat as "not in range".
             if slot == UNSET_SLOT {
-                return Err(Error::UnsetSlotAssignment(val_idx));
+                continue;
             }
             if slot >= start_slot && slot <= end_slot {
                 return Ok(true);
@@ -152,7 +162,7 @@ impl SlotAssignments {
     ///
     /// - `ThreeColumn`: `assignments.len() == validator_count * 3` (direct use)
     /// - `TwoColumn`: `assignments.len() == validator_count * 2` (auto-expanded,
-    ///    fills columns 1 and 2, leaving column 0 as `Slot(0)`)
+    ///   fills columns 1 and 2, leaving column 0 as `Slot(0)`)
     fn set_from(&mut self, assignments: Vec<Slot>, format: AssignmentFormat) {
         match format {
             AssignmentFormat::ThreeColumn => {
@@ -177,18 +187,38 @@ impl SlotAssignments {
     /// that still fall within the new window (epoch column remapping).
     ///
     /// Returns early (cache hit) if the epoch window and validator count haven't changed.
+    ///
+    /// # Performance
+    ///
+    /// Instead of calling `get_attestation_duties()` per validator (O(N × C) where C =
+    /// committees per epoch), we iterate the committee cache's shuffled list directly and
+    /// derive slot from shuffled position in O(1). Total cost: O(N) per epoch column.
     fn rebuild<E: EthSpec>(
         &mut self,
         state: &BeaconState<E>,
         current_slot: Slot,
     ) -> Result<(), Error> {
         let validator_count = state.validators().len();
-        let current_epoch = current_slot.epoch(E::slots_per_epoch());
-        let desired_epochs = [
-            current_epoch.saturating_sub(2u64),
-            current_epoch.saturating_sub(1u64),
-            current_epoch,
-        ];
+        let current_slot_epoch = current_slot.epoch(E::slots_per_epoch());
+        let state_current = state.current_epoch();
+
+        // The state's committee caches cover [previous, current, next] epochs.
+        // FCR queries assignments for slots up to current_slot, so the state must
+        // cover current_slot's epoch. The state's next epoch is current + 1,
+        // so we accept states where current_slot_epoch <= state_current + 1.
+        let state_next = state
+            .next_epoch()
+            .unwrap_or(state_current.saturating_add(1u64));
+        if current_slot_epoch > state_next {
+            return Err(Error::StaleStateForAssignments {
+                current_slot_epoch,
+                state_epoch: state_current,
+            });
+        }
+
+        // Use the state's available epochs to determine the window.
+        let state_prev = state.previous_epoch();
+        let desired_epochs = [state_prev, state_current, state_next];
 
         // Fast path: skip if epoch window and validator count are unchanged.
         if self.epochs == desired_epochs && self.slots.len() == validator_count * NUM_EPOCH_COLUMNS
@@ -210,26 +240,49 @@ impl SlotAssignments {
             }
         }
 
-        // Fill from the state's committee caches.
-        for val_idx in 0..validator_count {
-            for relative_epoch in [RelativeEpoch::Previous, RelativeEpoch::Current] {
-                match state.get_attestation_duties(val_idx, relative_epoch) {
-                    Ok(Some(duty)) => {
-                        let duty_epoch = match relative_epoch {
-                            RelativeEpoch::Previous => state.previous_epoch(),
-                            RelativeEpoch::Current => state.current_epoch(),
-                            _ => unreachable!(),
-                        };
-                        if let Some(col) = desired_epochs.iter().position(|e| *e == duty_epoch) {
-                            new_slots[val_idx * NUM_EPOCH_COLUMNS + col] = duty.slot;
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        return Err(Error::CommitteeCache(format!(
-                            "attestation duties for validator {val_idx}: {e:?}"
-                        )));
-                    }
+        // Fill from the committee caches by iterating the shuffled list directly.
+        // This is O(active_validators) per epoch instead of O(validators × committees).
+        let slots_per_epoch = E::slots_per_epoch();
+        for relative_epoch in [
+            RelativeEpoch::Previous,
+            RelativeEpoch::Current,
+            RelativeEpoch::Next,
+        ] {
+            let duty_epoch = match relative_epoch {
+                RelativeEpoch::Previous => state.previous_epoch(),
+                RelativeEpoch::Current => state.current_epoch(),
+                RelativeEpoch::Next => state
+                    .next_epoch()
+                    .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?,
+            };
+            let Some(col) = desired_epochs.iter().position(|e| *e == duty_epoch) else {
+                continue;
+            };
+
+            let committee_cache = state
+                .committee_cache(relative_epoch)
+                .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?;
+
+            let shuffling = committee_cache.shuffling();
+            if shuffling.is_empty() {
+                continue;
+            }
+
+            let committees_per_slot = committee_cache.committees_per_slot() as usize;
+            let epoch_start = duty_epoch.start_slot(slots_per_epoch);
+
+            // Each position in the shuffled list maps to a committee, which maps to a slot.
+            // committee_index_in_epoch = position * total_committees / shuffling_len
+            // slot_offset = committee_index_in_epoch / committees_per_slot
+            let total_committees = committees_per_slot * slots_per_epoch as usize;
+            let shuffling_len = shuffling.len();
+
+            for (position, &val_idx) in shuffling.iter().enumerate() {
+                let committee_index = position * total_committees / shuffling_len;
+                let slot_offset = committee_index / committees_per_slot;
+                let slot = epoch_start + slot_offset as u64;
+                if val_idx < validator_count {
+                    new_slots[val_idx * NUM_EPOCH_COLUMNS + col] = slot;
                 }
             }
         }
@@ -248,8 +301,11 @@ impl SlotAssignments {
 pub struct BalanceSourceData {
     pub checkpoint: Checkpoint,
     pub total_active_balance: u64,
-    /// Effective balance per validator index. 0 for inactive/slashed.
+    /// Effective balance per validator index. 0 for inactive.
     pub effective_balances: Vec<u64>,
+    /// True if the validator has been slashed. Used to filter support votes
+    /// (spec: `get_block_support_between_slots` excludes slashed validators).
+    pub slashed: Vec<bool>,
 }
 
 impl BalanceSourceData {
@@ -266,6 +322,7 @@ impl BalanceSourceData {
 
         let validator_count = state.validators().len();
         let mut effective_balances = Vec::with_capacity(validator_count);
+        let mut slashed = Vec::with_capacity(validator_count);
         let mut total_active_balance = 0u64;
 
         let epoch = match relative_epoch {
@@ -276,9 +333,12 @@ impl BalanceSourceData {
                 .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?,
         };
 
-        // Build effective balances (same pattern as JustifiedBalances).
+        // Build effective balances for all active validators regardless of slashed status.
+        // The spec's get_total_active_balance uses is_active_at without checking slashed.
+        // Slashed filtering is applied separately where needed (e.g. get_block_support_between_slots).
         for validator in state.validators().iter() {
-            if !validator.slashed && validator.is_active_at(epoch) {
+            slashed.push(validator.slashed);
+            if validator.is_active_at(epoch) {
                 effective_balances.push(validator.effective_balance);
                 total_active_balance =
                     total_active_balance.saturating_add(validator.effective_balance);
@@ -298,11 +358,22 @@ impl BalanceSourceData {
             checkpoint,
             total_active_balance,
             effective_balances,
+            slashed,
         })
     }
 
     fn balance(&self, val_idx: usize) -> u64 {
         self.effective_balances.get(val_idx).copied().unwrap_or(0)
+    }
+
+    /// Return balance only if the validator is not slashed.
+    /// Spec: `get_block_support_between_slots` excludes slashed validators.
+    fn unslashed_balance(&self, val_idx: usize) -> u64 {
+        if self.slashed.get(val_idx).copied().unwrap_or(false) {
+            0
+        } else {
+            self.balance(val_idx)
+        }
     }
 }
 
@@ -484,12 +555,18 @@ impl FastConfirmationRule {
             current_slot,
         );
 
+        let t0 = std::time::Instant::now();
+
         // Rebuild committee assignments from the head state.
         self.head_assignments.rebuild::<E>(state, current_slot)?;
+        let t1 = t0.elapsed();
+
         self.rebuild_head_balance_source::<E>(state, current_slot)?;
+        let t2 = t0.elapsed();
 
         // Rebuild balance sources if the observed justified checkpoints changed.
         self.update_balance_sources(state)?;
+        let t3 = t0.elapsed();
 
         if !self.spec_test_mode {
             self.confirmed_root = self.get_latest_confirmed::<E>(
@@ -502,6 +579,19 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )?;
+        }
+        let t4 = t0.elapsed();
+
+        if t4.as_millis() > 5 {
+            info!(
+                slot = %current_slot,
+                total_ms = t4.as_millis(),
+                assignments_ms = t1.as_millis(),
+                head_balance_ms = (t2 - t1).as_millis(),
+                update_balance_ms = (t3 - t2).as_millis(),
+                algorithm_ms = (t4 - t3).as_millis(),
+                "FCR slow invocation"
+            );
         }
 
         Ok(())
@@ -561,12 +651,12 @@ impl FastConfirmationRule {
     ) {
         let _span = debug_span!("fcr_update_variables", slot = %current_slot).entered();
 
-        // The spec's slot-head tracking (previous_slot_head / current_slot_head) records
-        // the head at the *start* of each slot. Mid-slot block processing should NOT update
-        // these values. Only rotate at slot boundaries.
+        // Spec: update_fast_confirmation_variables is called once per slot,
+        // at the attestation deadline. Guard against duplicate calls within the same slot.
         if self.last_update_slot.is_none_or(|s| current_slot > s) {
-            // Rotate slot heads once per slot boundary.
+            // Rotate slot heads.
             self.previous_slot_head = self.current_slot_head;
+            self.current_slot_head = head_root;
 
             // At last slot of epoch: snapshot greatest unrealized justified.
             if is_start_slot_at_epoch::<E>(current_slot.saturating_add(1u64)) {
@@ -584,9 +674,6 @@ impl FastConfirmationRule {
 
             self.last_update_slot = Some(current_slot);
         }
-
-        // Keep current_slot_head aligned with the latest head seen in this slot.
-        self.current_slot_head = head_root;
     }
 
     // -----------------------------------------------------------------------
@@ -960,7 +1047,7 @@ impl FastConfirmationRule {
             if equivocating_indices.contains(&(val_idx as u64)) {
                 continue;
             }
-            let balance = balance_source.balance(val_idx);
+            let balance = balance_source.unslashed_balance(val_idx);
             if balance == 0 {
                 continue;
             }
@@ -1502,7 +1589,7 @@ impl FastConfirmationRule {
             if equivocating_indices.contains(&(val_idx as u64)) {
                 continue;
             }
-            let balance = balance_source.balance(val_idx);
+            let balance = balance_source.unslashed_balance(val_idx);
             if balance == 0 {
                 continue;
             }
@@ -1603,11 +1690,13 @@ impl FastConfirmationRule {
             equivocating_indices,
         )?;
 
-        let lhs = 2u128 * support as u128 + support_discount as u128;
-        let rhs =
-            maximum_support as u128 + proposer_score as u128 + 2u128 * adversarial_weight as u128;
+        // Spec: compute_safety_threshold
+        // safety_threshold = (maximum_support + proposer_score - support_discount) / 2 + adversarial_weight
+        let safety_threshold =
+            (maximum_support as u128 + proposer_score as u128 - support_discount as u128) / 2
+                + adversarial_weight as u128;
 
-        Ok(lhs > rhs)
+        Ok(support as u128 > safety_threshold)
     }
 }
 
@@ -1747,5 +1836,235 @@ mod tests {
         );
         // 999 -> 0 * 1005 = 0 (integer division)
         assert_eq!(adjust_committee_weight_estimate_to_ensure_safety(999), 0);
+    }
+
+    mod slot_assignments {
+        use super::*;
+        use state_processing::per_slot_processing;
+        use types::MinimalEthSpec;
+
+        type E = MinimalEthSpec;
+
+        /// Build a minimal genesis state with `n` validators and committee caches.
+        /// Uses BeaconState::new directly with manually-added validators to avoid
+        /// needing deposit proofs.
+        fn genesis_state(n: usize) -> (BeaconState<E>, types::ChainSpec) {
+            let spec = E::default_spec();
+            let mut state = BeaconState::new(0, Default::default(), &spec);
+
+            // Manually populate validators and balances.
+            for _ in 0..n {
+                let validator = types::Validator {
+                    effective_balance: spec.max_effective_balance,
+                    activation_epoch: Epoch::new(0),
+                    exit_epoch: spec.far_future_epoch,
+                    withdrawable_epoch: spec.far_future_epoch,
+                    ..Default::default()
+                };
+                state
+                    .validators_mut()
+                    .push(validator)
+                    .expect("push validator");
+                state
+                    .balances_mut()
+                    .push(spec.max_effective_balance)
+                    .expect("push balance");
+            }
+
+            state
+                .build_committee_cache(RelativeEpoch::Previous, &spec)
+                .expect("prev cache");
+            state
+                .build_committee_cache(RelativeEpoch::Current, &spec)
+                .expect("current cache");
+            state
+                .build_committee_cache(RelativeEpoch::Next, &spec)
+                .expect("next cache");
+
+            (state, spec)
+        }
+
+        /// Advance a state to a given slot, rebuilding committee caches.
+        fn advance_state(state: &mut BeaconState<E>, target_slot: Slot, spec: &types::ChainSpec) {
+            while state.slot() < target_slot {
+                per_slot_processing(state, None, spec).expect("should advance slot");
+            }
+            state
+                .build_committee_cache(RelativeEpoch::Previous, spec)
+                .expect("prev cache");
+            state
+                .build_committee_cache(RelativeEpoch::Current, spec)
+                .expect("current cache");
+            state
+                .build_committee_cache(RelativeEpoch::Next, spec)
+                .expect("next cache");
+        }
+
+        #[test]
+        fn rebuild_with_genesis_state_at_genesis_slot() {
+            let (state, _spec) = genesis_state(64);
+            let mut sa = SlotAssignments::new();
+
+            // State at epoch 0, current_slot in epoch 0 — should work.
+            sa.rebuild::<E>(&state, Slot::new(1))
+                .expect("genesis state covers epoch 0");
+
+            // Verify epoch window: [prev=0, current=0, next=1].
+            assert_eq!(sa.epochs[0], Epoch::new(0));
+            assert_eq!(sa.epochs[1], Epoch::new(0));
+            assert_eq!(sa.epochs[2], Epoch::new(1));
+        }
+
+        #[test]
+        fn rebuild_with_genesis_state_at_next_epoch_slot() {
+            let (state, _spec) = genesis_state(64);
+            let mut sa = SlotAssignments::new();
+
+            // State at epoch 0, current_slot in epoch 1 — should work
+            // because state's next epoch (1) covers current_slot's epoch.
+            let epoch_1_slot = E::slots_per_epoch(); // slot 8 for minimal
+            sa.rebuild::<E>(&state, Slot::new(epoch_1_slot))
+                .expect("genesis state's next epoch covers epoch 1");
+        }
+
+        #[test]
+        fn rebuild_rejects_stale_state() {
+            let (state, _spec) = genesis_state(64);
+            let mut sa = SlotAssignments::new();
+
+            // State at epoch 0 (covers [0, 0, 1]), current_slot in epoch 2.
+            // Epoch 2 > state's next epoch (1) — should fail.
+            let epoch_2_slot = E::slots_per_epoch() * 2; // slot 16 for minimal
+            let result = sa.rebuild::<E>(&state, Slot::new(epoch_2_slot));
+            assert!(
+                matches!(
+                    result,
+                    Err(Error::StaleStateForAssignments {
+                        current_slot_epoch,
+                        state_epoch,
+                    }) if current_slot_epoch == Epoch::new(2) && state_epoch == Epoch::new(0)
+                ),
+                "expected StaleStateForAssignments, got {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn rebuild_rejects_state_3_epochs_behind() {
+            let (state, _spec) = genesis_state(64);
+            let mut sa = SlotAssignments::new();
+
+            // State at epoch 0, current_slot in epoch 5 — clearly stale.
+            let epoch_5_slot = E::slots_per_epoch() * 5;
+            let result = sa.rebuild::<E>(&state, Slot::new(epoch_5_slot));
+            assert!(
+                matches!(result, Err(Error::StaleStateForAssignments { .. })),
+                "expected StaleStateForAssignments for 5-epoch gap, got {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn rebuild_advanced_state_covers_later_epochs() {
+            let (mut state, spec) = genesis_state(64);
+            let mut sa = SlotAssignments::new();
+
+            // Advance state to epoch 2 (slot 16 for minimal).
+            let epoch_2_start = E::slots_per_epoch() * 2;
+            advance_state(&mut state, Slot::new(epoch_2_start), &spec);
+
+            assert_eq!(state.current_epoch(), Epoch::new(2));
+
+            // current_slot in epoch 2 — should work (state covers [1, 2, 3]).
+            sa.rebuild::<E>(&state, Slot::new(epoch_2_start + 1))
+                .expect("state at epoch 2 covers epoch 2");
+
+            // current_slot in epoch 3 — should also work (state's next = 3).
+            let epoch_3_start = E::slots_per_epoch() * 3;
+            sa.rebuild::<E>(&state, Slot::new(epoch_3_start))
+                .expect("state at epoch 2 covers epoch 3 via next");
+
+            // current_slot in epoch 4 — should fail.
+            let epoch_4_start = E::slots_per_epoch() * 4;
+            let result = sa.rebuild::<E>(&state, Slot::new(epoch_4_start));
+            assert!(
+                matches!(result, Err(Error::StaleStateForAssignments { .. })),
+                "state at epoch 2 can't cover epoch 4, got {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn rebuild_populates_assignments_for_correct_epochs() {
+            let (mut state, spec) = genesis_state(64);
+            let mut sa = SlotAssignments::new();
+
+            // Advance state to epoch 2.
+            let epoch_2_start = E::slots_per_epoch() * 2;
+            advance_state(&mut state, Slot::new(epoch_2_start), &spec);
+
+            // Rebuild with current_slot in epoch 2.
+            sa.rebuild::<E>(&state, Slot::new(epoch_2_start + 1))
+                .expect("rebuild should succeed");
+
+            // Epoch window should be [1, 2, 3].
+            assert_eq!(sa.epochs[0], Epoch::new(1));
+            assert_eq!(sa.epochs[1], Epoch::new(2));
+            assert_eq!(sa.epochs[2], Epoch::new(3));
+
+            // Every validator should have an assignment in at least the current epoch.
+            let validator_count = state.validators().len();
+            let spe = E::slots_per_epoch();
+            for val_idx in 0..validator_count {
+                // Check current epoch column (col 1 = epoch 2).
+                let slot = sa.get(val_idx, 1).expect("valid index");
+                assert_ne!(
+                    slot, UNSET_SLOT,
+                    "validator {val_idx} missing epoch 2 assignment"
+                );
+                // Assignment slot must be within epoch 2.
+                let epoch_2_end = epoch_2_start + spe - 1;
+                assert!(
+                    slot.as_u64() >= epoch_2_start && slot.as_u64() <= epoch_2_end,
+                    "validator {val_idx} assigned to slot {} which is not in epoch 2 [{epoch_2_start}, {epoch_2_end}]",
+                    slot
+                );
+            }
+
+            // Slots in epoch 2 should be findable via is_in_range.
+            let mid_epoch_2 = Slot::new(epoch_2_start + spe / 2);
+            let mut found_any = false;
+            for val_idx in 0..validator_count {
+                if sa
+                    .is_in_range(val_idx, Slot::new(epoch_2_start), mid_epoch_2)
+                    .unwrap()
+                {
+                    found_any = true;
+                    break;
+                }
+            }
+            assert!(
+                found_any,
+                "at least one validator should be assigned in first half of epoch 2"
+            );
+        }
+
+        #[test]
+        fn is_in_range_returns_false_for_uncovered_epochs() {
+            let (state, _spec) = genesis_state(64);
+            let mut sa = SlotAssignments::new();
+
+            // State at epoch 0, covers epochs [0, 0, 1].
+            sa.rebuild::<E>(&state, Slot::new(1)).expect("should build");
+
+            // Query for a slot in epoch 5 — no validator should match.
+            let far_slot = Slot::new(E::slots_per_epoch() * 5);
+            for val_idx in 0..state.validators().len() {
+                assert!(
+                    !sa.is_in_range(val_idx, far_slot, far_slot).unwrap(),
+                    "validator {val_idx} should NOT be in range for epoch 5"
+                );
+            }
+        }
     }
 }

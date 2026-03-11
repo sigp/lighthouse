@@ -70,3 +70,21 @@ else
 		fi
 	done
 fi
+
+# Download FCR (Fast Confirmation Rule) test vectors if URL is set.
+# These are hosted separately until merged into consensus-spec-tests releases.
+FCR_TESTS_URL="${FCR_TESTS_URL:-https://github.com/user-attachments/files/25905655/fcr-fulu-246ca8f9.tar.gz}"
+if [[ -n "${FCR_TESTS_URL}" ]]; then
+	fcr_tarball="fcr-tests.tar.gz"
+	echo "Downloading FCR test vectors"
+	curl --progress-bar --location --show-error --retry 3 --retry-all-errors --fail \
+		--output "${fcr_tarball}" "${FCR_TESTS_URL}" \
+		|| {
+			echo "FCR test vectors download failed (non-fatal)"
+			rm -f "${fcr_tarball}"
+		}
+	if [[ -f "${fcr_tarball}" ]]; then
+		tar -xzf "${fcr_tarball}"
+		rm -f "${fcr_tarball}"
+	fi
+fi

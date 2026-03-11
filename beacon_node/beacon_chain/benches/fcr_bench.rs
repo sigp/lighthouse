@@ -128,6 +128,7 @@ fn build_chain(num_validators: usize) -> BenchData {
         checkpoint: justified_checkpoint,
         total_active_balance,
         effective_balances: vec![BALANCE; num_validators],
+        slashed: vec![false; num_validators],
     };
 
     // Build FCR state.

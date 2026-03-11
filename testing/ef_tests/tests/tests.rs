@@ -1,6 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
+use std::path::PathBuf;
 use typenum::Unsigned;
 use types::*;
 
@@ -1034,16 +1035,32 @@ fn fork_choice_deposit_with_reorg() {
 
 #[test]
 fn fast_confirmation() {
-    for handler in [
-        "basic",
-        "current_epoch",
-        "empty_slots",
-        "is_one_confirmed",
-        "reconfirmation",
-        "restart_gu",
-        "revert_finality",
-        "variables",
-    ] {
+    // Discover handlers dynamically from the test vectors directory.
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("consensus-spec-tests/tests/minimal/fulu/fast_confirmation");
+    if !base.is_dir() {
+        eprintln!(
+            "Skipping fast_confirmation: test vectors not found at {}",
+            base.display()
+        );
+        return;
+    }
+    let mut handlers: Vec<String> = std::fs::read_dir(&base)
+        .expect("read fast_confirmation dir")
+        .filter_map(|e| {
+            let e = e.ok()?;
+            e.file_type()
+                .ok()?
+                .is_dir()
+                .then(|| e.file_name().to_string_lossy().into_owned())
+        })
+        .collect();
+    handlers.sort();
+    assert!(
+        !handlers.is_empty(),
+        "No fast_confirmation test handlers found"
+    );
+    for handler in &handlers {
         FastConfirmationHandler::<MinimalEthSpec>::new(handler).run();
     }
 }
