@@ -8,9 +8,11 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
+use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::batch::{
-    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    BatchConfig, BatchId, BatchInfo, BatchMetricsState, BatchOperationOutcome,
+    BatchProcessingResult, BatchState,
 };
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::manager::BatchProcessResult;
@@ -31,6 +33,7 @@ use std::collections::{
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 use tracing::{debug, error, info, warn};
 use types::{ColumnIndex, Epoch, EthSpec};
 
@@ -1179,6 +1182,21 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .beacon_chain
                 .genesis_backfill_slot
                 .epoch(T::EthSpec::slots_per_epoch())
+    }
+
+    pub fn register_metrics(&self) {
+        for state in BatchMetricsState::iter() {
+            let count = self
+                .batches
+                .values()
+                .filter(|b| b.state().metrics_state() == state)
+                .count();
+            metrics::set_gauge_vec(
+                &metrics::SYNCING_CHAIN_BATCHES,
+                &["backfill", state.into()],
+                count as i64,
+            );
+        }
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.

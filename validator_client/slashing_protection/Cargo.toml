@@ -6,7 +6,7 @@ edition = { workspace = true }
 autotests = false
 
 [features]
-arbitrary-fuzz = ["dep:arbitrary", "types/arbitrary-fuzz", "eip_3076/arbitrary-fuzz"]
+arbitrary = ["dep:arbitrary", "types/arbitrary", "eip_3076/arbitrary"]
 portable = ["types/portable"]
 
 [dependencies]
