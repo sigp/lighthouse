@@ -156,7 +156,7 @@ pub enum InvariantViolation {
     /// state_summary in hot_db
     ///   -> all validator pubkeys from state.validators are in the hot_db
     /// ```
-    PubkeyCacheCountMismatch { in_memory: usize, on_disk: usize },
+    PubkeyCacheMissing { validator_index: usize },
     /// Invariant 9b: pubkey cache value mismatch.
     ///
     /// ```text
@@ -759,33 +759,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Read on-disk pubkeys by sequential validator index (matching how they are stored
         // with Hash256::from_low_u64_be(index) as key).
-        let mut on_disk_count = 0usize;
-        for validator_index in 0.. {
-            // Construct the key the same way as DatabasePubkey::key_for_index:
-            // Hash256 with the u64 index in the last 8 bytes (big-endian), rest zeros.
+        // Iterate in-memory pubkeys and verify each matches on disk.
+        for (validator_index, in_memory_bytes) in ctx.pubkey_cache_pubkeys.iter().enumerate() {
             let mut key = [0u8; 32];
             key[24..].copy_from_slice(&(validator_index as u64).to_be_bytes());
             match self.hot_db.get_bytes(DBColumn::PubkeyCache, &key)? {
-                Some(on_disk_bytes) => {
-                    if let Some(in_memory_bytes) = ctx.pubkey_cache_pubkeys.get(validator_index)
-                        && in_memory_bytes != &on_disk_bytes
-                    {
-                        result.add_violation(InvariantViolation::PubkeyCacheMismatch {
-                            validator_index,
-                        });
-                    }
-                    on_disk_count += 1;
+                Some(on_disk_bytes) if in_memory_bytes != &on_disk_bytes => {
+                    result
+                        .add_violation(InvariantViolation::PubkeyCacheMismatch { validator_index });
                 }
-                None => break,
+                None => {
+                    result
+                        .add_violation(InvariantViolation::PubkeyCacheMissing { validator_index });
+                }
+                _ => {}
             }
-        }
-
-        let in_memory_count = ctx.pubkey_cache_pubkeys.len();
-        if in_memory_count != on_disk_count {
-            result.add_violation(InvariantViolation::PubkeyCacheCountMismatch {
-                in_memory: in_memory_count,
-                on_disk: on_disk_count,
-            });
         }
 
         Ok(result)
