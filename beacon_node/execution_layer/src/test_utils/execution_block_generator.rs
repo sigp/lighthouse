@@ -989,7 +989,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use kzg::{Bytes48, CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
+    use kzg::{CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
     use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
@@ -1015,10 +1015,11 @@ mod test {
     fn validate_blob_bundle_v1<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
         let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
-        let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())
-            .map(Box::new)
-            .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
-        kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
+        let kzg_blob: KzgBlobRef = blob
+            .as_ref()
+            .try_into()
+            .map_err(|e| format!("Error converting blob to kzg blob ref: {e:?}"))?;
+        kzg.verify_blob_kzg_proof(kzg_blob, kzg_commitment, kzg_proof)
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
     }
 
@@ -1028,8 +1029,8 @@ mod test {
             load_test_blobs_bundle_v2::<E>().map(|(commitment, proofs, blob)| {
                 let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
                 (
-                    vec![Bytes48::from(commitment); proofs.len()],
-                    proofs.into_iter().map(|p| p.into()).collect::<Vec<_>>(),
+                    vec![commitment.0; proofs.len()],
+                    proofs.into_iter().map(|p| p.0).collect::<Vec<_>>(),
                     kzg.compute_cells(kzg_blob).unwrap(),
                 )
             })?;
