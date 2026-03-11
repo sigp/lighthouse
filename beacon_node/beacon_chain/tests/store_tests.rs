@@ -148,6 +148,22 @@ fn get_harness_generic(
     harness
 }
 
+/// Check that all database invariants hold.
+///
+/// Panics with a descriptive message if any invariant is violated.
+fn check_db_invariants(harness: &TestHarness) {
+    let result = harness
+        .chain
+        .check_database_invariants()
+        .expect("invariant check should not error");
+
+    assert!(
+        result.is_ok(),
+        "database invariant violations found:\n{:#?}",
+        result.violations,
+    );
+}
+
 fn get_states_descendant_of_block(
     store: &HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>,
     block_root: Hash256,
@@ -308,6 +324,7 @@ async fn full_participation_no_skips() {
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -352,6 +369,7 @@ async fn randomised_skips() {
     check_split_slot(&harness, store.clone());
     check_chain_dump(&harness, num_blocks_produced + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -400,6 +418,7 @@ async fn long_skip() {
     check_split_slot(&harness, store);
     check_chain_dump(&harness, initial_blocks + final_blocks + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 /// Go forward to the point where the genesis randao value is no longer part of the vector.
@@ -1769,6 +1788,8 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     }
 
     assert!(!rig.knows_head(&stray_head));
+
+    check_db_invariants(&rig);
 }
 
 #[tokio::test]
@@ -1897,6 +1918,8 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     assert!(!rig.knows_head(&stray_head));
     let chain_dump = rig.chain.chain_dump().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
+
+    check_db_invariants(&rig);
 }
 
 #[tokio::test]
@@ -1988,6 +2011,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     }
 
     rig.assert_knows_head(stray_head.into());
+
+    check_db_invariants(&rig);
 }
 
 #[tokio::test]
@@ -2127,6 +2152,8 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     }
 
     assert!(!rig.knows_head(&stray_head));
+
+    check_db_invariants(&rig);
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
@@ -2377,6 +2404,8 @@ async fn finalizes_non_epoch_start_slot() {
             state_hash
         );
     }
+
+    check_db_invariants(&rig);
 }
 
 fn check_all_blocks_exist<'a>(
@@ -2643,6 +2672,8 @@ async fn pruning_test(
     check_all_states_exist(&harness, all_canonical_states.iter());
     check_no_states_exist(&harness, stray_states.difference(&all_canonical_states));
     check_no_blocks_exist(&harness, stray_blocks.values());
+
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -2707,6 +2738,8 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
         vec![(genesis_state_root, Slot::new(0))],
         "get_states_descendant_of_block({bad_block_parent_root:?})"
     );
+
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -3361,6 +3394,16 @@ async fn weak_subjectivity_sync_test(
     store.clone().reconstruct_historic_states(None).unwrap();
     assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
+
+    // Check database invariants after full checkpoint sync + backfill + reconstruction.
+    let result = beacon_chain
+        .check_database_invariants()
+        .expect("invariant check should not error");
+    assert!(
+        result.is_ok(),
+        "database invariant violations:\n{:#?}",
+        result.violations,
+    );
 }
 
 // This test prunes data columns from epoch 0 and then tries to re-import them via
