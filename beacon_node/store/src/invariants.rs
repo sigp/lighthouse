@@ -6,7 +6,7 @@
 //! See the `check_invariants` and `check_database_invariants` methods for the full list.
 
 use crate::hdiff::StorageStrategy;
-use crate::hot_cold_store::{ColdStateSummary, HotStateSummary, OptionalDiffBaseState};
+use crate::hot_cold_store::{ColdStateSummary, HotStateSummary};
 use crate::{DBColumn, Error, ItemStore};
 use crate::{HotColdDB, Split};
 use serde::Serialize;
@@ -442,7 +442,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         });
                     }
                 }
-                StorageStrategy::DiffFrom(_) => {
+                StorageStrategy::DiffFrom(base_slot) => {
                     let has_diff = self
                         .hot_db
                         .key_exists(DBColumn::BeaconStateHotDiff, state_root.as_slice())?;
@@ -452,13 +452,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             slot: summary.slot,
                         });
                     }
-                    if let OptionalDiffBaseState::BaseState(base) = summary.diff_base_state {
-                        base_state_refs.push((summary.slot, base.state_root()));
+                    if let Ok(base_root) = summary.diff_base_state.get_root(base_slot) {
+                        base_state_refs.push((summary.slot, base_root));
                     }
                 }
-                StorageStrategy::ReplayFrom(_) => {
-                    if let OptionalDiffBaseState::BaseState(base) = summary.diff_base_state {
-                        base_state_refs.push((summary.slot, base.state_root()));
+                StorageStrategy::ReplayFrom(base_slot) => {
+                    if let Ok(base_root) = summary.diff_base_state.get_root(base_slot) {
+                        base_state_refs.push((summary.slot, base_root));
                     }
                 }
             }
@@ -607,11 +607,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///   && state_root |-> cold_state_summary in cold_db(BeaconColdStateSummary)
     ///   && cold_state_summary.slot == i
     /// ```
-    ///
-    /// Checks both directions:
-    /// - **Forward**: every slot in the expected range has a state root entry.
-    /// - **Reverse**: every existing state root entry has a valid cold state summary with
-    ///   matching slot.
     fn check_cold_state_root_indices(&self, split: &Split) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
 
