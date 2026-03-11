@@ -429,9 +429,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             summary_slots.insert(summary.slot);
 
-            let strategy = self.hierarchy.storage_strategy(summary.slot, anchor_slot)?;
-
-            match strategy {
+            match self.hierarchy.storage_strategy(summary.slot, anchor_slot)? {
                 StorageStrategy::Snapshot => {
                     let has_snapshot = self
                         .hot_db
@@ -697,13 +695,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             summary_slots.insert(summary.slot);
 
-            let strategy = self
-                .hierarchy
-                .storage_strategy(summary.slot, Slot::new(0))?;
-
             let slot_bytes = summary.slot.as_u64().to_be_bytes();
 
-            match strategy {
+            match self
+                .hierarchy
+                .storage_strategy(summary.slot, Slot::new(0))?
+            {
                 StorageStrategy::Snapshot => {
                     let has_snapshot = self
                         .cold_db
