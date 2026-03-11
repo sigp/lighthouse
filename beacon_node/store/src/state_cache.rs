@@ -7,7 +7,7 @@ use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use tracing::instrument;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, execution::StatePayloadStatus};
 
 /// Fraction of the LRU cache to leave intact during culling.
 const CULL_EXEMPT_NUMERATOR: usize = 1;
@@ -23,10 +23,10 @@ pub struct FinalizedState<E: EthSpec> {
     state: BeaconState<E>,
 }
 
-/// Map from block_root -> slot -> state_root.
+/// Map from (block_root, payload_status) -> slot -> state_root.
 #[derive(Debug, Default)]
 pub struct BlockMap {
-    blocks: HashMap<Hash256, SlotMap>,
+    blocks: HashMap<(Hash256, StatePayloadStatus), SlotMap>,
 }
 
 /// Map from slot -> state_root.
@@ -143,8 +143,11 @@ impl<E: EthSpec> StateCache<E> {
             return Err(Error::FinalizedStateDecreasingSlot);
         }
 
+        let payload_status = state.payload_status();
+
         // Add to block map.
-        self.block_map.insert(block_root, state.slot(), state_root);
+        self.block_map
+            .insert(block_root, payload_status, state.slot(), state_root);
 
         // Prune block map.
         let state_roots_to_prune = self.block_map.prune(state.slot());
@@ -267,7 +270,9 @@ impl<E: EthSpec> StateCache<E> {
 
         // Record the connection from block root and slot to this state.
         let slot = state.slot();
-        self.block_map.insert(block_root, slot, state_root);
+        let payload_status = state.payload_status();
+        self.block_map
+            .insert(block_root, payload_status, slot, state_root);
 
         Ok(PutStateOutcome::New(deleted_states))
     }
@@ -316,9 +321,10 @@ impl<E: EthSpec> StateCache<E> {
     pub fn get_by_block_root(
         &mut self,
         block_root: Hash256,
+        payload_status: StatePayloadStatus,
         slot: Slot,
     ) -> Option<(Hash256, BeaconState<E>)> {
-        let slot_map = self.block_map.blocks.get(&block_root)?;
+        let slot_map = self.block_map.blocks.get(&(block_root, payload_status))?;
 
         // Find the state at `slot`, or failing that the most recent ancestor.
         let state_root = slot_map
@@ -339,7 +345,12 @@ impl<E: EthSpec> StateCache<E> {
     }
 
     pub fn delete_block_states(&mut self, block_root: &Hash256) {
-        if let Some(slot_map) = self.block_map.delete_block_states(block_root) {
+        let (pending_state_roots, full_state_roots) =
+            self.block_map.delete_block_states(block_root);
+        for slot_map in [pending_state_roots, full_state_roots]
+            .into_iter()
+            .flatten()
+        {
             for state_root in slot_map.slots.values() {
                 self.states.pop(state_root);
             }
@@ -412,8 +423,14 @@ impl<E: EthSpec> StateCache<E> {
 }
 
 impl BlockMap {
-    fn insert(&mut self, block_root: Hash256, slot: Slot, state_root: Hash256) {
-        let slot_map = self.blocks.entry(block_root).or_default();
+    fn insert(
+        &mut self,
+        block_root: Hash256,
+        payload_status: StatePayloadStatus,
+        slot: Slot,
+        state_root: Hash256,
+    ) {
+        let slot_map = self.blocks.entry((block_root, payload_status)).or_default();
         slot_map.slots.insert(slot, state_root);
     }
 
@@ -444,8 +461,12 @@ impl BlockMap {
         });
     }
 
-    fn delete_block_states(&mut self, block_root: &Hash256) -> Option<SlotMap> {
-        self.blocks.remove(block_root)
+    fn delete_block_states(&mut self, block_root: &Hash256) -> (Option<SlotMap>, Option<SlotMap>) {
+        let pending_state_roots = self
+            .blocks
+            .remove(&(*block_root, StatePayloadStatus::Pending));
+        let full_state_roots = self.blocks.remove(&(*block_root, StatePayloadStatus::Full));
+        (pending_state_roots, full_state_roots)
     }
 }
 
