@@ -67,8 +67,9 @@ pub struct InvariantContext {
     pub state_cache_roots: Vec<Hash256>,
     /// Custody columns for the current epoch (invariant 7).
     pub custody_columns: Vec<ColumnIndex>,
-    /// Number of pubkeys in the in-memory validator pubkey cache (invariant 9).
-    pub pubkey_cache_count: usize,
+    /// Compressed pubkey bytes from the in-memory validator pubkey cache, indexed by validator index
+    /// (invariant 9).
+    pub pubkey_cache_pubkeys: Vec<Vec<u8>>,
 }
 
 /// A single invariant violation.
@@ -161,6 +162,12 @@ pub enum InvariantViolation {
     ///   -> all validator pubkeys from state.validators are in the hot_db
     /// ```
     PubkeyCacheCountMismatch { in_memory: usize, on_disk: usize },
+    /// Invariant 9b: pubkey cache value mismatch.
+    ///
+    /// ```text
+    /// pubkey_cache[i] == hot_db(PubkeyCache)[i]
+    /// ```
+    PubkeyCacheMismatch { validator_index: usize },
     /// Invariant 10: block root indices mapping.
     ///
     /// ```text
@@ -774,8 +781,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// all validator pubkeys from states are in hot_db(PubkeyCache)
     /// ```
     ///
-    /// The number of pubkeys in the in-memory validator pubkey cache should match the number
-    /// stored on disk in the PubkeyCache column.
+    /// Checks that the in-memory pubkey cache and the on-disk PubkeyCache column have the same
+    /// number of entries AND that each pubkey matches at every validator index.
     fn check_pubkey_cache_consistency(
         &self,
         ctx: &InvariantContext,
@@ -784,20 +791,44 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         result.inc_checks();
 
-        let mut on_disk_count = 0usize;
-        for res in self
-            .hot_db
-            .iter_column_keys::<Vec<u8>>(DBColumn::PubkeyCache)
-        {
-            let _ = res?;
-            on_disk_count += 1;
+        // Read all on-disk pubkeys keyed by validator index.
+        // Keys are Hash256::from_low_u64_be(index), values are SSZ-encoded uncompressed pubkeys.
+        let mut on_disk_pubkeys: Vec<(usize, Vec<u8>)> = Vec::new();
+        for res in self.hot_db.iter_column::<Vec<u8>>(DBColumn::PubkeyCache) {
+            let (key_bytes, value) = res?;
+            // Key is a big-endian u64 encoded as Hash256, extract the index from the last 8 bytes.
+            let index = if key_bytes.len() >= 8 {
+                let mut buf = [0u8; 8];
+                buf.copy_from_slice(&key_bytes[..8]);
+                u64::from_be_bytes(buf) as usize
+            } else {
+                continue;
+            };
+            on_disk_pubkeys.push((index, value));
         }
 
-        if ctx.pubkey_cache_count != on_disk_count {
+        let on_disk_count = on_disk_pubkeys.len();
+        let in_memory_count = ctx.pubkey_cache_pubkeys.len();
+
+        if in_memory_count != on_disk_count {
             result.add_violation(InvariantViolation::PubkeyCacheCountMismatch {
-                in_memory: ctx.pubkey_cache_count,
+                in_memory: in_memory_count,
                 on_disk: on_disk_count,
             });
+        }
+
+        // Compare pubkey values at each index. On-disk values are raw SSZ bytes; we compare
+        // them directly against the in-memory compressed bytes re-encoded the same way.
+        // Both sides are passed as opaque byte vectors to avoid pulling crypto types into the
+        // store crate.
+        for (index, on_disk_bytes) in &on_disk_pubkeys {
+            if let Some(in_memory_bytes) = ctx.pubkey_cache_pubkeys.get(*index) {
+                if in_memory_bytes != on_disk_bytes {
+                    result.add_violation(InvariantViolation::PubkeyCacheMismatch {
+                        validator_index: *index,
+                    });
+                }
+            }
         }
 
         Ok(result)
