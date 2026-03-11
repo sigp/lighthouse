@@ -2612,7 +2612,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Payloads are also returned in slot-ascending order, but only payloads forming part of
     /// the chain are loaded (payloads for EMPTY slots are omitted). Prior to Gloas, an empty
     /// vec of payloads will be returned.
-    // TODO(gloas): handle last payload
     #[allow(clippy::type_complexity)]
     pub fn load_blocks_to_replay(
         &self,
@@ -2698,7 +2697,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Load the payload for the last block if desired.
-        // TODO(gloas): check that we don't load a duplicate in the case of a skipped slot
         if let StatePayloadStatus::Full = desired_payload_status {
             let envelope = self.get_payload_envelope(&end_block_root)?.ok_or(
                 HotColdDBError::MissingExecutionPayloadEnvelope(end_block_root),
