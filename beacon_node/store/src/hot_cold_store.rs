@@ -1882,7 +1882,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Load the hot state summary for the previous state.
         //
-        // If it has the same slot as this summary then we know this summary is for a `Full` block
+        // If it has the same slot as this summary then we know this summary is for a `Full` state
         // (payload state), because they are always diffed against their same-slot `Pending` state.
         //
         // If the previous summary has a different slot AND the latest block is from `summary.slot`,
