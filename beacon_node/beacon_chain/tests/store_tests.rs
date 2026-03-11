@@ -159,8 +159,7 @@ fn check_db_invariants(harness: &TestHarness) {
 
     assert!(
         result.is_ok(),
-        "database invariant violations found ({} checks performed):\n{:#?}",
-        result.checks_performed,
+        "database invariant violations found:\n{:#?}",
         result.violations,
     );
 }
@@ -3402,8 +3401,7 @@ async fn weak_subjectivity_sync_test(
         .expect("invariant check should not error");
     assert!(
         result.is_ok(),
-        "database invariant violations ({} checks):\n{:#?}",
-        result.checks_performed,
+        "database invariant violations:\n{:#?}",
         result.violations,
     );
 }

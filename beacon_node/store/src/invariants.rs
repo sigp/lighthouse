@@ -20,15 +20,12 @@ use types::*;
 pub struct InvariantCheckResult {
     /// List of invariant violations found.
     pub violations: Vec<InvariantViolation>,
-    /// Total number of checks performed.
-    pub checks_performed: usize,
 }
 
 impl InvariantCheckResult {
     pub fn new() -> Self {
         Self {
             violations: Vec::new(),
-            checks_performed: 0,
         }
     }
 
@@ -40,13 +37,8 @@ impl InvariantCheckResult {
         self.violations.push(violation);
     }
 
-    pub fn inc_checks(&mut self) {
-        self.checks_performed += 1;
-    }
-
     pub fn merge(&mut self, other: InvariantCheckResult) {
         self.violations.extend(other.violations);
-        self.checks_performed += other.checks_performed;
     }
 }
 
@@ -285,7 +277,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut result = InvariantCheckResult::new();
 
         for &(block_root, slot) in &ctx.fork_choice_blocks {
-            result.inc_checks();
             let exists = self
                 .hot_db
                 .key_exists(DBColumn::BeaconBlock, block_root.as_slice())?;
@@ -330,14 +321,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         for res in self.hot_db.iter_column::<Hash256>(DBColumn::BeaconBlock) {
             let (block_root, block_bytes) = res?;
-            let block = SignedBeaconBlock::<E, BlindedPayload<E>>::from_ssz_bytes(
-                &block_bytes,
-                &self.spec,
-            )?;
+            let block = SignedBlindedBeaconBlock::<E>::from_ssz_bytes(&block_bytes, &self.spec)?;
             let slot = block.slot();
 
             // Invariant 2: block-state consistency.
-            result.inc_checks();
             if slot >= split.slot {
                 let state_root = block.state_root();
                 let has_summary = self
@@ -353,11 +340,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             // Invariant 5: execution payload consistency.
+            // TODO(gloas): reconsider this invariant
             if check_payloads
                 && let Some(bellatrix_slot) = bellatrix_fork_slot
                 && slot >= bellatrix_slot
             {
-                result.inc_checks();
                 if !self.execution_payload_exists(&block_root)?
                     && !self.payload_envelope_exists(&block_root)?
                 {
@@ -378,7 +365,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 && fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot)
                 && block.num_expected_blobs() > 0
             {
-                result.inc_checks();
                 let has_blob = self
                     .blobs_db
                     .key_exists(DBColumn::BeaconBlob, block_root.as_slice())?;
@@ -397,7 +383,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 && slot >= oldest_dc
                 && block.num_expected_blobs() > 0
             {
-                result.inc_checks();
                 let stored_columns = self.get_data_column_keys(block_root)?;
                 for col_idx in &ctx.custody_columns {
                     if !stored_columns.contains(col_idx) {
@@ -442,7 +427,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             let (state_root, value) = res?;
             let summary = HotStateSummary::from_ssz_bytes(&value)?;
-            result.inc_checks();
 
             summary_slots.insert(summary.slot);
 
@@ -480,7 +464,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Verify that all DiffFrom/ReplayFrom base slots reference existing summaries.
         for (slot, base_slot) in base_slot_refs {
-            result.inc_checks();
             if !summary_slots.contains(&base_slot) {
                 result.add_violation(InvariantViolation::HotStateBaseSummaryMissing {
                     slot,
@@ -513,7 +496,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             let (_state_root, value) = res?;
             let summary = HotStateSummary::from_ssz_bytes(&value)?;
-            result.inc_checks();
 
             if summary.slot > split.slot {
                 let prev_root = summary.previous_state_root;
@@ -547,8 +529,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut result = InvariantCheckResult::new();
 
         for &state_root in &ctx.state_cache_roots {
-            result.inc_checks();
-
             let has_summary = self
                 .hot_db
                 .key_exists(DBColumn::BeaconStateHotSummary, state_root.as_slice())?;
@@ -583,7 +563,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         for slot_val in anchor_info.oldest_block_slot.as_u64()..split.slot.as_u64() {
             let slot = Slot::new(slot_val);
-            result.inc_checks();
 
             let slot_bytes = slot_val.to_be_bytes();
             let block_root_bytes = self
@@ -644,8 +623,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             if slot <= anchor_info.state_lower_limit
                 || slot >= cmp::min(split.slot, anchor_info.state_upper_limit)
             {
-                result.inc_checks();
-
                 let slot_bytes = slot_val.to_be_bytes();
                 let Some(root_bytes) = self
                     .cold_db
@@ -721,7 +698,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             let (state_root, value) = res?;
             let summary = ColdStateSummary::from_ssz_bytes(&value)?;
-            result.inc_checks();
 
             summary_slots.insert(summary.slot);
 
@@ -763,7 +739,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Verify that all DiffFrom/ReplayFrom base slots reference existing summaries.
         for (slot, base_slot) in base_slot_refs {
-            result.inc_checks();
             if !summary_slots.contains(&base_slot) {
                 result.add_violation(InvariantViolation::ColdStateBaseSummaryMissing {
                     slot,
@@ -788,8 +763,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ctx: &InvariantContext,
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-
-        result.inc_checks();
 
         // Read all on-disk pubkeys keyed by validator index.
         // Keys are Hash256::from_low_u64_be(index), values are SSZ-encoded uncompressed pubkeys.
