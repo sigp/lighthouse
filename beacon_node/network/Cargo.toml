@@ -8,6 +8,7 @@ edition = { workspace = true }
 # NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill
 disable-backfill = []
 fork_from_env = ["beacon_chain/fork_from_env"]
+fake_crypto = ["bls/fake_crypto", "kzg/fake_crypto"]
 portable = ["beacon_chain/portable"]
 test_logger = []
 
@@ -29,7 +30,6 @@ hex = { workspace = true }
 igd-next = { version = "0.16", features = ["aio_tokio"] }
 itertools = { workspace = true }
 lighthouse_network = { workspace = true }
-lighthouse_tracing = { workspace = true }
 logging = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
@@ -54,10 +54,11 @@ bls = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 genesis = { workspace = true }
-gossipsub = { workspace = true }
 k256 = "0.13.4"
 kzg = { workspace = true }
+libp2p = { workspace = true }
 matches = "0.1.8"
+paste = { workspace = true }
 rand_08 = { package = "rand", version = "0.8.5" }
 rand_chacha = "0.9.0"
 rand_chacha_03 = { package = "rand_chacha", version = "0.3.1" }

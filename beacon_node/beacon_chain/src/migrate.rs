@@ -773,6 +773,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                     StoreOp::DeleteBlobs(block_root),
+                    StoreOp::DeletePayloadEnvelope(block_root),
                     StoreOp::DeleteSyncCommitteeBranch(block_root),
                 ]
             })
@@ -790,7 +791,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Self::prune_finalized_payloads(new_finalized_slot, &newly_finalized_blocks, &mut batch);
         }
 
-        store.do_atomically_with_block_and_blobs_cache(batch)?;
+        store.do_atomically(batch)?;
 
         debug!(?new_finalized_state_root, "Database pruning complete");
 

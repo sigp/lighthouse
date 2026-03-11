@@ -8,9 +8,12 @@ autotests = false # using a single test binary compiles faster
 
 [features]
 default = ["participation_metrics"]
-write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
-participation_metrics = []  # Exposes validator participation metrics to Prometheus.
-fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
+# Writes debugging .ssz files to /tmp during block processing.
+write_ssz_files = []
+# Exposes validator participation metrics to Prometheus.
+participation_metrics = []
+# Initialise the harness chain spec from the FORK_NAME env variable
+fork_from_env = []
 portable = ["bls/supranational-portable"]
 test_backfill = []
 
@@ -19,7 +22,7 @@ alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 educe = { workspace = true }
-eth2 = { workspace = true, features = ["lighthouse"] }
+eth2 = { workspace = true, features = ["lighthouse", "network"] }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -34,7 +37,6 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
-lighthouse_tracing = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
 lru = { workspace = true }

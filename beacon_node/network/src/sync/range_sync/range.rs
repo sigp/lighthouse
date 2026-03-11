@@ -98,6 +98,11 @@ where
         self.failed_chains.keys().copied().collect()
     }
 
+    #[cfg(test)]
+    pub(crate) fn metrics(&self) -> &super::chain_collection::ChainCollectionMetrics {
+        self.chains.metrics()
+    }
+
     pub fn state(&self) -> SyncChainStatus {
         self.chains.state()
     }
@@ -369,6 +374,10 @@ where
         // update the state of the collection
         self.chains
             .update(network, &local, &mut self.awaiting_head_peers);
+    }
+
+    pub fn register_metrics(&self) {
+        self.chains.register_metrics();
     }
 
     /// Kickstarts sync.
