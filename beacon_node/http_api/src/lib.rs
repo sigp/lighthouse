@@ -263,6 +263,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
                 .or_else(|| starts_with("v1/validator/contribution_and_proofs"))
                 .or_else(|| starts_with("v1/validator/duties/attester"))
                 .or_else(|| starts_with("v1/validator/duties/proposer"))
+                .or_else(|| starts_with("v2/validator/duties/proposer"))
                 .or_else(|| starts_with("v1/validator/duties/sync"))
                 .or_else(|| starts_with("v1/validator/liveness"))
                 .or_else(|| starts_with("v1/validator/prepare_beacon_proposer"))
@@ -648,6 +649,10 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/pending_consolidations
     let get_beacon_state_pending_consolidations =
         states::get_beacon_state_pending_consolidations(beacon_states_path.clone());
+
+    // GET beacon/states/{state_id}/proposer_lookahead
+    let get_beacon_state_proposer_lookahead =
+        states::get_beacon_state_proposer_lookahead(beacon_states_path.clone());
 
     // GET beacon/headers
     //
@@ -2464,7 +2469,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/duties/proposer/{epoch}
     let get_validator_duties_proposer = get_validator_duties_proposer(
-        eth_v1.clone(),
+        any_version.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -3002,6 +3007,19 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/database/invariants
+    let get_lighthouse_database_invariants = database_path
+        .and(warp::path("invariants"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner
+                    .blocking_json_task(Priority::P1, move || database::check_invariants(chain))
+            },
+        );
+
     // POST lighthouse/database/reconstruct
     let post_lighthouse_database_reconstruct = database_path
         .and(warp::path("reconstruct"))
@@ -3283,6 +3301,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_pending_deposits)
                 .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_state_pending_consolidations)
+                .uor(get_beacon_state_proposer_lookahead)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
@@ -3330,6 +3349,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_validator_inclusion)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
+                .uor(get_lighthouse_database_invariants)
                 .uor(get_lighthouse_custody_info)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
