@@ -37,9 +37,6 @@ pub mod beacon_response {
     pub use crate::beacon_response::*;
 }
 
-#[cfg(feature = "lighthouse")]
-use crate::lighthouse::BlockReward;
-
 // Re-export error types from the unified error module
 pub use crate::error::{ErrorMessage, Failure, IndexedErrorMessage, ResponseError as Error};
 
@@ -1199,8 +1196,6 @@ pub enum EventKind<E: EthSpec> {
     LateHead(SseLateHead),
     LightClientFinalityUpdate(Box<BeaconResponse<LightClientFinalityUpdate<E>>>),
     LightClientOptimisticUpdate(Box<BeaconResponse<LightClientOptimisticUpdate<E>>>),
-    #[cfg(feature = "lighthouse")]
-    BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
     ProposerSlashing(Box<ProposerSlashing>),
     AttesterSlashing(Box<AttesterSlashing<E>>),
@@ -1225,8 +1220,6 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::LateHead(_) => "late_head",
             EventKind::LightClientFinalityUpdate(_) => "light_client_finality_update",
             EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
-            #[cfg(feature = "lighthouse")]
-            EventKind::BlockReward(_) => "block_reward",
             EventKind::ProposerSlashing(_) => "proposer_slashing",
             EventKind::AttesterSlashing(_) => "attester_slashing",
             EventKind::BlsToExecutionChange(_) => "bls_to_execution_change",
@@ -1302,10 +1295,6 @@ impl<E: EthSpec> EventKind<E> {
                     })?),
                 )))
             }
-            #[cfg(feature = "lighthouse")]
-            "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
-            )?)),
             "attester_slashing" => Ok(EventKind::AttesterSlashing(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Attester Slashing: {:?}", e))
@@ -1355,8 +1344,6 @@ pub enum EventTopic {
     PayloadAttributes,
     LightClientFinalityUpdate,
     LightClientOptimisticUpdate,
-    #[cfg(feature = "lighthouse")]
-    BlockReward,
     AttesterSlashing,
     ProposerSlashing,
     BlsToExecutionChange,
@@ -1382,8 +1369,6 @@ impl FromStr for EventTopic {
             "late_head" => Ok(EventTopic::LateHead),
             "light_client_finality_update" => Ok(EventTopic::LightClientFinalityUpdate),
             "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
-            #[cfg(feature = "lighthouse")]
-            "block_reward" => Ok(EventTopic::BlockReward),
             "attester_slashing" => Ok(EventTopic::AttesterSlashing),
             "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             "bls_to_execution_change" => Ok(EventTopic::BlsToExecutionChange),
@@ -1410,8 +1395,6 @@ impl fmt::Display for EventTopic {
             EventTopic::LateHead => write!(f, "late_head"),
             EventTopic::LightClientFinalityUpdate => write!(f, "light_client_finality_update"),
             EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
-            #[cfg(feature = "lighthouse")]
-            EventTopic::BlockReward => write!(f, "block_reward"),
             EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
             EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
             EventTopic::BlsToExecutionChange => write!(f, "bls_to_execution_change"),

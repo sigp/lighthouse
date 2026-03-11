@@ -516,6 +516,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         message_id,
                         peer_id,
                         signed_execution_payload_envelope,
+                        timestamp_now(),
                     ),
                 )
             }

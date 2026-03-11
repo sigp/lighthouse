@@ -1,4 +1,4 @@
-use c_kzg::BYTES_PER_COMMITMENT;
+use crate::{Bytes48, BYTES_PER_COMMITMENT};
 use educe::Educe;
 use ethereum_hashing::hash_fixed;
 use serde::de::{Deserialize, Deserializer};
@@ -14,7 +14,7 @@ pub const VERSIONED_HASH_VERSION_KZG: u8 = 0x01;
 #[derive(Educe, Clone, Copy, Encode, Decode)]
 #[educe(PartialEq, Eq, Hash)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgCommitment(pub [u8; c_kzg::BYTES_PER_COMMITMENT]);
+pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
 
 impl KzgCommitment {
     pub fn calculate_versioned_hash(&self) -> Hash256 {
@@ -24,13 +24,13 @@ impl KzgCommitment {
     }
 
     pub fn empty_for_testing() -> Self {
-        KzgCommitment([0; c_kzg::BYTES_PER_COMMITMENT])
+        KzgCommitment([0; BYTES_PER_COMMITMENT])
     }
 }
 
-impl From<KzgCommitment> for c_kzg::Bytes48 {
+impl From<KzgCommitment> for Bytes48 {
     fn from(value: KzgCommitment) -> Self {
-        value.0.into()
+        value.0
     }
 }
 
