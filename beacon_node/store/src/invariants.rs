@@ -347,15 +347,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             if check_payloads
                 && let Some(bellatrix_slot) = bellatrix_fork_slot
                 && slot >= bellatrix_slot
+                && !self.execution_payload_exists(&block_root)?
+                && !self.payload_envelope_exists(&block_root)?
             {
-                if !self.execution_payload_exists(&block_root)?
-                    && !self.payload_envelope_exists(&block_root)?
-                {
-                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
-                        block_root,
-                        slot,
-                    });
-                }
+                result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                    block_root,
+                    slot,
+                });
             }
 
             // Invariant 6: blob sidecar consistency.
@@ -764,44 +762,35 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
 
-        // Read all on-disk pubkeys keyed by validator index.
-        // Keys are Hash256::from_low_u64_be(index), values are SSZ-encoded uncompressed pubkeys.
-        let mut on_disk_pubkeys: Vec<(usize, Vec<u8>)> = Vec::new();
-        for res in self.hot_db.iter_column::<Vec<u8>>(DBColumn::PubkeyCache) {
-            let (key_bytes, value) = res?;
-            // Key is a big-endian u64 encoded as Hash256, extract the index from the last 8 bytes.
-            let index = if key_bytes.len() >= 8 {
-                let mut buf = [0u8; 8];
-                buf.copy_from_slice(&key_bytes[..8]);
-                u64::from_be_bytes(buf) as usize
-            } else {
-                continue;
-            };
-            on_disk_pubkeys.push((index, value));
+        // Read on-disk pubkeys by sequential validator index (matching how they are stored
+        // with Hash256::from_low_u64_be(index) as key).
+        let mut on_disk_count = 0usize;
+        for validator_index in 0.. {
+            // Construct the key the same way as DatabasePubkey::key_for_index:
+            // Hash256 with the u64 index in the last 8 bytes (big-endian), rest zeros.
+            let mut key = [0u8; 32];
+            key[24..].copy_from_slice(&(validator_index as u64).to_be_bytes());
+            match self.hot_db.get_bytes(DBColumn::PubkeyCache, &key)? {
+                Some(on_disk_bytes) => {
+                    if let Some(in_memory_bytes) = ctx.pubkey_cache_pubkeys.get(validator_index)
+                        && in_memory_bytes != &on_disk_bytes
+                    {
+                        result.add_violation(InvariantViolation::PubkeyCacheMismatch {
+                            validator_index,
+                        });
+                    }
+                    on_disk_count += 1;
+                }
+                None => break,
+            }
         }
 
-        let on_disk_count = on_disk_pubkeys.len();
         let in_memory_count = ctx.pubkey_cache_pubkeys.len();
-
         if in_memory_count != on_disk_count {
             result.add_violation(InvariantViolation::PubkeyCacheCountMismatch {
                 in_memory: in_memory_count,
                 on_disk: on_disk_count,
             });
-        }
-
-        // Compare pubkey values at each index. On-disk values are raw SSZ bytes; we compare
-        // them directly against the in-memory compressed bytes re-encoded the same way.
-        // Both sides are passed as opaque byte vectors to avoid pulling crypto types into the
-        // store crate.
-        for (index, on_disk_bytes) in &on_disk_pubkeys {
-            if let Some(in_memory_bytes) = ctx.pubkey_cache_pubkeys.get(*index) {
-                if in_memory_bytes != on_disk_bytes {
-                    result.add_violation(InvariantViolation::PubkeyCacheMismatch {
-                        validator_index: *index,
-                    });
-                }
-            }
         }
 
         Ok(result)
