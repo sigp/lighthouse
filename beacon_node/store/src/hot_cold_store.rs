@@ -3939,6 +3939,12 @@ pub struct DiffBaseState {
     state_root: Hash256,
 }
 
+impl DiffBaseState {
+    pub fn state_root(&self) -> Hash256 {
+        self.state_root
+    }
+}
+
 impl OptionalDiffBaseState {
     pub fn new(slot: Slot, state_root: Hash256) -> Self {
         Self::BaseState(DiffBaseState { slot, state_root })

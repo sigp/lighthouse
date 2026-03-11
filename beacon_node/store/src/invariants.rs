@@ -6,7 +6,7 @@
 //! See the `check_invariants` and `check_database_invariants` methods for the full list.
 
 use crate::hdiff::StorageStrategy;
-use crate::hot_cold_store::{ColdStateSummary, HotStateSummary};
+use crate::hot_cold_store::{ColdStateSummary, HotStateSummary, OptionalDiffBaseState};
 use crate::{DBColumn, Error, ItemStore};
 use crate::{HotColdDB, Split};
 use serde::Serialize;
@@ -104,7 +104,10 @@ pub enum InvariantViolation {
     /// state_summary in hot_db
     ///   -> state diff/snapshot/nothing in hot_db according to hierarchy rules
     /// ```
-    HotStateBaseSummaryMissing { slot: Slot, base_slot: Slot },
+    HotStateBaseSummaryMissing {
+        slot: Slot,
+        base_state_root: Hash256,
+    },
     /// Invariant 4: state summary chain consistency.
     ///
     /// ```text
@@ -417,8 +420,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let anchor_slot = self.get_anchor_info().anchor_slot;
 
         // Collect all summary slots and their strategies in a first pass.
-        let mut summary_slots = HashSet::new();
-        let mut base_slot_refs = Vec::new();
+        let mut known_state_roots = HashSet::new();
+        let mut base_state_refs: Vec<(Slot, Hash256)> = Vec::new();
 
         for res in self
             .hot_db
@@ -427,7 +430,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let (state_root, value) = res?;
             let summary = HotStateSummary::from_ssz_bytes(&value)?;
 
-            summary_slots.insert(summary.slot);
+            known_state_roots.insert(state_root);
 
             match self.hierarchy.storage_strategy(summary.slot, anchor_slot)? {
                 StorageStrategy::Snapshot => {
@@ -441,7 +444,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         });
                     }
                 }
-                StorageStrategy::DiffFrom(base_slot) => {
+                StorageStrategy::DiffFrom(_) => {
                     let has_diff = self
                         .hot_db
                         .key_exists(DBColumn::BeaconStateHotDiff, state_root.as_slice())?;
@@ -451,20 +454,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             slot: summary.slot,
                         });
                     }
-                    base_slot_refs.push((summary.slot, base_slot));
+                    if let OptionalDiffBaseState::BaseState(base) = summary.diff_base_state {
+                        base_state_refs.push((summary.slot, base.state_root()));
+                    }
                 }
-                StorageStrategy::ReplayFrom(base_slot) => {
-                    base_slot_refs.push((summary.slot, base_slot));
+                StorageStrategy::ReplayFrom(_) => {
+                    if let OptionalDiffBaseState::BaseState(base) = summary.diff_base_state {
+                        base_state_refs.push((summary.slot, base.state_root()));
+                    }
                 }
             }
         }
 
-        // Verify that all DiffFrom/ReplayFrom base slots reference existing summaries.
-        for (slot, base_slot) in base_slot_refs {
-            if !summary_slots.contains(&base_slot) {
+        // Verify that all diff base state roots reference existing summaries.
+        for (slot, base_state_root) in base_state_refs {
+            if !known_state_roots.contains(&base_state_root) {
                 result.add_violation(InvariantViolation::HotStateBaseSummaryMissing {
                     slot,
-                    base_slot,
+                    base_state_root,
                 });
             }
         }
