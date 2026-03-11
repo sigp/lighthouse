@@ -250,12 +250,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         result.merge(self.check_fork_choice_block_consistency(ctx)?);
         result.merge(self.check_hot_block_invariants(&split, ctx)?);
-        result.merge(self.check_hot_state_summary_diff_consistency(&split)?);
+        result.merge(self.check_hot_state_summary_diff_consistency()?);
         result.merge(self.check_hot_state_summary_chain_consistency(&split)?);
         result.merge(self.check_state_cache_consistency(ctx)?);
         result.merge(self.check_cold_block_root_indices(&split)?);
         result.merge(self.check_cold_state_root_indices(&split)?);
-        result.merge(self.check_cold_state_diff_consistency(&split)?);
+        result.merge(self.check_cold_state_diff_consistency()?);
         result.merge(self.check_pubkey_cache_consistency(ctx)?);
 
         Ok(result)
@@ -411,10 +411,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Each hot state summary should have the correct storage artifact (snapshot, diff, or
     /// nothing) according to the HDiff hierarchy configuration. The hierarchy uses the
     /// anchor_slot as its start point for the hot DB.
-    fn check_hot_state_summary_diff_consistency(
-        &self,
-        _split: &Split,
-    ) -> Result<InvariantCheckResult, Error> {
+    fn check_hot_state_summary_diff_consistency(&self) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
 
         let anchor_slot = self.get_anchor_info().anchor_slot;
@@ -685,10 +682,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Each cold state summary should have the correct storage artifact according to the
     /// HDiff hierarchy. Cold states always use genesis (slot 0) as the hierarchy start since
     /// they are finalized and have no anchor_slot dependency.
-    fn check_cold_state_diff_consistency(
-        &self,
-        _split: &Split,
-    ) -> Result<InvariantCheckResult, Error> {
+    fn check_cold_state_diff_consistency(&self) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
 
         let mut summary_slots = HashSet::new();
