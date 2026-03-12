@@ -5835,7 +5835,7 @@ async fn test_gloas_hot_state_hierarchy() {
     // 40 slots covers 5 epochs.
     let num_blocks = E::slots_per_epoch() * 5;
     // TODO(gloas): enable finalisation by increasing this threshold
-    let some_validators = (0..LOW_VALIDATOR_COUNT / 2).collect::<Vec<_>>();
+    let some_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
     let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
 
