@@ -904,7 +904,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_proposer_lookahead(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<u64>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<ValidatorIndexData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
