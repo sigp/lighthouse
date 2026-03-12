@@ -15,6 +15,7 @@ pub mod hdiff;
 pub mod historic_state_cache;
 pub mod hot_cold_store;
 mod impls;
+pub mod invariants;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;

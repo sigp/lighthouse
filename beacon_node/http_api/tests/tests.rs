@@ -1430,10 +1430,11 @@ impl ApiTester {
             }
 
             let state = state_opt.as_mut().expect("result should be none");
-            let expected = state.proposer_lookahead().unwrap();
+            let expected = state.proposer_lookahead().unwrap().to_vec();
 
             let response = result.unwrap();
-            assert_eq!(response.data(), &expected.to_vec());
+            // Compare Vec<u64> directly, not Vec<String>
+            assert_eq!(response.data().0, expected);
 
             // Check that the version header is returned in the response
             let fork_name = state.fork_name(&self.chain.spec).unwrap();

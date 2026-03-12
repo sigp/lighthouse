@@ -41,7 +41,7 @@ pub const BID_VALUE_SELF_BUILD: u64 = 0;
 pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 
 type ConsensusBlockValue = u64;
-type BlockProductionResult<E> = (BeaconBlock<E, FullPayload<E>>, ConsensusBlockValue);
+type BlockProductionResult<E> = (BeaconBlock<E>, BeaconState<E>, ConsensusBlockValue);
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
 pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
@@ -425,6 +425,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ))
     }
 
+    /// Complete a block by computing its state root, and
+    ///
+    /// Return `(block, pending_state, block_value)` where:
+    ///
+    /// - `pending_state` is the state post block application (prior to payload application)
+    /// - `block_value` is the consensus-layer rewards for `block`
     #[allow(clippy::type_complexity)]
     fn complete_partial_beacon_block_gloas(
         &self,
@@ -433,7 +439,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
-    ) -> Result<(BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, u64), BlockProductionError> {
+    ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         let PartialBeaconBlock {
             slot,
             proposer_index,
@@ -545,6 +551,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(state_root_timer);
 
+        // Clone the Pending state (post-block, pre-envelope) for callers that need it.
+        let pending_state = state.clone();
+
         let (mut block, _) = signed_beacon_block.deconstruct();
         *block.state_root_mut() = state_root;
 
@@ -605,7 +614,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Produced beacon block"
         );
 
-        Ok((block, consensus_block_value))
+        Ok((block, pending_state, consensus_block_value))
     }
 
     // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
