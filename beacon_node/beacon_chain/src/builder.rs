@@ -45,7 +45,7 @@ use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot, StatePayloadStatus,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -783,8 +783,16 @@ where
             .map_err(|e| descriptive_db_error("head block", &e))?
             .ok_or("Head block not found in store")?;
 
+        // TODO(gloas): update head loading to load Full block once fork choice works
+        let payload_status = StatePayloadStatus::Pending;
+
         let (_head_state_root, head_state) = store
-            .get_advanced_hot_state(head_block_root, current_slot, head_block.state_root())
+            .get_advanced_hot_state(
+                head_block_root,
+                payload_status,
+                current_slot,
+                head_block.state_root(),
+            )
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 
@@ -1023,6 +1031,7 @@ where
             )),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
+            envelope_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             early_attester_cache: <_>::default(),

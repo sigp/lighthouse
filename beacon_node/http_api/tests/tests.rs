@@ -37,7 +37,7 @@ use proto_array::ExecutionStatus;
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
-use ssz::BitList;
+use ssz::{BitList, Decode};
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
@@ -1404,6 +1404,72 @@ impl ApiTester {
             // Check that the version header is returned in the response
             let fork_name = state.fork_name(&self.chain.spec).unwrap();
             assert_eq!(response.version(), Some(fork_name),);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_proposer_lookahead(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_proposer_lookahead(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.proposer_lookahead().unwrap();
+
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_proposer_lookahead_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_proposer_lookahead_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.proposer_lookahead().unwrap();
+
+            let ssz_bytes = result.unwrap();
+            let decoded = Vec::<u64>::from_ssz_bytes(&ssz_bytes)
+                .expect("should decode SSZ proposer lookahead");
+            assert_eq!(decoded, expected.to_vec());
         }
 
         self
@@ -3386,6 +3452,80 @@ impl ApiTester {
         // Requests to the epochs after the next epoch should fail.
         self.client
             .get_validator_duties_proposer(current_epoch + 2)
+            .await
+            .unwrap_err();
+
+        self
+    }
+
+    pub async fn test_get_validator_duties_proposer_v2(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+
+        for epoch in 0..=current_epoch.as_u64() + 1 {
+            let epoch = Epoch::from(epoch);
+
+            // Compute the true dependent root using the spec's decision slot.
+            let decision_slot = self.chain.spec.proposer_shuffling_decision_slot::<E>(epoch);
+            let dependent_root = self
+                .chain
+                .block_root_at_slot(decision_slot, WhenSlotSkipped::Prev)
+                .unwrap()
+                .unwrap_or(self.chain.head_beacon_block_root());
+
+            let result = self
+                .client
+                .get_validator_duties_proposer_v2(epoch)
+                .await
+                .unwrap();
+
+            let mut state = self
+                .chain
+                .state_at_slot(
+                    epoch.start_slot(E::slots_per_epoch()),
+                    StateSkipConfig::WithStateRoots,
+                )
+                .unwrap();
+
+            state
+                .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                .unwrap();
+
+            let expected_duties = epoch
+                .slot_iter(E::slots_per_epoch())
+                .map(|slot| {
+                    let index = state
+                        .get_beacon_proposer_index(slot, &self.chain.spec)
+                        .unwrap();
+                    let pubkey = state.validators().get(index).unwrap().pubkey;
+
+                    ProposerData {
+                        pubkey,
+                        validator_index: index as u64,
+                        slot,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let expected = DutiesResponse {
+                data: expected_duties,
+                execution_optimistic: Some(false),
+                dependent_root,
+            };
+
+            assert_eq!(result, expected);
+
+            // v1 and v2 should return the same data.
+            let v1_result = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap();
+            assert_eq!(result.data, v1_result.data);
+        }
+
+        // Requests to the epochs after the next epoch should fail.
+        self.client
+            .get_validator_duties_proposer_v2(current_epoch + 2)
             .await
             .unwrap_err();
 
@@ -7287,6 +7427,23 @@ async fn beacon_get_state_info_electra() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_state_info_fulu() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_states_proposer_lookahead()
+        .await
+        .test_beacon_states_proposer_lookahead_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get_blocks() {
     ApiTester::new()
         .await
@@ -7615,6 +7772,31 @@ async fn get_validator_duties_proposer_with_skip_slots() {
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_proposer()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_proposer_v2() {
+    ApiTester::new_from_config(ApiTesterConfig {
+        spec: test_spec::<E>(),
+        retain_historic_states: true,
+        ..ApiTesterConfig::default()
+    })
+    .await
+    .test_get_validator_duties_proposer_v2()
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_proposer_v2_with_skip_slots() {
+    ApiTester::new_from_config(ApiTesterConfig {
+        spec: test_spec::<E>(),
+        retain_historic_states: true,
+        ..ApiTesterConfig::default()
+    })
+    .await
+    .skip_slots(E::slots_per_epoch() * 2)
+    .test_get_validator_duties_proposer_v2()
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
