@@ -3268,7 +3268,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         if let Some(gossip_verified_envelope) = self
             .process_gossip_unverified_execution_payload_envelope(
-                message_id,
+                message_id.clone(),
                 peer_id,
                 envelope.clone(),
                 seen_timestamp,
@@ -3285,6 +3285,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             self.process_gossip_verified_execution_payload_envelope(
                 peer_id,
+                message_id,
                 gossip_verified_envelope,
             )
             .await;
@@ -3328,12 +3329,72 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "New envelope received"
                 );
 
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                self.propagate_validation_result(
+                    message_id.clone(),
+                    peer_id,
+                    MessageAcceptance::Accept,
+                );
 
                 verified_envelope
             }
-            // TODO(gloas) penalize peers accordingly
-            Err(_) => return None,
+            Err(e) => {
+                use beacon_chain::payload_envelope_verification::EnvelopeError;
+                match e {
+                    EnvelopeError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
+                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+
+                    EnvelopeError::BadSignature
+                    | EnvelopeError::BuilderIndexMismatch { .. }
+                    | EnvelopeError::SlotMismatch { .. }
+                    | EnvelopeError::BlockHashMismatch { .. }
+                    | EnvelopeError::UnknownValidator { .. }
+                    | EnvelopeError::IncorrectBlockProposer { .. }
+                    | EnvelopeError::ExecutionPayloadError(_) => {
+                        warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_envelope_low",
+                        );
+                    }
+
+                    EnvelopeError::BlockRootUnknown { .. }
+                    | EnvelopeError::PriorToFinalization { .. } => {
+                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+
+                    EnvelopeError::BeaconChainError(_)
+                    | EnvelopeError::BeaconStateError(_)
+                    | EnvelopeError::BlockProcessingError(_)
+                    | EnvelopeError::EnvelopeProcessingError(_)
+                    | EnvelopeError::BlockError(_)
+                    | EnvelopeError::InternalError(_) => {
+                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                }
+                return None;
+            }
         };
 
         let envelope_slot = verified_envelope.signed_envelope.slot();
@@ -3357,6 +3418,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     inner_self
                         .process_gossip_verified_execution_payload_envelope(
                             peer_id,
+                            message_id,
                             verified_envelope,
                         )
                         .await;
@@ -3381,7 +3443,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
-        _peer_id: PeerId,
+        peer_id: PeerId,
+        message_id: MessageId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
@@ -3407,8 +3470,46 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 // Nothing to do
             }
-            Err(_) => {
-                // TODO(gloas) implement peer penalties
+            Err(e) => {
+                use beacon_chain::payload_envelope_verification::EnvelopeError;
+                match e {
+                    EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {
+                        debug!(error = ?e, "Envelope processing failed. Ignoring");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    EnvelopeError::BadSignature
+                    | EnvelopeError::BuilderIndexMismatch { .. }
+                    | EnvelopeError::SlotMismatch { .. }
+                    | EnvelopeError::BlockHashMismatch { .. }
+                    | EnvelopeError::UnknownValidator { .. }
+                    | EnvelopeError::IncorrectBlockProposer { .. }
+                    | EnvelopeError::ExecutionPayloadError(_) => {
+                        warn!(error = ?e, "Envelope processing failed. Rejecting");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_envelope_processing_low",
+                        );
+                    }
+
+                    _ => {
+                        debug!(error = ?e, "Envelope processing failed. Ignoring");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                }
             }
         }
     }
