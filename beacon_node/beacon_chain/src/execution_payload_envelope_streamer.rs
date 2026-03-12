@@ -96,9 +96,8 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                         };
 
                         let Some(child_root) = child_root_opt else {
-                            // No child root provided, skip verification
-                            // TODO(gloas) envelopes by root skips verificiation completely
-                            // envelopes by range skips verification for the last envelope
+                            // No child root provided, skip verification.
+                            // TODO(gloas)  envelopes by range skips verification for the last envelope
                             // it returns.
                             results.push((*root, Ok(opt_envelope)));
                             continue;
@@ -281,7 +280,7 @@ mod tests {
     }
 
     impl SlotEntry {
-        /// Wether the streamer should return an envelope for this entry.
+        /// Whether the streamer should return an envelope for this entry.
         fn expect_envelope(&self, is_last: bool, split_slot: Option<Slot>) -> bool {
             if self.envelope.is_none() {
                 return false;
@@ -357,12 +356,13 @@ mod tests {
             let canonical_block_hash = ExecutionBlockHash::from_root(Hash256::from_low_u64_be(i));
 
             // The bid always points to the latest *canonical* payload.
-            let mut bid = types::ExecutionPayloadBid::default();
-            bid.parent_block_hash = latest_canonical_block_hash;
-            bid.block_hash = canonical_block_hash;
-            bid.slot = slot;
             let signed_bid = SignedExecutionPayloadBid {
-                message: bid,
+                message: types::ExecutionPayloadBid {
+                    parent_block_hash: latest_canonical_block_hash,
+                    block_hash: canonical_block_hash,
+                    slot,
+                    ..Default::default()
+                },
                 signature: Signature::empty(),
             };
 
@@ -403,12 +403,12 @@ mod tests {
                     canonical_block_hash
                 };
 
-                let mut payload = ExecutionPayloadGloas::default();
-                payload.block_hash = stored_block_hash;
-
                 let env = SignedExecutionPayloadEnvelope {
                     message: ExecutionPayloadEnvelope {
-                        payload,
+                        payload: ExecutionPayloadGloas {
+                            block_hash: stored_block_hash,
+                            ..Default::default()
+                        },
                         execution_requests: Default::default(),
                         builder_index: 0,
                         beacon_block_root: block_root,
