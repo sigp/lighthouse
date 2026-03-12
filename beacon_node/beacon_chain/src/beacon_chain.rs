@@ -1139,7 +1139,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::type_complexity)]
     pub fn get_payload_envelopes(
         self: &Arc<Self>,
-        block_roots: Vec<Hash256>,
+        block_roots_with_children: Vec<(Hash256, Option<Hash256>)>,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1154,7 +1154,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store.clone(),
             self.task_executor.clone(),
         )?
-        .launch_stream(block_roots))
+        .launch_stream(block_roots_with_children))
     }
 
     pub fn get_data_columns_checking_all_caches(

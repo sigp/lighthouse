@@ -3,7 +3,6 @@ use std::sync::Arc;
 use bls::Hash256;
 use execution_layer::ExecutionLayer;
 use futures::Stream;
-use itertools::Itertools;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -77,24 +76,32 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
     async fn load_envelopes(
         self: &Arc<Self>,
-        beacon_block_roots: &[Hash256],
+        block_roots_with_children: &[(Hash256, Option<Hash256>)],
     ) -> Result<Vec<(Hash256, PayloadEnvelopeResult<T::EthSpec>)>, BeaconChainError> {
         let streamer = self.clone();
-        let roots = beacon_block_roots.to_vec();
+        let roots_with_children = block_roots_with_children.to_vec();
         let split_slot = streamer.store.get_split_info().slot;
         // Loading from the DB is slow -> spawn a blocking task
         self.task_executor
             .spawn_blocking_and_await(
                 move || {
-                    let last_root_opt = roots.last();
                     let mut results = Vec::new();
-                    for (root, child_root) in roots.iter().tuple_windows() {
+                    for (root, child_root_opt) in roots_with_children.iter() {
                         let opt_envelope = match streamer.load_envelope(root) {
                             Ok(opt_envelope) => opt_envelope,
                             Err(e) => {
                                 results.push((*root, Err(e)));
                                 continue;
                             }
+                        };
+
+                        let Some(child_root) = child_root_opt else {
+                            // No child root provided, skip verification
+                            // TODO(gloas) envelopes by root skips verificiation completely
+                            // envelopes by range skips verification for the last envelope
+                            // it returns.
+                            results.push((*root, Ok(opt_envelope)));
+                            continue;
                         };
 
                         // When loading envelopes on or after the split slot, we must cross reference the bid from the child beacon block.
@@ -137,19 +144,6 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                         }
                     }
 
-                    // Handle the last envelope.
-                    // TODO(gloas) Right now we are not verifying the last envelope against its child beacon block.
-                    // In the case where we are serving the head envelope, we cant verify. If its not the head envelope
-                    // we need to verify against its child block. We need to handle this case for both envelopes by range
-                    // and envelopes by root.
-                    if let Some(last_root) = last_root_opt {
-                        match streamer.load_envelope(last_root) {
-                            Ok(opt_envelope) => results.push((*last_root, Ok(opt_envelope))),
-                            Err(e) => {
-                                results.push((*last_root, Err(e)));
-                            }
-                        };
-                    }
                     results
                 },
                 "load_execution_payload_envelopes",
@@ -160,14 +154,14 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
     async fn stream_payload_envelopes(
         self: Arc<Self>,
-        beacon_block_roots: Vec<Hash256>,
+        beacon_block_roots_and_children: Vec<(Hash256, Option<Hash256>)>,
         sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)>,
     ) {
-        let results = match self.load_envelopes(&beacon_block_roots).await {
+        let results = match self.load_envelopes(&beacon_block_roots_and_children).await {
             Ok(results) => results,
             Err(e) => {
                 warn!(error = ?e, "Failed to load payload envelopes");
-                send_errors(&beacon_block_roots, sender, e).await;
+                send_errors(&beacon_block_roots_and_children, sender, e).await;
                 return;
             }
         };
@@ -181,16 +175,16 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
     pub fn launch_stream(
         self: Arc<Self>,
-        beacon_block_roots: Vec<Hash256>,
+        block_roots_with_children: Vec<(Hash256, Option<Hash256>)>,
     ) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
         let (envelope_tx, envelope_rx) = mpsc::unbounded_channel();
         debug!(
-            envelopes = beacon_block_roots.len(),
+            envelopes = block_roots_with_children.len(),
             "Launching a PayloadEnvelopeStreamer"
         );
         let executor = self.task_executor.clone();
         executor.spawn(
-            self.stream_payload_envelopes(beacon_block_roots, envelope_tx),
+            self.stream_payload_envelopes(block_roots_with_children, envelope_tx),
             "get_payload_envelopes_sender",
         );
         UnboundedReceiverStream::new(envelope_rx)
@@ -198,12 +192,12 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 }
 
 async fn send_errors<E: EthSpec>(
-    beacon_block_roots_and_slots: &[Hash256],
+    block_roots_with_children: &[(Hash256, Option<Hash256>)],
     sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<E>>)>,
     beacon_chain_error: BeaconChainError,
 ) {
     let result = Arc::new(Err(beacon_chain_error));
-    for beacon_block_root in beacon_block_roots_and_slots {
+    for (beacon_block_root, _) in block_roots_with_children {
         if sender.send((*beacon_block_root, result.clone())).is_err() {
             break;
         }
@@ -244,7 +238,7 @@ mod tests {
         /// The runtime must be kept alive for the stream to produce results.
         fn launch_stream(
             self,
-            block_roots: Vec<Hash256>,
+            roots_with_children: Vec<(Hash256, Option<Hash256>)>,
         ) -> (
             impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<E>>)>,
             task_executor::test_utils::TestRuntime,
@@ -252,7 +246,7 @@ mod tests {
             let streamer =
                 PayloadEnvelopeStreamer::<T>::new(Some(self.el), self.store, self.executor)
                     .unwrap();
-            (streamer.launch_stream(block_roots), self._runtime)
+            (streamer.launch_stream(roots_with_children), self._runtime)
         }
     }
 
@@ -304,6 +298,17 @@ mod tests {
             // no child block verification happens for envelopes before the split slot
             split_slot.is_some_and(|s| self.block.slot() < s)
         }
+    }
+
+    fn roots_with_children(chain: &[SlotEntry]) -> Vec<(Hash256, Option<Hash256>)> {
+        let mut result: Vec<(Hash256, Option<Hash256>)> = chain
+            .windows(2)
+            .map(|w| (w[0].block_root, Some(w[1].block_root)))
+            .collect();
+        if let Some(last) = chain.last() {
+            result.push((last.block_root, None));
+        }
+        result
     }
 
     fn assert_non_canonical_envelopes_in_db(store: &BeaconStore<T>, chain: &[SlotEntry]) {
@@ -501,8 +506,7 @@ mod tests {
         let chain = build_chain(8, &[], &[], &[]);
         store_chain(test.store(), &chain);
 
-        let block_roots: Vec<Hash256> = chain.iter().map(|e| e.block_root).collect();
-        let (mut stream, _runtime) = test.launch_stream(block_roots);
+        let (mut stream, _runtime) = test.launch_stream(roots_with_children(&chain));
 
         assert_stream_matches(&mut stream, &chain, None).await;
     }
@@ -515,8 +519,7 @@ mod tests {
         store_chain(test.store(), &chain);
         assert_non_canonical_envelopes_in_db(test.store(), &chain);
 
-        let block_roots: Vec<Hash256> = chain.iter().map(|e| e.block_root).collect();
-        let (mut stream, _runtime) = test.launch_stream(block_roots);
+        let (mut stream, _runtime) = test.launch_stream(roots_with_children(&chain));
 
         assert_stream_matches(&mut stream, &chain, None).await;
     }
@@ -539,8 +542,7 @@ mod tests {
         test.store()
             .set_split(split_slot, Hash256::zero(), Hash256::zero());
 
-        let block_roots: Vec<Hash256> = chain.iter().map(|e| e.block_root).collect();
-        let (mut stream, _runtime) = test.launch_stream(block_roots);
+        let (mut stream, _runtime) = test.launch_stream(roots_with_children(&chain));
 
         assert_stream_matches(&mut stream, &chain, Some(split_slot)).await;
     }
@@ -562,7 +564,7 @@ mod tests {
         let chain = build_chain(3, &[], &[], &[]);
         store_chain(test.store(), &chain);
 
-        let (mut stream, _runtime) = test.launch_stream(vec![chain[1].block_root]);
+        let (mut stream, _runtime) = test.launch_stream(vec![(chain[1].block_root, None)]);
 
         let (root, result) = stream.next().await.expect("should get one result");
         assert_eq!(root, chain[1].block_root);
@@ -603,9 +605,9 @@ mod tests {
             .unwrap();
 
         let roots = vec![
-            chain[0].block_root,
-            chain[1].block_root,
-            chain[2].block_root,
+            (chain[0].block_root, Some(chain[1].block_root)),
+            (chain[1].block_root, Some(chain[2].block_root)),
+            (chain[2].block_root, None),
         ];
         let (mut stream, _runtime) = test.launch_stream(roots);
 

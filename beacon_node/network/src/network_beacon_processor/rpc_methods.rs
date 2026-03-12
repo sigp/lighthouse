@@ -16,7 +16,7 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{Span, debug, error, field, instrument, warn};
+use tracing::{Span, debug, error, field, instrument, trace, warn};
 use types::data::BlobIdentifier;
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
@@ -303,10 +303,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let requested_envelopes = request.beacon_block_roots.len();
-        let mut envelope_stream = match self
-            .chain
-            .get_payload_envelopes(request.beacon_block_roots.to_vec())
-        {
+        let mut envelope_stream = match self.chain.get_payload_envelopes(
+            request
+                .beacon_block_roots
+                .iter()
+                .map(|root| (*root, None))
+                .collect(),
+        ) {
             Ok(envelope_stream) => envelope_stream,
             Err(e) => {
                 error!( error = ?e, "Error getting payload envelope stream");
@@ -1185,7 +1188,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        let mut envelope_stream = match self.chain.get_payload_envelopes(block_roots) {
+        let mut block_roots_with_children = block_roots
+            .windows(2)
+            .map(|w| (w[0], Some(w[1])))
+            .collect::<Vec<_>>();
+
+        if let Some(last) = block_roots.last() {
+            block_roots_with_children.push((*last, None));
+        }
+
+        let mut envelope_stream = match self.chain.get_payload_envelopes(block_roots_with_children)
+        {
             Ok(envelope_stream) => envelope_stream,
             Err(e) => {
                 error!(error = ?e, "Error getting payload envelope stream");
@@ -1201,7 +1214,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // Due to skip slots, blocks could be out of the range, we ensure they
                     // are in the range before sending
                     if envelope.slot() >= req_start_slot
-                        && envelope.slot() < req_start_slot + req.count
+                        && envelope.slot() < req_start_slot.saturating_add(req.count)
                     {
                         envelopes_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
@@ -1212,14 +1225,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
                 Ok(None) => {
-                    error!(
+                    trace!(
                         request = ?req,
                         %peer_id,
                         request_root = ?root,
-                        "Envelope in the chain is not in the store"
+                        "No envelope for block root"
                     );
-                    log_results(peer_id, envelopes_sent);
-                    return Err((RpcErrorResponse::ServerError, "Database inconsistency"));
                 }
                 Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                     debug!(
