@@ -43,7 +43,8 @@ use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
-    BlobInfo, DBColumn, HotColdDB, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreConfig,
+    get_data_column_key,
     hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
 };
@@ -5797,4 +5798,145 @@ fn get_blocks(
 
 fn clone_block<E: EthSpec>(block: &AvailableBlock<E>) -> AvailableBlock<E> {
     block.__clone_without_recv().unwrap()
+}
+
+#[tokio::test]
+async fn bench_data_column_custody_info_read() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    store
+        .put_data_column_custody_info(Some(Slot::new(1024)))
+        .unwrap();
+
+    // Warm up
+    for _ in 0..100 {
+        let _ = store.get_data_column_custody_info().unwrap();
+    }
+
+    let iterations = 10_000;
+    let start = std::time::Instant::now();
+    for _ in 0..iterations {
+        let info = store.get_data_column_custody_info().unwrap();
+        std::hint::black_box(&info);
+    }
+    let elapsed = start.elapsed();
+    let per_read = elapsed / iterations;
+    info!(
+        "DataColumnCustodyInfo read (Some): {per_read:?} per read ({iterations} iters, {elapsed:?} total)"
+    );
+
+    // Test None variant
+    store.put_data_column_custody_info(None).unwrap();
+    for _ in 0..100 {
+        let _ = store.get_data_column_custody_info().unwrap();
+    }
+
+    let start = std::time::Instant::now();
+    for _ in 0..iterations {
+        let info = store.get_data_column_custody_info().unwrap();
+        std::hint::black_box(&info);
+    }
+    let elapsed = start.elapsed();
+    let per_read = elapsed / iterations;
+    info!(
+        "DataColumnCustodyInfo read (None): {per_read:?} per read ({iterations} iters, {elapsed:?} total)"
+    );
+}
+
+#[tokio::test]
+async fn garbage_collect_dangling_blobs() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+
+    let orphan_root = Hash256::from_low_u64_be(9999);
+    let real_root = Hash256::from_low_u64_be(1234);
+
+    // Simulate orphaned blob (no corresponding block in hot_db).
+    store
+        .blobs_db
+        .do_atomically(vec![KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconBlob,
+            orphan_root.as_slice().to_vec(),
+            vec![1, 2, 3],
+        )])
+        .unwrap();
+
+    // Simulate orphaned data column.
+    store
+        .blobs_db
+        .do_atomically(vec![KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconDataColumn,
+            get_data_column_key(&orphan_root, &0),
+            vec![4, 5, 6],
+        )])
+        .unwrap();
+
+    // Simulate a real blob with a corresponding block in hot_db.
+    store
+        .blobs_db
+        .do_atomically(vec![KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconBlob,
+            real_root.as_slice().to_vec(),
+            vec![7, 8, 9],
+        )])
+        .unwrap();
+    store
+        .hot_db
+        .do_atomically(vec![KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconBlock,
+            real_root.as_slice().to_vec(),
+            vec![10, 11, 12],
+        )])
+        .unwrap();
+
+    // Verify both exist before GC.
+    assert!(
+        store
+            .blobs_db
+            .key_exists(DBColumn::BeaconBlob, orphan_root.as_slice())
+            .unwrap()
+    );
+    assert!(
+        store
+            .blobs_db
+            .key_exists(
+                DBColumn::BeaconDataColumn,
+                &get_data_column_key(&orphan_root, &0)
+            )
+            .unwrap()
+    );
+    assert!(
+        store
+            .blobs_db
+            .key_exists(DBColumn::BeaconBlob, real_root.as_slice())
+            .unwrap()
+    );
+
+    // Run GC.
+    store.garbage_collect_blobs().unwrap();
+
+    // Orphaned entries should be deleted.
+    assert!(
+        !store
+            .blobs_db
+            .key_exists(DBColumn::BeaconBlob, orphan_root.as_slice())
+            .unwrap()
+    );
+    assert!(
+        !store
+            .blobs_db
+            .key_exists(
+                DBColumn::BeaconDataColumn,
+                &get_data_column_key(&orphan_root, &0)
+            )
+            .unwrap()
+    );
+
+    // Real blob should still exist.
+    assert!(
+        store
+            .blobs_db
+            .key_exists(DBColumn::BeaconBlob, real_root.as_slice())
+            .unwrap()
+    );
 }

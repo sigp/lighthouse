@@ -36,7 +36,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, debug_span, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 use typenum::Unsigned;
 use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
@@ -1093,10 +1093,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// (which are frozen, and won't be deleted), or valid descendents of the finalized checkpoint
     /// (which will be deleted by this function but shouldn't be).
     pub fn delete_state(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
-        self.do_atomically(vec![StoreOp::DeleteState(
-            *state_root,
-            Some(slot),
-        )])
+        self.do_atomically(vec![StoreOp::DeleteState(*state_root, Some(slot))])
     }
 
     pub fn forwards_block_roots_iterator(
@@ -1325,10 +1322,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.delete_if(column, f)
     }
 
-    pub fn do_atomically(
-        &self,
-        batch: Vec<StoreOp<E>>,
-    ) -> Result<(), Error> {
+    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
         // FIXME(sproul): handle KVStoreOps for blob-metadata
         let (blobs_ops, hot_db_ops): (Vec<StoreOp<E>>, Vec<StoreOp<E>>) =
             batch.into_iter().partition(|store_op| match store_op {
@@ -3163,6 +3157,85 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.update_blob_or_data_column_info(start_epoch, end_slot, blob_info, data_column_info)?;
 
         debug!("Blob pruning complete");
+
+        Ok(())
+    }
+
+    /// Garbage collect blobs and data columns in the blob database that have no corresponding
+    /// block in the hot database.
+    ///
+    /// These orphaned entries can occur if the process crashes between writing blobs to the blob
+    /// database and writing their block to the hot database in `do_atomically`. Neither
+    /// `try_prune_blobs` nor finalization pruning will discover these entries because both iterate
+    /// known blocks rather than iterating the blob database directly.
+    ///
+    /// This method should be called from the migrator thread after finalization, where it won't
+    /// race with other database mutations.
+    pub fn garbage_collect_blobs(&self) -> Result<(), Error> {
+        // Collect unique block roots from both blob columns.
+        let mut orphaned_block_roots = HashSet::new();
+
+        for key_result in self
+            .blobs_db
+            .iter_column_keys::<Vec<u8>>(DBColumn::BeaconBlob)
+        {
+            let key = key_result?;
+            if key.len() >= 32 {
+                let block_root = Hash256::from_slice(&key[..32]);
+                if !self.block_exists(&block_root)? {
+                    orphaned_block_roots.insert(block_root);
+                }
+            }
+        }
+
+        for key_result in self
+            .blobs_db
+            .iter_column_keys::<Vec<u8>>(DBColumn::BeaconDataColumn)
+        {
+            let key = key_result?;
+            if key.len() >= 32 {
+                let block_root = Hash256::from_slice(&key[..32]);
+                if !self.block_exists(&block_root)? {
+                    orphaned_block_roots.insert(block_root);
+                }
+            }
+        }
+
+        if orphaned_block_roots.is_empty() {
+            return Ok(());
+        }
+
+        // Build batch of delete operations for all orphaned entries.
+        let mut delete_ops = Vec::new();
+
+        for block_root in &orphaned_block_roots {
+            // Delete BeaconBlob entry (key is just the block_root).
+            delete_ops.push(KeyValueStoreOp::DeleteKey(
+                DBColumn::BeaconBlob,
+                block_root.as_slice().to_vec(),
+            ));
+
+            // Delete all BeaconDataColumn entries for this block_root.
+            for column_index in 0..E::number_of_columns() as u64 {
+                delete_ops.push(KeyValueStoreOp::DeleteKey(
+                    DBColumn::BeaconDataColumn,
+                    get_data_column_key(block_root, &column_index),
+                ));
+            }
+        }
+
+        let num_roots = orphaned_block_roots.len();
+        info!(
+            orphaned_block_roots = num_roots,
+            "Garbage collecting orphaned blobs and data columns"
+        );
+
+        self.blobs_db.do_atomically(delete_ops)?;
+
+        debug!(
+            orphaned_block_roots = num_roots,
+            "Orphaned blob garbage collection complete"
+        );
 
         Ok(())
     }

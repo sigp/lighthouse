@@ -249,6 +249,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 "Blob pruning failed"
             );
         }
+        if let Err(e) = db.garbage_collect_blobs() {
+            error!(
+                error = ?e,
+                "Orphaned blob garbage collection failed"
+            );
+        }
     }
 
     /// If configured to run in the background, send `notif` to the background thread.
