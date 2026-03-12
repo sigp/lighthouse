@@ -239,7 +239,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             if let Some(wait_duration) = request.is_awaiting_download() {
                 // Note: an empty response is considered a successful response, so we may end up
                 // retrying many more times than `MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS`.
-                if request.download_failures > MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS {
+                if request.download_failures >= MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS {
                     return Err(Error::TooManyFailures);
                 }
 

@@ -21,7 +21,7 @@ macro_rules! envelope_verify {
 }
 
 /// The strategy to be used when validating the payloads state root.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Clone, Copy)]
 pub enum VerifyStateRoot {
     /// Validate state root.
@@ -241,8 +241,6 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
     // TODO(gloas): newPayload happens here in the spec, ensure we wire that up correctly
 
     process_deposit_requests_post_gloas(state, &execution_requests.deposits, spec)?;
-
-    // TODO(gloas): gotta update these
     process_withdrawal_requests(state, &execution_requests.withdrawals, spec)?;
     process_consolidation_requests(state, &execution_requests.consolidations, spec)?;
 

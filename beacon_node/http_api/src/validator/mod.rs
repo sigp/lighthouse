@@ -6,7 +6,7 @@ use crate::utils::{
     AnyVersionFilter, ChainFilter, EthV1Filter, NetworkTxFilter, NotWhileSyncingFilter,
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
-use crate::version::V3;
+use crate::version::{V1, V2, V3, unsupported_version_rejection};
 use crate::{StateId, attester_duties, proposer_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -727,6 +727,18 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                                 debug!(error = %e, "Could not send message to the network service. \
                                 Likely shutdown")
                             });
+
+                            // Write the updated custody context to disk. This happens at most 128
+                            // times ever, so the I/O burden should be extremely minimal. Without a
+                            // write here we risk forgetting custody backfill progress upon an
+                            // unclean shutdown. The custody context is otherwise only persisted in
+                            // `BeaconChain::drop`.
+                            if let Err(error) = chain.persist_custody_context() {
+                                error!(
+                                    ?error,
+                                    "Failed to persist custody context after CGC update"
+                                );
+                            }
                         }
                     }
 
@@ -959,12 +971,12 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
 
 // GET validator/duties/proposer/{epoch}
 pub fn get_validator_duties_proposer<T: BeaconChainTypes>(
-    eth_v1: EthV1Filter,
+    any_version: AnyVersionFilter,
     chain_filter: ChainFilter<T>,
     not_while_syncing_filter: NotWhileSyncingFilter,
     task_spawner_filter: TaskSpawnerFilter<T>,
 ) -> ResponseFilter {
-    eth_v1
+    any_version
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("proposer"))
@@ -978,13 +990,20 @@ pub fn get_validator_duties_proposer<T: BeaconChainTypes>(
         .and(task_spawner_filter)
         .and(chain_filter)
         .then(
-            |epoch: Epoch,
+            |endpoint_version: EndpointVersion,
+             epoch: Epoch,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
-                    proposer_duties::proposer_duties(epoch, &chain)
+                    if endpoint_version == V1 {
+                        proposer_duties::proposer_duties(epoch, &chain)
+                    } else if endpoint_version == V2 {
+                        proposer_duties::proposer_duties_v2(epoch, &chain)
+                    } else {
+                        Err(unsupported_version_rejection(endpoint_version))
+                    }
                 })
             },
         )

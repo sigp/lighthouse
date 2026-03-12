@@ -77,8 +77,6 @@ const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
-// Generally the timeout for events should be longer than a slot.
-const HTTP_GET_EVENTS_TIMEOUT_MULTIPLIER: u32 = 50;
 const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
 
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
@@ -99,7 +97,6 @@ pub struct Timeouts {
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
     pub get_validator_block: Duration,
-    pub events: Duration,
     pub default: Duration,
 }
 
@@ -120,7 +117,6 @@ impl Timeouts {
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
             get_validator_block: timeout,
-            events: HTTP_GET_EVENTS_TIMEOUT_MULTIPLIER * timeout,
             default: timeout,
         }
     }
@@ -143,7 +139,6 @@ impl Timeouts {
             get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
             get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
             get_validator_block: base_timeout / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
-            events: HTTP_GET_EVENTS_TIMEOUT_MULTIPLIER * base_timeout,
             default: base_timeout / HTTP_DEFAULT_TIMEOUT_QUOTIENT,
         }
     }
@@ -901,6 +896,47 @@ impl BeaconNodeHttpClient {
         self.get_fork_contextual(path, |fork| fork)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET beacon/states/{state_id}/proposer_lookahead`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_proposer_lookahead(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<ValidatorIndexData>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("proposer_lookahead");
+
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET beacon/states/{state_id}/proposer_lookahead`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_proposer_lookahead_ssz(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("proposer_lookahead");
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `GET beacon/light_client/updates`
@@ -2149,6 +2185,24 @@ impl BeaconNodeHttpClient {
             .await
     }
 
+    /// `GET v2/validator/duties/proposer/{epoch}`
+    pub async fn get_validator_duties_proposer_v2(
+        &self,
+        epoch: Epoch,
+    ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("proposer")
+            .push(&epoch.to_string());
+
+        self.get_with_timeout(path, self.timeouts.proposer_duties)
+            .await
+    }
+
     /// `GET v2/validator/blocks/{slot}`
     pub async fn get_validator_blocks<E: EthSpec>(
         &self,
@@ -3079,10 +3133,14 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
+        // Do not use a timeout for the events endpoint. Using a regular timeout will trigger a
+        // timeout every `timeout` seconds, regardless of any data streamed from the endpoint.
+        // In future we could add a read_timeout, but that can only be configured globally on the
+        // Client.
         let mut es = self
             .client
             .get(path)
-            .timeout(self.timeouts.events)
+            .timeout(Duration::MAX)
             .eventsource()
             .map_err(Error::SseEventSource)?;
         // If we don't await `Event::Open` here, then the consumer

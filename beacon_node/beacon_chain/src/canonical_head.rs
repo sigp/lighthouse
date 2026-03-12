@@ -305,8 +305,16 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .get_full_block(&beacon_block_root)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let current_slot = fork_choice.fc_store().get_current_slot();
+
+        // TODO(gloas): pass a better payload status once fork choice is implemented
+        let payload_status = StatePayloadStatus::Pending;
         let (_, beacon_state) = store
-            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
+            .get_advanced_hot_state(
+                beacon_block_root,
+                payload_status,
+                current_slot,
+                beacon_block.state_root(),
+            )?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {
@@ -673,10 +681,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
+                // TODO(gloas): update once we have fork choice
+                let payload_status = StatePayloadStatus::Pending;
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(
                         new_view.head_block_root,
+                        payload_status,
                         current_slot,
                         beacon_block.state_root(),
                     )?

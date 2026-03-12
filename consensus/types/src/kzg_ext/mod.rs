@@ -1,6 +1,6 @@
 pub mod consts;
 
-pub use kzg::{Blob as KzgBlob, Error as KzgError, Kzg, KzgCommitment, KzgProof};
+pub use kzg::{Error as KzgError, Kzg, KzgCommitment, KzgProof};
 
 use ssz_types::VariableList;
 
