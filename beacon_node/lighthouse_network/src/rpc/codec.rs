@@ -562,7 +562,7 @@ fn handle_rpc_request<E: EthSpec>(
             RequestType::PayloadEnvelopesByRoot(PayloadEnvelopesByRootRequest {
                 beacon_block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blocks(current_fork),
+                    spec.max_request_payloads(),
                 )?,
             }),
         )),
