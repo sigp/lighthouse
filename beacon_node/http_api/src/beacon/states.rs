@@ -9,7 +9,7 @@ use crate::version::{
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::{
     self as api_types, ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
-    ValidatorsRequestBody,
+    ValidatorIndexData, ValidatorsRequestBody,
 };
 use ssz::Encode;
 use std::sync::Arc;
@@ -213,7 +213,7 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
                             ResponseIncludesVersion::Yes(fork_name),
                             execution_optimistic,
                             finalized,
-                            data,
+                            ValidatorIndexData(data),
                         )
                         .map(|res| warp::reply::json(&res).into_response()),
                     }
