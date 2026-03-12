@@ -357,6 +357,7 @@ pub fn prune_payloads<E: EthSpec>(
 pub fn prune_blobs<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
+    complete_pruning: bool,
 ) -> Result<(), Error> {
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
@@ -372,9 +373,13 @@ pub fn prune_blobs<E: EthSpec>(
         spec.clone(),
     )?;
 
-    // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune` that
-    // bails out early by passing true to the force parameter.
-    db.try_prune_most_blobs(true)
+    if complete_pruning {
+        db.garbage_collect_blobs()
+    } else {
+        // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune`
+        // that bails out early by passing true to the force parameter.
+        db.try_prune_most_blobs(true)
+    }
 }
 
 pub struct PruneStatesConfig {
@@ -491,8 +496,8 @@ pub fn run<E: EthSpec>(
         cli::DatabaseManagerSubcommand::PrunePayloads(_) => {
             prune_payloads(client_config, &context).map_err(format_err)
         }
-        cli::DatabaseManagerSubcommand::PruneBlobs(_) => {
-            prune_blobs(client_config, &context).map_err(format_err)
+        cli::DatabaseManagerSubcommand::PruneBlobs(config) => {
+            prune_blobs(client_config, &context, config.complete_pruning).map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::PruneStates(prune_states_config) => {
             let prune_config = parse_prune_states_config(prune_states_config)?;

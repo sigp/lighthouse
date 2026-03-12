@@ -174,7 +174,17 @@ pub struct PrunePayloads {}
     about = "Prune blobs older than data availability boundary.",
     alias = "prune_blobs"
 )]
-pub struct PruneBlobs {}
+pub struct PruneBlobs {
+    #[clap(
+        long,
+        help = "Instead of normal pruning, scan the blob database for orphaned blobs and \
+                data columns that have no corresponding block and delete them. This is more \
+                expensive than regular pruning and should only be run with the beacon node \
+                stopped.",
+        help_heading = FLAG_HEADER
+    )]
+    pub complete_pruning: bool,
+}
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
