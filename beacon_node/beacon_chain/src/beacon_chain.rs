@@ -1136,36 +1136,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
-    /// Returns the execution payload envelopes at the given roots, if any.
-    ///
-    /// Will also check any associated caches. The expected use for this function is *only* for returning blocks requested
-    /// from P2P peers.
-    ///
-    /// ## Errors
-    ///
-    /// May return a database error.
-    #[allow(clippy::type_complexity)]
-    pub fn get_payload_envelopes_checking_caches(
-        self: &Arc<Self>,
-        block_roots: Vec<Hash256>,
-    ) -> Result<
-        impl Stream<
-            Item = (
-                Hash256,
-                Arc<Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
-            ),
-        >,
-        Error,
-    > {
-        Ok(PayloadEnvelopeStreamer::<T>::new(
-            self.execution_layer.clone(),
-            self.store.clone(),
-            self.task_executor.clone(),
-            CheckCaches::Yes,
-        )?
-        .launch_stream(block_roots))
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn get_payload_envelopes(
         self: &Arc<Self>,
@@ -1183,7 +1153,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.execution_layer.clone(),
             self.store.clone(),
             self.task_executor.clone(),
-            CheckCaches::No,
         )?
         .launch_stream(block_roots))
     }

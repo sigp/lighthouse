@@ -2,6 +2,7 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
+use crate::execution_payload_envelope_streamer::Error as EnvelopeStreamerError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -157,6 +158,7 @@ pub enum BeaconChainError {
         reconstructed_transactions_root: Hash256,
     },
     BlockStreamerError(BlockStreamerError),
+    EnvelopeStreamerError(EnvelopeStreamerError),
     AddPayloadLogicError,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
     PrepareProposerFailed(BlockProcessingError),

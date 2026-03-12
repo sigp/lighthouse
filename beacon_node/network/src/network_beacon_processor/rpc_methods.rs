@@ -305,7 +305,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let requested_envelopes = request.beacon_block_roots.len();
         let mut envelope_stream = match self
             .chain
-            .get_payload_envelopes_checking_caches(request.beacon_block_roots.to_vec())
+            .get_payload_envelopes(request.beacon_block_roots.to_vec())
         {
             Ok(envelope_stream) => envelope_stream,
             Err(e) => {
