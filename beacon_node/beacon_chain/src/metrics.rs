@@ -22,6 +22,34 @@ pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &s
     "validator_monitor_attestation_simulator_source_attester_miss_total";
 
 /*
+* Execution Payload Envelope Processing
+*/
+
+pub static ENVELOPE_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "payload_envelope_processing_requests_total",
+        "Count of payload envelopes submitted for processing",
+    )
+});
+pub static ENVELOPE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "payload_envelope_processing_successes_total",
+        "Count of payload envelopes processed without error",
+    )
+});
+pub static ENVELOPE_PROCESSING_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "payload_envelope_processing_seconds",
+        "Full runtime of payload envelope processing",
+    )
+});
+pub static ENVELOPE_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "payload_envelope_processing_db_write_seconds",
+        "Time spent writing a newly processed payload envelope and state to DB",
+    )
+});
+/*
  * Block Processing
  */
 pub static BLOCK_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {

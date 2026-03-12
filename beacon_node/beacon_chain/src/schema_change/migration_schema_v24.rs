@@ -16,6 +16,7 @@ use store::{
 use tracing::{debug, info, warn};
 use types::{
     BeaconState, CACHED_EPOCHS, ChainSpec, Checkpoint, CommitteeCache, EthSpec, Hash256, Slot,
+    execution::StatePayloadStatus,
 };
 
 /// We stopped using the pruning checkpoint in schema v23 but never explicitly deleted it.
@@ -58,6 +59,7 @@ pub fn get_state_v22<T: BeaconChainTypes>(
         base_state,
         summary.slot,
         summary.latest_block_root,
+        StatePayloadStatus::Pending,
         update_cache,
     )
     .map(Some)

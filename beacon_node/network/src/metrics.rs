@@ -470,6 +470,13 @@ pub static SYNCING_CHAIN_BATCH_AWAITING_PROCESSING: LazyLock<Result<Histogram>> 
             ]),
         )
     });
+pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "sync_batches",
+        "Number of batches in sync chains by sync type and state",
+        &["sync_type", "state"],
+    )
+});
 pub static SYNC_SINGLE_BLOCK_LOOKUPS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "sync_single_block_lookups",
@@ -537,6 +544,16 @@ pub static SYNC_RPC_REQUEST_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new
             0.001, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 1.0, 2.0,
         ]),
         &["protocol"],
+    )
+});
+
+/*
+ * Execution Payload Envelope Delay Metrics
+ */
+pub static ENVELOPE_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "payload_envelope_delay_gossip",
+        "The first time we see this payload envelope from gossip as a delay from the start of the slot",
     )
 });
 

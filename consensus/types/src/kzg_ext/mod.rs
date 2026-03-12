@@ -1,6 +1,6 @@
 pub mod consts;
 
-pub use kzg::{Blob as KzgBlob, Error as KzgError, Kzg, KzgCommitment, KzgProof};
+pub use kzg::{Error as KzgError, Kzg, KzgCommitment, KzgProof};
 
 use crate::core::EthSpec;
 use crate::{BeaconStateError, Hash256};
