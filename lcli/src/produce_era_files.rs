@@ -67,8 +67,9 @@ pub fn run<E: EthSpec>(env: Environment<E>, matches: &ArgMatches) -> Result<(), 
     }
 
     let slots_per_historical_root = E::slots_per_historical_root() as u64;
-    // An ERA can only be created if its end slot <= split slot (finalized boundary)
-    let max_era = split.slot.as_u64() / slots_per_historical_root;
+    // Only produce ERAs whose end state is in cold storage (before the split slot).
+    // The split state itself lives in the hot DB and is not accessible via load_cold_state_by_slot.
+    let max_era = split.slot.as_u64().saturating_sub(1) / slots_per_historical_root;
 
     info!(max_era, "Producing ERA files from 0 to max_era");
 

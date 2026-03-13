@@ -32,7 +32,7 @@ use rayon::prelude::*;
 use reth_era::common::file_ops::StreamReader;
 use reth_era::era::file::EraReader;
 use reth_era::era::types::consensus::{CompressedBeaconState, CompressedSignedBeaconBlock};
-use ssz::Encode;
+
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -771,18 +771,9 @@ fn write_state_root_index_for_era<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore
         let state_root = state
             .get_state_root(slot)
             .map_err(|error| format!("failed to read state root {slot}: {error:?}"))?;
-        // Slot → state_root (used by forwards_state_roots_iterator)
-        ops.push(KeyValueStoreOp::PutKeyValue(
-            DBColumn::BeaconStateRoots,
-            slot_u64.to_be_bytes().to_vec(),
-            state_root.as_slice().to_vec(),
-        ));
-        // State_root → slot (used by load_cold_state to find the slot for reconstruction)
-        ops.push(KeyValueStoreOp::PutKeyValue(
-            DBColumn::BeaconColdStateSummary,
-            state_root.as_slice().to_vec(),
-            slot.as_ssz_bytes(),
-        ));
+        store
+            .store_cold_state_summary(state_root, slot, &mut ops)
+            .map_err(|error| format!("failed to build state root index op: {error:?}"))?;
     }
 
     store

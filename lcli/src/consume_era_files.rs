@@ -1,9 +1,11 @@
 use beacon_chain::era::consumer::{EraFileDir, EraImportTrust};
+use beacon_chain::era::store_init::init_genesis_store;
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use environment::Environment;
 use eth2_network_config::Eth2NetworkConfig;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
@@ -54,15 +56,17 @@ pub fn run<E: EthSpec>(
     std::fs::create_dir_all(&blobs_path)
         .map_err(|e| format!("Failed to create blobs db dir: {e}"))?;
 
-    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
-        &hot_path,
-        &cold_path,
-        &blobs_path,
-        |_, _, _| Ok(()),
-        StoreConfig::default(),
-        spec.clone(),
-    )
-    .map_err(|e| format!("Failed to open database: {e:?}"))?;
+    let db = Arc::new(
+        HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
+            &hot_path,
+            &cold_path,
+            &blobs_path,
+            |_, _, _| Ok(()),
+            StoreConfig::default(),
+            spec.clone(),
+        )
+        .map_err(|e| format!("Failed to open database: {e:?}"))?,
+    );
 
     let mut genesis_state = env
         .runtime()
@@ -71,11 +75,9 @@ pub fn run<E: EthSpec>(
         .ok_or("No genesis state available for this network")?;
 
     let genesis_validators_root = genesis_state.genesis_validators_root();
-    let genesis_state_root = genesis_state
-        .canonical_root()
-        .map_err(|e| format!("Failed to hash genesis state: {e:?}"))?;
-    db.put_cold_state(&genesis_state_root, &genesis_state)
-        .map_err(|e| format!("Failed to store genesis state: {e:?}"))?;
+
+    init_genesis_store(&db, &mut genesis_state, &spec)
+        .map_err(|e| format!("Failed to initialize store from genesis: {e}"))?;
 
     let trust = match matches.get_one::<String>("era-trusted-state") {
         Some(value) => {
