@@ -18,7 +18,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::{DBColumn, HotColdDB, KeyValueStore, StoreConfig};
-use types::{BeaconState, ChainSpec, Config, EthSpec, Hash256, MinimalEthSpec, Slot};
+use types::{
+    BeaconState, ChainSpec, Config, EthSpec, Hash256, MinimalEthSpec, SignedBeaconBlock, Slot,
+};
 
 const MAX_ERA: u64 = 12;
 
@@ -220,6 +222,7 @@ fn era_test_vectors() {
     rejects_wrong_block_root();
     rejects_mutated_reference_state_with_trusted_root();
     rejects_wrong_trusted_state_root();
+    producer_skips_boundary_block_from_previous_era();
 }
 
 fn consumer_imports_and_verifies() {
@@ -493,4 +496,95 @@ fn chain_boots_from_imported_db(store: Arc<TestStore>, spec: &ChainSpec, metadat
         block_count > head_slot / 2,
         "too few blocks found: {block_count} out of {head_slot} slots"
     );
+}
+
+/// Regression test: when the first slot of an ERA's block range is missed, the producer must
+/// NOT include the block from the previous ERA.
+///
+/// Background: `state.get_block_root(slot)` returns the most recent block root at or before
+/// `slot`. For a missed boundary slot, this is the last block of the prior ERA. The producer
+/// must detect this duplicate and skip it by checking `block.slot() >= start_slot`.
+///
+/// This test synthetically creates a missed boundary slot by:
+/// 1. Loading the state from the previous ERA to get the root of the last block before the boundary
+/// 2. Modifying the target ERA's state so the boundary slot's block_root points to that old block
+/// 3. Verifying `build_era_group` does not include the out-of-range block
+fn producer_skips_boundary_block_from_previous_era() {
+    let (store, spec) = import_eras(EraImportTrust::Untrusted);
+    let slots_per_era = MinimalEthSpec::slots_per_historical_root() as u64;
+
+    // Use ERA 5 (block range: slots 256..320, state at slot 320).
+    // We'll make slot 256 a "miss" by pointing its block_root to a block from ERA 4.
+    let target_era: u64 = 5;
+    let start_slot = Slot::new((target_era - 1) * slots_per_era); // slot 256
+    let end_slot = Slot::new(target_era * slots_per_era); // slot 320
+
+    // Load the state at ERA 4's end slot (slot 256) to get the root of the last block
+    // before the ERA 5 boundary. The previous ERA's state covers slots 192..255.
+    let prev_era_end = Slot::new((target_era - 1) * slots_per_era); // slot 256
+    let prev_state = store
+        .load_cold_state_by_slot(prev_era_end)
+        .expect("load prev ERA state");
+    // Slot 255 is the last slot in ERA 4's block range
+    let last_prev_slot = Slot::new(start_slot.as_u64() - 1); // slot 255
+    let prev_block_root = *prev_state
+        .get_block_root(last_prev_slot)
+        .expect("get root for last slot of previous ERA");
+
+    // Verify the block at that root actually has slot < start_slot
+    let prev_block = store
+        .get_blinded_block(&prev_block_root)
+        .expect("query")
+        .expect("block exists");
+    assert!(
+        prev_block.slot() < start_slot,
+        "precondition: block at root should have slot < {start_slot}, got {}",
+        prev_block.slot()
+    );
+
+    // Load the state at ERA 5's end slot
+    let mut state = store
+        .load_cold_state_by_slot(end_slot)
+        .expect("load state at end_slot");
+    assert_eq!(state.slot(), end_slot);
+
+    // Count blocks before modification (baseline)
+    let baseline = super::producer::build_era_group::<MinimalEthSpec, _, _>(
+        &store,
+        &mut state.clone(),
+        target_era,
+    )
+    .expect("baseline build_era_group");
+    let baseline_count = baseline.blocks.len();
+
+    // Simulate missed boundary slot: set block_root for slot 256 to the root of
+    // a block from ERA 4. This mimics what happens when no block is proposed at slot 256.
+    state
+        .set_block_root(start_slot, prev_block_root)
+        .expect("set block root");
+
+    // Now build the ERA group with the modified state
+    let group =
+        super::producer::build_era_group::<MinimalEthSpec, _, _>(&store, &mut state, target_era)
+            .expect("build_era_group with missed boundary");
+
+    // The modified ERA should have one fewer block (the boundary slot is now "missed")
+    assert_eq!(
+        group.blocks.len(),
+        baseline_count - 1,
+        "missed boundary slot should produce one fewer block"
+    );
+
+    // Verify no block in the produced group has a slot before the boundary
+    for block in &group.blocks {
+        let bytes = block.decompress().expect("decompress block");
+        let decoded =
+            SignedBeaconBlock::<MinimalEthSpec>::from_ssz_bytes(&bytes, &spec).expect("decode");
+        assert!(
+            decoded.slot() >= start_slot,
+            "block at slot {} is before ERA start slot {} — boundary block leak",
+            decoded.slot(),
+            start_slot,
+        );
+    }
 }

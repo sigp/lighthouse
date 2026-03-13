@@ -144,7 +144,7 @@ pub fn create_era_file<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     Ok(())
 }
 
-fn build_era_group<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub(super) fn build_era_group<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     db: &HotColdDB<E, Hot, Cold>,
     state: &mut BeaconState<E>,
     era_number: u64,
@@ -170,7 +170,8 @@ fn build_era_group<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 .get_block_root(slot)
                 .map_err(|error| format!("failed to read block root {slot}: {error:?}"))?;
 
-            // Skip duplicate blocks (same root as previous slot), but only within this ERA
+            // Skip missed slots: if this slot's block root matches the previous slot's,
+            // no block was proposed here.
             if slot_u64 > start_slot.as_u64()
                 && let Ok(prev_root) = state.get_block_root(Slot::new(slot_u64 - 1))
                 && prev_root == block_root
@@ -185,6 +186,13 @@ fn build_era_group<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             let block = db
                 .make_full_block(block_root, blinded_block)
                 .map_err(|error| format!("failed to load block: {error:?}"))?;
+
+            // Skip blocks whose actual slot is before this ERA's range. This handles
+            // the boundary case: when the first slot of the range is missed,
+            // get_block_root returns a block from the previous ERA's range.
+            if block.slot() < start_slot {
+                continue;
+            }
 
             let compressed = CompressedSignedBeaconBlock::from_ssz(&block.as_ssz_bytes())
                 .map_err(|error| format!("failed to compress block: {error:?}"))?;

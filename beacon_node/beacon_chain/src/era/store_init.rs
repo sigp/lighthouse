@@ -80,6 +80,7 @@ pub fn init_genesis_store<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     let snapshot = BeaconSnapshot {
         beacon_block_root: block_root,
         beacon_block: Arc::new(signed_block),
+        execution_envelope: None,
         beacon_state: genesis_state.clone(),
     };
     let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())

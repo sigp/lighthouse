@@ -210,10 +210,56 @@ impl EraFileDir {
     ) -> Result<(), String> {
         let start = std::time::Instant::now();
         let max_era = self.max_era;
-        for era_number in 1..=max_era {
+        let slots_per_historical_root = E::slots_per_historical_root() as u64;
+
+        // Resume from last successfully imported ERA
+        let imported_pointer = store
+            .get_era_import_pointer()
+            .map_err(|e| format!("ERA import pointer read failed: {e:?}"))?
+            .unwrap_or(0);
+
+        info!(
+            max_era,
+            resume_from = imported_pointer + 1,
+            "Importing ERA files"
+        );
+
+        let mut last_log = std::time::Instant::now();
+        for era_number in imported_pointer + 1..=max_era {
             self.import_era_file(store, era_number, spec)?;
-            info!(era_number, max_era, "Imported era file");
+
+            // Persist progress pointer after each ERA
+            store
+                .set_era_import_pointer(era_number)
+                .map_err(|e| format!("ERA import pointer write failed: {e:?}"))?;
+
+            // Rate-limited progress logging (every 5 seconds)
+            let now = std::time::Instant::now();
+            if now.duration_since(last_log) >= std::time::Duration::from_secs(5) {
+                last_log = now;
+                let done_slots = era_number * slots_per_historical_root;
+                let total_slots = max_era * slots_per_historical_root;
+                info!(
+                    completed_era_files = era_number,
+                    total_era_files = max_era,
+                    completed_slots = done_slots,
+                    total_slots,
+                    "Importing ERA files"
+                );
+            }
         }
+
+        info!(
+            max_era,
+            "ERA file import complete, starting state reconstruction"
+        );
+
+        // Parallel state reconstruction
+        self.reconstruct_states_parallel::<E, Hot, Cold>(
+            store,
+            max_era,
+            slots_per_historical_root,
+        )?;
 
         // Advance the store metadata from genesis to the latest ERA boundary.
         self.advance_store_to_era::<E, Hot, Cold>(store, spec)?;
@@ -221,8 +267,61 @@ impl EraFileDir {
         info!(
             max_era,
             elapsed = ?start.elapsed(),
-            "ERA file import complete"
+            "ERA file import and reconstruction complete"
         );
+
+        Ok(())
+    }
+
+    /// Reconstruct all intermediate states in parallel using rayon.
+    ///
+    /// Each ERA's states are reconstructed independently by replaying blocks from the
+    /// ERA boundary state. Progress is tracked per-ERA so reconstruction can resume
+    /// after a crash.
+    fn reconstruct_states_parallel<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+        &self,
+        store: &Arc<HotColdDB<E, Hot, Cold>>,
+        max_era: u64,
+        slots_per_historical_root: u64,
+    ) -> Result<(), String> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let total_era_files = max_era;
+        let completed = Arc::new(AtomicU64::new(0));
+        let progress = Arc::new(parking_lot::Mutex::new(std::time::Instant::now()));
+
+        (1..=max_era).into_par_iter().try_for_each(|era_number| {
+            let already_done = store
+                .era_reconstruction_done(era_number)
+                .map_err(|e| format!("ERA reconstruction marker read failed: {e:?}"))?;
+
+            if !already_done {
+                let start_slot = Slot::new((era_number - 1) * slots_per_historical_root);
+                let end_slot = Slot::new(era_number * slots_per_historical_root);
+                store
+                    .reconstruct_historic_states_on_range(start_slot, end_slot, |_| Ok(()))
+                    .map_err(|e| {
+                        format!("ERA reconstruction failed for era {era_number}: {e:?}")
+                    })?;
+
+                store
+                    .set_era_reconstruction_done(era_number)
+                    .map_err(|e| format!("ERA reconstruction marker write failed: {e:?}"))?;
+            }
+
+            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            let now = std::time::Instant::now();
+            let mut last_log = progress.lock();
+            if now.duration_since(*last_log) >= std::time::Duration::from_secs(5) {
+                *last_log = now;
+                info!(
+                    completed_era_files = done,
+                    total_era_files, "Reconstructing states from ERA files"
+                );
+            }
+
+            Ok::<(), String>(())
+        })?;
 
         Ok(())
     }
@@ -268,14 +367,17 @@ impl EraFileDir {
             .get_block_root(last_block_slot)
             .map_err(|e| format!("failed to read head block root: {e:?}"))?;
 
-        // Update anchor to reflect imported ERA data:
+        // Update anchor to reflect imported and reconstructed ERA data:
         // - anchor_slot = head_slot so put_state uses Snapshot strategy
-        // - state_lower_limit = head_slot so state_root_at_slot sees all cold DB states as available
+        // - state_lower_limit = 0, state_upper_limit = 0: all historic states reconstructed
+        // - oldest_block_slot = 0: all blocks available
         {
             let old_anchor = store.get_anchor_info();
             let mut new_anchor = old_anchor.clone();
             new_anchor.anchor_slot = head_slot;
-            new_anchor.state_lower_limit = head_slot;
+            new_anchor.state_lower_limit = Slot::new(0);
+            new_anchor.state_upper_limit = Slot::new(0);
+            new_anchor.oldest_block_slot = Slot::new(0);
             store
                 .compare_and_set_anchor_info_with_write(old_anchor, new_anchor)
                 .map_err(|e| format!("failed to update anchor: {e:?}"))?;
