@@ -43,8 +43,8 @@ impl<E: EthSpec> LookupBlock<E> {
 /// A fully available block that has been constructed by range sync.
 /// The block contains all the data required to import into fork choice.
 /// This includes any and all blobs/columns required, including zero if
-/// none are required. This could happend if the block is pre-deneb or
-/// if it's simply past the DA boundary.
+/// none are required. This can happen if the block is pre-deneb or if
+/// it's simply past the DA boundary.
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
 pub struct RangeSyncBlock<E: EthSpec> {
