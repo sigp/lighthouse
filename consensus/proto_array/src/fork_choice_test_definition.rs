@@ -28,6 +28,7 @@ pub enum Operation {
         finalized_checkpoint: Checkpoint,
         justified_state_balances: Vec<u64>,
         expected_head: Hash256,
+        current_slot: Slot,
     },
     ProposerBoostFindHead {
         justified_checkpoint: Checkpoint,
@@ -147,6 +148,7 @@ impl ForkChoiceTestDefinition {
                     finalized_checkpoint,
                     justified_state_balances,
                     expected_head,
+                    current_slot,
                 } => {
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
@@ -158,7 +160,7 @@ impl ForkChoiceTestDefinition {
                             &justified_balances,
                             Hash256::zero(),
                             &equivocating_indices,
-                            Slot::new(0),
+                            current_slot,
                             &spec,
                         )
                         .unwrap_or_else(|e| {

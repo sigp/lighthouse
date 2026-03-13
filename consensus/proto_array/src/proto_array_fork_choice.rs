@@ -498,6 +498,11 @@ impl ProtoArrayForkChoice {
         })
     }
 
+    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), String> {
+        self.proto_array
+            .on_valid_execution_payload(block_root)
+            .map_err(|e| format!("Failed to process execution payload: {:?}", e))
+    }
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
     pub fn process_execution_payload_validation(
         &mut self,
@@ -718,7 +723,7 @@ impl ProtoArrayForkChoice {
 
         let parent_slot = parent_node.slot();
         let head_slot = head_node.slot();
-        let re_org_block_slot = head_slot + 1;
+        let re_org_block_slot = head_slot.saturating_add(1_u64);
 
         // Check finalization distance.
         let proposal_epoch = re_org_block_slot.epoch(E::slots_per_epoch());
@@ -1035,17 +1040,12 @@ impl ProtoArrayForkChoice {
         self.proto_array.iter_block_roots(block_root)
     }
 
-    pub fn as_ssz_container(
-        &self,
-    ) -> SszContainer {
+    pub fn as_ssz_container(&self) -> SszContainer {
         SszContainer::from_proto_array(self)
     }
 
-    pub fn as_bytes(
-        &self,
-    ) -> Vec<u8> {
-        self.as_ssz_container()
-            .as_ssz_bytes()
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.as_ssz_container().as_ssz_bytes()
     }
 
     pub fn from_bytes(bytes: &[u8], balances: JustifiedBalances) -> Result<Self, String> {
@@ -1321,8 +1321,8 @@ mod test_compute_deltas {
                     next_epoch_shuffling_id: junk_shuffling_id.clone(),
                     justified_checkpoint: genesis_checkpoint,
                     finalized_checkpoint: genesis_checkpoint,
-                    execution_status,
                     unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                    execution_status,
                     unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,

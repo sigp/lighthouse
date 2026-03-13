@@ -10,6 +10,7 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(0),
+        current_slot: Slot::new(0),
     });
 
     // Build the following tree (stick? lol).
@@ -63,6 +64,7 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     // Ensure that with justified epoch 1 we find 3
@@ -83,6 +85,7 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     // Ensure that with justified epoch 2 we find 3
@@ -99,6 +102,7 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(1),
         justified_state_balances: balances,
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     // END OF TESTS
@@ -123,6 +127,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(0),
+        current_slot: Slot::new(0),
     });
 
     // Build the following tree.
@@ -269,6 +274,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
     // Same as above, but with justified epoch 2.
     ops.push(Operation::FindHead {
@@ -279,6 +285,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
     // Same as above, but with justified epoch 3.
     //
@@ -293,6 +300,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
 
     // Add a vote to 1.
@@ -332,6 +340,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
     // Save as above but justified epoch 2.
     ops.push(Operation::FindHead {
@@ -342,6 +351,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
     // Save as above but justified epoch 3.
     //
@@ -356,6 +366,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Add a vote to 2.
@@ -395,6 +406,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
     // Same as above but justified epoch 2.
     ops.push(Operation::FindHead {
@@ -405,6 +417,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
     // Same as above but justified epoch 3.
     //
@@ -419,6 +432,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
 
     // Ensure that if we start at 1 we find 9 (just: 0, fin: 0).
@@ -442,6 +456,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
     // Same as above but justified epoch 2.
     ops.push(Operation::FindHead {
@@ -452,6 +467,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
     // Same as above but justified epoch 3.
     //
@@ -466,6 +482,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Ensure that if we start at 2 we find 10 (just: 0, fin: 0).
@@ -486,6 +503,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
     // Same as above but justified epoch 2.
     ops.push(Operation::FindHead {
@@ -496,6 +514,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
     // Same as above but justified epoch 3.
     //
@@ -510,6 +529,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances,
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
 
     // END OF TESTS

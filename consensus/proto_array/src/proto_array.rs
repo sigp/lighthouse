@@ -293,35 +293,38 @@ impl ProtoArray {
                 false
             };
 
-            let node_deltas = deltas
+            let node_delta = deltas
                 .get(node_index)
                 .copied()
                 .ok_or(Error::InvalidNodeDelta(node_index))?;
 
-            let mut node_delta = if execution_status_is_invalid {
+            let mut delta = if execution_status_is_invalid {
                 // If the node has an invalid execution payload, reduce its weight to zero.
                 0_i64
                     .checked_sub(node.weight() as i64)
                     .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
             } else {
-                node_deltas.delta
+                node_delta.delta
             };
 
             let (node_empty_delta, node_full_delta) = if node.as_v29().is_ok() {
-                (node_deltas.empty_delta, node_deltas.full_delta)
+                (node_delta.empty_delta, node_delta.full_delta)
             } else {
                 (0, 0)
             };
 
             // If we find the node for which the proposer boost was previously applied, decrease
             // the delta by the previous score amount.
+            // TODO(gloas): implement `should_apply_proposer_boost` from the Gloas spec.
+            // The spec conditionally applies proposer boost based on parent weakness and
+            // early equivocations. Currently boost is applied unconditionally.
             if self.previous_proposer_boost.root != Hash256::zero()
                 && self.previous_proposer_boost.root == node.root()
                 // Invalid nodes will always have a weight of zero so there's no need to subtract
                 // the proposer boost delta.
                 && !execution_status_is_invalid
             {
-                node_delta = node_delta
+                delta = delta
                     .checked_sub(self.previous_proposer_boost.score as i64)
                     .ok_or(Error::DeltaOverflow(node_index))?;
             }
@@ -329,6 +332,10 @@ impl ProtoArray {
             // the delta by the new score amount (unless the block has an invalid execution status).
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
+            //
+            // TODO(gloas): proposer boost should also be subtracted from `empty_delta` per spec,
+            // since the spec creates a virtual vote with `payload_present=False` for the proposer
+            // boost, biasing toward Empty for non-current-slot payload decisions.
             if let Some(proposer_score_boost) = spec.proposer_score_boost
                 && proposer_boost_root != Hash256::zero()
                     && proposer_boost_root == node.root()
@@ -338,7 +345,7 @@ impl ProtoArray {
                 proposer_score =
                     calculate_committee_fraction::<E>(new_justified_balances, proposer_score_boost)
                         .ok_or(Error::ProposerBoostOverflow(node_index))?;
-                node_delta = node_delta
+                delta = delta
                     .checked_add(proposer_score as i64)
                     .ok_or(Error::DeltaOverflow(node_index))?;
             }
@@ -347,7 +354,7 @@ impl ProtoArray {
             if execution_status_is_invalid {
                 *node.weight_mut() = 0;
             } else {
-                *node.weight_mut() = apply_delta(node.weight(), node_delta, node_index)?;
+                *node.weight_mut() = apply_delta(node.weight(), delta, node_index)?;
             }
 
             // Apply post-Gloas score deltas.
@@ -356,7 +363,7 @@ impl ProtoArray {
                     apply_delta(node.empty_payload_weight, node_empty_delta, node_index)?;
                 node.full_payload_weight =
                     apply_delta(node.full_payload_weight, node_full_delta, node_index)?;
-                if let Some(payload_tiebreaker) = node_deltas.payload_tiebreaker {
+                if let Some(payload_tiebreaker) = node_delta.payload_tiebreaker {
                     node.payload_tiebreak = payload_tiebreaker;
                 }
             }
@@ -370,7 +377,7 @@ impl ProtoArray {
                 // Back-propagate the node's delta to its parent.
                 parent_delta.delta = parent_delta
                     .delta
-                    .checked_add(node_delta)
+                    .checked_add(delta)
                     .ok_or(Error::DeltaOverflow(parent_index))?;
 
                 // Per spec's `is_supporting_vote`: a vote for descendant B supports
@@ -381,13 +388,13 @@ impl ProtoArray {
                     Ok(PayloadStatus::Full) => {
                         parent_delta.full_delta = parent_delta
                             .full_delta
-                            .checked_add(node_delta)
+                            .checked_add(delta)
                             .ok_or(Error::DeltaOverflow(parent_index))?;
                     }
                     Ok(PayloadStatus::Empty) => {
                         parent_delta.empty_delta = parent_delta
                             .empty_delta
-                            .checked_add(node_delta)
+                            .checked_add(delta)
                             .ok_or(Error::DeltaOverflow(parent_index))?;
                     }
                     // Pending or V17 nodes: no payload propagation.
@@ -488,6 +495,8 @@ impl ProtoArray {
             {
                 // Get the parent's execution block hash, handling both V17 and V29 nodes.
                 // V17 parents occur during the Gloas fork transition.
+                // TODO(gloas): the spec's `get_parent_payload_status` assumes all blocks are
+                // post-Gloas with bids. Revisit once the spec clarifies fork-transition behavior.
                 let parent_el_block_hash = match parent_node {
                     ProtoNode::V29(v29) => Some(v29.execution_payload_block_hash),
                     ProtoNode::V17(v17) => v17.execution_status.block_hash(),
@@ -501,6 +510,9 @@ impl ProtoArray {
                     PayloadStatus::Empty
                 }
             } else {
+                // Parent is missing (genesis or pruned due to finalization). Default to Full
+                // since this path should only be hit at Gloas genesis, and extending the payload
+                // chain is the safe default.
                 PayloadStatus::Full
             };
 
@@ -528,15 +540,16 @@ impl ProtoArray {
         };
 
         // If the parent has an invalid execution status, return an error before adding the
-        // block to `self`. This applies when the parent is a V17 node with execution tracking.
+        // block to `self`. This applies only when the parent is a V17 node with execution tracking.
         if let Some(parent_index) = node.parent() {
             let parent = self
                 .nodes
                 .get(parent_index)
                 .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
-            if let Ok(status) = parent.execution_status()
-                && status.is_invalid()
+            // Execution status tracking only exists on V17 (pre-Gloas) nodes.
+            if let Ok(v17) = parent.as_v17()
+                && v17.execution_status.is_invalid()
             {
                 return Err(Error::ParentExecutionStatusIsInvalid {
                     block_root: block.root,
@@ -561,6 +574,29 @@ impl ProtoArray {
                 self.propagate_execution_payload_validation_by_index(parent_index)?;
             }
         }
+
+        Ok(())
+    }
+
+    /// Process an excution payload for a Gloas block.
+    ///
+    /// this function assumes the
+    pub fn on_valid_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error> {
+        let index = *self
+            .indices
+            .get(&block_root)
+            .ok_or(Error::NodeUnknown(block_root))?;
+        let node = self
+            .nodes
+            .get_mut(index)
+            .ok_or(Error::InvalidNodeIndex(index))?;
+        let v29 = node
+            .as_v29_mut()
+            .map_err(|_| Error::InvalidNodeVariant { block_root })?;
+        v29.payload_tiebreak = PayloadTiebreak {
+            is_timely: true,
+            is_data_available: true,
+        };
 
         Ok(())
     }
@@ -871,8 +907,9 @@ impl ProtoArray {
         // practically possible to set a new justified root if we are unable to find a new head.
         //
         // This scenario is *unsupported*. It represents a serious consensus failure.
-        if let Ok(execution_status) = justified_node.execution_status()
-            && execution_status.is_invalid()
+        // Execution status tracking only exists on V17 (pre-Gloas) nodes.
+        if let Ok(v17) = justified_node.as_v17()
+            && v17.execution_status.is_invalid()
         {
             return Err(Error::InvalidJustifiedCheckpointExecutionStatus {
                 justified_root: *justified_root,
@@ -1025,66 +1062,72 @@ impl ProtoArray {
         );
         let no_change = (parent.best_child(), parent.best_descendant());
 
-        let (new_best_child, new_best_descendant) =
-            if let Some(best_child_index) = parent.best_child() {
-                if best_child_index == child_index && !child_leads_to_viable_head {
-                    // If the child is already the best-child of the parent but it's not viable for
-                    // the head, remove it.
-                    change_to_none
-                } else if best_child_index == child_index {
-                    // If the child is the best-child already, set it again to ensure that the
-                    // best-descendant of the parent is updated.
-                    change_to_child
-                } else {
-                    let best_child = self
-                        .nodes
-                        .get(best_child_index)
-                        .ok_or(Error::InvalidBestDescendant(best_child_index))?;
-
-                    let best_child_leads_to_viable_head = self.node_leads_to_viable_head::<E>(
-                        best_child,
-                        current_slot,
-                        best_justified_checkpoint,
-                        best_finalized_checkpoint,
-                    )?;
-
-                    if child_leads_to_viable_head && !best_child_leads_to_viable_head {
-                        // The child leads to a viable head, but the current best-child doesn't.
-                        change_to_child
-                    } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
-                        // The best child leads to a viable head, but the child doesn't.
-                        no_change
-                    } else if child.weight() > best_child.weight() {
-                        // Weight is the primary ordering criterion.
-                        change_to_child
-                    } else if child.weight() < best_child.weight() {
-                        no_change
-                    } else {
-                        // Equal weights: for V29 parents, prefer the child whose
-                        // parent_payload_status matches the parent's payload preference.
-                        let child_matches = child_matches_parent_payload_preference(parent, child);
-                        let best_child_matches =
-                            child_matches_parent_payload_preference(parent, best_child);
-
-                        if child_matches && !best_child_matches {
-                            change_to_child
-                        } else if !child_matches && best_child_matches {
-                            no_change
-                        } else if *child.root() >= *best_child.root() {
-                            // Final tie-breaker of equal weights by root.
-                            change_to_child
-                        } else {
-                            no_change
-                        }
-                    }
-                }
-            } else if child_leads_to_viable_head {
-                // There is no current best-child and the child is viable.
+        let (new_best_child, new_best_descendant) = if let Some(best_child_index) =
+            parent.best_child()
+        {
+            if best_child_index == child_index && !child_leads_to_viable_head {
+                // If the child is already the best-child of the parent but it's not viable for
+                // the head, remove it.
+                change_to_none
+            } else if best_child_index == child_index {
+                // If the child is the best-child already, set it again to ensure that the
+                // best-descendant of the parent is updated.
                 change_to_child
             } else {
-                // There is no current best-child but the child is not viable.
-                no_change
-            };
+                let best_child = self
+                    .nodes
+                    .get(best_child_index)
+                    .ok_or(Error::InvalidBestDescendant(best_child_index))?;
+
+                let best_child_leads_to_viable_head = self.node_leads_to_viable_head::<E>(
+                    best_child,
+                    current_slot,
+                    best_justified_checkpoint,
+                    best_finalized_checkpoint,
+                )?;
+
+                if child_leads_to_viable_head && !best_child_leads_to_viable_head {
+                    // The child leads to a viable head, but the current best-child doesn't.
+                    change_to_child
+                } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
+                    // The best child leads to a viable head, but the child doesn't.
+                    no_change
+                } else if child.weight() > best_child.weight() {
+                    // Weight is the primary ordering criterion.
+                    change_to_child
+                } else if child.weight() < best_child.weight() {
+                    no_change
+                } else {
+                    // Equal weights: for V29 parents, prefer the child whose
+                    // parent_payload_status matches the parent's payload preference
+                    // (full vs empty). This corresponds to the spec's
+                    // `get_payload_status_tiebreaker` ordering in `get_head`.
+                    let child_matches =
+                        child_matches_parent_payload_preference(parent, child, current_slot);
+                    let best_child_matches =
+                        child_matches_parent_payload_preference(parent, best_child, current_slot);
+
+                    if child_matches && !best_child_matches {
+                        // Child extends the preferred payload chain, best_child doesn't.
+                        change_to_child
+                    } else if !child_matches && best_child_matches {
+                        // Best child extends the preferred payload chain, child doesn't.
+                        no_change
+                    } else if *child.root() >= *best_child.root() {
+                        // Final tie-breaker: both match or both don't, break by root.
+                        change_to_child
+                    } else {
+                        no_change
+                    }
+                }
+            }
+        } else if child_leads_to_viable_head {
+            // There is no current best-child and the child is viable.
+            change_to_child
+        } else {
+            // There is no current best-child but the child is not viable.
+            no_change
+        };
 
         let parent = self
             .nodes
@@ -1338,16 +1381,35 @@ impl ProtoArray {
 /// When equal, the tiebreaker uses the parent's `payload_tiebreak`: prefer Full if the block
 /// was timely and data is available; otherwise prefer Empty.
 /// For V17 parents (or mixed), always returns `true` (no payload preference).
-fn child_matches_parent_payload_preference(parent: &ProtoNode, child: &ProtoNode) -> bool {
+///
+/// TODO(gloas): the spec's `should_extend_payload` has additional conditions beyond the
+/// tiebreaker: it also checks proposer_boost_root (empty, different parent, or extends full).
+/// See: https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md#new-should_extend_payload
+///
+/// TODO(gloas): the spec's `should_extend_payload` has additional conditions beyond the
+/// tiebreaker: it also checks proposer_boost_root (empty, different parent, or extends full).
+/// See: https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md#new-should_extend_payload
+fn child_matches_parent_payload_preference(
+    parent: &ProtoNode,
+    child: &ProtoNode,
+    current_slot: Slot,
+) -> bool {
     let (Ok(parent_v29), Ok(child_v29)) = (parent.as_v29(), child.as_v29()) else {
         return true;
     };
-    let prefers_full = if parent_v29.full_payload_weight > parent_v29.empty_payload_weight {
+    // Per spec `get_weight`: FULL/EMPTY virtual nodes at `current_slot - 1` have weight 0.
+    // The PTC is still voting, so payload preference is determined solely by the tiebreaker.
+    let use_tiebreaker_only = parent.slot() + 1 == current_slot;
+    let prefers_full = if !use_tiebreaker_only
+        && parent_v29.full_payload_weight > parent_v29.empty_payload_weight
+    {
         true
-    } else if parent_v29.empty_payload_weight > parent_v29.full_payload_weight {
+    } else if !use_tiebreaker_only
+        && parent_v29.empty_payload_weight > parent_v29.full_payload_weight
+    {
         false
     } else {
-        // Equal weights: tiebreaker per spec
+        // Equal weights (or current-slot parent): tiebreaker per spec.
         parent_v29.payload_tiebreak.is_timely && parent_v29.payload_tiebreak.is_data_available
     };
     if prefers_full {

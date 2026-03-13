@@ -16,6 +16,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(0),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 2.
@@ -55,6 +56,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
@@ -95,6 +97,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a vote to block 1
@@ -124,6 +127,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -166,6 +170,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -222,6 +227,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -272,6 +278,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -321,6 +328,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Invalidation of 3 should have removed upstream weight.
@@ -374,6 +382,7 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances,
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -427,6 +436,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(0),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 2.
@@ -466,6 +476,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
@@ -506,6 +517,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a vote to block 1
@@ -535,6 +547,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -577,6 +590,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -633,6 +647,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -696,6 +711,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -745,6 +761,7 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances,
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Invalidation of 3 should have removed upstream weight.
@@ -800,6 +817,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(0),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 2.
@@ -839,6 +857,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
@@ -879,6 +898,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a vote to block 1
@@ -908,6 +928,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {
@@ -950,6 +971,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::AssertWeight {

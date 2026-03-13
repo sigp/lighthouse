@@ -175,9 +175,11 @@ pub enum InvalidAttestation {
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     AttestsToFutureBlock { block: Slot, attestation: Slot },
-    /// A same-slot attestation has a non-zero index, indicating a payload attestation during the
-    /// same slot as the block. Payload attestations must only arrive in subsequent slots.
-    PayloadAttestationDuringSameSlot { slot: Slot },
+    /// A same-slot attestation has a non-zero index, which is invalid post-GLOAS.
+    InvalidSameSlotAttestationIndex { slot: Slot },
+    /// A payload attestation votes payload_present for a block in the current slot, which is
+    /// invalid because the payload cannot be known yet.
+    PayloadPresentDuringSameSlot { slot: Slot },
     /// A gossip payload attestation must be for the current slot.
     PayloadAttestationNotCurrentSlot {
         attestation_slot: Slot,
@@ -269,7 +271,7 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
 
 /// Used for queuing payload attestations (PTC votes) from the current slot.
 /// Payload attestations have different dequeue timing than regular attestations:
-/// non-block payload attestations need an extra slot of delay (slot + 1 < current_slot).
+/// gossiped payload attestations need an extra slot of delay (slot + 1 < current_slot).
 #[derive(Clone, PartialEq, Encode, Decode)]
 pub struct QueuedPayloadAttestation {
     slot: Slot,
@@ -420,7 +422,8 @@ where
             } else if let Ok(signed_bid) =
                 anchor_block.message().body().signed_execution_payload_bid()
             {
-                // Gloas: hashes come from the execution payload bid.
+                // Gloas: execution status is irrelevant post-Gloas; payload validation
+                // is decoupled from beacon blocks.
                 (
                     ExecutionStatus::irrelevant(),
                     Some(signed_bid.message.parent_block_hash),
@@ -990,6 +993,12 @@ where
         Ok(())
     }
 
+    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .on_execution_payload(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
     /// Update checkpoints in store if necessary
     fn update_checkpoints(
         &mut self,
@@ -1126,15 +1135,15 @@ where
             });
         }
 
-        // Post-GLOAS: same-slot attestations with index != 0 indicate a payload-present vote.
-        // These must go through `on_payload_attestation`, not `on_attestation`.
+        // Post-GLOAS: same-slot attestations must have index == 0. Attestations with
+        // index != 0 during the same slot as the block are invalid.
         if spec
             .fork_name_at_slot::<E>(indexed_attestation.data().slot)
             .gloas_enabled()
             && indexed_attestation.data().slot == block.slot
             && indexed_attestation.data().index != 0
         {
-            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot { slot: block.slot });
+            return Err(InvalidAttestation::InvalidSameSlotAttestationIndex { slot: block.slot });
         }
 
         Ok(())
@@ -1175,10 +1184,14 @@ where
             });
         }
 
-        if self.fc_store.get_current_slot() == block.slot
+        // A payload attestation voting payload_present for a block in the current slot is
+        // invalid: the payload cannot be known yet. This only applies to gossip attestations;
+        // payload attestations from blocks have already been validated by the block producer.
+        if !is_from_block
+            && self.fc_store.get_current_slot() == block.slot
             && indexed_payload_attestation.data.payload_present
         {
-            return Err(InvalidAttestation::PayloadAttestationDuringSameSlot { slot: block.slot });
+            return Err(InvalidAttestation::PayloadPresentDuringSameSlot { slot: block.slot });
         }
 
         Ok(())
@@ -1270,7 +1283,7 @@ where
 
         let processing_slot = self.fc_store.get_current_slot();
         // Payload attestations from blocks can be applied in the next slot (S+1 for data.slot=S),
-        // while non-block payload attestations are delayed one extra slot.
+        // while gossiped payload attestations are delayed one extra slot.
         let should_process_now = if is_from_block {
             attestation.data.slot < processing_slot
         } else {
@@ -1720,9 +1733,7 @@ where
     /// be instantiated again later.
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
-            proto_array: self
-                .proto_array()
-                .as_ssz_container(),
+            proto_array: self.proto_array().as_ssz_container(),
             queued_attestations: self.queued_attestations().to_vec(),
             queued_payload_attestations: self.queued_payload_attestations.clone(),
         }

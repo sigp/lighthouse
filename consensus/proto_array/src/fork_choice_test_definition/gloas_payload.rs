@@ -71,6 +71,7 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1],
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     ops.push(Operation::SetPayloadTiebreak {
@@ -83,6 +84,7 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1],
         expected_head: get_root(4),
+        current_slot: Slot::new(0),
     });
 
     ForkChoiceTestDefinition {
@@ -130,6 +132,7 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1, 1],
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
     ops.push(Operation::AssertPayloadWeights {
         block_root: get_root(1),
@@ -154,6 +157,7 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1, 1],
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
     ops.push(Operation::AssertPayloadWeights {
         block_root: get_root(1),
@@ -187,6 +191,7 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1, 1, 1],
         expected_head: get_root(5),
+        current_slot: Slot::new(0),
     });
     ops.push(Operation::AssertPayloadWeights {
         block_root: get_root(5),
@@ -261,6 +266,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1],
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     // Validator 0 votes Empty branch -> head flips to 4.
@@ -276,6 +282,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1],
         expected_head: get_root(4),
+        current_slot: Slot::new(0),
     });
 
     // Latest-message update back to Full branch -> head returns to 3.
@@ -291,6 +298,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1],
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
     ops.push(Operation::AssertPayloadWeights {
         block_root: get_root(3),
@@ -362,6 +370,7 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1],
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     // Add two Empty votes to make the Empty branch strictly heavier.
@@ -384,6 +393,7 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1, 1],
         expected_head: get_root(4),
+        current_slot: Slot::new(0),
     });
 
     ForkChoiceTestDefinition {
@@ -452,6 +462,143 @@ pub fn get_gloas_parent_empty_when_child_points_to_grandparent_test_definition()
     }
 }
 
+/// Test interleaving of blocks, regular attestations, and late-arriving PTC votes.
+///
+/// Exercises the spec's `get_weight` rule: FULL/EMPTY virtual nodes at `current_slot - 1`
+/// have weight 0, so payload preference is determined solely by the tiebreaker.
+///
+/// genesis → block 1 (Full) → block 3
+///         → block 2 (Empty) → block 4
+///
+/// Timeline:
+/// 1. Blocks 1 (Full) and 2 (Empty) arrive at slot 1
+/// 2. Regular attestations arrive (equal weight per branch)
+/// 3. Child blocks 3 and 4 arrive at slot 2
+/// 4. PTC votes arrive for genesis (2 Full), making genesis prefer Full by weight
+/// 5. At current_slot=1 (genesis is current-1), PTC weights are ignored → tiebreaker decides
+/// 6. At current_slot=100 (genesis is old), PTC weights apply → Full branch wins
+pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDefinition {
+    let mut ops = vec![];
+
+    // Step 1: Two competing blocks at slot 1.
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(1),
+        root: get_root(1),
+        parent_root: get_root(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(0)),
+        execution_payload_block_hash: Some(get_hash(1)),
+    });
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(1),
+        root: get_root(2),
+        parent_root: get_root(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(99)),
+        execution_payload_block_hash: Some(get_hash(2)),
+    });
+
+    // Step 2: Regular attestations arrive, one per branch (equal CL weight).
+    ops.push(Operation::ProcessAttestation {
+        validator_index: 0,
+        block_root: get_root(1),
+        attestation_slot: Slot::new(1),
+    });
+    ops.push(Operation::ProcessAttestation {
+        validator_index: 1,
+        block_root: get_root(2),
+        attestation_slot: Slot::new(1),
+    });
+
+    // Step 3: Child blocks at slot 2.
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(2),
+        root: get_root(3),
+        parent_root: get_root(1),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(1)),
+        execution_payload_block_hash: Some(get_hash(3)),
+    });
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(2),
+        root: get_root(4),
+        parent_root: get_root(2),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(100)),
+        execution_payload_block_hash: Some(get_hash(4)),
+    });
+
+    // Step 4: PTC votes arrive for genesis, 2 Full votes from fresh validators.
+    // Vals 0 and 1 can't be reused because they already have votes at slot 1.
+    // Vals 2 and 3 target genesis; CL weight on genesis doesn't affect branch comparison.
+    ops.push(Operation::ProcessPayloadAttestation {
+        validator_index: 2,
+        block_root: get_root(0),
+        attestation_slot: Slot::new(1),
+        payload_present: true,
+        blob_data_available: false,
+    });
+    ops.push(Operation::ProcessPayloadAttestation {
+        validator_index: 3,
+        block_root: get_root(0),
+        attestation_slot: Slot::new(1),
+        payload_present: true,
+        blob_data_available: false,
+    });
+
+    // Set tiebreaker to Empty on genesis.
+    ops.push(Operation::SetPayloadTiebreak {
+        block_root: get_root(0),
+        is_timely: false,
+        is_data_available: false,
+    });
+
+    // Step 5: At current_slot=1, genesis (slot 0) is at current_slot-1.
+    // Per spec, FULL/EMPTY weights are zeroed → tiebreaker decides.
+    // Tiebreaker is Empty → Empty branch (block 4) wins.
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: vec![1, 1, 1, 1],
+        expected_head: get_root(4),
+        current_slot: Slot::new(1),
+    });
+
+    // Step 6: At current_slot=100, genesis (slot 0) is no longer at current_slot-1.
+    // FULL/EMPTY weights now apply. Genesis has Full > Empty → prefers Full.
+    // Full branch (block 3) wins despite Empty tiebreaker.
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: vec![1, 1, 1, 1],
+        expected_head: get_root(3),
+        current_slot: Slot::new(100),
+    });
+
+    // Verify the PTC weights are recorded on genesis.
+    // full = 2 (PTC votes) + 1 (back-propagated from Full child block 1) = 3
+    // empty = 0 (PTC votes) + 1 (back-propagated from Empty child block 2) = 1
+    ops.push(Operation::AssertPayloadWeights {
+        block_root: get_root(0),
+        expected_full_weight: 3,
+        expected_empty_weight: 1,
+    });
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: Some(get_hash(42)),
+        execution_payload_block_hash: Some(get_hash(0)),
+        spec: Some(gloas_spec()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,6 +630,12 @@ mod tests {
     #[test]
     fn parent_empty_when_child_points_to_grandparent() {
         let test = get_gloas_parent_empty_when_child_points_to_grandparent_test_definition();
+        test.run();
+    }
+
+    #[test]
+    fn interleaved_attestations() {
+        let test = get_gloas_interleaved_attestations_test_definition();
         test.run();
     }
 }

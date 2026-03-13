@@ -993,7 +993,7 @@ async fn invalid_attestation_payload_during_same_slot() {
             |result| {
                 assert_invalid_attestation!(
                     result,
-                    InvalidAttestation::PayloadAttestationDuringSameSlot { slot }
+                    InvalidAttestation::InvalidSameSlotAttestationIndex { slot }
                     if slot == Slot::new(1)
                 )
             },

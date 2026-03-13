@@ -55,9 +55,7 @@ pub struct SszContainerV29 {
 }
 
 impl SszContainerV29 {
-    pub fn from_proto_array(
-        from: &ProtoArrayForkChoice,
-    ) -> Self {
+    pub fn from_proto_array(from: &ProtoArrayForkChoice) -> Self {
         let proto_array = &from.proto_array;
 
         Self {

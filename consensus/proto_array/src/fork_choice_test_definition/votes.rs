@@ -16,6 +16,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(0),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 2.
@@ -55,6 +56,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a block with a hash of 1 that comes off the genesis block (this is a fork compared
@@ -95,6 +97,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add a vote to block 1
@@ -124,6 +127,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(1),
+        current_slot: Slot::new(0),
     });
 
     // Add a vote to block 2
@@ -153,6 +157,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Add block 3.
@@ -196,6 +201,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Move validator #0 vote from 1 to 3
@@ -229,6 +235,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(2),
+        current_slot: Slot::new(0),
     });
 
     // Move validator #1 vote from 2 to 1 (this is an equivocation, but fork choice doesn't
@@ -263,6 +270,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(3),
+        current_slot: Slot::new(0),
     });
 
     // Add block 4.
@@ -310,6 +318,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(4),
+        current_slot: Slot::new(0),
     });
 
     // Add block 5, which has a justified epoch of 2.
@@ -361,6 +370,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(4),
+        current_slot: Slot::new(0),
     });
 
     // Add block 6, which has a justified epoch of 0.
@@ -505,6 +515,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(6),
+        current_slot: Slot::new(0),
     });
 
     // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
@@ -538,6 +549,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Change fork-choice justified epoch to 1, and the start block to 5 and ensure that 9 is
@@ -616,6 +628,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Introduce 2 more validators into the system
@@ -677,6 +690,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
 
     // Set the balances of the last two validators to zero
@@ -702,6 +716,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Set the balances of the last two validators back to 1
@@ -727,6 +742,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
+        current_slot: Slot::new(0),
     });
 
     // Remove the last two validators
@@ -753,6 +769,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Ensure that pruning below the prune threshold does not prune.
@@ -774,6 +791,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Ensure that pruning above the prune threshold does prune.
@@ -812,6 +830,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
+        current_slot: Slot::new(0),
     });
 
     // Add block 11
@@ -863,6 +882,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         },
         justified_state_balances: balances,
         expected_head: get_root(11),
+        current_slot: Slot::new(0),
     });
 
     ForkChoiceTestDefinition {
