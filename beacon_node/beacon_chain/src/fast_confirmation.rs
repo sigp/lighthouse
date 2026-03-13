@@ -1295,17 +1295,25 @@ impl FastConfirmationRule {
             let vote_epoch = vote.latest_message_epoch();
             let vote_target =
                 if cached_valid && vote_root == cached_root && vote_epoch == cached_epoch {
-                    cached_target
+                    Some(cached_target)
                 } else {
-                    let cp =
-                        self.get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array)?;
-                    cached_root = vote_root;
-                    cached_epoch = vote_epoch;
-                    cached_target = cp;
-                    cached_valid = true;
-                    cp
+                    match self.get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array) {
+                        Ok(cp) => {
+                            cached_root = vote_root;
+                            cached_epoch = vote_epoch;
+                            cached_target = cp;
+                            cached_valid = true;
+                            Some(cp)
+                        }
+                        // Vote references a block pruned from proto_array — skip it.
+                        Err(Error::CheckpointBlockNotFound { .. }) => {
+                            cached_valid = false;
+                            None
+                        }
+                        Err(e) => return Err(e),
+                    }
                 };
-            if vote_target == current_target {
+            if vote_target.is_some_and(|t| t == current_target) {
                 score = score.saturating_add(balance);
             }
         }
