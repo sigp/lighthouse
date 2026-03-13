@@ -2759,7 +2759,7 @@ where
         state_root
     }
 
-    /// Builds an `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
+    /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
     /// the database.
     pub fn build_range_sync_block_from_store_blobs(
         &self,

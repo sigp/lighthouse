@@ -13,6 +13,9 @@ use types::{
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
+/// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
+/// when lookup sync only fetches a single block. It does not contain
+/// any blobs or data columns.
 pub struct LookupBlock<E: EthSpec> {
     block: Arc<SignedBeaconBlock<E>>,
     block_root: Hash256,
@@ -38,6 +41,10 @@ impl<E: EthSpec> LookupBlock<E> {
 }
 
 /// A fully available block that has been constructed by range sync.
+/// The block contains all the data required to import into fork choice.
+/// This includes any and all blobs/columns required, including zero if
+/// none are required. This could happend if the block is pre-deneb or
+/// if it's simply past the DA boundary.
 #[derive(Clone, Educe)]
 #[educe(Hash(bound(E: EthSpec)))]
 pub struct RangeSyncBlock<E: EthSpec> {
