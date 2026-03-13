@@ -683,10 +683,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p.publish(messages);
             }
             NetworkMessage::PublishPartial { columns } => {
-                debug!(
-                    count = columns.len(),
-                    "Sending partial data column sidecars"
-                );
                 self.libp2p.publish_partial(columns);
             }
             NetworkMessage::ReportPeer {

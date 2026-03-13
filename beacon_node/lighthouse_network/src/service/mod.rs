@@ -927,6 +927,11 @@ impl<E: EthSpec> Network<E> {
             return;
         }
 
+        debug!(
+            count = columns.len(),
+            "Sending partial data column sidecars"
+        );
+
         for column in columns {
             let subnet =
                 DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
