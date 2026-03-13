@@ -258,6 +258,10 @@ struct ReprocessQueue<S> {
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Column reconstruction per block root.
     queued_column_reconstructions: HashMap<Hash256, DelayKey>,
+    /// Block roots for which reconstruction has been dispatched, with the slot when dispatched.
+    /// Prevents duplicate reconstructions when columns arrive after dispatch.
+    /// Entries are cleaned up on BlockImported or after a timeout period.
+    reconstruction_dispatched: HashMap<Hash256, Slot>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
 
@@ -430,6 +434,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
+            reconstruction_dispatched: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
@@ -702,6 +707,13 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
                 }
+
+                // Clean up any pending column reconstruction for this block.
+                // If the block is now imported, reconstruction is no longer needed.
+                if let Some(delay_key) = self.queued_column_reconstructions.remove(&block_root) {
+                    self.column_reconstructions_delay_queue.remove(&delay_key);
+                }
+                self.reconstruction_dispatched.remove(&block_root);
             }
             InboundEvent::Msg(NewLightClientOptimisticUpdate { parent_root }) => {
                 // Unqueue the light client optimistic updates we have for this root, if any.
@@ -756,6 +768,14 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
+                // Skip if reconstruction already dispatched for this block.
+                if self
+                    .reconstruction_dispatched
+                    .contains_key(&request.block_root)
+                {
+                    return;
+                }
+
                 let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
                 let slot_duration = self.slot_clock.slot_duration().as_millis() as u64;
                 let reconstruction_deadline_millis =
@@ -921,8 +941,13 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
-                self.queued_column_reconstructions
-                    .remove(&column_reconstruction.block_root);
+                let block_root = column_reconstruction.block_root;
+                let slot = column_reconstruction.slot;
+
+                // Mark as dispatched FIRST to prevent race condition.
+                self.reconstruction_dispatched.insert(block_root, slot);
+                self.queued_column_reconstructions.remove(&block_root);
+
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::ColumnReconstruction(column_reconstruction))
@@ -932,6 +957,13 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         hint = "system may be overloaded",
                         "Ignored scheduled column reconstruction"
                     );
+                }
+
+                // Clean up old dispatched reconstructions (older than 2 slots).
+                // This handles cases where BlockImported message never arrives.
+                if let Some(current_slot) = self.slot_clock.now() {
+                    self.reconstruction_dispatched
+                        .retain(|_, &mut dispatched_slot| current_slot < dispatched_slot + 2);
                 }
             }
         }
