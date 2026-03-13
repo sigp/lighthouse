@@ -1,5 +1,5 @@
 use crate::blob_verification::GossipVerifiedBlob;
-use crate::block_verification_types::{AsBlock, AvailableBlockData, RpcBlock};
+use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
@@ -823,20 +823,20 @@ where
         mock_builder_server
     }
 
-    pub fn get_head_block(&self) -> RpcBlock<E> {
+    pub fn get_head_block(&self) -> RangeSyncBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
-        self.build_rpc_block_from_store_blobs(Some(block_root), block)
+        self.build_range_sync_block_from_store_blobs(Some(block_root), block)
     }
 
-    pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
+    pub fn get_full_block(&self, block_root: &Hash256) -> RangeSyncBlock<E> {
         let block = self
             .chain
             .get_blinded_block(block_root)
             .unwrap()
             .unwrap_or_else(|| panic!("block root does not exist in harness {block_root:?}"));
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        self.build_rpc_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
+        self.build_range_sync_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1340,15 +1340,12 @@ where
 
         let signed_block = self.sign_beacon_block(block, state);
         let block_root = signed_block.canonical_root();
-        let rpc_block = RpcBlock::BlockOnly {
-            block_root,
-            block: Arc::new(signed_block),
-        };
+        let lookup_block = LookupBlock::new(Arc::new(signed_block));
         self.chain.slot_clock.set_slot(slot.as_u64());
         self.chain
             .process_block(
                 block_root,
-                rpc_block,
+                lookup_block,
                 NotifyExecutionLayer::No,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -2607,20 +2604,33 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
+        let block_hash: SignedBeaconBlockHash = if !is_available {
+            self.chain
+                .process_block(
+                    block_root,
+                    LookupBlock::new(block),
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        } else {
+            let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
+            self.chain
+                .process_block(
+                    block_root,
+                    range_sync_block,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::RangeSync,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        };
 
-        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, is_available)?;
-        let block_hash: SignedBeaconBlockHash = self
-            .chain
-            .process_block(
-                block_root,
-                rpc_block,
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::RangeSync,
-                || Ok(()),
-            )
-            .await?
-            .try_into()
-            .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
@@ -2640,19 +2650,33 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
-        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, is_available)?;
-        let block_hash: SignedBeaconBlockHash = self
-            .chain
-            .process_block(
-                block_root,
-                rpc_block,
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::RangeSync,
-                || Ok(()),
-            )
-            .await?
-            .try_into()
-            .expect("block blobs are available");
+        let block_hash: SignedBeaconBlockHash = if is_available {
+            let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
+            self.chain
+                .process_block(
+                    block_root,
+                    range_sync_block,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::RangeSync,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        } else {
+            self.chain
+                .process_block(
+                    block_root,
+                    LookupBlock::new(block),
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        };
+
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
@@ -2735,13 +2759,13 @@ where
         state_root
     }
 
-    /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from
+    /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
     /// the database.
-    pub fn build_rpc_block_from_store_blobs(
+    pub fn build_range_sync_block_from_store_blobs(
         &self,
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
-    ) -> RpcBlock<E> {
+    ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
         let has_blobs = block
             .message()
@@ -2749,9 +2773,9 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new(
+            return RangeSyncBlock::new(
                 block,
-                Some(AvailableBlockData::NoData),
+                AvailableBlockData::NoData,
                 &self.chain.data_availability_checker,
                 self.chain.spec.clone(),
             )
@@ -2768,9 +2792,9 @@ where
                 .unwrap();
             let custody_columns = columns.into_iter().collect::<Vec<_>>();
             let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &self.chain.data_availability_checker,
                 self.chain.spec.clone(),
             )
@@ -2783,9 +2807,9 @@ where
                 AvailableBlockData::NoData
             };
 
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &self.chain.data_availability_checker,
                 self.chain.spec.clone(),
             )
@@ -2793,18 +2817,17 @@ where
         }
     }
 
-    /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
-    pub fn build_rpc_block_from_blobs(
+    /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and `BlobsList`.
+    pub fn build_range_sync_block_from_blobs(
         &self,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
-        is_available: bool,
-    ) -> Result<RpcBlock<E>, BlockError> {
+    ) -> Result<RangeSyncBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let epoch = block.slot().epoch(E::slots_per_epoch());
             let sampling_columns = self.chain.sampling_columns_for_epoch(epoch);
 
-            if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
+            if blob_items.is_some_and(|(kzg_proofs, _)| !kzg_proofs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
                 // `sampling_column_count` for testing purpose only, because the chain does not
                 // currently have any knowledge of the columns being custodied.
@@ -2812,33 +2835,17 @@ where
                     .into_iter()
                     .filter(|d| sampling_columns.contains(d.index()))
                     .collect::<Vec<_>>();
-                if is_available {
-                    let block_data = AvailableBlockData::new_with_data_columns(columns);
-                    RpcBlock::new(
-                        block,
-                        Some(block_data),
-                        &self.chain.data_availability_checker,
-                        self.chain.spec.clone(),
-                    )?
-                } else {
-                    RpcBlock::new(
-                        block,
-                        None,
-                        &self.chain.data_availability_checker,
-                        self.chain.spec.clone(),
-                    )?
-                }
-            } else if is_available {
-                RpcBlock::new(
+                let block_data = AvailableBlockData::new_with_data_columns(columns);
+                RangeSyncBlock::new(
                     block,
-                    Some(AvailableBlockData::NoData),
+                    block_data,
                     &self.chain.data_availability_checker,
                     self.chain.spec.clone(),
                 )?
             } else {
-                RpcBlock::new(
+                RangeSyncBlock::new(
                     block,
-                    None,
+                    AvailableBlockData::NoData,
                     &self.chain.data_availability_checker,
                     self.chain.spec.clone(),
                 )?
@@ -2850,27 +2857,18 @@ where
                 })
                 .transpose()
                 .unwrap();
-            if is_available {
-                let block_data = if let Some(blobs) = blobs {
-                    AvailableBlockData::new_with_blobs(blobs)
-                } else {
-                    AvailableBlockData::NoData
-                };
-
-                RpcBlock::new(
-                    block,
-                    Some(block_data),
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )?
+            let block_data = if let Some(blobs) = blobs {
+                AvailableBlockData::new_with_blobs(blobs)
             } else {
-                RpcBlock::new(
-                    block,
-                    None,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )?
-            }
+                AvailableBlockData::NoData
+            };
+
+            RangeSyncBlock::new(
+                block,
+                block_data,
+                &self.chain.data_availability_checker,
+                self.chain.spec.clone(),
+            )?
         })
     }
 
