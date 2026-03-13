@@ -91,7 +91,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "8.1.1"
+version = "8.1.2"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
@@ -117,9 +117,6 @@ bitvec = "1"
 bls = { path = "crypto/bls" }
 byteorder = "1"
 bytes = "1.11.1"
-# Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
-# feature ourselves when desired.
-c-kzg = { version = "2.1", default-features = false }
 cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
@@ -278,5 +275,10 @@ inherits = "release"
 debug = true
 
 [patch.crates-io]
-quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
-yamux = { git = "https://github.com/sigp/rust-yamux", rev = "575b17c0f44f4253079a6bafaa2de74ca1d6dfaa" }
+quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "87c4ccb9bb2af494de375f5f6c62850badd26304" }
+yamux = { git = "https://github.com/sigp/rust-yamux", rev = "29efa6aebd4bdfcb16bfb21969ec0c785e570b74" }
+quinn = { git = "https://github.com/sigp/quinn", rev = "59af87979c8411864c1cb68613222f54ed2930a7" }
+
+[patch."https://github.com/libp2p/rust-libp2p.git"]
+libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "f88e43de9eba00b416d0374b1a1fb2de47b65864" }
+libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "f88e43de9eba00b416d0374b1a1fb2de47b65864" }

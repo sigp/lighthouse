@@ -3,7 +3,7 @@ use std::{fmt::Debug, hash::Hash, sync::Arc};
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
-use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Blob as KzgBlob, Kzg, KzgCommitment, KzgProof};
+use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Kzg, KzgCommitment, KzgProof};
 use merkle_proof::{MerkleTreeError, merkle_root_from_branch, verify_merkle_proof};
 use rand::Rng;
 use safe_arith::ArithError;
@@ -253,14 +253,17 @@ impl<E: EthSpec> BlobSidecar<E> {
 
         let blob = Blob::<E>::new(blob_bytes)
             .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-        let kzg_blob = KzgBlob::from_bytes(&blob).unwrap();
+        let kzg_blob: &[u8; BYTES_PER_BLOB] = blob
+            .as_ref()
+            .try_into()
+            .map_err(|e| format!("error converting blob to kzg blob ref: {:?}", e))?;
 
         let commitment = kzg
-            .blob_to_kzg_commitment(&kzg_blob)
+            .blob_to_kzg_commitment(kzg_blob)
             .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
 
         let proof = kzg
-            .compute_blob_kzg_proof(&kzg_blob, commitment)
+            .compute_blob_kzg_proof(kzg_blob, commitment)
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
         Ok(Self {
