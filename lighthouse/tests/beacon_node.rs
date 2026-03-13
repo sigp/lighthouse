@@ -279,6 +279,22 @@ fn always_prepare_payload_override() {
 }
 
 #[test]
+fn execution_endpoint_ipc() {
+    let ipc_url = "ipc:///tmp/test.ipc";
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("execution-endpoint", Some(ipc_url))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert!(config.execution_endpoint.is_some());
+            assert_eq!(
+                config.execution_endpoint.as_ref().unwrap().redacted(),
+                ipc_url
+            );
+        });
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()
