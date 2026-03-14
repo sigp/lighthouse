@@ -28,7 +28,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_payload_envelope_streamer::PayloadEnvelopeStreamer;
+use crate::execution_payload_envelope_streamer::{EnvelopeRequestSource, PayloadEnvelopeStreamer};
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
@@ -435,7 +435,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
-    pub canonical_head: CanonicalHead<T>,
+    pub canonical_head: Arc<CanonicalHead<T>>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
     /// The root of the genesis state.
@@ -1139,7 +1139,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::type_complexity)]
     pub fn get_payload_envelopes(
         self: &Arc<Self>,
-        block_roots_with_children: Vec<(Hash256, Option<Hash256>)>,
+        block_roots: Vec<Hash256>,
+        request_source: EnvelopeRequestSource,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1149,12 +1150,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(PayloadEnvelopeStreamer::<T>::new(
+        Ok(PayloadEnvelopeStreamer::<T, CanonicalHead<T>>::new(
             self.execution_layer.clone(),
+            self.canonical_head.clone(),
             self.store.clone(),
             self.task_executor.clone(),
+            request_source,
         )?
-        .launch_stream(block_roots_with_children))
+        .launch_stream(block_roots))
     }
 
     pub fn get_data_columns_checking_all_caches(

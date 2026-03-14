@@ -3,6 +3,7 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
+use beacon_chain::execution_payload_envelope_streamer::EnvelopeRequestSource;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
@@ -304,11 +305,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let requested_envelopes = request.beacon_block_roots.len();
         let mut envelope_stream = match self.chain.get_payload_envelopes(
-            request
-                .beacon_block_roots
-                .iter()
-                .map(|root| (*root, None))
-                .collect(),
+            request.beacon_block_roots.to_vec(),
+            EnvelopeRequestSource::ByRoot,
         ) {
             Ok(envelope_stream) => envelope_stream,
             Err(e) => {
@@ -1188,16 +1186,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        let mut block_roots_with_children = block_roots
-            .windows(2)
-            .map(|w| (w[0], Some(w[1])))
-            .collect::<Vec<_>>();
-
-        if let Some(last) = block_roots.last() {
-            block_roots_with_children.push((*last, None));
-        }
-
-        let mut envelope_stream = match self.chain.get_payload_envelopes(block_roots_with_children)
+        let mut envelope_stream = match self
+            .chain
+            .get_payload_envelopes(block_roots, EnvelopeRequestSource::ByRange)
         {
             Ok(envelope_stream) => envelope_stream,
             Err(e) => {

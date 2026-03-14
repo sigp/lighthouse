@@ -9,32 +9,42 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, warn};
 use types::{EthSpec, SignedExecutionPayloadEnvelope};
 
-use crate::{BeaconChainError, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChainError, BeaconChainTypes, BeaconStore, canonical_head::CanonicalHeadReader};
 
 type PayloadEnvelopeResult<E> =
     Result<Option<Arc<SignedExecutionPayloadEnvelope<E>>>, BeaconChainError>;
 
 #[derive(Debug)]
 pub enum Error {
-    ChildBlockNotFound,
+    BlockMissingFromForkChoice,
 }
 
-pub struct PayloadEnvelopeStreamer<T: BeaconChainTypes> {
+#[derive(Debug, PartialEq)]
+pub enum EnvelopeRequestSource {
+    ByRoot,
+    ByRange,
+}
+
+pub struct PayloadEnvelopeStreamer<T: BeaconChainTypes, F: CanonicalHeadReader + 'static> {
     // TODO(gloas) remove expect when execution layer field
     // is no longer dead.
     #[expect(dead_code)]
     execution_layer: ExecutionLayer<T::EthSpec>,
+    canonical_head_reader: Arc<F>,
     store: BeaconStore<T>,
     task_executor: TaskExecutor,
+    request_source: EnvelopeRequestSource,
 }
 
 // TODO(gloas) eventually we'll need to expand this to support loading blinded payload envelopes from the db
 // and fetching the execution payload from the EL. See BlockStreamer impl as an example
-impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
+impl<T: BeaconChainTypes, F: CanonicalHeadReader> PayloadEnvelopeStreamer<T, F> {
     pub fn new(
         execution_layer_opt: Option<ExecutionLayer<T::EthSpec>>,
+        canonical_head_reader: Arc<F>,
         store: BeaconStore<T>,
         task_executor: TaskExecutor,
+        request_source: EnvelopeRequestSource,
     ) -> Result<Arc<Self>, BeaconChainError> {
         let execution_layer = execution_layer_opt
             .as_ref()
@@ -43,8 +53,10 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
         Ok(Arc::new(Self {
             execution_layer,
+            canonical_head_reader,
             store,
             task_executor,
+            request_source,
         }))
     }
 
@@ -76,7 +88,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
     async fn load_envelopes(
         self: &Arc<Self>,
-        block_roots_with_children: &[(Hash256, Option<Hash256>)],
+        block_roots_with_children: &[Hash256],
     ) -> Result<Vec<(Hash256, PayloadEnvelopeResult<T::EthSpec>)>, BeaconChainError> {
         let streamer = self.clone();
         let roots_with_children = block_roots_with_children.to_vec();
@@ -86,7 +98,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             .spawn_blocking_and_await(
                 move || {
                     let mut results = Vec::new();
-                    for (root, child_root_opt) in roots_with_children.iter() {
+                    for root in roots_with_children.iter() {
                         let opt_envelope = match streamer.load_envelope(root) {
                             Ok(opt_envelope) => opt_envelope,
                             Err(e) => {
@@ -95,13 +107,11 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                             }
                         };
 
-                        let Some(child_root) = child_root_opt else {
-                            // No child root provided, skip verification.
-                            // TODO(gloas)  envelopes by range skips verification for the last envelope
-                            // it returns.
+                        if streamer.request_source == EnvelopeRequestSource::ByRoot {
+                            // No envelope verification required for `ENVELOPE_BY_ROOT` requests
                             results.push((*root, Ok(opt_envelope)));
                             continue;
-                        };
+                        }
 
                         // When loading envelopes on or after the split slot, we must cross reference the bid from the child beacon block.
                         // There can be payloads that have been imported into the hot db but don't match our current view
@@ -109,34 +119,33 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
                         if let Some(envelope) = opt_envelope {
                             // Ensure that the envelopes we're serving match our view of the canonical chain.
-                            // When loading envelopes before the split slot, there is no need to cross reference the
-                            // child block. Non-canonical payload envelopes will have already been pruned.
+
+                            // When loading envelopes before the split slot, there is no need to check.
+                            // Non-canonical payload envelopes will have already been pruned.
                             if split_slot > envelope.slot() {
                                 results.push((*root, Ok(Some(envelope))));
                                 continue;
                             }
 
-                            let Ok(Some(child_beacon_block)) =
-                                streamer.store.get_full_block(child_root)
-                            else {
-                                results.push((
-                                    *root,
-                                    Err(BeaconChainError::EnvelopeStreamerError(
-                                        Error::ChildBlockNotFound,
-                                    )),
-                                ));
-                                continue;
-                            };
-
-                            // If the child beacon block `parent_block_hash` equals the current slots envelope `block_hash`
-                            // this envelope is canonical according to our view of the chain.
-                            if child_beacon_block
-                                .payload_bid_parent_block_hash()
-                                .is_ok_and(|parent_hash| parent_hash == envelope.block_hash())
+                            match streamer
+                                .canonical_head_reader
+                                .block_has_canonical_payload(root)
                             {
-                                results.push((*root, Ok(Some(envelope))));
-                            } else {
-                                results.push((*root, Ok(None)));
+                                Ok(is_envelope_canonical) => {
+                                    if is_envelope_canonical {
+                                        results.push((*root, Ok(Some(envelope))));
+                                    } else {
+                                        results.push((*root, Ok(None)));
+                                    }
+                                }
+                                Err(_) => {
+                                    results.push((
+                                        *root,
+                                        Err(BeaconChainError::EnvelopeStreamerError(
+                                            Error::BlockMissingFromForkChoice,
+                                        )),
+                                    ));
+                                }
                             }
                         } else {
                             results.push((*root, Ok(None)));
@@ -153,14 +162,14 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
     async fn stream_payload_envelopes(
         self: Arc<Self>,
-        beacon_block_roots_and_children: Vec<(Hash256, Option<Hash256>)>,
+        beacon_block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)>,
     ) {
-        let results = match self.load_envelopes(&beacon_block_roots_and_children).await {
+        let results = match self.load_envelopes(&beacon_block_roots).await {
             Ok(results) => results,
             Err(e) => {
                 warn!(error = ?e, "Failed to load payload envelopes");
-                send_errors(&beacon_block_roots_and_children, sender, e).await;
+                send_errors(&beacon_block_roots, sender, e).await;
                 return;
             }
         };
@@ -174,16 +183,16 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
     pub fn launch_stream(
         self: Arc<Self>,
-        block_roots_with_children: Vec<(Hash256, Option<Hash256>)>,
+        block_roots: Vec<Hash256>,
     ) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
         let (envelope_tx, envelope_rx) = mpsc::unbounded_channel();
         debug!(
-            envelopes = block_roots_with_children.len(),
+            envelopes = block_roots.len(),
             "Launching a PayloadEnvelopeStreamer"
         );
         let executor = self.task_executor.clone();
         executor.spawn(
-            self.stream_payload_envelopes(block_roots_with_children, envelope_tx),
+            self.stream_payload_envelopes(block_roots, envelope_tx),
             "get_payload_envelopes_sender",
         );
         UnboundedReceiverStream::new(envelope_rx)
@@ -191,12 +200,12 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 }
 
 async fn send_errors<E: EthSpec>(
-    block_roots_with_children: &[(Hash256, Option<Hash256>)],
+    block_roots: &[Hash256],
     sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<E>>)>,
     beacon_chain_error: BeaconChainError,
 ) {
     let result = Arc::new(Err(beacon_chain_error));
-    for (beacon_block_root, _) in block_roots_with_children {
+    for beacon_block_root in block_roots {
         if sender.send((*beacon_block_root, result.clone())).is_err() {
             break;
         }
@@ -221,6 +230,45 @@ mod tests {
     type E = MinimalEthSpec;
     type T = EphemeralHarnessType<E>;
 
+    struct TestCanonicalHeadReader {
+        non_canonical_payloads: Vec<Hash256>,
+    }
+
+    impl TestCanonicalHeadReader {
+        fn new(chain: &[SlotEntry]) -> Self {
+            let non_canonical_payloads = chain
+                .iter()
+                .filter(|s| s.non_canonical_envelope)
+                .map(|s| s.block_root)
+                .collect::<Vec<_>>();
+            Self {
+                non_canonical_payloads,
+            }
+        }
+    }
+
+    impl CanonicalHeadReader for TestCanonicalHeadReader {
+        fn block_has_canonical_payload(
+            &self,
+            root: &types::Hash256,
+        ) -> Result<bool, BeaconChainError> {
+            Ok(!self.non_canonical_payloads.contains(root))
+        }
+    }
+
+    struct TestErrorCanonicalHeadReader;
+
+    impl CanonicalHeadReader for TestErrorCanonicalHeadReader {
+        fn block_has_canonical_payload(
+            &self,
+            _root: &types::Hash256,
+        ) -> Result<bool, BeaconChainError> {
+            // We return a canonical head error here to mock
+            // what a potential error could look like in prod
+            Err(BeaconChainError::CanonicalHeadLockTimeout)
+        }
+    }
+
     struct TestSetup {
         store: BeaconStore<T>,
         el: ExecutionLayer<E>,
@@ -235,17 +283,24 @@ mod tests {
 
         /// Consume setup and return a `(stream, _runtime)` pair.
         /// The runtime must be kept alive for the stream to produce results.
-        fn launch_stream(
+        fn launch_stream<F: CanonicalHeadReader + 'static>(
             self,
-            roots_with_children: Vec<(Hash256, Option<Hash256>)>,
+            roots: Vec<Hash256>,
+            canonical_head_reader: Arc<F>,
+            request_source: EnvelopeRequestSource,
         ) -> (
             impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<E>>)>,
             task_executor::test_utils::TestRuntime,
         ) {
-            let streamer =
-                PayloadEnvelopeStreamer::<T>::new(Some(self.el), self.store, self.executor)
-                    .unwrap();
-            (streamer.launch_stream(roots_with_children), self._runtime)
+            let streamer = PayloadEnvelopeStreamer::<T, F>::new(
+                Some(self.el),
+                canonical_head_reader,
+                self.store,
+                self.executor,
+                request_source,
+            )
+            .unwrap();
+            (streamer.launch_stream(roots), self._runtime)
         }
     }
 
@@ -281,33 +336,20 @@ mod tests {
 
     impl SlotEntry {
         /// Whether the streamer should return an envelope for this entry.
-        fn expect_envelope(&self, is_last: bool, split_slot: Option<Slot>) -> bool {
+        fn expect_envelope(&self, split_slot: Option<Slot>) -> bool {
             if self.envelope.is_none() {
                 return false;
             }
             if !self.non_canonical_envelope {
                 return true;
             }
-            // TODO(gloas) no child block verification happens for envelopes in the last slot
-            // of the stream.
-            if is_last {
-                return true;
-            }
-
             // no child block verification happens for envelopes before the split slot
             split_slot.is_some_and(|s| self.block.slot() < s)
         }
     }
 
-    fn roots_with_children(chain: &[SlotEntry]) -> Vec<(Hash256, Option<Hash256>)> {
-        let mut result: Vec<(Hash256, Option<Hash256>)> = chain
-            .windows(2)
-            .map(|w| (w[0].block_root, Some(w[1].block_root)))
-            .collect();
-        if let Some(last) = chain.last() {
-            result.push((last.block_root, None));
-        }
-        result
+    fn roots(chain: &[SlotEntry]) -> Vec<Hash256> {
+        chain.iter().map(|s| s.block_root).collect::<Vec<_>>()
     }
 
     fn assert_non_canonical_envelopes_in_db(store: &BeaconStore<T>, chain: &[SlotEntry]) {
@@ -476,9 +518,8 @@ mod tests {
             assert_eq!(root, entry.block_root, "root mismatch at index {i}");
 
             let result = unwrap_result(&result);
-            let is_last = i == chain.len() - 1;
 
-            if entry.expect_envelope(is_last, split_slot) {
+            if entry.expect_envelope(split_slot) {
                 let envelope = result
                     .as_ref()
                     .unwrap_or_else(|| panic!("expected Some at index {i} but got None"));
@@ -501,25 +542,37 @@ mod tests {
 
     /// Test streaming with no missing slots and no missing payloads i.e. the happy path.
     #[tokio::test]
-    async fn stream_envelopes() {
+    async fn stream_envelopes_by_range() {
         let test = setup();
         let chain = build_chain(8, &[], &[], &[]);
         store_chain(test.store(), &chain);
 
-        let (mut stream, _runtime) = test.launch_stream(roots_with_children(&chain));
+        let canonical_head_reader: TestCanonicalHeadReader = TestCanonicalHeadReader::new(&chain);
+
+        let (mut stream, _runtime) = test.launch_stream(
+            roots(&chain),
+            Arc::new(canonical_head_reader),
+            EnvelopeRequestSource::ByRange,
+        );
 
         assert_stream_matches(&mut stream, &chain, None).await;
     }
 
     /// Test streaming when the chain is a mixture of missed slots, no payloads and non-canonical payloads
     #[tokio::test]
-    async fn stream_envelopes_mixed() {
+    async fn stream_envelopes_by_range_mixed() {
         let test = setup();
         let chain = build_chain(12, &[3, 8], &[5], &[7, 11]);
         store_chain(test.store(), &chain);
         assert_non_canonical_envelopes_in_db(test.store(), &chain);
 
-        let (mut stream, _runtime) = test.launch_stream(roots_with_children(&chain));
+        let canonical_head_reader: TestCanonicalHeadReader = TestCanonicalHeadReader::new(&chain);
+
+        let (mut stream, _runtime) = test.launch_stream(
+            roots(&chain),
+            Arc::new(canonical_head_reader),
+            EnvelopeRequestSource::ByRange,
+        );
 
         assert_stream_matches(&mut stream, &chain, None).await;
     }
@@ -530,7 +583,7 @@ mod tests {
     /// been pruned. This test is strictly to show that envelopes before the split slot
     /// are returned without any additional verification.
     #[tokio::test]
-    async fn stream_envelopes_before_split() {
+    async fn stream_envelopes_by_range_before_split() {
         let test = setup();
         // Non-canonical envelopes at slots 2 and 4 (before split), slot 8 (after split).
         let chain = build_chain(10, &[], &[], &[2, 4, 8]);
@@ -542,7 +595,13 @@ mod tests {
         test.store()
             .set_split(split_slot, Hash256::zero(), Hash256::zero());
 
-        let (mut stream, _runtime) = test.launch_stream(roots_with_children(&chain));
+        let canonical_head_reader: TestCanonicalHeadReader = TestCanonicalHeadReader::new(&chain);
+
+        let (mut stream, _runtime) = test.launch_stream(
+            roots(&chain),
+            Arc::new(canonical_head_reader),
+            EnvelopeRequestSource::ByRange,
+        );
 
         assert_stream_matches(&mut stream, &chain, Some(split_slot)).await;
     }
@@ -550,21 +609,30 @@ mod tests {
     #[tokio::test]
     async fn stream_envelopes_empty_roots() {
         let test = setup();
-        let (mut stream, _runtime) = test.launch_stream(vec![]);
+        let canonical_head_reader: TestCanonicalHeadReader = TestCanonicalHeadReader::new(&[]);
+        let (mut stream, _runtime) = test.launch_stream(
+            vec![],
+            Arc::new(canonical_head_reader),
+            EnvelopeRequestSource::ByRange,
+        );
         assert!(
             stream.next().await.is_none(),
             "empty roots should produce no results"
         );
     }
 
-    /// TODO(gloas) at the moment single root hits the "last root" path which skips child verification.
     #[tokio::test]
     async fn stream_envelopes_single_root() {
         let test = setup();
         let chain = build_chain(3, &[], &[], &[]);
+        let canonical_head_reader: TestCanonicalHeadReader = TestCanonicalHeadReader::new(&chain);
         store_chain(test.store(), &chain);
 
-        let (mut stream, _runtime) = test.launch_stream(vec![(chain[1].block_root, None)]);
+        let (mut stream, _runtime) = test.launch_stream(
+            vec![chain[1].block_root],
+            Arc::new(canonical_head_reader),
+            EnvelopeRequestSource::ByRange,
+        );
 
         let (root, result) = stream.next().await.expect("should get one result");
         assert_eq!(root, chain[1].block_root);
@@ -579,59 +647,155 @@ mod tests {
         assert!(stream.next().await.is_none(), "stream should be exhausted");
     }
 
-    /// Test that a missing child block produces a ChildBlockNotFound error.
+    /// ByRoot requests skip canonical verification, so non-canonical envelopes
+    /// should still be returned.
     #[tokio::test]
-    async fn stream_envelopes_missing_child_block() {
+    async fn stream_envelopes_by_root() {
         let test = setup();
-        let chain = build_chain(4, &[], &[], &[]);
+        let chain = build_chain(8, &[], &[], &[3, 5, 7]);
+        store_chain(test.store(), &chain);
+        assert_non_canonical_envelopes_in_db(test.store(), &chain);
 
-        // Store only the first two blocks+envelopes, skip storing block 3.
-        // Then request roots [1, 2, 3] — root 2 has an envelope but its child
-        // (root 3) has no block in the DB.
-        for item in &chain[..2] {
-            test.store()
-                .put_block(&item.block_root, item.block.clone())
-                .unwrap();
-            test.store()
-                .put_payload_envelope(&item.block_root, item.envelope.as_ref().unwrap().clone())
-                .unwrap();
-        }
-        // Store envelope for root 3 but NOT the block.
-        test.store()
-            .put_payload_envelope(
-                &chain[2].block_root,
-                chain[2].envelope.as_ref().unwrap().clone(),
-            )
-            .unwrap();
+        let canonical_head_reader = TestCanonicalHeadReader::new(&chain);
 
-        let roots = vec![
-            (chain[0].block_root, Some(chain[1].block_root)),
-            (chain[1].block_root, Some(chain[2].block_root)),
-            (chain[2].block_root, None),
-        ];
-        let (mut stream, _runtime) = test.launch_stream(roots);
-
-        let (root, result) = stream.next().await.unwrap();
-        assert_eq!(root, chain[0].block_root);
-        assert!(unwrap_result(&result).is_some());
-
-        // An envelope exists but its child block doesn't
-        let (root, result) = stream.next().await.unwrap();
-        assert_eq!(root, chain[1].block_root);
-        assert!(
-            matches!(
-                result.as_ref(),
-                Err(BeaconChainError::EnvelopeStreamerError(
-                    Error::ChildBlockNotFound
-                ))
-            ),
-            "expected ChildBlockNotFound error, got {:?}",
-            result
+        let roots = roots(&chain);
+        let (mut stream, _runtime) = test.launch_stream(
+            roots,
+            Arc::new(canonical_head_reader),
+            EnvelopeRequestSource::ByRoot,
         );
 
-        let (root, result) = stream.next().await.unwrap();
-        assert_eq!(root, chain[2].block_root);
-        assert!(unwrap_result(&result).is_some());
+        // Every envelope should come back as Some, even the non-canonical ones.
+        for (i, entry) in chain.iter().enumerate() {
+            let (root, result) = stream
+                .next()
+                .await
+                .unwrap_or_else(|| panic!("stream ended early at index {i}"));
+            assert_eq!(root, entry.block_root, "root mismatch at index {i}");
+
+            let envelope = unwrap_result(&result)
+                .as_ref()
+                .unwrap_or_else(|| panic!("expected Some at index {i} for ByRoot request"));
+            let expected_envelope = entry.envelope.as_ref().unwrap();
+            assert_eq!(
+                envelope.block_hash(),
+                expected_envelope.block_hash(),
+                "block_hash mismatch at index {i}"
+            );
+        }
+
+        assert!(stream.next().await.is_none(), "stream should be exhausted");
+    }
+
+    /// When `block_has_canonical_payload` returns an error, the streamer should
+    /// yield `Err(EnvelopeStreamerError(BlockMissingFromForkChoice))` for those roots.
+    #[tokio::test]
+    async fn stream_envelopes_error() {
+        let test = setup();
+        let chain = build_chain(4, &[], &[], &[]);
+        store_chain(test.store(), &chain);
+
+        let canonical_head_reader = Arc::new(TestErrorCanonicalHeadReader);
+
+        let (mut stream, _runtime) = test.launch_stream(
+            roots(&chain),
+            canonical_head_reader,
+            EnvelopeRequestSource::ByRange,
+        );
+
+        for (i, entry) in chain.iter().enumerate() {
+            let (root, result) = stream
+                .next()
+                .await
+                .unwrap_or_else(|| panic!("stream ended early at index {i}"));
+            assert_eq!(root, entry.block_root, "root mismatch at index {i}");
+            assert!(
+                matches!(
+                    result.as_ref(),
+                    Err(BeaconChainError::EnvelopeStreamerError(
+                        Error::BlockMissingFromForkChoice
+                    ))
+                ),
+                "expected BlockMissingFromForkChoice error at index {i}, got {:?}",
+                result
+            );
+        }
+
+        assert!(stream.next().await.is_none(), "stream should be exhausted");
+    }
+
+    /// Requesting unknown roots (not in the store) via ByRange should return Ok(None).
+    #[tokio::test]
+    async fn stream_envelopes_by_range_unknown_roots() {
+        let test = setup();
+        let canonical_head_reader = Arc::new(TestCanonicalHeadReader::new(&[]));
+
+        let unknown_roots: Vec<Hash256> = (1..=4)
+            .map(|i| Hash256::from_low_u64_be(i * 1000))
+            .collect();
+
+        let (mut stream, _runtime) = test.launch_stream(
+            unknown_roots.clone(),
+            canonical_head_reader,
+            EnvelopeRequestSource::ByRange,
+        );
+
+        for (i, expected_root) in unknown_roots.iter().enumerate() {
+            let (root, result) = stream
+                .next()
+                .await
+                .unwrap_or_else(|| panic!("stream ended early at index {i}"));
+            assert_eq!(root, *expected_root, "root mismatch at index {i}");
+            let envelope = unwrap_result(&result);
+            assert!(
+                envelope.is_none(),
+                "expected None for unknown root at index {i}"
+            );
+        }
+
+        assert!(stream.next().await.is_none(), "stream should be exhausted");
+    }
+
+    /// Requesting roots via ByRoot where some envelopes are missing from the store
+    /// should return Ok(None) for those roots.
+    #[tokio::test]
+    async fn stream_envelopes_by_root_missing_envelopes() {
+        let test = setup();
+        let chain = build_chain(6, &[], &[2, 4], &[]);
+        store_chain(test.store(), &chain);
+
+        let canonical_head_reader = Arc::new(TestCanonicalHeadReader::new(&chain));
+
+        let (mut stream, _runtime) = test.launch_stream(
+            roots(&chain),
+            canonical_head_reader,
+            EnvelopeRequestSource::ByRoot,
+        );
+
+        for (i, entry) in chain.iter().enumerate() {
+            let (root, result) = stream
+                .next()
+                .await
+                .unwrap_or_else(|| panic!("stream ended early at index {i}"));
+            assert_eq!(root, entry.block_root, "root mismatch at index {i}");
+
+            let envelope_opt = unwrap_result(&result);
+            if let Some(entry_envelope) = &entry.envelope {
+                let envelope = envelope_opt
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("expected Some at index {i}"));
+                assert_eq!(
+                    envelope.block_hash(),
+                    entry_envelope.block_hash(),
+                    "block_hash mismatch at index {i}"
+                );
+            } else {
+                assert!(
+                    envelope_opt.is_none(),
+                    "expected None for missing envelope at index {i}"
+                );
+            }
+        }
 
         assert!(stream.next().await.is_none(), "stream should be exhausted");
     }

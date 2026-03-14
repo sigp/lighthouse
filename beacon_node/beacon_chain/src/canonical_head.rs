@@ -420,6 +420,21 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     }
 }
 
+// TODO(gloas) extend this trait to support methods needed by envelope_verification
+// so that its unit testable.
+pub trait CanonicalHeadReader: Send + Sync {
+    fn block_has_canonical_payload(&self, root: &Hash256) -> Result<bool, Error>;
+}
+
+impl<T: BeaconChainTypes> CanonicalHeadReader for CanonicalHead<T> {
+    // TODO(gloas) just a stub for now, implement this once we have fork choice.
+    /// Returns true if the payload for this block is canonical according to fork choice
+    /// Returns an error if the block root doesn't exist in fork choice.
+    fn block_has_canonical_payload(&self, _root: &Hash256) -> Result<bool, Error> {
+        Ok(true)
+    }
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Contains the "best block"; the head of the canonical `BeaconChain`.
     ///
