@@ -22,6 +22,8 @@ use beacon_chain::{
 use execution_layer::{PayloadStatusV1, json_structures::JsonPayloadStatusV1Status};
 use serde::Deserialize;
 use ssz_derive::Decode;
+use state_processing::VerifySignatures;
+use state_processing::envelope_processing::{self, VerifyStateRoot};
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
@@ -29,8 +31,9 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
-    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, ExecutionPayloadEnvelope,
+    ExecutionPayloadGloas, ExecutionRequests, Hash256, IndexedAttestation, KzgProof,
+    ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -72,6 +75,7 @@ pub struct Checks {
     proposer_boost_root: Option<Hash256>,
     get_proposer_head: Option<Hash256>,
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
+    head_payload_status: Option<u8>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -94,7 +98,7 @@ impl From<PayloadStatus> for PayloadStatusV1 {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<TBlock, TBlobs, TColumns, TAttestation, TAttesterSlashing, TPowBlock> {
+pub enum Step<TBlock, TBlobs, TColumns, TAttestation, TAttesterSlashing, TPowBlock, TEnvelope> {
     Tick {
         tick: u64,
     },
@@ -119,6 +123,10 @@ pub enum Step<TBlock, TBlobs, TColumns, TAttestation, TAttesterSlashing, TPowBlo
     OnPayloadInfo {
         block_hash: ExecutionBlockHash,
         payload_status: PayloadStatus,
+    },
+    ExecutionPayloadEnvelope {
+        execution_payload: TEnvelope,
+        valid: bool,
     },
     Checks {
         checks: Box<Checks>,
@@ -151,6 +159,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
             Attestation<E>,
             AttesterSlashing<E>,
             PowBlock,
+            SignedExecutionPayloadEnvelope<E>,
         >,
     >,
 }
@@ -165,7 +174,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, Vec<String>, String, String, String>> =
+        let steps: Vec<Step<String, String, Vec<String>, String, String, String, String>> =
             yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
@@ -237,6 +246,17 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     block_hash,
                     payload_status,
                 }),
+                Step::ExecutionPayloadEnvelope {
+                    execution_payload,
+                    valid,
+                } => {
+                    let envelope =
+                        ssz_decode_file(&path.join(format!("{execution_payload}.ssz_snappy")))?;
+                    Ok(Step::ExecutionPayloadEnvelope {
+                        execution_payload: envelope,
+                        valid,
+                    })
+                }
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
                 Step::MaybeValidBlockAndColumns {
                     block,
@@ -346,6 +366,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     el.server
                         .set_payload_statuses(*block_hash, payload_status.clone().into());
                 }
+                Step::ExecutionPayloadEnvelope {
+                    execution_payload,
+                    valid,
+                } => {
+                    tester.process_execution_payload_envelope(execution_payload.clone(), *valid)?
+                }
                 Step::Checks { checks } => {
                     let Checks {
                         head,
@@ -359,6 +385,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         proposer_boost_root,
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
+                        head_payload_status,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -404,6 +431,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected_proposer_head) = get_proposer_head {
                         tester.check_expected_proposer_head(*expected_proposer_head)?;
+                    }
+
+                    if let Some(expected_payload_status) = head_payload_status {
+                        tester.check_head_payload_status(*expected_payload_status)?;
                     }
                 }
 
@@ -464,6 +495,31 @@ impl<E: EthSpec> Tester<E> {
             return Err(Error::FailedToParseTest(
                 "anchor block differs from locally-generated genesis block".into(),
             ));
+        }
+
+        // Store envelope for the anchor block so child blocks can resolve parent's full state root.
+        if case
+            .anchor_block
+            .body()
+            .signed_execution_payload_bid()
+            .is_ok()
+        {
+            let anchor_envelope = SignedExecutionPayloadEnvelope {
+                message: ExecutionPayloadEnvelope {
+                    payload: ExecutionPayloadGloas::default(),
+                    execution_requests: ExecutionRequests::default(),
+                    builder_index: 0,
+                    beacon_block_root: harness.chain.genesis_block_root,
+                    slot: case.anchor_state.slot(),
+                    state_root: case.anchor_block.state_root(),
+                },
+                signature: bls::Signature::empty(),
+            };
+            harness
+                .chain
+                .store
+                .put_payload_envelope(&harness.chain.genesis_block_root, anchor_envelope)
+                .expect("should store genesis envelope");
         }
 
         // Drop any blocks that might be loaded in the mock execution layer. Some of these tests
@@ -784,6 +840,68 @@ impl<E: EthSpec> Tester<E> {
         );
     }
 
+    pub fn process_execution_payload_envelope(
+        &self,
+        envelope: SignedExecutionPayloadEnvelope<E>,
+        valid: bool,
+    ) -> Result<(), Error> {
+        let block_root = envelope.beacon_block_root();
+        let envelope_state_root = envelope.message.state_root;
+
+        let block = self
+            .harness
+            .chain
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .unwrap();
+
+        let mut state = self
+            .harness
+            .chain
+            .get_state(
+                &block.state_root(),
+                Some(block.slot()),
+                CACHE_STATE_IN_TESTS,
+            )
+            .unwrap()
+            .unwrap();
+
+        let result = envelope_processing::process_execution_payload_envelope(
+            &mut state,
+            Some(block.state_root()),
+            &envelope,
+            VerifySignatures::True,
+            VerifyStateRoot::True,
+            &self.spec,
+        );
+
+        if result.is_ok() != valid {
+            return Err(Error::DidntFail(format!(
+                "execution payload envelope for block root {} was valid={} whilst test expects valid={}. result: {:?}",
+                block_root,
+                result.is_ok(),
+                valid,
+                result
+            )));
+        }
+
+        if valid {
+            self.harness
+                .chain
+                .store
+                .put_payload_envelope(&block_root, envelope)
+                .expect("should store envelope");
+
+            self.harness
+                .chain
+                .store
+                .put_state(&envelope_state_root, &state)
+                .expect("should store post-envelope state");
+        }
+
+        Ok(())
+    }
+
     pub fn check_head(&self, expected_head: Head) -> Result<(), Error> {
         let head = self.find_head()?;
         let chain_head = Head {
@@ -929,6 +1047,23 @@ impl<E: EthSpec> Tester<E> {
         };
 
         check_equal("proposer_head", proposer_head, expected_proposer_head)
+    }
+
+    pub fn check_head_payload_status(&self, expected_status: u8) -> Result<(), Error> {
+        let head = self.find_head()?;
+        let head_block_root = head.head_block_root();
+
+        let has_envelope = self
+            .harness
+            .chain
+            .store
+            .get_payload_envelope(&head_block_root)
+            .map_err(|e| Error::InternalError(format!("{:?}", e)))?
+            .is_some();
+
+        let actual_status: u8 = if has_envelope { 1 } else { 0 };
+
+        check_equal("head_payload_status", actual_status, expected_status)
     }
 
     pub fn check_should_override_fcu(

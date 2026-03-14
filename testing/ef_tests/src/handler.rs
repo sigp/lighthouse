@@ -721,6 +721,11 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
+        // Execution Payload tests exist only after Gloas.
+        if self.handler_name == "on_execution_payload" && !fork_name.gloas_enabled() {
+            return false;
+        }
+
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
