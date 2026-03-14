@@ -32,7 +32,6 @@ use rayon::prelude::*;
 use reth_era::common::file_ops::StreamReader;
 use reth_era::era::file::EraReader;
 use reth_era::era::types::consensus::{CompressedBeaconState, CompressedSignedBeaconBlock};
-
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -344,16 +343,18 @@ impl EraFileDir {
             .canonical_root()
             .map_err(|e| format!("failed to compute head state root: {e:?}"))?;
 
-        // Find the latest block root from the state's block_roots
-        let last_block_slot = (0..slots_per_hr)
+        // Find the latest non-skipped block in the state's block_roots window.
+        // Search backwards from the end of the range; a slot has a block if its root
+        // differs from the previous slot's root (or it is slot 0).
+        let search_start = head_slot.as_u64().saturating_sub(slots_per_hr);
+        let last_block_slot = (search_start..head_slot.as_u64())
             .rev()
-            .map(|i| Slot::new(head_slot.as_u64().saturating_sub(slots_per_hr) + i))
+            .map(Slot::new)
             .find(|slot| {
                 head_state
                     .get_block_root(*slot)
                     .ok()
                     .map(|root| {
-                        // Non-skipped slot: root differs from previous slot's root
                         slot.as_u64() == 0
                             || head_state
                                 .get_block_root(Slot::new(slot.as_u64() - 1))
@@ -362,28 +363,27 @@ impl EraFileDir {
                     })
                     .unwrap_or(false)
             })
-            .ok_or("no block found in last ERA")?;
+            .or_else(|| {
+                // All slots in the last ERA were skipped — the head block is from an
+                // earlier era. Use the cold DB block root index to find it.
+                store
+                    .get_cold_block_root(Slot::new(search_start))
+                    .ok()
+                    .flatten()
+                    .and_then(|root| {
+                        store
+                            .get_blinded_block(&root)
+                            .ok()
+                            .flatten()
+                            .map(|b| b.slot())
+                    })
+            })
+            .ok_or("no block found in imported ERA range")?;
         let head_block_root = *head_state
             .get_block_root(last_block_slot)
             .map_err(|e| format!("failed to read head block root: {e:?}"))?;
 
-        // Update anchor to reflect imported and reconstructed ERA data:
-        // - anchor_slot = head_slot so put_state uses Snapshot strategy
-        // - state_lower_limit = 0, state_upper_limit = 0: all historic states reconstructed
-        // - oldest_block_slot = 0: all blocks available
-        {
-            let old_anchor = store.get_anchor_info();
-            let mut new_anchor = old_anchor.clone();
-            new_anchor.anchor_slot = head_slot;
-            new_anchor.state_lower_limit = Slot::new(0);
-            new_anchor.state_upper_limit = Slot::new(0);
-            new_anchor.oldest_block_slot = Slot::new(0);
-            store
-                .compare_and_set_anchor_info_with_write(old_anchor, new_anchor)
-                .map_err(|e| format!("failed to update anchor: {e:?}"))?;
-        }
-
-        // Set split at the ERA boundary
+        // Set split at the ERA boundary (in memory; persisted atomically below)
         store.set_split(head_slot, head_state_root, head_block_root);
 
         // Store the head state in hot DB (needed by get_advanced_hot_state on startup).
@@ -432,8 +432,21 @@ impl EraFileDir {
         )
         .map_err(|e| format!("failed to create fork choice: {e:?}"))?;
 
-        // Persist updated metadata
+        // Persist anchor, split, and fork choice atomically to avoid inconsistent
+        // on-disk state if the process crashes mid-write.
+        let old_anchor = store.get_anchor_info();
+        let mut new_anchor = old_anchor.clone();
+        new_anchor.anchor_slot = head_slot;
+        new_anchor.state_lower_limit = Slot::new(0);
+        new_anchor.state_upper_limit = Slot::new(0);
+        new_anchor.oldest_block_slot = Slot::new(0);
+
         let mut batch = vec![];
+        batch.push(
+            store
+                .compare_and_set_anchor_info(old_anchor, new_anchor)
+                .map_err(|e| format!("failed to update anchor: {e:?}"))?,
+        );
         batch.push(store.store_split_in_batch());
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),

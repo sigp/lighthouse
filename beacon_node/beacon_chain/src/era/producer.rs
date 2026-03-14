@@ -16,7 +16,7 @@ use ssz::Encode;
 use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use store::{HotColdDB, ItemStore};
-use tracing::{error, info};
+use tracing::info;
 use tree_hash::TreeHash;
 use types::{BeaconState, EthSpec, Slot};
 
@@ -40,58 +40,6 @@ fn era_file_exists_for_number(dir: &Path, network_name: &str, era_number: u64) -
         }
     }
     false
-}
-
-#[allow(dead_code)]
-pub(crate) fn maybe_produce_reconstruction_eras<
-    E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
->(
-    db: &HotColdDB<E, Hot, Cold>,
-    output_dir: &Path,
-) {
-    let anchor = db.get_anchor_info();
-    let max_era = anchor.state_lower_limit.as_u64() / E::slots_per_historical_root() as u64;
-
-    for era_number in 0..=max_era {
-        if let Err(error) = create_era_file(db, era_number, output_dir) {
-            error!(
-                ?error,
-                era_number, "Era producer failed during reconstruction"
-            );
-            break;
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub(crate) fn maybe_produce_finalization_era<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-    db: &HotColdDB<E, Hot, Cold>,
-    output_dir: &Path,
-    finalized_slot: Slot,
-) {
-    // This is the oldest slot for which we have a state and blocks available
-    let anchor_slot = db.get_anchor_info().anchor_slot;
-    // And finalized_slot is the most recent for which we have finalized state and blocks available
-
-    // We can produce an era file for era_number if
-    // - anchor_slot <= start_slot(era_number) AND
-    // - finalized_slot >= end_slot(era_number)
-    let slots_per_hr = E::slots_per_historical_root() as u64;
-    let lowest_era_file = anchor_slot.as_u64() / slots_per_hr;
-    let Some(max_era_file) = ((finalized_slot.as_u64() + 1) / slots_per_hr).checked_sub(1) else {
-        return;
-    };
-    for era_number in lowest_era_file..=max_era_file {
-        if let Err(error) = create_era_file(db, era_number, output_dir) {
-            error!(
-                ?error,
-                era_number, "Era producer failed during finalization"
-            );
-            break;
-        }
-    }
 }
 
 pub fn create_era_file<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(

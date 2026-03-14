@@ -12,13 +12,6 @@ use store::{HotColdDB, StoreConfig};
 use tracing::info;
 use types::{EthSpec, Hash256};
 
-fn is_dir_non_empty(path: &PathBuf) -> bool {
-    path.exists()
-        && std::fs::read_dir(path)
-            .map(|mut entries| entries.next().is_some())
-            .unwrap_or(false)
-}
-
 pub fn run<E: EthSpec>(
     env: Environment<E>,
     network_config: Eth2NetworkConfig,
@@ -30,16 +23,6 @@ pub fn run<E: EthSpec>(
     let hot_path = datadir.join("chain_db");
     let cold_path = datadir.join("freezer_db");
     let blobs_path = datadir.join("blobs_db");
-
-    // Fail fast if database directories already contain data
-    if is_dir_non_empty(&hot_path) || is_dir_non_empty(&cold_path) {
-        return Err(format!(
-            "Database directories are not empty: {} / {}. \
-             This command expects a fresh datadir.",
-            hot_path.display(),
-            cold_path.display(),
-        ));
-    }
 
     let spec = env.eth2_config.spec.clone();
 
@@ -76,8 +59,19 @@ pub fn run<E: EthSpec>(
 
     let genesis_validators_root = genesis_state.genesis_validators_root();
 
-    init_genesis_store(&db, &mut genesis_state, &spec)
-        .map_err(|e| format!("Failed to initialize store from genesis: {e}"))?;
+    // Initialize genesis store only on first run. On crash-resume the store is already
+    // initialized and import_all will resume from the last ERA import pointer.
+    let already_initialized = db
+        .get_era_import_pointer()
+        .map_err(|e| format!("Failed to read ERA import pointer: {e:?}"))?
+        .is_some();
+
+    if !already_initialized {
+        init_genesis_store(&db, &mut genesis_state, &spec)
+            .map_err(|e| format!("Failed to initialize store from genesis: {e}"))?;
+    } else {
+        info!("Resuming ERA import from previous run");
+    }
 
     let trust = match matches.get_one::<String>("era-trusted-state") {
         Some(value) => {

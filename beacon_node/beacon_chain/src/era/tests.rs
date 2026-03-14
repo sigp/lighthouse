@@ -424,7 +424,7 @@ fn chain_boots_from_imported_db(store: Arc<TestStore>, spec: &ChainSpec, metadat
         (metadata.head_slot / MinimalEthSpec::slots_per_historical_root() as u64 + 1)
             * MinimalEthSpec::slots_per_historical_root() as u64;
     let genesis_time = Duration::from_secs(spec.min_genesis_time);
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
     let clock_time = genesis_time + slot_duration * era_boundary_slot as u32;
     let slot_clock = TestingSlotClock::new(Slot::new(0), genesis_time, slot_duration);
     slot_clock.set_current_time(clock_time);
