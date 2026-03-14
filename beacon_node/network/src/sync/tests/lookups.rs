@@ -11,7 +11,7 @@ use crate::sync::{
 use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BlockError, EngineState, NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
     data_availability_checker::Availability,
     test_utils::{
@@ -73,8 +73,12 @@ pub struct SimulateConfig {
     return_no_range_blocks_n_times: usize,
     /// Number of DataColumnsByRange requests that return empty (no columns)
     return_no_range_columns_n_times: usize,
-    /// Number of DataColumnsByRange requests that return columns with wrong indices
-    return_wrong_range_columns_n_times: usize,
+    /// Number of DataColumnsByRange requests that return columns with unrequested indices
+    return_wrong_range_column_indices_n_times: usize,
+    /// Number of DataColumnsByRange requests that return columns with unrequested slots
+    return_wrong_range_column_slots_n_times: usize,
+    /// Set EE offline at start, bring back online after this many BlocksByRange responses
+    ee_offline_for_n_range_responses: Option<usize>,
     /// Disconnect all peers after responding to this many BlocksByRange requests
     disconnect_peers_after_range_requests: Option<usize>,
 }
@@ -167,8 +171,18 @@ impl SimulateConfig {
         self
     }
 
-    pub(super) fn with_wrong_range_columns_n_times(mut self, n: usize) -> Self {
-        self.return_wrong_range_columns_n_times = n;
+    pub(super) fn with_wrong_range_column_indices_n_times(mut self, n: usize) -> Self {
+        self.return_wrong_range_column_indices_n_times = n;
+        self
+    }
+
+    pub(super) fn with_wrong_range_column_slots_n_times(mut self, n: usize) -> Self {
+        self.return_wrong_range_column_slots_n_times = n;
+        self
+    }
+
+    pub(super) fn with_ee_offline_for_n_range_responses(mut self, n: usize) -> Self {
+        self.ee_offline_for_n_range_responses = Some(n);
         self
     }
 
@@ -317,6 +331,16 @@ impl TestRig {
             self.complete_strategy
         ));
 
+        // Set EE offline at the start if configured
+        if self
+            .complete_strategy
+            .ee_offline_for_n_range_responses
+            .is_some()
+        {
+            self.sync_manager
+                .update_execution_engine_state(EngineState::Offline);
+        }
+
         let mut i = 0;
 
         loop {
@@ -400,9 +424,28 @@ impl TestRig {
                     }
                     Work::ChainSegment {
                         process_fn,
-                        process_id,
+                        process_id: (chain_id, batch_epoch),
                     } => {
-                        self.simulate_chain_segment(process_fn, process_id).await;
+                        let sync_type =
+                            ChainSegmentProcessId::RangeBatchId(chain_id, batch_epoch.into());
+                        if self.complete_strategy.range_faulty_failures > 0 {
+                            self.complete_strategy.range_faulty_failures -= 1;
+                            self.push_sync_message(SyncMessage::BatchProcessed {
+                                sync_type,
+                                result: BatchProcessResult::FaultyFailure {
+                                    imported_blocks: 0,
+                                    penalty: PeerAction::LowToleranceError,
+                                },
+                            });
+                        } else if self.complete_strategy.range_non_faulty_failures > 0 {
+                            self.complete_strategy.range_non_faulty_failures -= 1;
+                            self.push_sync_message(SyncMessage::BatchProcessed {
+                                sync_type,
+                                result: BatchProcessResult::NonFaultyFailure,
+                            });
+                        } else {
+                            process_fn.await;
+                        }
                     }
                     Work::Reprocess(_) => {} // ignore
                     other => panic!("Unsupported Work event {}", other.str_id()),
@@ -448,38 +491,6 @@ impl TestRig {
             self.requests.len(),
             self.requests_count()
         ))
-    }
-
-    /// Process a ChainSegment work event, optionally injecting batch processing failures.
-    /// When injecting failures, the actual processing is skipped entirely — blocks are NOT
-    /// imported, and a failure result is sent directly to the sync manager.
-    async fn simulate_chain_segment(
-        &mut self,
-        process_fn: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
-        (chain_id, batch_epoch): (u32, u64),
-    ) {
-        let sync_type = ChainSegmentProcessId::RangeBatchId(chain_id, batch_epoch.into());
-
-        if self.complete_strategy.range_faulty_failures > 0 {
-            self.complete_strategy.range_faulty_failures -= 1;
-            drop(process_fn);
-            self.push_sync_message(SyncMessage::BatchProcessed {
-                sync_type,
-                result: BatchProcessResult::FaultyFailure {
-                    imported_blocks: 0,
-                    penalty: PeerAction::LowToleranceError,
-                },
-            });
-        } else if self.complete_strategy.range_non_faulty_failures > 0 {
-            self.complete_strategy.range_non_faulty_failures -= 1;
-            drop(process_fn);
-            self.push_sync_message(SyncMessage::BatchProcessed {
-                sync_type,
-                result: BatchProcessResult::NonFaultyFailure,
-            });
-        } else {
-            process_fn.await;
-        }
     }
 
     fn simulate_on_request(
@@ -665,8 +676,9 @@ impl TestRig {
                             self.peer_disconnected(peer);
                         }
                         return;
+                    } else {
+                        *remaining -= 1;
                     }
-                    *remaining -= 1;
                 }
 
                 // Return empty response N times to simulate peer returning no blocks
@@ -682,6 +694,19 @@ impl TestRig {
                         })
                         .collect::<Vec<_>>();
                     self.send_rpc_blocks_response(req_id, peer_id, &blocks);
+                }
+
+                // Bring EE back online after N range responses
+                if let Some(ref mut remaining) =
+                    self.complete_strategy.ee_offline_for_n_range_responses
+                {
+                    if *remaining == 0 {
+                        self.sync_manager
+                            .update_execution_engine_state(EngineState::Online);
+                        self.complete_strategy.ee_offline_for_n_range_responses = None;
+                    } else {
+                        *remaining -= 1;
+                    }
                 }
             }
 
@@ -714,10 +739,14 @@ impl TestRig {
                     return;
                 }
 
-                // Return wrong column indices N times (shift all indices by 1)
-                if self.complete_strategy.return_wrong_range_columns_n_times > 0 {
-                    self.complete_strategy.return_wrong_range_columns_n_times -= 1;
-                    // Collect columns that were NOT requested (wrong indices)
+                // Return columns with unrequested indices N times
+                if self
+                    .complete_strategy
+                    .return_wrong_range_column_indices_n_times
+                    > 0
+                {
+                    self.complete_strategy
+                        .return_wrong_range_column_indices_n_times -= 1;
                     let wrong_columns = (req.start_slot..req.start_slot + req.count)
                         .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
                         .filter_map(|block| block.block_data().and_then(|d| d.data_columns()))
@@ -726,7 +755,33 @@ impl TestRig {
                                 .into_iter()
                                 .filter(|c| !req.columns.contains(c.index()))
                         })
-                        .take(req.columns.len())
+                        .take(1)
+                        .collect::<Vec<_>>();
+                    self.send_rpc_columns_response(req_id, peer_id, &wrong_columns);
+                    return;
+                }
+
+                // Return columns from an out-of-range slot N times
+                if self
+                    .complete_strategy
+                    .return_wrong_range_column_slots_n_times
+                    > 0
+                {
+                    self.complete_strategy
+                        .return_wrong_range_column_slots_n_times -= 1;
+                    // Get a column from a slot AFTER the requested range
+                    let wrong_slot = req.start_slot + req.count;
+                    let wrong_columns = self
+                        .network_blocks_by_slot
+                        .get(&Slot::new(wrong_slot))
+                        .and_then(|block| block.block_data().and_then(|d| d.data_columns()))
+                        .into_iter()
+                        .flat_map(|columns| {
+                            columns
+                                .into_iter()
+                                .filter(|c| req.columns.contains(c.index()))
+                        })
+                        .take(1)
                         .collect::<Vec<_>>();
                     self.send_rpc_columns_response(req_id, peer_id, &wrong_columns);
                     return;

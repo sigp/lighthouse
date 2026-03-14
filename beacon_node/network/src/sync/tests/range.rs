@@ -650,14 +650,16 @@ impl TestRig {
         self.assert_state(RangeSyncType::Head);
     }
 
-    /// SETUP HELPER: Build a chain and setup finalized sync with enough peers for all forks
-    async fn setup_finalized_sync(&mut self) {
+    /// SETUP HELPER: Build a chain and setup finalized sync with enough peers for all forks.
+    /// Returns the remote SyncInfo used (needed for blacklist tests).
+    async fn setup_finalized_sync(&mut self) -> SyncInfo {
         let advanced_epochs = 5;
         self.build_chain(advanced_epochs * SLOTS_PER_EPOCH).await;
         let remote_info = self.finalized_remote_info_advanced_by((advanced_epochs as u64).into());
         self.add_fullnode_peers(remote_info.clone(), 100);
-        self.add_supernode_peer(remote_info);
+        self.add_supernode_peer(remote_info.clone());
         self.assert_state(RangeSyncType::Finalized);
+        remote_info
     }
 
     /// SETUP HELPER: Build a chain and setup finalized sync with a head peer
@@ -691,117 +693,141 @@ impl TestRig {
     fn assert_range_sync_chain_removed(&mut self) {
         self.assert_no_chains_exist();
     }
+
+    /// SETUP HELPER: Setup finalized sync with only 1 fullnode peer (insufficient custody
+    /// coverage). Returns remote_info to pass to `add_remaining_finalized_peers`.
+    async fn setup_finalized_sync_insufficient_peers(&mut self) -> SyncInfo {
+        let advanced_epochs = 5;
+        self.build_chain(advanced_epochs * SLOTS_PER_EPOCH).await;
+        let remote_info = self.finalized_remote_info_advanced_by((advanced_epochs as u64).into());
+        self.add_fullnode_peer(remote_info.clone());
+        self.assert_state(RangeSyncType::Finalized);
+        remote_info
+    }
+
+    /// SETUP HELPER: Add enough peers to cover all custody columns (same chain as insufficient setup)
+    fn add_remaining_finalized_peers(&mut self, remote_info: SyncInfo) {
+        self.add_fullnode_peers(remote_info.clone(), 100);
+        self.add_supernode_peer(remote_info);
+    }
+
+    /// ASSERT HELPER: Assert head sync completed (no finalization expected for short ranges)
+    fn assert_head_sync_completed(&mut self) {
+        self.assert_successful_range_sync();
+        self.assert_no_failed_chains();
+        assert_eq!(
+            self.head_slot(),
+            self.max_known_slot(),
+            "Head slot should match the last built block (all blocks ingested)"
+        );
+        self.assert_no_penalties();
+    }
+
+    /// ASSERT HELPER: Assert chain was removed and peers received faulty_chain penalty
+    fn assert_range_sync_chain_failed(&mut self) {
+        self.assert_no_chains_exist();
+        assert!(
+            self.penalties.iter().any(|p| p.msg == "faulty_chain"),
+            "Expected faulty_chain penalty, got {:?}",
+            self.penalties
+        );
+    }
+
+    /// ASSERT HELPER: Assert a new peer with a blacklisted root gets disconnected
+    fn assert_peer_blacklisted(&mut self, remote_info: SyncInfo) {
+        let new_peer = self.add_supernode_peer(remote_info);
+        self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::GoodbyePeer { peer_id, .. } if *peer_id == new_peer => Some(()),
+            _ => None,
+        })
+        .expect("Peer with blacklisted root should receive Goodbye");
+    }
 }
 
 #[tokio::test]
 async fn head_sync_completes() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_head_sync().await;
-    // SIMULATE
     r.simulate(SimulateConfig::happy_path()).await;
-    // ASSERT: Head sync covers a small range, no finalization expected
-    r.assert_successful_range_sync();
-    r.assert_no_failed_chains();
-    assert_eq!(
-        r.head_slot(),
-        r.max_known_slot(),
-        "Head slot should match the last built block (all blocks ingested)"
-    );
-    r.assert_no_penalties();
+    r.assert_head_sync_completed();
 }
 
 #[tokio::test]
 async fn finalized_to_head_transition() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_and_head_sync().await;
-    // SIMULATE
     r.simulate(SimulateConfig::happy_path()).await;
-    // ASSERT: After finalized completes, head chain drains too
     r.assert_range_sync_completed();
 }
 
 #[tokio::test]
 async fn finalized_sync_completes() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE
     r.simulate(SimulateConfig::happy_path()).await;
-    // ASSERT
     r.assert_range_sync_completed();
 }
 
 #[tokio::test]
 async fn batch_rpc_error_retries() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: RPC error on first attempt, retry succeeds
     r.simulate(SimulateConfig::happy_path().return_rpc_error(RPCError::UnsupportedProtocol))
         .await;
-    // ASSERT
     r.assert_range_sync_completed();
 }
 
 #[tokio::test]
 async fn batch_peer_returns_empty_then_succeeds() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: First BlocksByRange response is empty, retry from other peer succeeds
     r.simulate(SimulateConfig::happy_path().with_no_range_blocks_n_times(1))
         .await;
-    // ASSERT
     r.assert_successful_range_sync();
 }
 
 #[tokio::test]
 async fn batch_peer_returns_no_columns_then_succeeds() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: First DataColumnsByRange response is empty, retry succeeds
     r.simulate(SimulateConfig::happy_path().with_no_range_columns_n_times(1))
         .await;
-    // ASSERT
     r.assert_successful_range_sync();
 }
 
 #[tokio::test]
-async fn batch_peer_returns_wrong_columns_then_succeeds() {
+async fn batch_peer_returns_wrong_column_indices_then_succeeds() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: First DataColumnsByRange response has wrong indices, retry succeeds
-    r.simulate(SimulateConfig::happy_path().with_wrong_range_columns_n_times(1))
+    r.simulate(SimulateConfig::happy_path().with_wrong_range_column_indices_n_times(1))
         .await;
-    // ASSERT
+    r.assert_successful_range_sync();
+}
+
+#[tokio::test]
+async fn batch_peer_returns_wrong_column_slots_then_succeeds() {
+    let mut r = TestRig::default();
+    r.setup_finalized_sync().await;
+    r.simulate(SimulateConfig::happy_path().with_wrong_range_column_slots_n_times(1))
+        .await;
     r.assert_successful_range_sync();
 }
 
 #[tokio::test]
 async fn batch_non_faulty_failure_retries() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: Non-faulty processing failure, retry succeeds
     r.simulate(SimulateConfig::happy_path().with_range_non_faulty_failures(1))
         .await;
-    // ASSERT: Sync completes, no penalties for non-faulty failure
     r.assert_range_sync_completed();
 }
 
 #[tokio::test]
 async fn batch_faulty_failure_redownloads() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: Faulty processing failure, redownload succeeds
     r.simulate(SimulateConfig::happy_path().with_range_faulty_failures(1))
         .await;
-    // ASSERT: Sync completes, peer penalized for faulty batch
     r.assert_successful_range_sync();
     r.assert_penalties_of_type("faulty_batch");
 }
@@ -809,60 +835,58 @@ async fn batch_faulty_failure_redownloads() {
 #[tokio::test]
 async fn batch_max_failures_removes_chain() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: Max faulty failures reached
     r.simulate(SimulateConfig::happy_path().with_range_faulty_failures(3))
         .await;
-    // ASSERT: Chain removed, peers penalized with faulty_batch and faulty_chain
-    r.assert_range_sync_chain_removed();
-    assert!(
-        r.penalties.iter().any(|p| p.msg == "faulty_chain"),
-        "Expected faulty_chain penalty"
-    );
+    r.assert_range_sync_chain_failed();
 }
 
 #[tokio::test]
 async fn failed_chain_blacklisted() {
     let mut r = TestRig::default();
-    // SETUP
-    let remote_info = r.finalized_remote_info_advanced_by(2u64.into());
-    r.add_fullnode_peers(remote_info.clone(), 100);
-    r.add_supernode_peer(remote_info.clone());
-    r.assert_state(RangeSyncType::Finalized);
-    // SIMULATE: Kill chain via max faulty failures
+    let remote_info = r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().with_range_faulty_failures(3))
         .await;
-    r.assert_range_sync_chain_removed();
-    // ASSERT: New peer with same finalized root should get disconnected
-    let new_peer = r.add_supernode_peer(remote_info);
-    r.pop_received_network_event(|ev| match ev {
-        NetworkMessage::GoodbyePeer { peer_id, .. } if *peer_id == new_peer => Some(()),
-        _ => None,
-    })
-    .expect("Peer with blacklisted root should receive Goodbye");
+    r.assert_range_sync_chain_failed();
+    r.assert_peer_blacklisted(remote_info);
 }
 
 #[tokio::test]
 async fn all_peers_disconnect_removes_chain() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: Disconnect all peers before any requests are fulfilled
     r.simulate(SimulateConfig::happy_path().with_disconnect_after_range_requests(0))
         .await;
-    // ASSERT
     r.assert_range_sync_chain_removed();
 }
 
 #[tokio::test]
 async fn late_response_for_removed_chain() {
     let mut r = TestRig::default();
-    // SETUP
     r.setup_finalized_sync().await;
-    // SIMULATE: Disconnect all peers after first request, late responses are no-ops
     r.simulate(SimulateConfig::happy_path().with_disconnect_after_range_requests(1))
         .await;
-    // ASSERT
     r.assert_range_sync_chain_removed();
+}
+
+#[tokio::test]
+async fn ee_offline_then_online_resumes_sync() {
+    let mut r = TestRig::default();
+    r.setup_finalized_sync().await;
+    r.simulate(SimulateConfig::happy_path().with_ee_offline_for_n_range_responses(2))
+        .await;
+    r.assert_range_sync_completed();
+}
+
+#[tokio::test]
+async fn not_enough_custody_peers_then_peers_arrive() {
+    let mut r = TestRig::default();
+    if !r.fork_name.fulu_enabled() {
+        return;
+    }
+    let remote_info = r.setup_finalized_sync_insufficient_peers().await;
+    r.assert_empty_network();
+    r.add_remaining_finalized_peers(remote_info);
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_range_sync_completed();
 }
