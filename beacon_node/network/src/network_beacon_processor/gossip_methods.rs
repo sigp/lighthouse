@@ -6,6 +6,7 @@ use crate::{
 };
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -3338,7 +3339,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 verified_envelope
             }
             Err(e) => {
-                use beacon_chain::payload_envelope_verification::EnvelopeError;
                 match e {
                     EnvelopeError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
@@ -3369,8 +3369,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
 
-                    EnvelopeError::BlockRootUnknown { .. }
-                    | EnvelopeError::PriorToFinalization { .. } => {
+                    EnvelopeError::BlockRootUnknown { .. } => {
+                        // TODO(gloas): request block over RPC
                         debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
                         self.propagate_validation_result(
                             message_id,
@@ -3379,12 +3379,39 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
 
+                    EnvelopeError::PriorToFinalization { .. } => {
+                        warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_envelope_prior_finalization",
+                        );
+                    }
+
                     EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     | EnvelopeError::BlockProcessingError(_)
                     | EnvelopeError::EnvelopeProcessingError(_)
-                    | EnvelopeError::BlockError(_)
-                    | EnvelopeError::InternalError(_) => {
+                    | EnvelopeError::BlockError(_) => {
+                        warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_envelope_error",
+                        );
+                    }
+
+                    EnvelopeError::InternalError(_) => {
                         debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
                         self.propagate_validation_result(
                             message_id,
@@ -3444,7 +3471,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
         peer_id: PeerId,
-        message_id: MessageId,
+        _message_id: MessageId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
@@ -3470,47 +3497,55 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 // Nothing to do
             }
-            Err(e) => {
-                use beacon_chain::payload_envelope_verification::EnvelopeError;
-                match e {
-                    EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {
-                        debug!(error = ?e, "Envelope processing failed. Ignoring");
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Ignore,
-                        );
-                    }
-                    EnvelopeError::BadSignature
-                    | EnvelopeError::BuilderIndexMismatch { .. }
-                    | EnvelopeError::SlotMismatch { .. }
-                    | EnvelopeError::BlockHashMismatch { .. }
-                    | EnvelopeError::UnknownValidator { .. }
-                    | EnvelopeError::IncorrectBlockProposer { .. }
-                    | EnvelopeError::ExecutionPayloadError(_) => {
-                        warn!(error = ?e, "Envelope processing failed. Rejecting");
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Reject,
-                        );
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "gossip_envelope_processing_low",
-                        );
-                    }
-
-                    _ => {
-                        debug!(error = ?e, "Envelope processing failed. Ignoring");
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Ignore,
-                        );
-                    }
+            Err(e) => match e {
+                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {
+                    debug!(error = ?e, "Envelope processing failed");
                 }
-            }
+                EnvelopeError::BadSignature
+                | EnvelopeError::BuilderIndexMismatch { .. }
+                | EnvelopeError::SlotMismatch { .. }
+                | EnvelopeError::BlockHashMismatch { .. }
+                | EnvelopeError::UnknownValidator { .. }
+                | EnvelopeError::IncorrectBlockProposer { .. }
+                | EnvelopeError::ExecutionPayloadError(_) => {
+                    warn!(error = ?e, "Envelope processing failed");
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "gossip_envelope_processing_low",
+                    );
+                }
+
+                EnvelopeError::BlockRootUnknown { .. } => {
+                    debug!(error = ?e, "Envelope processing failed");
+                }
+
+                EnvelopeError::PriorToFinalization { .. } => {
+                    warn!(error = ?e, "Envelope processing failed");
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "gossip_envelope_processing_prior_finalization",
+                    );
+                }
+
+                EnvelopeError::BeaconChainError(_)
+                | EnvelopeError::BeaconStateError(_)
+                | EnvelopeError::BlockProcessingError(_)
+                | EnvelopeError::EnvelopeProcessingError(_)
+                | EnvelopeError::BlockError(_) => {
+                    warn!(error = ?e, "Envelope processing failed");
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "gossip_envelope_processing_error",
+                    );
+                }
+
+                EnvelopeError::InternalError(_) => {
+                    debug!(error = ?e, "Envelope processing failed");
+                }
+            },
         }
     }
 
