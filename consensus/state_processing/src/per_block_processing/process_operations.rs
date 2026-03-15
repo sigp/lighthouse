@@ -958,14 +958,16 @@ pub fn process_deposit_request_post_gloas<E: EthSpec>(
     let is_builder = builder_index.is_some();
 
     let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
-    let is_existing_validator = validator_index.is_some();
-    let is_validator =
-        is_existing_validator || is_pending_validator(state, &deposit_request.pubkey, spec)?;
+    let is_validator = validator_index.is_some();
 
-    let is_builder_prefix =
+    let has_builder_prefix =
         is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
 
-    if is_builder || (is_builder_prefix && !is_validator) {
+    if is_builder
+        || (has_builder_prefix
+            && !is_validator
+            && !is_pending_validator(state, &deposit_request.pubkey, spec)?)
+    {
         // Apply builder deposits immediately
         apply_deposit_for_builder(
             state,
