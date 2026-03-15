@@ -510,6 +510,16 @@ pub fn process_exits<E: EthSpec>(
     // Verify and apply each exit in series. We iterate in series because higher-index exits may
     // become invalid due to the application of lower-index ones.
     for (i, exit) in voluntary_exits.iter().enumerate() {
+        // Exits must specify an epoch when they become valid; they are not valid before then.
+        let current_epoch = state.current_epoch();
+        if current_epoch < exit.message.epoch {
+            return Err(BlockOperationError::invalid(ExitInvalid::FutureEpoch {
+                state: current_epoch,
+                exit: exit.message.epoch,
+            })
+            .into_with_index(i));
+        }
+
         // [New in Gloas:EIP7732]
         if state.fork_name_unchecked().gloas_enabled()
             && is_builder_index(exit.message.validator_index)
@@ -519,7 +529,7 @@ pub fn process_exits<E: EthSpec>(
             continue;
         }
 
-        verify_exit(state, None, exit, verify_signatures, spec)
+        verify_exit(state, Some(current_epoch), exit, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
