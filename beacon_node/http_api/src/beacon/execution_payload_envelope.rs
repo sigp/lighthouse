@@ -1,21 +1,15 @@
-use crate::block_id::BlockId;
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter};
-use crate::version::{
-    ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
-    execution_optimistic_finalized_beacon_response,
-};
 use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer,
     payload_envelope_verification::EnvelopeError,
 };
 use bytes::Bytes;
-use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{info, warn};
@@ -155,72 +149,4 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         })?;
 
     Ok(warp::reply().into_response())
-}
-
-// GET beacon/execution_payload_envelope/{block_id}
-pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
-    eth_v1: EthV1Filter,
-    block_id_or_err: impl Filter<Extract = (BlockId,), Error = Rejection>
-    + Clone
-    + Send
-    + Sync
-    + 'static,
-    task_spawner_filter: TaskSpawnerFilter<T>,
-    chain_filter: ChainFilter<T>,
-) -> ResponseFilter {
-    eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
-        .and(block_id_or_err)
-        .and(warp::path::end())
-        .and(task_spawner_filter)
-        .and(chain_filter)
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .then(
-            |block_id: BlockId,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             accept_header: Option<api_types::Accept>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
-                    let (root, execution_optimistic, finalized) = block_id.root(&chain)?;
-
-                    let envelope = chain
-                        .get_payload_envelope(&root)
-                        .map_err(warp_utils::reject::unhandled_error)?
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(format!(
-                                "execution payload envelope for block root {root}"
-                            ))
-                        })?;
-
-                    let fork_name = chain
-                        .spec
-                        .fork_name_at_slot::<T::EthSpec>(envelope.message.slot);
-
-                    match accept_header {
-                        Some(api_types::Accept::Ssz) => warp::http::Response::builder()
-                            .status(200)
-                            .body(warp::hyper::Body::from(envelope.as_ssz_bytes()))
-                            .map(add_ssz_content_type_header)
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "failed to create response: {}",
-                                    e
-                                ))
-                            }),
-                        _ => {
-                            let res = execution_optimistic_finalized_beacon_response(
-                                ResponseIncludesVersion::Yes(fork_name),
-                                execution_optimistic,
-                                finalized,
-                                &envelope,
-                            )?;
-                            Ok(warp::reply::json(&res).into_response())
-                        }
-                    }
-                    .map(|resp| add_consensus_version_header(resp, fork_name))
-                })
-            },
-        )
-        .boxed()
 }

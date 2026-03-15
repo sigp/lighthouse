@@ -191,7 +191,7 @@ pub enum EnvelopeError {
     /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
-    ExecutionPayloadError(ExecutionPayloadError),
+    ExecutionPayloadError(Box<ExecutionPayloadError>),
     /// An error from block-level checks reused during envelope import
     BlockError(BlockError),
     /// Internal error
@@ -212,7 +212,7 @@ impl From<BeaconChainError> for EnvelopeError {
 
 impl From<ExecutionPayloadError> for EnvelopeError {
     fn from(e: ExecutionPayloadError) -> Self {
-        EnvelopeError::ExecutionPayloadError(e)
+        EnvelopeError::ExecutionPayloadError(Box::new(e))
     }
 }
 
