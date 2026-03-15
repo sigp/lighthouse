@@ -41,7 +41,8 @@
 pub use crate::scheduler::BeaconProcessorQueueLengths;
 use crate::scheduler::work_queue::WorkQueues;
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedGossipEnvelope,
+    ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -242,6 +243,18 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     process_fn,
                 },
             },
+            ReadyWork::Envelope(QueuedGossipEnvelope {
+                beacon_block_slot,
+                beacon_block_root,
+                process_fn,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::DelayedImportEnvelope {
+                    beacon_block_slot,
+                    beacon_block_root,
+                    process_fn,
+                },
+            },
             ReadyWork::RpcBlock(QueuedRpcBlock {
                 beacon_block_root,
                 process_fn,
@@ -384,6 +397,11 @@ pub enum Work<E: EthSpec> {
         beacon_block_root: Hash256,
         process_fn: AsyncFn,
     },
+    DelayedImportEnvelope {
+        beacon_block_slot: Slot,
+        beacon_block_root: Hash256,
+        process_fn: AsyncFn,
+    },
     GossipVoluntaryExit(BlockingFn),
     GossipProposerSlashing(BlockingFn),
     GossipAttesterSlashing(BlockingFn),
@@ -396,6 +414,9 @@ pub enum Work<E: EthSpec> {
         process_fn: AsyncFn,
     },
     RpcBlobs {
+        process_fn: AsyncFn,
+    },
+    RpcPayloadEnvelope {
         process_fn: AsyncFn,
     },
     RpcCustodyColumn(AsyncFn),
@@ -449,6 +470,7 @@ pub enum WorkType {
     GossipBlobSidecar,
     GossipDataColumnSidecar,
     DelayedImportBlock,
+    DelayedImportEnvelope,
     GossipVoluntaryExit,
     GossipProposerSlashing,
     GossipAttesterSlashing,
@@ -458,6 +480,7 @@ pub enum WorkType {
     GossipLightClientOptimisticUpdate,
     RpcBlock,
     RpcBlobs,
+    RpcPayloadEnvelope,
     RpcCustodyColumn,
     ColumnReconstruction,
     IgnoredRpcBlock,
@@ -502,6 +525,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
+            Work::DelayedImportEnvelope { .. } => WorkType::DelayedImportEnvelope,
             Work::GossipVoluntaryExit(_) => WorkType::GossipVoluntaryExit,
             Work::GossipProposerSlashing(_) => WorkType::GossipProposerSlashing,
             Work::GossipAttesterSlashing(_) => WorkType::GossipAttesterSlashing,
@@ -518,6 +542,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipProposerPreferences(_) => WorkType::GossipProposerPreferences,
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
+            Work::RpcPayloadEnvelope { .. } => WorkType::RpcPayloadEnvelope,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
             Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
@@ -798,6 +823,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = work_queues.delayed_block_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = work_queues.delayed_envelope_queue.pop() {
                             Some(item)
                         // Check gossip blocks and payloads before gossip attestations, since a block might be
                         // required to verify some attestations.
@@ -1123,6 +1150,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::DelayedImportBlock { .. } => {
                                 work_queues.delayed_block_queue.push(work, work_id)
                             }
+                            Work::DelayedImportEnvelope { .. } => {
+                                work_queues.delayed_envelope_queue.push(work, work_id)
+                            }
                             Work::GossipVoluntaryExit { .. } => {
                                 work_queues.gossip_voluntary_exit_queue.push(work, work_id)
                             }
@@ -1144,7 +1174,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipLightClientOptimisticUpdate { .. } => work_queues
                                 .lc_gossip_optimistic_update_queue
                                 .push(work, work_id),
-                            Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => {
+                            Work::RpcBlock { .. }
+                            | Work::IgnoredRpcBlock { .. }
+                            | Work::RpcPayloadEnvelope { .. } => {
                                 work_queues.rpc_block_queue.push(work, work_id)
                             }
                             Work::RpcBlobs { .. } => work_queues.rpc_blob_queue.push(work, work_id),
@@ -1256,6 +1288,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.gossip_data_column_queue.len()
                         }
                         WorkType::DelayedImportBlock => work_queues.delayed_block_queue.len(),
+                        WorkType::DelayedImportEnvelope => work_queues.delayed_envelope_queue.len(),
                         WorkType::GossipVoluntaryExit => {
                             work_queues.gossip_voluntary_exit_queue.len()
                         }
@@ -1275,7 +1308,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipLightClientOptimisticUpdate => {
                             work_queues.lc_gossip_optimistic_update_queue.len()
                         }
-                        WorkType::RpcBlock => work_queues.rpc_block_queue.len(),
+                        WorkType::RpcBlock | WorkType::RpcPayloadEnvelope => {
+                            work_queues.rpc_block_queue.len()
+                        }
                         WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
                             work_queues.rpc_blob_queue.len()
                         }
@@ -1459,12 +1494,18 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_slot: _,
                 beacon_block_root: _,
                 process_fn,
+            }
+            | Work::DelayedImportEnvelope {
+                beacon_block_slot: _,
+                beacon_block_root: _,
+                process_fn,
             } => task_spawner.spawn_async(process_fn),
             Work::RpcBlock {
                 process_fn,
                 beacon_block_root: _,
             }
             | Work::RpcBlobs { process_fn }
+            | Work::RpcPayloadEnvelope { process_fn }
             | Work::RpcCustodyColumn(process_fn)
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),

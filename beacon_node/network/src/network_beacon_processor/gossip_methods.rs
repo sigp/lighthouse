@@ -49,8 +49,8 @@ use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
-        ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedGossipEnvelope, QueuedLightClientUpdate,
+        QueuedUnaggregate, ReprocessQueueMessage,
     },
 };
 
@@ -1288,6 +1288,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 return None;
             }
+            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
+                // The parent block is known but its execution payload envelope has not
+                // been received yet. Queue this block for reprocessing and trigger an
+                // envelope lookup.
+                debug!(
+                    ?block_root,
+                    ?parent_root,
+                    "Parent envelope not yet available for gossip block"
+                );
+                // TODO(gloas): trigger an envelope lookup for `parent_root` and queue
+                // this block for reprocessing once the envelope arrives.
+                return None;
+            }
             Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(
                     error = ?e,
@@ -1575,6 +1588,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %peer_id,
                     "Block with unknown parent attempted to be processed"
                 );
+            }
+            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
+                // The parent block is known but its execution payload envelope has not
+                // been received yet.
+                debug!(
+                    %block_root,
+                    ?parent_root,
+                    "Parent envelope not yet available, need envelope lookup"
+                );
+                // TODO(gloas): trigger an envelope lookup for `parent_root` and queue
+                // this block for reprocessing once the envelope arrives.
             }
             Err(e @ BlockError::ExecutionPayloadError(epe)) if !epe.penalize_peer() => {
                 debug!(
@@ -3251,14 +3275,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(
-        name = "lh_process_execution_payload_envelope",
-        parent = None,
-        level = "debug",
-        skip_all,
-        fields(beacon_block_root = tracing::field::Empty),
-    )]
     pub async fn process_gossip_execution_payload_envelope(
         self: Arc<Self>,
         message_id: MessageId,
@@ -3298,6 +3314,69 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedEnvelope<T>> {
+        let beacon_block_root = envelope.message.beacon_block_root;
+        let envelope_slot = envelope.slot();
+
+        // Check if the envelope's block is known to fork choice before attempting full
+        // verification. If the block isn't known yet, defer the envelope to the reprocess
+        // queue so it can be processed once the block is imported.
+        let block_known = self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&beacon_block_root);
+
+        if !block_known {
+            debug!(
+                ?beacon_block_root,
+                %envelope_slot,
+                "Envelope references unknown block, deferring"
+            );
+
+            let inner_self = self.clone();
+            let chain = self.chain.clone();
+            let process_fn = Box::pin(async move {
+                match chain.verify_envelope_for_gossip(envelope).await {
+                    Ok(verified_envelope) => {
+                        inner_self
+                            .process_gossip_verified_execution_payload_envelope(
+                                peer_id,
+                                verified_envelope,
+                            )
+                            .await;
+                    }
+                    Err(e) => {
+                        debug!(
+                            error = ?e,
+                            "Deferred envelope failed verification"
+                        );
+                    }
+                }
+            });
+
+            if self
+                .beacon_processor_send
+                .try_send(WorkEvent {
+                    drop_during_sync: false,
+                    work: Work::Reprocess(ReprocessQueueMessage::UnknownBlockEnvelope(
+                        QueuedGossipEnvelope {
+                            beacon_block_slot: envelope_slot,
+                            beacon_block_root,
+                            process_fn,
+                        },
+                    )),
+                })
+                .is_err()
+            {
+                error!(
+                    %envelope_slot,
+                    ?beacon_block_root,
+                    "Failed to defer envelope import"
+                );
+            }
+            return None;
+        }
+
         let envelope_delay =
             get_slot_delay_ms(seen_duration, envelope.slot(), &self.chain.slot_clock);
 
@@ -3336,11 +3415,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(_) => return None,
         };
 
+        // TODO(gloas) do we need to register the payload with monitored validators?
+
         let envelope_slot = verified_envelope.signed_envelope.slot();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
         match self.chain.slot() {
-            // We only need to do a simple check about the envelope slot vs the current slot because
-            // `verify_envelope_for_gossip` already ensures that the envelope slot is within tolerance
+            // We only need to do a simple check about the envelope slot vs the current slot beacuse
+            // `verify_envelope_for_gossip` already ensuresthat the envelope slot is within tolerance
             // for envelope imports.
             Ok(current_slot) if envelope_slot > current_slot => {
                 warn!(
@@ -3381,13 +3462,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
 
-        #[allow(clippy::result_large_err)]
         let result = self
             .chain
             .process_execution_payload_envelope(
@@ -3403,12 +3483,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(_))
-            | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                // Nothing to do
+            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
+                // TODO(gloas) do we need to send a `PayloadImported` event to the reporcess queue?
+                debug!(
+                    ?block_root,
+                    %peer_id,
+                    "Gossipsub envelope processed"
+                );
+
+                // TODO(gloas) do we need to recompute head?
+                // should canonical_head return the block and the payload now?
+                self.chain.recompute_head_at_current_slot().await;
+
+                // TODO(gloas) metrics
             }
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
+                trace!(
+                    %slot,
+                    %block_root,
+                    "Processed envelope, waiting for other components"
+                )
+            }
+
             Err(_) => {
                 // TODO(gloas) implement peer penalties
+                warn!("process_gossip_verified_execution_payload_envelope_failed")
             }
         }
     }

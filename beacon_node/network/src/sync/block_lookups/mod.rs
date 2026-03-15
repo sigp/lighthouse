@@ -109,6 +109,7 @@ pub type SingleLookupId = u32;
 enum Action {
     Retry,
     ParentUnknown { parent_root: Hash256 },
+    ParentEnvelopeUnknown { parent_root: Hash256 },
     Drop(/* reason: */ String),
     Continue,
 }
@@ -559,6 +560,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleCustodyColumn(id) => {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
+            BlockProcessType::SinglePayloadEnvelope { id, block_root } => {
+                match result {
+                    BlockProcessingResult::Ok(_) => {
+                        self.continue_envelope_child_lookups(block_root, cx);
+                    }
+                    BlockProcessingResult::Err(e) => {
+                        debug!(%id, error = ?e, "Payload envelope processing failed");
+                        // TODO(EIP-7732): resolve awaiting_envelope on affected lookups so they can retry
+                    }
+                    _ => {}
+                }
+                return;
+            }
         };
         self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
     }
@@ -644,6 +658,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         // blocks, not blobs.
                         request_state.revert_to_awaiting_processing()?;
                         Action::ParentUnknown { parent_root }
+                    }
+                    BlockError::ParentEnvelopeUnknown { parent_root } => {
+                        // The parent block is known but its execution payload envelope is missing.
+                        // Revert to awaiting processing and fetch the envelope via RPC.
+                        request_state.revert_to_awaiting_processing()?;
+                        Action::ParentEnvelopeUnknown { parent_root }
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
@@ -742,6 +762,26 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     )))
                 }
             }
+            Action::ParentEnvelopeUnknown { parent_root } => {
+                let peers = lookup.all_peers();
+                lookup.set_awaiting_envelope(parent_root);
+                // Pick a peer to request the envelope from
+                let peer_id = peers.first().copied().ok_or_else(|| {
+                    LookupRequestError::Failed("No peers available for envelope request".to_owned())
+                })?;
+                match cx.envelope_lookup_request(lookup_id, peer_id, parent_root) {
+                    Ok(_) => {
+                        debug!(
+                            id = lookup_id,
+                            ?block_root,
+                            ?parent_root,
+                            "Requesting missing parent envelope"
+                        );
+                        Ok(LookupResult::Pending)
+                    }
+                    Err(e) => Err(LookupRequestError::SendFailedNetwork(e)),
+                }
+            }
             Action::Drop(reason) => {
                 // Drop with noop
                 Err(LookupRequestError::Failed(reason))
@@ -806,6 +846,33 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         for (id, result) in lookup_results {
             self.on_lookup_result(id, result, "continue_child_lookups", cx);
+        }
+    }
+
+    /// Makes progress on lookups that were waiting for a parent envelope to be imported.
+    pub fn continue_envelope_child_lookups(
+        &mut self,
+        block_root: Hash256,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let mut lookup_results = vec![];
+
+        for (id, lookup) in self.single_block_lookups.iter_mut() {
+            if lookup.awaiting_envelope() == Some(block_root) {
+                lookup.resolve_awaiting_envelope();
+                debug!(
+                    envelope_root = ?block_root,
+                    id,
+                    block_root = ?lookup.block_root(),
+                    "Continuing lookup after envelope imported"
+                );
+                let result = lookup.continue_requests(cx);
+                lookup_results.push((*id, result));
+            }
+        }
+
+        for (id, result) in lookup_results {
+            self.on_lookup_result(id, result, "continue_envelope_child_lookups", cx);
         }
     }
 
