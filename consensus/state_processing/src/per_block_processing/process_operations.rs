@@ -917,8 +917,7 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
 }
 
 /// Check if there is a pending deposit for a new validator with the given pubkey.
-///
-/// Per spec: "Implementations SHOULD cache verification results to avoid repeated work."
+// TODO(gloas): cache the deposit signature validation
 fn is_pending_validator<E: EthSpec>(
     state: &BeaconState<E>,
     pubkey: &PublicKeyBytes,
