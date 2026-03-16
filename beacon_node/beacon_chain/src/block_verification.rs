@@ -1203,6 +1203,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                         AvailableBlock::new(
                             block,
                             AvailableBlockData::NoData,
+                            // TODO(gloas) shouldnt matter which da checker we pass?
                             chain.data_availability_checker.v1(),
                             chain.spec.clone(),
                         )
