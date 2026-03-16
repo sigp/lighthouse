@@ -4,7 +4,6 @@ mod gloas_payload;
 mod no_votes;
 mod votes;
 
-use crate::proto_array::PayloadTiebreak;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
 use fixed_bytes::FixedBytesExtended;
@@ -299,15 +298,14 @@ impl ForkChoiceTestDefinition {
                 Operation::ProcessPayloadAttestation {
                     validator_index,
                     block_root,
-                    attestation_slot,
+                    attestation_slot: _,
                     payload_present,
                     blob_data_available,
                 } => {
                     fork_choice
                         .process_payload_attestation(
-                            validator_index,
                             block_root,
-                            attestation_slot,
+                            validator_index,
                             payload_present,
                             blob_data_available,
                         )
@@ -450,7 +448,7 @@ impl ForkChoiceTestDefinition {
                     expected_status,
                 } => {
                     let actual = fork_choice
-                        .head_payload_status(&head_root)
+                        .head_payload_status::<MainnetEthSpec>(&head_root)
                         .unwrap_or_else(|| {
                             panic!(
                                 "AssertHeadPayloadStatus: head root not found at op index {}",
@@ -494,10 +492,11 @@ impl ForkChoiceTestDefinition {
                             op_index
                         )
                     });
-                    node_v29.payload_tiebreak = PayloadTiebreak {
-                        is_timely,
-                        is_data_available,
-                    };
+                    // Set all bits (exceeds any threshold) or clear all bits.
+                    let fill = if is_timely { 0xFF } else { 0x00 };
+                    node_v29.payload_timeliness_votes.fill(fill);
+                    let fill = if is_data_available { 0xFF } else { 0x00 };
+                    node_v29.payload_data_availability_votes.fill(fill);
                 }
             }
         }

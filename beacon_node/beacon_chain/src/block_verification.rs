@@ -1665,10 +1665,15 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     .get_indexed_payload_attestation(&state, payload_attestation, &chain.spec)
                     .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
 
+                let ptc = state
+                    .get_ptc(indexed_payload_attestation.data.slot, &chain.spec)
+                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+
                 match fork_choice.on_payload_attestation(
                     current_slot,
                     indexed_payload_attestation,
                     true,
+                    &ptc.0,
                 ) {
                     Ok(()) => Ok(()),
                     // Ignore invalid payload attestations whilst importing from a block.

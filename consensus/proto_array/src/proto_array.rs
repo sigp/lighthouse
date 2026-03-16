@@ -129,9 +129,16 @@ pub struct ProtoNode {
     pub full_payload_weight: u64,
     #[superstruct(only(V29), partial_getter(copy))]
     pub execution_payload_block_hash: ExecutionBlockHash,
-    /// Tiebreaker for payload preference when full_payload_weight == empty_payload_weight.
-    #[superstruct(only(V29), partial_getter(copy))]
-    pub payload_tiebreak: PayloadTiebreak,
+    /// PTC timeliness vote bitfield, indexed by PTC committee position.
+    /// Bit i set means PTC member i voted `payload_present = true`.
+    /// Tiebreak derived as: `count_ones() > ptc_size / 2`.
+    #[superstruct(only(V29))]
+    pub payload_timeliness_votes: Vec<u8>,
+    /// PTC data availability vote bitfield, indexed by PTC committee position.
+    /// Bit i set means PTC member i voted `blob_data_available = true`.
+    /// Tiebreak derived as: `count_ones() > ptc_size / 2`.
+    #[superstruct(only(V29))]
+    pub payload_data_availability_votes: Vec<u8>,
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -154,7 +161,6 @@ pub struct NodeDelta {
     pub delta: i64,
     pub empty_delta: i64,
     pub full_delta: i64,
-    pub payload_tiebreaker: Option<PayloadTiebreak>,
 }
 
 impl NodeDelta {
@@ -192,6 +198,15 @@ impl NodeDelta {
         Ok(())
     }
 
+    /// Create a delta that only affects the aggregate `delta` field.
+    pub fn from_delta(delta: i64) -> Self {
+        Self {
+            delta,
+            empty_delta: 0,
+            full_delta: 0,
+        }
+    }
+
     /// Subtract a balance from the appropriate payload status.
     pub fn sub_payload_delta(
         &mut self,
@@ -211,19 +226,12 @@ impl NodeDelta {
     }
 }
 
+/// Compare NodeDelta with i64 by comparing the aggregate `delta` field.
+/// This is used by tests that only care about the total weight delta.
 impl PartialEq<i64> for NodeDelta {
     fn eq(&self, other: &i64) -> bool {
         self.delta == *other
-            && self.empty_delta == 0
-            && self.full_delta == 0
-            && self.payload_tiebreaker.is_none()
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Encode, Decode, Serialize, Deserialize)]
-pub struct PayloadTiebreak {
-    pub is_timely: bool,
-    pub is_data_available: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -363,9 +371,6 @@ impl ProtoArray {
                     apply_delta(node.empty_payload_weight, node_empty_delta, node_index)?;
                 node.full_payload_weight =
                     apply_delta(node.full_payload_weight, node_full_delta, node_index)?;
-                if let Some(payload_tiebreaker) = node_delta.payload_tiebreaker {
-                    node.payload_tiebreak = payload_tiebreaker;
-                }
             }
 
             // Update the parent delta (if any).
@@ -535,7 +540,8 @@ impl ProtoArray {
                 empty_payload_weight: 0,
                 full_payload_weight: 0,
                 execution_payload_block_hash,
-                payload_tiebreak: PayloadTiebreak::default(),
+                payload_timeliness_votes: empty_ptc_bitfield(E::ptc_size()),
+                payload_data_availability_votes: empty_ptc_bitfield(E::ptc_size()),
             })
         };
 
@@ -593,10 +599,10 @@ impl ProtoArray {
         let v29 = node
             .as_v29_mut()
             .map_err(|_| Error::InvalidNodeVariant { block_root })?;
-        v29.payload_tiebreak = PayloadTiebreak {
-            is_timely: true,
-            is_data_available: true,
-        };
+        // A valid execution payload means the payload is timely and data is available.
+        // Set all bits to ensure the threshold is met regardless of PTC size.
+        v29.payload_timeliness_votes.fill(0xFF);
+        v29.payload_data_availability_votes.fill(0xFF);
 
         Ok(())
     }
@@ -1062,72 +1068,79 @@ impl ProtoArray {
         );
         let no_change = (parent.best_child(), parent.best_descendant());
 
-        let (new_best_child, new_best_descendant) = if let Some(best_child_index) =
-            parent.best_child()
-        {
-            if best_child_index == child_index && !child_leads_to_viable_head {
-                // If the child is already the best-child of the parent but it's not viable for
-                // the head, remove it.
-                change_to_none
-            } else if best_child_index == child_index {
-                // If the child is the best-child already, set it again to ensure that the
-                // best-descendant of the parent is updated.
-                change_to_child
-            } else {
-                let best_child = self
-                    .nodes
-                    .get(best_child_index)
-                    .ok_or(Error::InvalidBestDescendant(best_child_index))?;
-
-                let best_child_leads_to_viable_head = self.node_leads_to_viable_head::<E>(
-                    best_child,
-                    current_slot,
-                    best_justified_checkpoint,
-                    best_finalized_checkpoint,
-                )?;
-
-                if child_leads_to_viable_head && !best_child_leads_to_viable_head {
-                    // The child leads to a viable head, but the current best-child doesn't.
+        let (new_best_child, new_best_descendant) =
+            if let Some(best_child_index) = parent.best_child() {
+                if best_child_index == child_index && !child_leads_to_viable_head {
+                    // If the child is already the best-child of the parent but it's not viable for
+                    // the head, remove it.
+                    change_to_none
+                } else if best_child_index == child_index {
+                    // If the child is the best-child already, set it again to ensure that the
+                    // best-descendant of the parent is updated.
                     change_to_child
-                } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
-                    // The best child leads to a viable head, but the child doesn't.
-                    no_change
-                } else if child.weight() > best_child.weight() {
-                    // Weight is the primary ordering criterion.
-                    change_to_child
-                } else if child.weight() < best_child.weight() {
-                    no_change
                 } else {
-                    // Equal weights: for V29 parents, prefer the child whose
-                    // parent_payload_status matches the parent's payload preference
-                    // (full vs empty). This corresponds to the spec's
-                    // `get_payload_status_tiebreaker` ordering in `get_head`.
-                    let child_matches =
-                        child_matches_parent_payload_preference(parent, child, current_slot);
-                    let best_child_matches =
-                        child_matches_parent_payload_preference(parent, best_child, current_slot);
+                    let best_child = self
+                        .nodes
+                        .get(best_child_index)
+                        .ok_or(Error::InvalidBestDescendant(best_child_index))?;
 
-                    if child_matches && !best_child_matches {
-                        // Child extends the preferred payload chain, best_child doesn't.
+                    let best_child_leads_to_viable_head = self.node_leads_to_viable_head::<E>(
+                        best_child,
+                        current_slot,
+                        best_justified_checkpoint,
+                        best_finalized_checkpoint,
+                    )?;
+
+                    if child_leads_to_viable_head && !best_child_leads_to_viable_head {
+                        // The child leads to a viable head, but the current best-child doesn't.
                         change_to_child
-                    } else if !child_matches && best_child_matches {
-                        // Best child extends the preferred payload chain, child doesn't.
+                    } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
+                        // The best child leads to a viable head, but the child doesn't.
                         no_change
-                    } else if *child.root() >= *best_child.root() {
-                        // Final tie-breaker: both match or both don't, break by root.
+                    } else if child.weight() > best_child.weight() {
+                        // Weight is the primary ordering criterion.
                         change_to_child
+                    } else if child.weight() < best_child.weight() {
+                        no_change
                     } else {
-                        no_change
+                        // Equal weights: for V29 parents, prefer the child whose
+                        // parent_payload_status matches the parent's payload preference
+                        // (full vs empty). This corresponds to the spec's
+                        // `get_payload_status_tiebreaker` ordering in `get_head`.
+                        let child_matches = child_matches_parent_payload_preference(
+                            parent,
+                            child,
+                            current_slot,
+                            E::ptc_size(),
+                        );
+                        let best_child_matches = child_matches_parent_payload_preference(
+                            parent,
+                            best_child,
+                            current_slot,
+                            E::ptc_size(),
+                        );
+
+                        if child_matches && !best_child_matches {
+                            // Child extends the preferred payload chain, best_child doesn't.
+                            change_to_child
+                        } else if !child_matches && best_child_matches {
+                            // Best child extends the preferred payload chain, child doesn't.
+                            no_change
+                        } else if *child.root() >= *best_child.root() {
+                            // Final tie-breaker: both match or both don't, break by root.
+                            change_to_child
+                        } else {
+                            no_change
+                        }
                     }
                 }
-            }
-        } else if child_leads_to_viable_head {
-            // There is no current best-child and the child is viable.
-            change_to_child
-        } else {
-            // There is no current best-child but the child is not viable.
-            no_change
-        };
+            } else if child_leads_to_viable_head {
+                // There is no current best-child and the child is viable.
+                change_to_child
+            } else {
+                // There is no current best-child but the child is not viable.
+                no_change
+            };
 
         let parent = self
             .nodes
@@ -1393,6 +1406,7 @@ fn child_matches_parent_payload_preference(
     parent: &ProtoNode,
     child: &ProtoNode,
     current_slot: Slot,
+    ptc_size: usize,
 ) -> bool {
     let (Ok(parent_v29), Ok(child_v29)) = (parent.as_v29(), child.as_v29()) else {
         return true;
@@ -1410,13 +1424,34 @@ fn child_matches_parent_payload_preference(
         false
     } else {
         // Equal weights (or current-slot parent): tiebreaker per spec.
-        parent_v29.payload_tiebreak.is_timely && parent_v29.payload_tiebreak.is_data_available
+        is_payload_timely(&parent_v29.payload_timeliness_votes, ptc_size)
+            && is_payload_data_available(&parent_v29.payload_data_availability_votes, ptc_size)
     };
     if prefers_full {
         child_v29.parent_payload_status == PayloadStatus::Full
     } else {
         child_v29.parent_payload_status == PayloadStatus::Empty
     }
+}
+
+/// Count the number of set bits in a byte-slice bitfield.
+pub fn count_set_bits(bitfield: &[u8]) -> usize {
+    bitfield.iter().map(|b| b.count_ones() as usize).sum()
+}
+
+/// Create a zero-initialized bitfield for the given PTC size.
+pub fn empty_ptc_bitfield(ptc_size: usize) -> Vec<u8> {
+    vec![0u8; ptc_size.div_ceil(8)]
+}
+
+/// Derive `is_payload_timely` from the timeliness vote bitfield.
+pub fn is_payload_timely(timeliness_votes: &[u8], ptc_size: usize) -> bool {
+    count_set_bits(timeliness_votes) > ptc_size / 2
+}
+
+/// Derive `is_payload_data_available` from the data availability vote bitfield.
+pub fn is_payload_data_available(availability_votes: &[u8], ptc_size: usize) -> bool {
+    count_set_bits(availability_votes) > ptc_size / 2
 }
 
 /// A helper method to calculate the proposer boost based on the given `justified_balances`.

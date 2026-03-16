@@ -3,7 +3,7 @@ use crate::{
     error::Error,
     proto_array::{
         InvalidationOperation, Iter, NodeDelta, ProposerBoost, ProtoArray, ProtoNode,
-        calculate_committee_fraction,
+        calculate_committee_fraction, is_payload_data_available, is_payload_timely,
     },
     ssz_container::SszContainer,
 };
@@ -23,8 +23,6 @@ use types::{
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
 #[derive(Default, PartialEq, Clone, Encode, Decode)]
-// FIXME(sproul): the "next" naming here is a bit odd
-// FIXME(sproul): version this type?
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
@@ -32,16 +30,12 @@ pub struct VoteTracker {
     next_slot: Slot,
     current_payload_present: bool,
     next_payload_present: bool,
-    current_blob_data_available: bool,
-    next_blob_data_available: bool,
 }
 
-// FIXME(sproul): version this type
 pub struct LatestMessage {
     pub slot: Slot,
     pub root: Hash256,
     pub payload_present: bool,
-    pub blob_data_available: bool,
 }
 
 /// Represents the verification status of an execution payload pre-Gloas.
@@ -535,28 +529,53 @@ impl ProtoArrayForkChoice {
         if attestation_slot > vote.next_slot || *vote == VoteTracker::default() {
             vote.next_root = block_root;
             vote.next_slot = attestation_slot;
-            vote.next_payload_present = false;
-            vote.next_blob_data_available = false;
         }
 
         Ok(())
     }
 
+    /// Process a PTC vote by setting the appropriate bits on the target block's V29 node.
+    ///
+    /// `ptc_index` is the voter's position in the PTC committee (resolved by the caller).
+    /// This writes directly to the node's bitfields, bypassing the delta pipeline.
     pub fn process_payload_attestation(
         &mut self,
-        validator_index: usize,
         block_root: Hash256,
-        attestation_slot: Slot,
+        ptc_index: usize,
         payload_present: bool,
         blob_data_available: bool,
     ) -> Result<(), String> {
-        let vote = self.votes.get_mut(validator_index);
+        let node_index = self
+            .proto_array
+            .indices
+            .get(&block_root)
+            .copied()
+            .ok_or_else(|| {
+                format!("process_payload_attestation: unknown block root {block_root:?}")
+            })?;
+        let node = self.proto_array.nodes.get_mut(node_index).ok_or_else(|| {
+            format!("process_payload_attestation: invalid node index {node_index}")
+        })?;
+        let v29 = node
+            .as_v29_mut()
+            .map_err(|_| format!("process_payload_attestation: node {block_root:?} is not V29"))?;
 
-        if attestation_slot > vote.next_slot || *vote == VoteTracker::default() {
-            vote.next_root = block_root;
-            vote.next_slot = attestation_slot;
-            vote.next_payload_present = payload_present;
-            vote.next_blob_data_available = blob_data_available;
+        let byte_index = ptc_index / 8;
+        let bit_mask = 1u8 << (ptc_index % 8);
+
+        if let Some(byte) = v29.payload_timeliness_votes.get_mut(byte_index) {
+            if payload_present {
+                *byte |= bit_mask;
+            } else {
+                *byte &= !bit_mask;
+            }
+        }
+        if let Some(byte) = v29.payload_data_availability_votes.get_mut(byte_index) {
+            if blob_data_available {
+                *byte |= bit_mask;
+            } else {
+                *byte &= !bit_mask;
+            }
         }
 
         Ok(())
@@ -978,14 +997,16 @@ impl ProtoArrayForkChoice {
     /// On ties, consult the node's runtime `payload_tiebreak`: prefer `Full` only when timely and
     /// data is available, otherwise `Empty`.
     /// Returns `Empty` otherwise. Returns `None` for V17 nodes.
-    pub fn head_payload_status(&self, head_root: &Hash256) -> Option<PayloadStatus> {
+    pub fn head_payload_status<E: EthSpec>(&self, head_root: &Hash256) -> Option<PayloadStatus> {
         let node = self.get_proto_node(head_root)?;
         let v29 = node.as_v29().ok()?;
         if v29.full_payload_weight > v29.empty_payload_weight {
             Some(PayloadStatus::Full)
         } else if v29.empty_payload_weight > v29.full_payload_weight {
             Some(PayloadStatus::Empty)
-        } else if v29.payload_tiebreak.is_timely && v29.payload_tiebreak.is_data_available {
+        } else if is_payload_timely(&v29.payload_timeliness_votes, E::ptc_size())
+            && is_payload_data_available(&v29.payload_data_availability_votes, E::ptc_size())
+        {
             Some(PayloadStatus::Full)
         } else {
             Some(PayloadStatus::Empty)
@@ -1019,7 +1040,6 @@ impl ProtoArrayForkChoice {
                     root: vote.next_root,
                     slot: vote.next_slot,
                     payload_present: vote.next_payload_present,
-                    blob_data_available: vote.next_blob_data_available,
                 })
             }
         } else {
@@ -1105,17 +1125,6 @@ fn compute_deltas(
     new_balances: &[u64],
     equivocating_indices: &BTreeSet<u64>,
 ) -> Result<Vec<NodeDelta>, Error> {
-    let merge_payload_tiebreaker =
-        |delta: &mut NodeDelta, incoming: crate::proto_array::PayloadTiebreak| {
-            delta.payload_tiebreaker = Some(match delta.payload_tiebreaker {
-                Some(existing) => crate::proto_array::PayloadTiebreak {
-                    is_timely: existing.is_timely || incoming.is_timely,
-                    is_data_available: existing.is_data_available || incoming.is_data_available,
-                },
-                None => incoming,
-            });
-        };
-
     let block_slot = |index: usize| -> Result<Slot, Error> {
         node_slots
             .get(index)
@@ -1128,7 +1137,6 @@ fn compute_deltas(
             delta: 0,
             empty_delta: 0,
             full_delta: 0,
-            payload_tiebreaker: None,
         };
         indices.len()
     ];
@@ -1175,7 +1183,6 @@ fn compute_deltas(
                 vote.current_root = Hash256::zero();
                 vote.current_slot = Slot::new(0);
                 vote.current_payload_present = false;
-                vote.current_blob_data_available = false;
             }
             // We've handled this slashed validator, continue without applying an ordinary delta.
             continue;
@@ -1233,21 +1240,11 @@ fn compute_deltas(
                     block_slot(next_delta_index)?,
                 );
                 node_delta.add_payload_delta(status, new_balance, next_delta_index)?;
-                if status != PayloadStatus::Pending {
-                    merge_payload_tiebreaker(
-                        node_delta,
-                        crate::proto_array::PayloadTiebreak {
-                            is_timely: vote.next_payload_present,
-                            is_data_available: vote.next_blob_data_available,
-                        },
-                    );
-                }
             }
 
             vote.current_root = vote.next_root;
             vote.current_slot = vote.next_slot;
             vote.current_payload_present = vote.next_payload_present;
-            vote.current_blob_data_available = vote.next_blob_data_available;
         }
     }
 
@@ -1600,8 +1597,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
             old_balances.push(0);
             new_balances.push(0);
@@ -1657,8 +1652,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
             old_balances.push(BALANCE);
             new_balances.push(BALANCE);
@@ -1721,8 +1714,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
             old_balances.push(BALANCE);
             new_balances.push(BALANCE);
@@ -1780,8 +1771,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
             old_balances.push(BALANCE);
             new_balances.push(BALANCE);
@@ -1850,8 +1839,6 @@ mod test_compute_deltas {
             next_slot: Slot::new(0),
             current_payload_present: false,
             next_payload_present: false,
-            current_blob_data_available: false,
-            next_blob_data_available: false,
         });
 
         // One validator moves their vote from the block to something outside the tree.
@@ -1862,8 +1849,6 @@ mod test_compute_deltas {
             next_slot: Slot::new(0),
             current_payload_present: false,
             next_payload_present: false,
-            current_blob_data_available: false,
-            next_blob_data_available: false,
         });
 
         let deltas = compute_deltas(
@@ -1914,8 +1899,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
             old_balances.push(OLD_BALANCE);
             new_balances.push(NEW_BALANCE);
@@ -1989,8 +1972,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
         }
 
@@ -2051,8 +2032,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
         }
 
@@ -2111,8 +2090,6 @@ mod test_compute_deltas {
                 next_slot: Slot::new(0),
                 current_payload_present: false,
                 next_payload_present: false,
-                current_blob_data_available: false,
-                next_blob_data_available: false,
             });
         }
 
@@ -2176,8 +2153,6 @@ mod test_compute_deltas {
             next_slot: Slot::new(1),
             current_payload_present: false,
             next_payload_present: true,
-            current_blob_data_available: false,
-            next_blob_data_available: false,
         }]);
 
         let deltas = compute_deltas(
@@ -2210,8 +2185,6 @@ mod test_compute_deltas {
             next_slot: Slot::new(0),
             current_payload_present: false,
             next_payload_present: true,
-            current_blob_data_available: false,
-            next_blob_data_available: false,
         }]);
 
         let deltas = compute_deltas(

@@ -1027,10 +1027,13 @@ async fn payload_attestation_for_previous_slot_is_accepted_at_next_slot() {
         signature: AggregateSignature::empty(),
     };
 
+    // PTC mapping: validator 0 is at ptc position 0.
+    let ptc = &[0_usize];
+
     let result = chain
         .canonical_head
         .fork_choice_write_lock()
-        .on_payload_attestation(current_slot, &payload_attestation, true);
+        .on_payload_attestation(current_slot, &payload_attestation, true, ptc);
 
     assert!(
         result.is_ok(),
@@ -1074,10 +1077,12 @@ async fn non_block_payload_attestation_for_previous_slot_is_rejected() {
         signature: AggregateSignature::empty(),
     };
 
+    let ptc = &[0_usize];
+
     let result = chain
         .canonical_head
         .fork_choice_write_lock()
-        .on_payload_attestation(s_plus_1, &payload_attestation, false);
+        .on_payload_attestation(s_plus_1, &payload_attestation, false, ptc);
     assert!(
         matches!(
             result,

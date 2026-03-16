@@ -275,7 +275,8 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
 #[derive(Clone, PartialEq, Encode, Decode)]
 pub struct QueuedPayloadAttestation {
     slot: Slot,
-    attesting_indices: Vec<u64>,
+    /// Resolved PTC committee positions (not validator indices).
+    ptc_indices: Vec<usize>,
     block_root: Hash256,
     payload_present: bool,
     blob_data_available: bool,
@@ -1267,11 +1268,16 @@ where
     }
 
     /// Register a payload attestation with the fork choice DAG.
+    ///
+    /// `ptc` is the PTC committee for the attestation's slot: a list of validator indices
+    /// ordered by committee position. Each attesting validator index is resolved to its
+    /// position within `ptc` (its `ptc_index`) before being applied to the proto-array.
     pub fn on_payload_attestation(
         &mut self,
         system_time_current_slot: Slot,
         attestation: &IndexedPayloadAttestation<E>,
         is_from_block: bool,
+        ptc: &[usize],
     ) -> Result<(), Error<T::Error>> {
         self.update_time(system_time_current_slot)?;
 
@@ -1280,6 +1286,12 @@ where
         }
 
         self.validate_on_payload_attestation(attestation, is_from_block)?;
+
+        // Resolve validator indices to PTC committee positions.
+        let ptc_indices: Vec<usize> = attestation
+            .attesting_indices_iter()
+            .filter_map(|vi| ptc.iter().position(|&p| p == *vi as usize))
+            .collect();
 
         let processing_slot = self.fc_store.get_current_slot();
         // Payload attestations from blocks can be applied in the next slot (S+1 for data.slot=S),
@@ -1291,11 +1303,10 @@ where
         };
 
         if should_process_now {
-            for validator_index in attestation.attesting_indices_iter() {
+            for &ptc_index in &ptc_indices {
                 self.proto_array.process_payload_attestation(
-                    *validator_index as usize,
                     attestation.data.beacon_block_root,
-                    processing_slot,
+                    ptc_index,
                     attestation.data.payload_present,
                     attestation.data.blob_data_available,
                 )?;
@@ -1304,7 +1315,7 @@ where
             self.queued_payload_attestations
                 .push(QueuedPayloadAttestation {
                     slot: attestation.data.slot,
-                    attesting_indices: attestation.attesting_indices.iter().copied().collect(),
+                    ptc_indices,
                     block_root: attestation.data.beacon_block_root,
                     payload_present: attestation.data.payload_present,
                     blob_data_available: attestation.data.blob_data_available,
@@ -1436,11 +1447,10 @@ where
         for attestation in
             dequeue_payload_attestations(current_slot, &mut self.queued_payload_attestations)
         {
-            for validator_index in attestation.attesting_indices.iter() {
+            for &ptc_index in &attestation.ptc_indices {
                 self.proto_array.process_payload_attestation(
-                    *validator_index as usize,
                     attestation.block_root,
-                    current_slot,
+                    ptc_index,
                     attestation.payload_present,
                     attestation.blob_data_available,
                 )?;
