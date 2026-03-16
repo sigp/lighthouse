@@ -2,7 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
@@ -3144,7 +3144,10 @@ async fn weak_subjectivity_sync_test(
         beacon_chain
             .process_block(
                 full_block_root,
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+                harness.build_range_sync_block_from_store_blobs(
+                    Some(block_root),
+                    Arc::new(full_block),
+                ),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -3214,20 +3217,16 @@ async fn weak_subjectivity_sync_test(
                 .expect("should get block")
                 .expect("should get block");
 
-            let rpc_block =
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block));
+            let range_sync_block = harness
+                .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
 
-            match rpc_block {
-                RpcBlock::FullyAvailable(available_block) => {
-                    harness
-                        .chain
-                        .data_availability_checker
-                        .verify_kzg_for_available_block(&available_block)
-                        .expect("should verify kzg");
-                    available_blocks.push(available_block);
-                }
-                RpcBlock::BlockOnly { .. } => panic!("Should be an available block"),
-            }
+            let fully_available_block = range_sync_block.into_available_block();
+            harness
+                .chain
+                .data_availability_checker
+                .verify_kzg_for_available_block(&fully_available_block)
+                .expect("should verify kzg");
+            available_blocks.push(fully_available_block);
         }
 
         // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
@@ -3798,19 +3797,13 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
-    let invalid_fork_rpc_block = RpcBlock::new(
-        invalid_fork_block.clone(),
-        None,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let invalid_fork_lookup_block = LookupBlock::new(invalid_fork_block.clone());
     // Applying the invalid block should fail.
     let err = harness
         .chain
         .process_block(
-            invalid_fork_rpc_block.block_root(),
-            invalid_fork_rpc_block,
+            invalid_fork_lookup_block.block_root(),
+            invalid_fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -3820,18 +3813,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
-    let valid_fork_rpc_block = RpcBlock::new(
-        valid_fork_block.clone(),
-        None,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let valid_fork_lookup_block = LookupBlock::new(valid_fork_block.clone());
     harness
         .chain
         .process_block(
-            valid_fork_rpc_block.block_root(),
-            valid_fork_rpc_block,
+            valid_fork_lookup_block.block_root(),
+            valid_fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

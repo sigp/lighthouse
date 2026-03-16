@@ -9710,6 +9710,7 @@ version = "0.1.0"
 dependencies = [
  "bls",
  "eth2",
+ "futures",
  "slashing_protection",
  "types",
 ]
