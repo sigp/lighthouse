@@ -50,13 +50,9 @@ async fn head_peer_disconnect_during_finalized_sync() {
 
 ### 2. `state_update_while_purging` (regression #2827)
 
-**What it does:** Creates blocks on a second harness → adds head peer with known root → grabs head batch → adds finalized peer with known root → grabs finalized batch → imports both target blocks into fork choice (making chains "known") → adds another finalized peer to trigger state update/purge.
+**What it tested:** When chain targets become known to fork choice during a state update, `purge_outdated_chains` runs before `update_finalized_chains`/`update_head_chains` without crashing.
 
-**What it tests:** When chain targets become known to fork choice during a state update, chains get purged without crashing. This was a specific race condition where purging and updating happened simultaneously.
-
-**Migration:** This is a subtle regression test about internal state consistency during purging. The `simulate()` pattern doesn't easily express "import specific blocks into fork choice mid-sync" because that's not a request/response behavior — it's a state mutation.
-
-**Recommendation:** Keep as-is. This test exercises a specific internal race condition that doesn't map to the SETUP → SIMULATE → ASSERT pattern. It's testing crash-safety of an internal operation, not observable sync behavior.
+**Removed:** The bug was a call ordering issue in `ChainCollection::update()`. The fix hardcodes `purge_outdated_chains` (line 223) before `update_finalized_chains` (line 227) and `update_head_chains` (line 231) in a single function body. This ordering can't regress without visibly rewriting `update()`.
 
 ### 3. `pause_and_resume_on_ee_offline`
 

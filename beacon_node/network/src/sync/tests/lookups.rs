@@ -313,6 +313,7 @@ impl TestRig {
         })
     }
 
+    #[allow(dead_code)]
     pub fn with_custody_type(node_custody_type: NodeCustodyType) -> Self {
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
@@ -1183,7 +1184,7 @@ impl TestRig {
         self.harness.chain.head().head_slot()
     }
 
-    fn assert_head_slot(&self, slot: u64) {
+    pub(super) fn assert_head_slot(&self, slot: u64) {
         assert_eq!(self.head_slot(), Slot::new(slot), "Unexpected head slot");
     }
 
@@ -1613,6 +1614,7 @@ impl TestRig {
         }
     }
 
+    #[allow(dead_code)]
     pub fn pop_received_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
         &mut self,
         predicate_transform: F,
