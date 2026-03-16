@@ -12,14 +12,16 @@ use lighthouse_network::{
 };
 use logging::crit;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use strum::IntoEnumIterator;
 use tracing::{debug, error, info, info_span, warn};
 use types::{DataColumnSidecarList, Epoch, EthSpec};
 
+use crate::metrics;
 use crate::sync::{
     backfill_sync::{BACKFILL_EPOCHS_PER_BATCH, ProcessResult, SyncStart},
     batch::{
-        BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
-        ByRangeRequestType,
+        BatchConfig, BatchId, BatchInfo, BatchMetricsState, BatchOperationOutcome,
+        BatchProcessingResult, BatchState, ByRangeRequestType,
     },
     block_sidecar_coupling::CouplingError,
     manager::CustodyBatchProcessResult,
@@ -1112,6 +1114,21 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// Updates the global network state indicating the current state of a backfill sync.
     pub fn set_state(&self, state: CustodyBackFillState) {
         *self.network_globals.custody_sync_state.write() = state;
+    }
+
+    pub fn register_metrics(&self) {
+        for state in BatchMetricsState::iter() {
+            let count = self
+                .batches
+                .values()
+                .filter(|b| b.state().metrics_state() == state)
+                .count();
+            metrics::set_gauge_vec(
+                &metrics::SYNCING_CHAIN_BATCHES,
+                &["custody_backfill", state.into()],
+                count as i64,
+            );
+        }
     }
 
     /// A fully synced peer has joined us.

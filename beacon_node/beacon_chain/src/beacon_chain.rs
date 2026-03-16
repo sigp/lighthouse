@@ -4,19 +4,16 @@ use crate::attestation_verification::{
     batch_verify_unaggregated_attestations,
 };
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-use crate::beacon_proposer_cache::{
-    BeaconProposerCache, EpochBlockProposers, ensure_state_can_determine_proposers_for_epoch,
-};
+use crate::beacon_proposer_cache::{BeaconProposerCache, EpochBlockProposers};
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
-use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
     signature_verify_chain_segment, verify_header_signature,
 };
 use crate::block_verification_types::{
-    AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
+    AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
 };
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
@@ -27,6 +24,7 @@ use crate::data_availability_checker::{
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
+use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
@@ -67,7 +65,6 @@ use crate::sync_committee_verification::{
 };
 use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
-    timestamp_now,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -140,7 +137,7 @@ use types::*;
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 /// Alias to appease clippy.
-type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
+type HashBlockTuple<E> = (Hash256, RangeSyncBlock<E>);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
@@ -463,6 +460,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
+    /// A cache used to keep track of various envelope timings.
+    pub envelope_times_cache: Arc<RwLock<EnvelopeTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to produce light_client server messages
@@ -663,7 +662,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .as_ref()
             .into();
-        debug!(?custody_context, "Persisting custody context to store");
+
+        // Pattern match to avoid accidentally missing fields and to ignore deprecated fields.
+        let CustodyContextSsz {
+            validator_custody_at_head,
+            epoch_validator_custody_requirements,
+            persisted_is_supernode: _,
+        } = &custody_context;
+        debug!(
+            validator_custody_at_head,
+            ?epoch_validator_custody_requirements,
+            "Persisting custody context to store"
+        );
 
         persist_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(
             self.store.clone(),
@@ -2021,9 +2031,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // required information.
                 (justified_checkpoint, committee_len)
             } else {
+                // We assume that the `Pending` state has the same shufflings as a `Full` state
+                // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (advanced_state_root, mut state) = self
                     .store
-                    .get_advanced_hot_state(beacon_block_root, request_slot, beacon_state_root)?
+                    .get_advanced_hot_state(
+                        beacon_block_root,
+                        StatePayloadStatus::Pending,
+                        request_slot,
+                        beacon_state_root,
+                    )?
                     .ok_or(Error::MissingBeaconState(beacon_state_root))?;
                 if state.current_epoch() < request_epoch {
                     partial_state_advance(
@@ -2729,7 +2746,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is potentially long-running and should not run on the core executor.
     pub fn filter_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<RpcBlock<T::EthSpec>>,
+        chain_segment: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, Box<ChainSegmentResult>> {
         // This function will never import any blocks.
         let imported_blocks = vec![];
@@ -2838,7 +2855,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `Self::process_block`.
     pub async fn process_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<RpcBlock<T::EthSpec>>,
+        chain_segment: Vec<RangeSyncBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult {
         for block in chain_segment.iter() {
@@ -3513,28 +3530,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // Log the PoS pandas if a merge transition just occurred.
-        if payload_verification_outcome.is_valid_merge_transition_block {
-            info!("{}", POS_PANDA_BANNER);
-            info!(slot = %block.slot(), "Proof of Stake Activated");
-            info!(
-                terminal_pow_block_hash = ?block
-                .message()
-                .execution_payload()?
-                .parent_hash()
-                .into_root(),
-            );
-            info!(
-                merge_transition_block_root = ?block.message().tree_hash_root(),
-            );
-            info!(
-                merge_transition_execution_hash = ?block
-                .message()
-                .execution_payload()?
-                .block_hash()
-                .into_root(),
-            );
-        }
         Ok(ExecutedBlock::new(
             block,
             import_data,
@@ -4054,23 +4049,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, block_data) = signed_block.deconstruct();
 
-        match self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data) {
-            Ok(Some(blobs_or_columns_store_op)) => {
-                ops.push(blobs_or_columns_store_op);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                error!(
-                    msg = "Restoring fork choice from disk",
-                    error = &e,
-                    ?block_root,
-                    "Failed to store data columns into the database"
-                );
-                return Err(self
-                    .handle_import_block_db_write_error(fork_choice)
-                    .err()
-                    .unwrap_or(BlockError::InternalError(e)));
-            }
+        if let Some(blobs_or_columns_store_op) =
+            self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data)
+        {
+            ops.push(blobs_or_columns_store_op);
         }
 
         let block = signed_block.message();
@@ -4100,7 +4082,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
-        let block_time_imported = timestamp_now();
+        let block_time_imported = self.slot_clock.now_duration().unwrap_or(Duration::MAX);
 
         // compute state proofs for light client updates before inserting the state into the
         // snapshot cache.
@@ -4169,7 +4151,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Check block's consistentency with any configured weak subjectivity checkpoint.
-    fn check_block_against_weak_subjectivity_checkpoint(
+    pub(crate) fn check_block_against_weak_subjectivity_checkpoint(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
         block_root: Hash256,
@@ -4687,12 +4669,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
             } else {
+                // TODO(gloas): this function needs updating to be envelope-aware
+                // See: https://github.com/sigp/lighthouse/issues/8957
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
+                    .get_advanced_hot_state(
+                        parent_block_root,
+                        StatePayloadStatus::Pending,
+                        proposal_slot,
+                        block.state_root(),
+                    )?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
                 (Cow::Owned(state), state_root)
             };
@@ -6078,21 +6067,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         input_params: ForkchoiceUpdateParameters,
         override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
-        let next_slot = current_slot + 1;
-
-        // There is no need to issue a `forkchoiceUpdated` (fcU) message unless the Bellatrix fork
-        // has:
-        //
-        // 1. Already happened.
-        // 2. Will happen in the next slot.
-        //
-        // The reason for a fcU message in the slot prior to the Bellatrix fork is in case the
-        // terminal difficulty has already been reached and a payload preparation message needs to
-        // be issued.
-        if self.slot_is_prior_to_bellatrix(next_slot) {
-            return Ok(());
-        }
-
         let execution_layer = self
             .execution_layer
             .as_ref()
@@ -6140,50 +6114,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .unwrap_or_else(ExecutionBlockHash::zero),
                 )
             } else {
-                // The head block does not have an execution block hash. We must check to see if we
-                // happen to be the proposer of the transition block, in which case we still need to
-                // send forkchoice_updated.
-                if self
-                    .spec
-                    .fork_name_at_slot::<T::EthSpec>(next_slot)
-                    .bellatrix_enabled()
-                {
-                    // We are post-bellatrix
-                    if let Some(payload_attributes) = execution_layer
-                        .payload_attributes(next_slot, params.head_root)
-                        .await
-                    {
-                        // We are a proposer, check for terminal_pow_block_hash
-                        if let Some(terminal_pow_block_hash) = execution_layer
-                            .get_terminal_pow_block_hash(&self.spec, payload_attributes.timestamp())
-                            .await
-                            .map_err(Error::ForkchoiceUpdate)?
-                        {
-                            info!(
-                                slot = %next_slot,
-                                "Prepared POS transition block proposer"
-                            );
-                            (
-                                params.head_root,
-                                terminal_pow_block_hash,
-                                params
-                                    .justified_hash
-                                    .unwrap_or_else(ExecutionBlockHash::zero),
-                                params
-                                    .finalized_hash
-                                    .unwrap_or_else(ExecutionBlockHash::zero),
-                            )
-                        } else {
-                            // TTD hasn't been reached yet, no need to update the EL.
-                            return Ok(());
-                        }
-                    } else {
-                        // We are not a proposer, no need to update the EL.
-                        return Ok(());
-                    }
-                } else {
-                    return Ok(());
-                }
+                // Proposing the block for the merge is no longer supported.
+                return Ok(());
             };
 
         let forkchoice_updated_response = execution_layer
@@ -6476,6 +6408,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // sync anyway).
             self.naive_aggregation_pool.write().prune(slot);
             self.block_times_cache.write().prune(slot);
+            self.envelope_times_cache.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
@@ -6535,62 +6468,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
         state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<T::EthSpec>), E>,
     ) -> Result<V, E> {
-        let cache_entry = self
-            .beacon_proposer_cache
-            .lock()
-            .get_or_insert_key(proposal_epoch, shuffling_decision_block);
-
-        // If the cache entry is not initialised, run the code to initialise it inside a OnceCell.
-        // This prevents duplication of work across multiple threads.
-        //
-        // If it is already initialised, then `get_or_try_init` will return immediately without
-        // executing the initialisation code at all.
-        let epoch_block_proposers = cache_entry.get_or_try_init(|| {
-            // Fetch the state on-demand if the required epoch was missing from the cache.
-            // If the caller wants to not compute the state they must return an error here and then
-            // catch it at the call site.
-            let (state_root, mut state) = state_provider()?;
-
-            // Ensure the state can compute proposer duties for `epoch`.
-            ensure_state_can_determine_proposers_for_epoch(
-                &mut state,
-                state_root,
-                proposal_epoch,
-                &self.spec,
-            )?;
-
-            // Sanity check the state.
-            let latest_block_root = state.get_latest_block_root(state_root);
-            let state_decision_block_root = state.proposer_shuffling_decision_root_at_epoch(
-                proposal_epoch,
-                latest_block_root,
-                &self.spec,
-            )?;
-            if state_decision_block_root != shuffling_decision_block {
-                return Err(Error::ProposerCacheIncorrectState {
-                    state_decision_block_root,
-                    requested_decision_block_root: shuffling_decision_block,
-                }
-                .into());
-            }
-
-            let proposers = state.get_beacon_proposer_indices(proposal_epoch, &self.spec)?;
-
-            // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have
-            // advanced the state completely into the new epoch.
-            let fork = self.spec.fork_at_epoch(proposal_epoch);
-
-            debug!(
-                ?shuffling_decision_block,
-                epoch = %proposal_epoch,
-                "Priming proposer shuffling cache"
-            );
-
-            Ok::<_, E>(EpochBlockProposers::new(proposal_epoch, fork, proposers))
-        })?;
-
-        // Run the accessor function on the computed epoch proposers.
-        accessor(epoch_block_proposers).map_err(Into::into)
+        crate::beacon_proposer_cache::with_proposer_cache(
+            &self.beacon_proposer_cache,
+            shuffling_decision_block,
+            proposal_epoch,
+            accessor,
+            state_provider,
+            &self.spec,
+        )
     }
 
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
@@ -6728,9 +6613,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
+                // We assume that the `Pending` state has the same shufflings as a `Full` state
+                // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)?
+                    .get_advanced_hot_state(
+                        head_block_root,
+                        StatePayloadStatus::Pending,
+                        target_slot,
+                        head_block.state_root,
+                    )?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };
@@ -7266,16 +7158,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         block_slot: Slot,
         block_data: AvailableBlockData<T::EthSpec>,
-    ) -> Result<Option<StoreOp<'_, T::EthSpec>>, String> {
+    ) -> Option<StoreOp<'_, T::EthSpec>> {
         match block_data {
-            AvailableBlockData::NoData => Ok(None),
+            AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(blobs) => {
                 debug!(
                     %block_root,
                     count = blobs.len(),
                     "Writing blobs to store"
                 );
-                Ok(Some(StoreOp::PutBlobs(block_root, blobs)))
+                Some(StoreOp::PutBlobs(block_root, blobs))
             }
             AvailableBlockData::DataColumns(mut data_columns) => {
                 let columns_to_custody = self.custody_columns_for_epoch(Some(
@@ -7291,7 +7183,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     count = data_columns.len(),
                     "Writing data columns to store"
                 );
-                Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)))
+                Some(StoreOp::PutDataColumns(block_root, data_columns))
             }
         }
     }

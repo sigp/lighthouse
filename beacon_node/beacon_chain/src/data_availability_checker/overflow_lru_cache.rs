@@ -791,8 +791,8 @@ mod test {
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::info;
+    use types::MinimalEthSpec;
     use types::new_non_zero_usize;
-    use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -820,9 +820,8 @@ mod test {
     async fn get_deneb_chain<E: EthSpec>(
         db_path: &TempDir,
     ) -> BeaconChainHarness<DiskHarnessType<E>> {
-        let altair_fork_epoch = Epoch::new(1);
-        let bellatrix_fork_epoch = Epoch::new(2);
-        let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
+        let altair_fork_epoch = Epoch::new(0);
+        let bellatrix_fork_epoch = Epoch::new(0);
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
         let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
@@ -844,25 +843,6 @@ mod test {
             .mock_execution_layer()
             .build();
 
-        // go to bellatrix slot
-        harness.extend_to_slot(bellatrix_fork_slot).await;
-        let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
-        assert!(bellatrix_head.as_bellatrix().is_ok());
-        assert_eq!(bellatrix_head.slot(), bellatrix_fork_slot);
-        assert!(
-            bellatrix_head
-                .message()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .is_default_with_empty_roots(),
-            "Bellatrix head is default payload"
-        );
-        // Trigger the terminal PoW block.
-        harness
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
         // go right before deneb slot
         harness.extend_to_slot(deneb_fork_slot - 1).await;
 
@@ -942,7 +922,6 @@ mod test {
 
         let payload_verification_outcome = PayloadVerificationOutcome {
             payload_verification_status: PayloadVerificationStatus::Verified,
-            is_valid_merge_transition_block: false,
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
@@ -1183,7 +1162,6 @@ mod pending_components_tests {
             },
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
-                is_valid_merge_transition_block: false,
             },
         };
         (block, blobs, invalid_blobs)

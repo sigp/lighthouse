@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
 //! https://github.com/ethereum/beacon-APIs
@@ -11,7 +12,6 @@ mod attester_duties;
 mod beacon;
 mod block_id;
 mod block_packing_efficiency;
-mod block_rewards;
 mod build_block_contents;
 mod builder_states;
 mod custody;
@@ -93,7 +93,7 @@ use tokio_stream::{
 use tracing::{debug, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, Slot,
+    SignedBlindedBeaconBlock,
 };
 use validator::execution_payload_envelope::get_validator_execution_payload_envelope;
 use version::{
@@ -263,6 +263,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
                 .or_else(|| starts_with("v1/validator/contribution_and_proofs"))
                 .or_else(|| starts_with("v1/validator/duties/attester"))
                 .or_else(|| starts_with("v1/validator/duties/proposer"))
+                .or_else(|| starts_with("v2/validator/duties/proposer"))
                 .or_else(|| starts_with("v1/validator/duties/sync"))
                 .or_else(|| starts_with("v1/validator/liveness"))
                 .or_else(|| starts_with("v1/validator/prepare_beacon_proposer"))
@@ -648,6 +649,10 @@ pub fn serve<T: BeaconChainTypes>(
     // GET beacon/states/{state_id}/pending_consolidations
     let get_beacon_state_pending_consolidations =
         states::get_beacon_state_pending_consolidations(beacon_states_path.clone());
+
+    // GET beacon/states/{state_id}/proposer_lookahead
+    let get_beacon_state_proposer_lookahead =
+        states::get_beacon_state_proposer_lookahead(beacon_states_path.clone());
 
     // GET beacon/headers
     //
@@ -1796,8 +1801,16 @@ pub fn serve<T: BeaconChainTypes>(
                     let execution_optimistic =
                         chain.is_optimistic_or_invalid_head().unwrap_or_default();
 
-                    Ok(api_types::GenericResponse::from(attestation_rewards))
-                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                    let finalized = epoch + 2
+                        <= chain
+                            .canonical_head
+                            .cached_head()
+                            .finalized_checkpoint()
+                            .epoch;
+
+                    Ok(api_types::GenericResponse::from(attestation_rewards)).map(|resp| {
+                        resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
+                    })
                 })
             },
         );
@@ -2464,7 +2477,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/duties/proposer/{epoch}
     let get_validator_duties_proposer = get_validator_duties_proposer(
-        eth_v1.clone(),
+        any_version.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
         task_spawner_filter.clone(),
@@ -3002,6 +3015,19 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/database/invariants
+    let get_lighthouse_database_invariants = database_path
+        .and(warp::path("invariants"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner
+                    .blocking_json_task(Priority::P1, move || database::check_invariants(chain))
+            },
+        );
+
     // POST lighthouse/database/reconstruct
     let post_lighthouse_database_reconstruct = database_path
         .and(warp::path("reconstruct"))
@@ -3065,34 +3091,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/analysis/block_rewards
-    let get_lighthouse_block_rewards = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_rewards"))
-        .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(|query, task_spawner: TaskSpawner<T::EthSpec>, chain| {
-            task_spawner.blocking_json_task(Priority::P1, move || {
-                block_rewards::get_block_rewards(query, chain)
-            })
-        });
-
-    // POST lighthouse/analysis/block_rewards
-    let post_lighthouse_block_rewards = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_rewards"))
-        .and(warp_utils::json::json())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(|blocks, task_spawner: TaskSpawner<T::EthSpec>, chain| {
-            task_spawner.blocking_json_task(Priority::P1, move || {
-                block_rewards::compute_block_rewards(blocks, chain)
-            })
-        });
-
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -3122,25 +3120,6 @@ pub fn serve<T: BeaconChainTypes>(
             |query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     block_packing_efficiency::get_block_packing_efficiency(query, chain)
-                })
-            },
-        );
-
-    // GET lighthouse/merge_readiness
-    let get_lighthouse_merge_readiness = warp::path("lighthouse")
-        .and(warp::path("merge_readiness"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    let current_slot = chain.slot_clock.now_or_genesis().unwrap_or(Slot::new(0));
-                    let merge_readiness = chain.check_bellatrix_readiness(current_slot).await;
-                    Ok::<_, warp::reject::Rejection>(
-                        warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
-                            .into_response(),
-                    )
                 })
             },
         );
@@ -3201,9 +3180,6 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::LightClientOptimisticUpdate => {
                                     event_handler.subscribe_light_client_optimistic_update()
-                                }
-                                api_types::EventTopic::BlockReward => {
-                                    event_handler.subscribe_block_reward()
                                 }
                                 api_types::EventTopic::AttesterSlashing => {
                                     event_handler.subscribe_attester_slashing()
@@ -3333,6 +3309,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_pending_deposits)
                 .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_state_pending_consolidations)
+                .uor(get_beacon_state_proposer_lookahead)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
@@ -3380,15 +3357,14 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_validator_inclusion)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
+                .uor(get_lighthouse_database_invariants)
                 .uor(get_lighthouse_custody_info)
-                .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
                 .uor(get_beacon_light_client_finality_update)
                 .uor(get_beacon_light_client_bootstrap)
                 .uor(get_beacon_light_client_updates)
                 .uor(get_lighthouse_block_packing_efficiency)
-                .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
                 .uor(get_expected_withdrawals)
                 .uor(lighthouse_log_events.boxed())
@@ -3433,7 +3409,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
-                    .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
                     .uor(post_lighthouse_finalize)

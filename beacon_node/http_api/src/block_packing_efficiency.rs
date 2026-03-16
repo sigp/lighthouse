@@ -398,8 +398,9 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        // TODO(gloas): add payloads
         replayer = replayer
-            .apply_blocks(blocks, None)
+            .apply_blocks(blocks, vec![], None)
             .map_err(|e: PackingEfficiencyError| custom_server_error(format!("{:?}", e)))?;
     }
 

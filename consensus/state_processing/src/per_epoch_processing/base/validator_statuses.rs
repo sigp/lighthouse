@@ -2,7 +2,7 @@ use crate::common::attesting_indices_base::get_attesting_indices;
 use safe_arith::SafeArith;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, PendingAttestation};
 
-#[cfg(feature = "arbitrary-fuzz")]
+#[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 
 /// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`
@@ -16,7 +16,7 @@ macro_rules! set_self_if_other_is_true {
 }
 
 /// The information required to reward a block producer for including an attestation in a block.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InclusionInfo {
     /// The distance between the attestation slot and the slot that attestation was included in a
@@ -48,7 +48,7 @@ impl InclusionInfo {
 }
 
 /// Information required to reward some validator during the current and previous epoch.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ValidatorStatus {
     /// True if the validator has been slashed, ever.
@@ -118,7 +118,7 @@ impl ValidatorStatus {
 /// epochs.
 
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 pub struct TotalBalances {
     /// The effective balance increment from the spec.
     effective_balance_increment: u64,
@@ -175,7 +175,7 @@ impl TotalBalances {
 
 /// Summarised information about validator participation in the _previous and _current_ epochs of
 /// some `BeaconState`.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Clone)]
 pub struct ValidatorStatuses {
     /// Information about each individual validator from the state's validator registry.

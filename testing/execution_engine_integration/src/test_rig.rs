@@ -9,8 +9,8 @@ use alloy_signer_local::PrivateKeySigner;
 use bls::PublicKeyBytes;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
-    BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
-    PayloadParameters, PayloadStatus,
+    BlockByNumberQuery, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
+    LATEST_TAG, PayloadAttributes, PayloadParameters, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -210,25 +210,29 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         let account2 = AlloyAddress::from_slice(&hex::decode(ACCOUNT2).unwrap());
 
         /*
-         * Read the terminal block hash from both pairs, check it's equal.
+         * Read the genesis block hash from both pairs, check it's equal.
+         * Since TTD=0, the genesis block is the terminal PoW block.
          */
 
-        let terminal_pow_block_hash = self
+        let genesis_block = self
             .ee_a
             .execution_layer
-            .get_terminal_pow_block_hash(&self.spec, timestamp_now())
+            .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
             .await
             .unwrap()
-            .unwrap();
+            .expect("should have genesis block");
+
+        let terminal_pow_block_hash = genesis_block.block_hash;
 
         assert_eq!(
             terminal_pow_block_hash,
             self.ee_b
                 .execution_layer
-                .get_terminal_pow_block_hash(&self.spec, timestamp_now())
+                .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
                 .await
                 .unwrap()
-                .unwrap()
+                .expect("should have genesis block")
+                .block_hash
         );
 
         // Submit transactions before getting payload
