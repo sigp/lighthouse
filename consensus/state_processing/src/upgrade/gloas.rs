@@ -1,10 +1,14 @@
+use crate::per_block_processing::{
+    is_valid_deposit_signature, process_operations::apply_deposit_for_builder,
+};
 use milhouse::{List, Vector};
 use ssz_types::BitVector;
+use std::collections::HashSet;
 use std::mem;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, Fork,
+    DepositData, EthSpec, ExecutionPayloadBid, Fork, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -30,7 +34,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Gloas(BeaconStateGloas {
+    let mut post = BeaconState::Gloas(BeaconStateGloas {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
@@ -114,5 +118,81 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: mem::take(&mut pre.epoch_cache),
     });
+    // [New in Gloas:EIP7732]
+    onboard_builders_from_pending_deposits(&mut post, spec)?;
+
     Ok(post)
+}
+
+/// Applies any pending deposit for builders, effectively onboarding builders at the fork.
+fn onboard_builders_from_pending_deposits<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    // Rather than tracking all `validator_pubkeys` in one place as the spec does, we keep a
+    // hashset for *just* the new validator pubkeys, and use the state's efficient
+    // `get_validator_index` function instead of an O(n) iteration over the full validator list.
+    let mut new_validator_pubkeys = HashSet::new();
+
+    // Clone pending deposits to avoid borrow conflicts when mutating state.
+    let current_pending_deposits = state.pending_deposits()?.clone();
+
+    let mut pending_deposits = List::empty();
+
+    for deposit in &current_pending_deposits {
+        // Deposits for existing validators stay in the pending queue.
+        if new_validator_pubkeys.contains(&deposit.pubkey)
+            || state.get_validator_index(&deposit.pubkey)?.is_some()
+        {
+            pending_deposits.push(deposit.clone())?;
+            continue;
+        }
+
+        // Re-scan builder list each iteration because `apply_deposit_for_builder` may add
+        // new builders to the registry.
+        // TODO(gloas): this linear scan could be optimized, see:
+        // https://github.com/sigp/lighthouse/issues/8783
+        let builder_index = state
+            .builders()?
+            .iter()
+            .position(|b| b.pubkey == deposit.pubkey);
+
+        let has_builder_credentials =
+            is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec);
+
+        if builder_index.is_some() || has_builder_credentials {
+            let builder_index_opt = builder_index.map(|i| i as u64);
+            apply_deposit_for_builder(
+                state,
+                builder_index_opt,
+                deposit.pubkey,
+                deposit.withdrawal_credentials,
+                deposit.amount,
+                deposit.signature.clone(),
+                deposit.slot,
+                spec,
+            )?;
+            continue;
+        }
+
+        // If there is a pending deposit for a new validator that has a valid signature,
+        // track the pubkey so that subsequent builder deposits for the same pubkey stay
+        // in pending (applied to the validator later) rather than creating a builder.
+        // Deposits with invalid signatures are dropped since they would fail in
+        // apply_pending_deposit anyway.
+        let deposit_data = DepositData {
+            pubkey: deposit.pubkey,
+            withdrawal_credentials: deposit.withdrawal_credentials,
+            amount: deposit.amount,
+            signature: deposit.signature.clone(),
+        };
+        if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
+            new_validator_pubkeys.insert(deposit.pubkey);
+            pending_deposits.push(deposit.clone())?;
+        }
+    }
+
+    *state.pending_deposits_mut()? = pending_deposits;
+
+    Ok(())
 }

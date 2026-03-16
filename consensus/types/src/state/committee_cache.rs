@@ -1,9 +1,7 @@
-#![allow(clippy::arithmetic_side_effects)]
-
 use std::{num::NonZeroUsize, ops::Range, sync::Arc};
 
 use educe::Educe;
-use safe_arith::SafeArith;
+use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
@@ -79,7 +77,13 @@ impl CommitteeCache {
             .saturating_sub(spec.min_seed_lookahead)
             .saturating_sub(1u64);
 
-        if reqd_randao_epoch < state.min_randao_epoch() || epoch > state.current_epoch() + 1 {
+        if reqd_randao_epoch < state.min_randao_epoch()
+            || epoch
+                > state
+                    .current_epoch()
+                    .safe_add(1)
+                    .map_err(BeaconStateError::ArithError)?
+        {
             return Err(BeaconStateError::EpochOutOfBounds);
         }
 
@@ -118,7 +122,7 @@ impl CommitteeCache {
             *shuffling_positions
                 .get_mut(v)
                 .ok_or(BeaconStateError::ShuffleIndexOutOfBounds(v))? =
-                NonZeroUsize::new(i + 1).into();
+                NonZeroUsize::new(i.safe_add(1).map_err(BeaconStateError::ArithError)?).into();
         }
 
         Ok(Arc::new(CommitteeCache {
@@ -177,8 +181,9 @@ impl CommitteeCache {
             self.slots_per_epoch as usize,
             self.committees_per_slot as usize,
             index as usize,
-        );
-        let committee = self.compute_committee(committee_index)?;
+        )
+        .ok()?;
+        let committee = self.compute_committee(committee_index).ok()??;
 
         Some(BeaconCommittee {
             slot,
@@ -212,8 +217,9 @@ impl CommitteeCache {
             .initialized_epoch
             .ok_or(BeaconStateError::CommitteeCacheUninitialized(None))?;
 
+        let capacity = self.epoch_committee_count()?;
         initialized_epoch.slot_iter(self.slots_per_epoch).try_fold(
-            Vec::with_capacity(self.epoch_committee_count()),
+            Vec::with_capacity(capacity),
             |mut vec, slot| {
                 vec.append(&mut self.get_beacon_committees_at_slot(slot)?);
                 Ok(vec)
@@ -225,43 +231,53 @@ impl CommitteeCache {
     ///
     /// Returns `None` if the `validator_index` does not exist, does not have duties or `Self` is
     /// non-initialized.
-    pub fn get_attestation_duties(&self, validator_index: usize) -> Option<AttestationDuty> {
-        let i = self.shuffled_position(validator_index)?;
+    pub fn get_attestation_duties(
+        &self,
+        validator_index: usize,
+    ) -> Result<Option<AttestationDuty>, ArithError> {
+        let Some(i) = self.shuffled_position(validator_index) else {
+            return Ok(None);
+        };
 
-        (0..self.epoch_committee_count())
-            .map(|nth_committee| (nth_committee, self.compute_committee_range(nth_committee)))
-            .find(|(_, range)| {
-                if let Some(range) = range {
-                    range.start <= i && range.end > i
-                } else {
-                    false
-                }
-            })
-            .and_then(|(nth_committee, range)| {
-                let (slot, index) = self.convert_to_slot_and_index(nth_committee as u64)?;
-                let range = range?;
-                let committee_position = i - range.start;
-                let committee_len = range.end - range.start;
+        for nth_committee in 0..self.epoch_committee_count()? {
+            let Some(range) = self.compute_committee_range(nth_committee)? else {
+                continue;
+            };
 
-                Some(AttestationDuty {
+            if range.start <= i && range.end > i {
+                let Some((slot, index)) = self.convert_to_slot_and_index(nth_committee as u64)?
+                else {
+                    return Ok(None);
+                };
+
+                let committee_position = i.safe_sub(range.start)?;
+                let committee_len = range.end.safe_sub(range.start)?;
+
+                return Ok(Some(AttestationDuty {
                     slot,
                     index,
                     committee_position,
                     committee_len,
                     committees_at_slot: self.committees_per_slot(),
-                })
-            })
+                }));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Convert an index addressing the list of all epoch committees into a slot and per-slot index.
     fn convert_to_slot_and_index(
         &self,
         global_committee_index: u64,
-    ) -> Option<(Slot, CommitteeIndex)> {
-        let epoch_start_slot = self.initialized_epoch?.start_slot(self.slots_per_epoch);
-        let slot_offset = global_committee_index / self.committees_per_slot;
-        let index = global_committee_index % self.committees_per_slot;
-        Some((epoch_start_slot.safe_add(slot_offset).ok()?, index))
+    ) -> Result<Option<(Slot, CommitteeIndex)>, ArithError> {
+        let Some(epoch) = self.initialized_epoch else {
+            return Ok(None);
+        };
+        let epoch_start_slot = epoch.start_slot(self.slots_per_epoch);
+        let slot_offset = global_committee_index.safe_div(self.committees_per_slot)?;
+        let index = global_committee_index.safe_rem(self.committees_per_slot)?;
+        Ok(Some((epoch_start_slot.safe_add(slot_offset)?, index)))
     }
 
     /// Returns the number of active validators in the initialized epoch.
@@ -278,11 +294,8 @@ impl CommitteeCache {
     /// Always returns `usize::default()` for a non-initialized epoch.
     ///
     /// Spec v0.12.1
-    pub fn epoch_committee_count(&self) -> usize {
-        epoch_committee_count(
-            self.committees_per_slot as usize,
-            self.slots_per_epoch as usize,
-        )
+    pub fn epoch_committee_count(&self) -> Result<usize, ArithError> {
+        (self.committees_per_slot as usize).safe_mul(self.slots_per_epoch as usize)
     }
 
     /// Returns the number of committees per slot for this cache's epoch.
@@ -293,19 +306,23 @@ impl CommitteeCache {
     /// Returns a slice of `self.shuffling` that represents the `index`'th committee in the epoch.
     ///
     /// Spec v0.12.1
-    fn compute_committee(&self, index: usize) -> Option<&[usize]> {
-        self.shuffling.get(self.compute_committee_range(index)?)
+    fn compute_committee(&self, index: usize) -> Result<Option<&[usize]>, ArithError> {
+        if let Some(range) = self.compute_committee_range(index)? {
+            Ok(self.shuffling.get(range))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Returns a range of `self.shuffling` that represents the `index`'th committee in the epoch.
     ///
-    /// To avoid a divide-by-zero, returns `None` if `self.committee_count` is zero.
+    /// To avoid a divide-by-zero, returns `Ok(None)` if `self.committee_count` is zero.
     ///
-    /// Will also return `None` if the index is out of bounds.
+    /// Will also return `Ok(None)` if the index is out of bounds.
     ///
     /// Spec v0.12.1
-    fn compute_committee_range(&self, index: usize) -> Option<Range<usize>> {
-        compute_committee_range_in_epoch(self.epoch_committee_count(), index, self.shuffling.len())
+    fn compute_committee_range(&self, index: usize) -> Result<Option<Range<usize>>, ArithError> {
+        compute_committee_range_in_epoch(self.epoch_committee_count()?, index, self.shuffling.len())
     }
 
     /// Returns the index of some validator in `self.shuffling`.
@@ -329,8 +346,10 @@ pub fn compute_committee_index_in_epoch(
     slots_per_epoch: usize,
     committees_per_slot: usize,
     committee_index: usize,
-) -> usize {
-    (slot.as_usize() % slots_per_epoch) * committees_per_slot + committee_index
+) -> Result<usize, ArithError> {
+    (slot.as_usize().safe_rem(slots_per_epoch)?)
+        .safe_mul(committees_per_slot)?
+        .safe_add(committee_index)
 }
 
 /// Computes the range for slicing the shuffled indices to determine the members of a committee.
@@ -341,20 +360,16 @@ pub fn compute_committee_range_in_epoch(
     epoch_committee_count: usize,
     index_in_epoch: usize,
     shuffling_len: usize,
-) -> Option<Range<usize>> {
+) -> Result<Option<Range<usize>>, ArithError> {
     if epoch_committee_count == 0 || index_in_epoch >= epoch_committee_count {
-        return None;
+        return Ok(None);
     }
 
-    let start = (shuffling_len * index_in_epoch) / epoch_committee_count;
-    let end = (shuffling_len * (index_in_epoch + 1)) / epoch_committee_count;
+    let start = (shuffling_len.safe_mul(index_in_epoch))?.safe_div(epoch_committee_count)?;
+    let end =
+        (shuffling_len.safe_mul(index_in_epoch.safe_add(1)?))?.safe_div(epoch_committee_count)?;
 
-    Some(start..end)
-}
-
-/// Returns the total number of committees in an epoch.
-pub fn epoch_committee_count(committees_per_slot: usize, slots_per_epoch: usize) -> usize {
-    committees_per_slot * slots_per_epoch
+    Ok(Some(start..end))
 }
 
 /// Returns a list of all `validators` indices where the validator is active at the given

@@ -5,7 +5,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, ChainConfig, InvalidSignature, NotifyExecutionLayer,
-    block_verification_types::AsBlock,
+    block_verification_types::{AsBlock, LookupBlock},
 };
 use bls::{Keypair, Signature};
 use logging::create_test_tracing_subscriber;
@@ -29,7 +29,7 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec)
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -76,14 +76,11 @@ async fn rpc_blobs_with_invalid_header_signature() {
 
     // Process the block without blobs so that it doesn't become available.
     harness.advance_slot();
-    let rpc_block = harness
-        .build_rpc_block_from_blobs(signed_block.clone(), None, false)
-        .unwrap();
     let availability = harness
         .chain
         .process_block(
             block_root,
-            rpc_block,
+            LookupBlock::new(signed_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

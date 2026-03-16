@@ -7,5 +7,6 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 [dependencies]
 bls = { workspace = true }
 eth2 = { workspace = true }
+futures = { workspace = true }
 slashing_protection = { workspace = true }
 types = { workspace = true }

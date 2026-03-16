@@ -8,16 +8,18 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
+use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::batch::{
-    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    BatchConfig, BatchId, BatchInfo, BatchMetricsState, BatchOperationOutcome,
+    BatchProcessingResult, BatchState,
 };
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::manager::BatchProcessResult;
 use crate::sync::network_context::{
     RangeRequestId, RpcRequestSendError, RpcResponseError, SyncNetworkContext,
 };
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
@@ -31,6 +33,7 @@ use std::collections::{
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 use tracing::{debug, error, info, warn};
 use types::{ColumnIndex, Epoch, EthSpec};
 
@@ -52,7 +55,7 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 10;
 
-type RpcBlocks<E> = Vec<RpcBlock<E>>;
+type RpcBlocks<E> = Vec<RangeSyncBlock<E>>;
 
 type BackFillBatchInfo<E> = BatchInfo<E, BackFillBatchConfig<E>, RpcBlocks<E>>;
 
@@ -387,7 +390,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch
         let Some(batch) = self.batches.get_mut(&batch_id) else {
@@ -1071,7 +1074,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             .iter()
             .filter(|&(_epoch, batch)| in_buffer(batch))
             .count()
-            > BACKFILL_BATCH_BUFFER_SIZE as usize
+            >= BACKFILL_BATCH_BUFFER_SIZE as usize
         {
             return None;
         }
@@ -1179,6 +1182,21 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .beacon_chain
                 .genesis_backfill_slot
                 .epoch(T::EthSpec::slots_per_epoch())
+    }
+
+    pub fn register_metrics(&self) {
+        for state in BatchMetricsState::iter() {
+            let count = self
+                .batches
+                .values()
+                .filter(|b| b.state().metrics_state() == state)
+                .count();
+            metrics::set_gauge_vec(
+                &metrics::SYNCING_CHAIN_BATCHES,
+                &["backfill", state.into()],
+                count as i64,
+            );
+        }
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.
