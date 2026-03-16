@@ -5,8 +5,9 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec, Graffiti, Hash256,
-    SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedContributionAndProof,
+    Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, Graffiti, Hash256, SelectionProof, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
     SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
     SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
@@ -177,6 +178,13 @@ pub trait ValidatorStore: Send + Sync {
     /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
     /// runs.
     fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool);
+
+    /// Sign an `ExecutionPayloadEnvelope` for Gloas.
+    fn sign_execution_payload_envelope(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        envelope: ExecutionPayloadEnvelope<Self::E>,
+    ) -> impl Future<Output = Result<SignedExecutionPayloadEnvelope<Self::E>, Error<Self::Error>>> + Send;
 
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,

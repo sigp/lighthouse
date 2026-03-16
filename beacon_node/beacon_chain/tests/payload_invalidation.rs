@@ -1,12 +1,13 @@
 #![cfg(not(debug_assertions))]
+#![allow(clippy::result_large_err)]
 
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
-    StateSkipConfig, WhenSlotSkipped,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
+    WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
-    test_utils::{BeaconChainHarness, EphemeralHarnessType},
+    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
@@ -42,18 +43,15 @@ struct InvalidPayloadRig {
 
 impl InvalidPayloadRig {
     fn new() -> Self {
-        let spec = E::default_spec();
+        let spec = test_spec::<E>();
         Self::new_with_spec(spec)
     }
 
-    fn new_with_spec(mut spec: ChainSpec) -> Self {
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-
+    fn new_with_spec(spec: ChainSpec) -> Self {
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.into())
             .chain_config(ChainConfig {
-                reconstruct_historic_states: true,
+                archive: true,
                 ..ChainConfig::default()
             })
             .deterministic_keypairs(VALIDATOR_COUNT)
@@ -139,25 +137,6 @@ impl InvalidPayloadRig {
     fn previous_payload_attributes(&self) -> PayloadAttributes {
         let (_, payload_attributes) = self.previous_forkchoice_update_params();
         payload_attributes
-    }
-
-    fn move_to_terminal_block(&self) {
-        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
-        mock_execution_layer
-            .server
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
-    }
-
-    fn latest_execution_block_hash(&self) -> ExecutionBlockHash {
-        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
-        mock_execution_layer
-            .server
-            .execution_block_generator()
-            .latest_execution_block()
-            .unwrap()
-            .block_hash
     }
 
     async fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) -> Vec<Hash256> {
@@ -392,8 +371,10 @@ impl InvalidPayloadRig {
 /// Simple test of the different import types.
 #[tokio::test]
 async fn valid_invalid_syncing() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
 
     rig.import_block(Payload::Valid).await;
     rig.import_block(Payload::Invalid {
@@ -407,8 +388,10 @@ async fn valid_invalid_syncing() {
 /// `latest_valid_hash`.
 #[tokio::test]
 async fn invalid_payload_invalidates_parent() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
@@ -440,7 +423,6 @@ async fn immediate_forkchoice_update_invalid_test(
     invalid_payload: impl FnOnce(Option<ExecutionBlockHash>) -> Payload,
 ) {
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
@@ -463,6 +445,9 @@ async fn immediate_forkchoice_update_invalid_test(
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     immediate_forkchoice_update_invalid_test(|latest_valid_hash| Payload::Invalid {
         latest_valid_hash,
     })
@@ -471,11 +456,17 @@ async fn immediate_forkchoice_update_payload_invalid() {
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_block_hash() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     immediate_forkchoice_update_invalid_test(|_| Payload::InvalidBlockHash).await
 }
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     immediate_forkchoice_update_invalid_test(|_| Payload::Invalid {
         latest_valid_hash: Some(ExecutionBlockHash::zero()),
     })
@@ -485,8 +476,10 @@ async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
 /// Ensure the client tries to exit when the justified checkpoint is invalidated.
 #[tokio::test]
 async fn justified_checkpoint_becomes_invalid() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
@@ -527,11 +520,13 @@ async fn justified_checkpoint_becomes_invalid() {
 /// Ensure that a `latest_valid_hash` for a pre-finality block only reverts a single block.
 #[tokio::test]
 async fn pre_finalized_latest_valid_hash() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 4;
     let finalized_epoch = 2;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     let mut blocks = vec![];
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
     blocks.extend(rig.build_blocks(num_blocks - 1, Payload::Syncing).await);
@@ -574,10 +569,12 @@ async fn pre_finalized_latest_valid_hash() {
 /// - Will not validate `latest_valid_root` and its ancestors.
 #[tokio::test]
 async fn latest_valid_hash_will_not_validate() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     const LATEST_VALID_SLOT: u64 = 3;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
 
     let mut blocks = vec![];
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
@@ -621,11 +618,13 @@ async fn latest_valid_hash_will_not_validate() {
 /// Check behaviour when the `latest_valid_hash` is a junk value.
 #[tokio::test]
 async fn latest_valid_hash_is_junk() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 5;
     let finalized_epoch = 3;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     let mut blocks = vec![];
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
     blocks.extend(rig.build_blocks(num_blocks, Payload::Syncing).await);
@@ -662,12 +661,14 @@ async fn latest_valid_hash_is_junk() {
 /// Check that descendants of invalid blocks are also invalidated.
 #[tokio::test]
 async fn invalidates_all_descendants() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
     let finalized_epoch = 2;
     let finalized_slot = E::slots_per_epoch() * 2;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing).await;
 
@@ -769,12 +770,14 @@ async fn invalidates_all_descendants() {
 /// Check that the head will switch after the canonical branch is invalidated.
 #[tokio::test]
 async fn switches_heads() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
     let finalized_epoch = 2;
     let finalized_slot = E::slots_per_epoch() * 2;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing).await;
 
@@ -872,8 +875,10 @@ async fn switches_heads() {
 
 #[tokio::test]
 async fn invalid_during_processing() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
 
     let roots = &[
         rig.import_block(Payload::Valid).await,
@@ -904,8 +909,10 @@ async fn invalid_during_processing() {
 
 #[tokio::test]
 async fn invalid_after_optimistic_sync() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let mut roots = vec![
@@ -942,8 +949,10 @@ async fn invalid_after_optimistic_sync() {
 
 #[tokio::test]
 async fn manually_validate_child() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let parent = rig.import_block(Payload::Syncing).await;
@@ -960,8 +969,10 @@ async fn manually_validate_child() {
 
 #[tokio::test]
 async fn manually_validate_parent() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let parent = rig.import_block(Payload::Syncing).await;
@@ -978,8 +989,10 @@ async fn manually_validate_parent() {
 
 #[tokio::test]
 async fn payload_preparation() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await;
 
     let el = rig.execution_layer();
@@ -1039,8 +1052,10 @@ async fn payload_preparation() {
 
 #[tokio::test]
 async fn invalid_parent() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     // Import a syncing block atop the transition block (we'll call this the "parent block" since we
@@ -1108,83 +1123,12 @@ async fn invalid_parent() {
     ));
 }
 
-/// Tests to ensure that we will still send a proposer preparation
-#[tokio::test]
-async fn payload_preparation_before_transition_block() {
-    let rig = InvalidPayloadRig::new();
-    let el = rig.execution_layer();
-
-    // Run the watchdog routine so that the status of the execution engine is set. This ensures
-    // that we don't end up with `eth_syncing` requests later in this function that will impede
-    // testing.
-    el.watchdog_task().await;
-
-    let head = rig.harness.chain.head_snapshot();
-    assert_eq!(
-        head.beacon_block
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            .block_hash(),
-        ExecutionBlockHash::zero(),
-        "the head block is post-bellatrix but pre-transition"
-    );
-
-    let current_slot = rig.harness.chain.slot().unwrap();
-    let next_slot = current_slot + 1;
-    let proposer = head
-        .beacon_state
-        .get_beacon_proposer_index(next_slot, &rig.harness.chain.spec)
-        .unwrap();
-    let fee_recipient = Address::repeat_byte(99);
-
-    // Provide preparation data to the EL for `proposer`.
-    el.update_proposer_preparation(
-        Epoch::new(0),
-        [(
-            &ProposerPreparationData {
-                validator_index: proposer as u64,
-                fee_recipient,
-            },
-            &None,
-        )],
-    )
-    .await;
-
-    rig.move_to_terminal_block();
-
-    rig.harness
-        .chain
-        .prepare_beacon_proposer(current_slot)
-        .await
-        .unwrap();
-    let forkchoice_update_params = rig
-        .harness
-        .chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_forkchoice_update_parameters();
-    rig.harness
-        .chain
-        .update_execution_engine_forkchoice(
-            current_slot,
-            forkchoice_update_params,
-            OverrideForkchoiceUpdate::Yes,
-        )
-        .await
-        .unwrap();
-
-    let (fork_choice_state, payload_attributes) = rig.previous_forkchoice_update_params();
-    let latest_block_hash = rig.latest_execution_block_hash();
-    assert_eq!(payload_attributes.suggested_fee_recipient(), fee_recipient);
-    assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
-}
-
 #[tokio::test]
 async fn attesting_to_optimistic_head() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let root = rig.import_block(Payload::Syncing).await;
@@ -1307,7 +1251,6 @@ impl InvalidHeadSetup {
     async fn new() -> InvalidHeadSetup {
         let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();
-        rig.move_to_terminal_block();
         rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
         // Import blocks until the first time the chain finalizes. This avoids
@@ -1395,6 +1338,9 @@ impl InvalidHeadSetup {
 
 #[tokio::test]
 async fn recover_from_invalid_head_by_importing_blocks() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let InvalidHeadSetup {
         rig,
         fork_block,
@@ -1440,6 +1386,9 @@ async fn recover_from_invalid_head_by_importing_blocks() {
 
 #[tokio::test]
 async fn recover_from_invalid_head_after_persist_and_reboot() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let InvalidHeadSetup {
         rig,
         fork_block: _,
@@ -1482,8 +1431,10 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
 
 #[tokio::test]
 async fn weights_after_resetting_optimistic_status() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let mut roots = vec![];

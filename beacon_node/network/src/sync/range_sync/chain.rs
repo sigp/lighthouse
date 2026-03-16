@@ -3,7 +3,8 @@ use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::batch::BatchId;
 use crate::sync::batch::{
-    BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    BatchConfig, BatchInfo, BatchMetricsState, BatchOperationOutcome, BatchProcessingResult,
+    BatchState,
 };
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
@@ -232,6 +233,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .values()
             .map(|batch| batch.pending_blocks())
             .sum()
+    }
+
+    /// Returns the number of batches in the given metrics state.
+    pub fn count_batches_in_state(&self, state: BatchMetricsState) -> usize {
+        self.batches
+            .values()
+            .filter(|b| b.state().metrics_state() == state)
+            .count()
     }
 
     /// Removes a peer from the chain.
@@ -1277,7 +1286,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .iter()
             .filter(|&(_epoch, batch)| in_buffer(batch))
             .count()
-            > BATCH_BUFFER_SIZE as usize
+            >= BATCH_BUFFER_SIZE as usize
         {
             return None;
         }

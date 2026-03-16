@@ -554,8 +554,8 @@ pub fn get_config<E: EthSpec>(
         ClientGenesis::DepositContract
     };
 
-    if cli_args.get_flag("reconstruct-historic-states") {
-        client_config.chain.reconstruct_historic_states = true;
+    if cli_args.get_flag("archive") {
+        client_config.chain.archive = true;
         client_config.chain.genesis_backfill = true;
     }
 
@@ -779,6 +779,8 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.always_reset_payload_statuses = cli_args.get_flag("reset-payload-statuses");
 
     client_config.chain.paranoid_block_proposal = cli_args.get_flag("paranoid-block-proposal");
+
+    client_config.chain.ignore_ws_check = cli_args.get_flag("ignore-ws-check");
 
     /*
      * Builder fallback configs.

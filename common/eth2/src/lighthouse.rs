@@ -2,12 +2,11 @@
 
 mod attestation_performance;
 mod block_packing_efficiency;
-mod block_rewards;
 mod custody;
 pub mod sync_state;
 
 use crate::{
-    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
+    BeaconNodeHttpClient, DepositData, Error, Hash256,
     lighthouse::sync_state::SyncState,
     types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
 };
@@ -22,7 +21,6 @@ pub use attestation_performance::{
 pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
-pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use custody::CustodyInfo;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
@@ -316,27 +314,6 @@ impl BeaconNodeHttpClient {
     /*
      Analysis endpoints.
     */
-
-    /// `GET` lighthouse/analysis/block_rewards?start_slot,end_slot
-    pub async fn get_lighthouse_analysis_block_rewards(
-        &self,
-        start_slot: Slot,
-        end_slot: Slot,
-    ) -> Result<Vec<BlockReward>, Error> {
-        let mut path = self.server.expose_full().clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("analysis")
-            .push("block_rewards");
-
-        path.query_pairs_mut()
-            .append_pair("start_slot", &start_slot.to_string())
-            .append_pair("end_slot", &end_slot.to_string());
-
-        self.get(path).await
-    }
 
     /// `GET` lighthouse/analysis/block_packing?start_epoch,end_epoch
     pub async fn get_lighthouse_analysis_block_packing(
