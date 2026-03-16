@@ -4,7 +4,6 @@ use bls::{AggregateSignature, PublicKeyBytes, SecretKey, Signature, SignatureByt
 use context_deserialize::ContextDeserialize;
 use educe::Educe;
 use fixed_bytes::FixedBytesExtended;
-use kzg::KzgCommitment;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -16,11 +15,8 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    attestation::{
-        AttestationBase, AttestationData, AttestationElectra, IndexedAttestationBase,
-        IndexedAttestationElectra, PayloadAttestation, PayloadAttestationData,
-    },
+    SignedExecutionPayloadBid,
+    attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
         BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
@@ -30,12 +26,12 @@ use crate::{
     core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
     deposit::{Deposit, DepositData},
     execution::{
-        AbstractExecPayload, BlindedPayload, BlsToExecutionChange, Eth1Data, ExecutionPayload,
-        ExecutionRequests, FullPayload,
+        AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequests,
+        FullPayload,
     },
     exit::{SignedVoluntaryExit, VoluntaryExit},
     fork::{Fork, ForkName, InconsistentFork, map_fork_name},
-    slashing::{AttesterSlashingBase, AttesterSlashingElectra, ProposerSlashing},
+    slashing::{AttesterSlashingBase, ProposerSlashing},
     state::BeaconStateError,
     sync_committee::SyncAggregate,
     test_utils::TestRandom,
@@ -725,146 +721,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
                 _phantom: PhantomData,
             },
         }
-    }
-}
-
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockGloas<E, Payload> {
-    /// Returns a full Gloas block with all variable-length fields at max capacity.
-    /// Used for computing the maximum SSZ-encoded size.
-    pub fn full(spec: &ChainSpec) -> Self {
-        let header = BeaconBlockHeader {
-            slot: Slot::new(1),
-            proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
-            body_root: Hash256::zero(),
-        };
-
-        let signed_header = SignedBeaconBlockHeader {
-            message: header,
-            signature: Signature::empty(),
-        };
-
-        let indexed_attestation = IndexedAttestationElectra {
-            attesting_indices: VariableList::new(vec![0_u64; E::MaxValidatorsPerSlot::to_usize()])
-                .unwrap(),
-            data: AttestationData::default(),
-            signature: AggregateSignature::empty(),
-        };
-
-        let proposer_slashing = ProposerSlashing {
-            signed_header_1: signed_header.clone(),
-            signed_header_2: signed_header,
-        };
-
-        let attester_slashing = AttesterSlashingElectra {
-            attestation_1: indexed_attestation.clone(),
-            attestation_2: indexed_attestation,
-        };
-
-        let attestation = AttestationElectra {
-            aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerSlot::to_usize()).unwrap(),
-            data: AttestationData::default(),
-            signature: AggregateSignature::empty(),
-            committee_bits: BitVector::default(),
-        };
-
-        let deposit_data = DepositData {
-            pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::zero(),
-            amount: 0,
-            signature: SignatureBytes::empty(),
-        };
-
-        let deposit = Deposit {
-            proof: FixedVector::from_elem(Hash256::zero()),
-            data: deposit_data,
-        };
-
-        let signed_voluntary_exit = SignedVoluntaryExit {
-            message: VoluntaryExit {
-                epoch: Epoch::new(1),
-                validator_index: 1,
-            },
-            signature: Signature::empty(),
-        };
-
-        let signed_bls_to_execution_change = SignedBlsToExecutionChange {
-            message: BlsToExecutionChange {
-                validator_index: 0,
-                from_bls_pubkey: PublicKeyBytes::empty(),
-                to_execution_address: Address::zero(),
-            },
-            signature: Signature::empty(),
-        };
-
-        let payload_attestation = PayloadAttestation {
-            aggregation_bits: BitVector::default(),
-            data: PayloadAttestationData {
-                beacon_block_root: Hash256::zero(),
-                slot: Slot::new(0),
-                payload_present: false,
-                blob_data_available: false,
-            },
-            signature: AggregateSignature::empty(),
-        };
-
-        let mut block = BeaconBlockGloas::<E, Payload>::empty(spec);
-
-        for _ in 0..E::MaxProposerSlashings::to_usize() {
-            block
-                .body
-                .proposer_slashings
-                .push(proposer_slashing.clone())
-                .unwrap();
-        }
-        for _ in 0..E::max_attester_slashings_electra() {
-            block
-                .body
-                .attester_slashings
-                .push(attester_slashing.clone())
-                .unwrap();
-        }
-        for _ in 0..E::max_attestations_electra() {
-            block.body.attestations.push(attestation.clone()).unwrap();
-        }
-        for _ in 0..E::MaxDeposits::to_usize() {
-            block.body.deposits.push(deposit.clone()).unwrap();
-        }
-        for _ in 0..E::MaxVoluntaryExits::to_usize() {
-            block
-                .body
-                .voluntary_exits
-                .push(signed_voluntary_exit.clone())
-                .unwrap();
-        }
-        for _ in 0..E::MaxBlsToExecutionChanges::to_usize() {
-            block
-                .body
-                .bls_to_execution_changes
-                .push(signed_bls_to_execution_change.clone())
-                .unwrap();
-        }
-
-        for _ in 0..E::MaxPayloadAttestations::to_usize() {
-            block
-                .body
-                .payload_attestations
-                .push(payload_attestation.clone())
-                .unwrap();
-        }
-
-        for _ in 0..E::MaxBlobCommitmentsPerBlock::to_usize() {
-            block
-                .body
-                .signed_execution_payload_bid
-                .message
-                .blob_kzg_commitments
-                .push(KzgCommitment::empty_for_testing())
-                .unwrap();
-        }
-
-        block
     }
 }
 
