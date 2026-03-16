@@ -755,7 +755,6 @@ impl TestRig {
                                 .into_iter()
                                 .filter(|c| !req.columns.contains(c.index()))
                         })
-                        .take(1)
                         .collect::<Vec<_>>();
                     self.send_rpc_columns_response(req_id, peer_id, &wrong_columns);
                     return;
@@ -781,7 +780,6 @@ impl TestRig {
                                 .into_iter()
                                 .filter(|c| req.columns.contains(c.index()))
                         })
-                        .take(1)
                         .collect::<Vec<_>>();
                     self.send_rpc_columns_response(req_id, peer_id, &wrong_columns);
                     return;

@@ -643,14 +643,14 @@ use lighthouse_network::rpc::RPCError;
 const SLOTS_PER_EPOCH: usize = 8;
 
 impl TestRig {
-    /// SETUP HELPER: Build a chain and setup head sync with one peer
+    /// Build a chain and setup head sync with one peer
     async fn setup_head_sync(&mut self) {
         self.build_chain(SLOTS_PER_EPOCH).await;
         self.add_head_peer();
         self.assert_state(RangeSyncType::Head);
     }
 
-    /// SETUP HELPER: Build a chain and setup finalized sync with enough peers for all forks.
+    /// Build a chain and setup finalized sync with enough peers for all forks.
     /// Returns the remote SyncInfo used (needed for blacklist tests).
     async fn setup_finalized_sync(&mut self) -> SyncInfo {
         let advanced_epochs = 5;
@@ -662,14 +662,14 @@ impl TestRig {
         remote_info
     }
 
-    /// SETUP HELPER: Build a chain and setup finalized sync with a head peer
+    /// Build a chain and setup finalized sync with a head peer
     async fn setup_finalized_and_head_sync(&mut self) {
         self.setup_finalized_sync().await;
         self.add_head_peer();
         self.assert_state(RangeSyncType::Finalized);
     }
 
-    /// ASSERT HELPER: Assert range sync completed successfully (chains were created, all
+    /// Assert range sync completed successfully (chains were created, all
     /// completed, all blocks ingested, finalized advanced, no penalties, no leftover events)
     fn assert_range_sync_completed(&mut self) {
         self.assert_successful_range_sync();
@@ -689,12 +689,12 @@ impl TestRig {
         self.assert_empty_processor();
     }
 
-    /// ASSERT HELPER: Assert range sync removed chains (e.g., after max failures)
+    /// Assert range sync removed chains (e.g., after max failures)
     fn assert_range_sync_chain_removed(&mut self) {
         self.assert_no_chains_exist();
     }
 
-    /// SETUP HELPER: Setup finalized sync with only 1 fullnode peer (insufficient custody
+    /// Setup finalized sync with only 1 fullnode peer (insufficient custody
     /// coverage). Returns remote_info to pass to `add_remaining_finalized_peers`.
     async fn setup_finalized_sync_insufficient_peers(&mut self) -> SyncInfo {
         let advanced_epochs = 5;
@@ -705,13 +705,13 @@ impl TestRig {
         remote_info
     }
 
-    /// SETUP HELPER: Add enough peers to cover all custody columns (same chain as insufficient setup)
+    /// Add enough peers to cover all custody columns (same chain as insufficient setup)
     fn add_remaining_finalized_peers(&mut self, remote_info: SyncInfo) {
         self.add_fullnode_peers(remote_info.clone(), 100);
         self.add_supernode_peer(remote_info);
     }
 
-    /// ASSERT HELPER: Assert head sync completed (no finalization expected for short ranges)
+    /// Assert head sync completed (no finalization expected for short ranges)
     fn assert_head_sync_completed(&mut self) {
         self.assert_successful_range_sync();
         self.assert_no_failed_chains();
@@ -723,7 +723,7 @@ impl TestRig {
         self.assert_no_penalties();
     }
 
-    /// ASSERT HELPER: Assert chain was removed and peers received faulty_chain penalty
+    /// Assert chain was removed and peers received faulty_chain penalty
     fn assert_range_sync_chain_failed(&mut self) {
         self.assert_no_chains_exist();
         assert!(
@@ -733,7 +733,7 @@ impl TestRig {
         );
     }
 
-    /// ASSERT HELPER: Assert a new peer with a blacklisted root gets disconnected
+    /// Assert a new peer with a blacklisted root gets disconnected
     fn assert_peer_blacklisted(&mut self, remote_info: SyncInfo) {
         let new_peer = self.add_supernode_peer(remote_info);
         self.pop_received_network_event(|ev| match ev {
@@ -744,6 +744,7 @@ impl TestRig {
     }
 }
 
+/// Head sync: single peer slightly ahead → download batches → all blocks ingested.
 #[tokio::test]
 async fn head_sync_completes() {
     let mut r = TestRig::default();
@@ -752,6 +753,8 @@ async fn head_sync_completes() {
     r.assert_head_sync_completed();
 }
 
+/// Both finalized and head peers present. Finalized takes priority, completes first,
+/// then awaiting_head_peers drain and head chains complete too.
 #[tokio::test]
 async fn finalized_to_head_transition() {
     let mut r = TestRig::default();
@@ -760,6 +763,8 @@ async fn finalized_to_head_transition() {
     r.assert_range_sync_completed();
 }
 
+/// Finalized sync happy path: all batches download and process, head advances to target,
+/// finalized epoch advances past genesis.
 #[tokio::test]
 async fn finalized_sync_completes() {
     let mut r = TestRig::default();
@@ -768,6 +773,8 @@ async fn finalized_sync_completes() {
     r.assert_range_sync_completed();
 }
 
+/// First BlocksByRange request gets an RPC error. Batch retries from another peer,
+/// sync completes with no penalties (RPC errors are not penalized).
 #[tokio::test]
 async fn batch_rpc_error_retries() {
     let mut r = TestRig::default();
@@ -777,6 +784,7 @@ async fn batch_rpc_error_retries() {
     r.assert_range_sync_completed();
 }
 
+/// Peer returns zero blocks for a BlocksByRange request. Batch retries, sync completes.
 #[tokio::test]
 async fn batch_peer_returns_empty_then_succeeds() {
     let mut r = TestRig::default();
@@ -786,6 +794,8 @@ async fn batch_peer_returns_empty_then_succeeds() {
     r.assert_successful_range_sync();
 }
 
+/// Peer returns zero columns for a DataColumnsByRange request. Batch retries, sync completes.
+/// Only exercises column logic on fulu+.
 #[tokio::test]
 async fn batch_peer_returns_no_columns_then_succeeds() {
     let mut r = TestRig::default();
@@ -795,6 +805,8 @@ async fn batch_peer_returns_no_columns_then_succeeds() {
     r.assert_successful_range_sync();
 }
 
+/// Peer returns columns with indices it wasn't asked for → UnrequestedIndex verify error.
+/// Batch retries from another peer, sync completes.
 #[tokio::test]
 async fn batch_peer_returns_wrong_column_indices_then_succeeds() {
     let mut r = TestRig::default();
@@ -804,6 +816,8 @@ async fn batch_peer_returns_wrong_column_indices_then_succeeds() {
     r.assert_successful_range_sync();
 }
 
+/// Peer returns columns from a slot outside the requested range → UnrequestedSlot verify error.
+/// Batch retries from another peer, sync completes.
 #[tokio::test]
 async fn batch_peer_returns_wrong_column_slots_then_succeeds() {
     let mut r = TestRig::default();
@@ -813,6 +827,8 @@ async fn batch_peer_returns_wrong_column_slots_then_succeeds() {
     r.assert_successful_range_sync();
 }
 
+/// Batch processing returns NonFaultyFailure (e.g. transient error). Batch goes back to
+/// AwaitingDownload, retries without penalty, sync completes.
 #[tokio::test]
 async fn batch_non_faulty_failure_retries() {
     let mut r = TestRig::default();
@@ -822,6 +838,8 @@ async fn batch_non_faulty_failure_retries() {
     r.assert_range_sync_completed();
 }
 
+/// Batch processing returns FaultyFailure once. Peer penalized with "faulty_batch",
+/// batch redownloaded from a different peer, sync completes.
 #[tokio::test]
 async fn batch_faulty_failure_redownloads() {
     let mut r = TestRig::default();
@@ -832,6 +850,8 @@ async fn batch_faulty_failure_redownloads() {
     r.assert_penalties_of_type("faulty_batch");
 }
 
+/// Batch processing fails MAX_BATCH_PROCESSING_ATTEMPTS (3) times with FaultyFailure.
+/// Chain removed, all peers penalized with "faulty_chain".
 #[tokio::test]
 async fn batch_max_failures_removes_chain() {
     let mut r = TestRig::default();
@@ -841,6 +861,8 @@ async fn batch_max_failures_removes_chain() {
     r.assert_range_sync_chain_failed();
 }
 
+/// Chain fails via max faulty retries → finalized root added to failed_chains LRU.
+/// A new peer advertising the same finalized root gets disconnected with GoodbyeReason.
 #[tokio::test]
 async fn failed_chain_blacklisted() {
     let mut r = TestRig::default();
@@ -851,6 +873,7 @@ async fn failed_chain_blacklisted() {
     r.assert_peer_blacklisted(remote_info);
 }
 
+/// All peers disconnect before any request is fulfilled → chain removed (EmptyPeerPool).
 #[tokio::test]
 async fn all_peers_disconnect_removes_chain() {
     let mut r = TestRig::default();
@@ -860,6 +883,8 @@ async fn all_peers_disconnect_removes_chain() {
     r.assert_range_sync_chain_removed();
 }
 
+/// Peers disconnect after 1 request is served. Remaining in-flight responses arrive
+/// for a chain that no longer exists — verified as a no-op (no crash).
 #[tokio::test]
 async fn late_response_for_removed_chain() {
     let mut r = TestRig::default();
@@ -869,6 +894,8 @@ async fn late_response_for_removed_chain() {
     r.assert_range_sync_chain_removed();
 }
 
+/// Execution engine goes offline at sync start. Batch responses complete but processing
+/// is paused. After 2 responses, EE comes back online, queued batches process, sync completes.
 #[tokio::test]
 async fn ee_offline_then_online_resumes_sync() {
     let mut r = TestRig::default();
@@ -878,6 +905,8 @@ async fn ee_offline_then_online_resumes_sync() {
     r.assert_range_sync_completed();
 }
 
+/// PeerDAS only: single fullnode peer doesn't cover all custody columns → no requests sent.
+/// Once enough fullnodes + a supernode arrive, sync proceeds and completes.
 #[tokio::test]
 async fn not_enough_custody_peers_then_peers_arrive() {
     let mut r = TestRig::default();
