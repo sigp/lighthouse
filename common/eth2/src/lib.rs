@@ -904,7 +904,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_proposer_lookahead(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<u64>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<ValidatorIndexData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1802,7 +1802,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         validators: &[ValidatorId],
-    ) -> Result<GenericResponse<Vec<SyncCommitteeReward>>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<SyncCommitteeReward>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1819,7 +1819,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_rewards_blocks(
         &self,
         block_id: BlockId,
-    ) -> Result<GenericResponse<StandardBlockReward>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<StandardBlockReward>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1837,7 +1837,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         validators: &[ValidatorId],
-    ) -> Result<ExecutionOptimisticResponse<StandardAttestationRewards>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<StandardAttestationRewards>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

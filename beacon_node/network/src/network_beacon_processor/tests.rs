@@ -8,7 +8,7 @@ use crate::{
     service::NetworkMessage,
     sync::{SyncMessage, manager::BlockProcessType},
 };
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
@@ -437,36 +437,24 @@ impl TestRig {
         }
     }
 
-    pub fn enqueue_rpc_block(&self) {
+    pub fn enqueue_lookup_block(&self) {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
-            .send_rpc_beacon_block(
+            .send_lookup_beacon_block(
                 block_root,
-                RpcBlock::new(
-                    self.next_block.clone(),
-                    None,
-                    &self._harness.chain.data_availability_checker,
-                    self._harness.spec.clone(),
-                )
-                .unwrap(),
+                LookupBlock::new(self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
     }
 
-    pub fn enqueue_single_lookup_rpc_block(&self) {
+    pub fn enqueue_single_lookup_block(&self) {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
-            .send_rpc_beacon_block(
+            .send_lookup_beacon_block(
                 block_root,
-                RpcBlock::new(
-                    self.next_block.clone(),
-                    None,
-                    &self._harness.chain.data_availability_checker,
-                    self._harness.spec.clone(),
-                )
-                .unwrap(),
+                LookupBlock::new(self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
@@ -1305,7 +1293,7 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
             }
         }
         BlockImportMethod::Rpc => {
-            rig.enqueue_rpc_block();
+            rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
@@ -1391,7 +1379,7 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
             }
         }
         BlockImportMethod::Rpc => {
-            rig.enqueue_rpc_block();
+            rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
@@ -1585,7 +1573,7 @@ async fn test_rpc_block_reprocessing() {
     let next_block_root = rig.next_block.canonical_root();
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
-    rig.enqueue_single_lookup_rpc_block();
+    rig.enqueue_single_lookup_block();
     rig.assert_event_journal_completes(&[WorkType::RpcBlock])
         .await;
 
