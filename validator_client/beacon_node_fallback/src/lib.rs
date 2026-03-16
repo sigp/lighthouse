@@ -535,7 +535,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             Timeouts::use_optimized_timeouts(self.spec.get_slot_duration())
         };
 
-        let client = eth2::reqwest::Client::builder()
+        let client = reqwest::Client::builder()
             .user_agent(&self.user_agent)
             .build()
             .unwrap_or_default();
