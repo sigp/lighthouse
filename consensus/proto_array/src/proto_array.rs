@@ -164,6 +164,22 @@ impl Default for ProposerBoost {
     }
 }
 
+/// Accumulated score changes for a single proto-array node during a `find_head` pass.
+///
+/// `delta` tracks the ordinary LMD-GHOST balance change applied to the concrete block node.
+/// This is the same notion of weight that pre-GLOAS fork choice used.
+///
+/// Under GLOAS we also need to track how votes contribute to the parent's virtual payload
+/// branches:
+///
+/// - `empty_delta` is the balance change attributable to votes that support the `Empty` payload
+///   interpretation of the node
+/// - `full_delta` is the balance change attributable to votes that support the `Full` payload
+///   interpretation of the node
+///
+/// Votes in `Pending` state only affect `delta`; they do not contribute to either payload bucket.
+/// During score application these payload deltas are propagated independently up the tree so that
+/// ancestors can compare children using payload-aware tie breaking.
 #[derive(Clone, PartialEq, Debug, Copy)]
 pub struct NodeDelta {
     pub delta: i64,
@@ -172,8 +188,16 @@ pub struct NodeDelta {
 }
 
 impl NodeDelta {
-    /// Determine the payload bucket for a vote based on whether the vote's slot matches the
-    /// block's slot (Pending), or the vote's `payload_present` flag (Full/Empty).
+    /// Classify a vote into the payload bucket it contributes to for `block_slot`.
+    ///
+    /// Per the GLOAS model:
+    ///
+    /// - a same-slot vote is `Pending`
+    /// - a later vote with `payload_present = true` is `Full`
+    /// - a later vote with `payload_present = false` is `Empty`
+    ///
+    /// This classification is used only for payload-aware accounting; all votes still contribute to
+    /// the aggregate `delta`.
     pub fn payload_status(
         vote_slot: Slot,
         payload_present: bool,
@@ -188,7 +212,9 @@ impl NodeDelta {
         }
     }
 
-    /// Add a balance to the appropriate payload status.
+    /// Add `balance` to the payload bucket selected by `status`.
+    ///
+    /// `Pending` votes do not affect payload buckets, so this becomes a no-op for that case.
     pub fn add_payload_delta(
         &mut self,
         status: PayloadStatus,
@@ -206,7 +232,10 @@ impl NodeDelta {
         Ok(())
     }
 
-    /// Create a delta that only affects the aggregate `delta` field.
+    /// Create a delta that only affects the aggregate block weight.
+    ///
+    /// This is useful for callers or tests that only care about ordinary LMD-GHOST weight changes
+    /// and do not need payload-aware accounting.
     pub fn from_delta(delta: i64) -> Self {
         Self {
             delta,
@@ -215,7 +244,9 @@ impl NodeDelta {
         }
     }
 
-    /// Subtract a balance from the appropriate payload status.
+    /// Subtract `balance` from the payload bucket selected by `status`.
+    ///
+    /// `Pending` votes do not affect payload buckets, so this becomes a no-op for that case.
     pub fn sub_payload_delta(
         &mut self,
         status: PayloadStatus,
@@ -1075,7 +1106,7 @@ impl ProtoArray {
                     boost_node.parent() == Some(parent_index)
                         && boost_node
                             .parent_payload_status()
-                            .map_or(false, |s| s != PayloadStatus::Full)
+                            .is_ok_and(|s| s != PayloadStatus::Full)
                 });
 
         // These three variables are aliases to the three options that we may set the

@@ -460,10 +460,7 @@ impl ForkChoiceTestDefinition {
                     current_slot,
                 } => {
                     let actual = fork_choice
-                        .head_payload_status::<MainnetEthSpec>(
-                            &head_root,
-                            current_slot,
-                        )
+                        .head_payload_status::<MainnetEthSpec>(&head_root, current_slot)
                         .unwrap_or_else(|| {
                             panic!(
                                 "AssertHeadPayloadStatus: head root not found at op index {}",

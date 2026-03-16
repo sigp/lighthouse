@@ -999,6 +999,7 @@ impl ProtoArrayForkChoice {
     ///   - Previous slot (`slot + 1 == current_slot`): prefer Full only when timely and
     ///     data available (per `should_extend_payload`).
     ///   - Otherwise: prefer Full when payload has been received.
+    ///
     /// Returns `None` for V17 nodes.
     pub fn head_payload_status<E: EthSpec>(
         &self,
