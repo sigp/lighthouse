@@ -3,16 +3,25 @@ use crate::CustodyContext;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::data_availability_checker_v2::Availability;
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
+use crate::payload_envelope_verification::AvailableEnvelope;
+use crate::payload_envelope_verification::AvailableExecutedEnvelope;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
+use types::BlockImportSource;
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    SignedExecutionPayloadBid,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
 };
+
+pub enum CachedPayloadEnvelope<E: EthSpec> {
+    PreExecution(Arc<SignedExecutionPayloadEnvelope<E>>, BlockImportSource),
+    Executed(Box<AvailabilityPendingExecutedEnvelope<E>>),
+}
 
 /// This represents the components of a payload pending data availability.
 ///
@@ -24,9 +33,12 @@ pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     /// The execution payload bid containing blob_kzg_commitments.
     pub bid: Option<Arc<SignedExecutionPayloadBid<E>>>,
+    /// a cached pre or post executed payload envelope
+    pub envelope: Option<CachedPayloadEnvelope<E>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub reconstruction_started: bool,
     span: Span,
+    spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -68,6 +80,19 @@ impl<E: EthSpec> PendingComponents<E> {
         self.bid = Some(bid);
     }
 
+    pub fn insert_pending_executed_envelope(
+        &mut self,
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        import_source: BlockImportSource,
+    ) {
+        self.envelope = Some(CachedPayloadEnvelope::PreExecution(envelope, import_source))
+    }
+
+    /// Inserts an executed payload envelope into the cache.
+    pub fn insert_executed_envelope(&mut self, envelope: AvailabilityPendingExecutedEnvelope<E>) {
+        self.envelope = Some(CachedPayloadEnvelope::Executed(Box::new(envelope)))
+    }
+
     /// Returns the number of blobs expected by reading the bid's kzg commitments.
     /// Returns an error if the bid is not cached. This function should only be called
     /// after ensuring that the bid has been cached.
@@ -80,66 +105,92 @@ impl<E: EthSpec> PendingComponents<E> {
         Ok(bid.message.blob_kzg_commitments.len())
     }
 
-    /// Returns `Some` if the bid and all required data columns have been received.
+    /// Returns `Some` if the envelope and all required data columns have been received.
     pub fn make_available(
         &self,
         num_expected_columns: usize,
-    ) -> Result<Option<DataColumnSidecarList<E>>, AvailabilityCheckError> {
-        // Check if we have a bid - if not, still waiting
+    ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError> {
+        // If no bid has been received, we can start verifying the columns
         if self.bid.is_none() {
             return Ok(None);
         }
 
+        // Check if the payload has been received and executed
+        let Some(CachedPayloadEnvelope::Executed(envelope)) = self.envelope.as_ref() else {
+            return Ok(None);
+        };
+
+        let AvailabilityPendingExecutedEnvelope {
+            envelope,
+            import_data,
+            payload_verification_outcome,
+        } = envelope.as_ref();
+
         // Get the number of blobs expected from the bid
         let num_expected_blobs = self.num_blobs_expected()?;
 
-        if num_expected_blobs == 0 {
-            // No blobs expected, data is available (empty)
+        let columns = if num_expected_blobs == 0 {
             self.span.in_scope(|| {
                 debug!("Bid has no blobs, data is available");
             });
-            return Ok(Some(vec![]));
-        }
+            vec![]
+        } else {
+            let num_received_columns = self.verified_data_columns.len();
+            match num_received_columns.cmp(&num_expected_columns) {
+                Ordering::Greater => {
+                    // Should never happen
+                    return Err(AvailabilityCheckError::Unexpected(format!(
+                        "too many columns got {num_received_columns} expected {num_expected_columns}"
+                    )));
+                }
+                Ordering::Equal => {
+                    // We have enough columns
+                    let data_columns = self
+                        .verified_data_columns
+                        .iter()
+                        .map(|d| d.clone().into_inner())
+                        .collect::<Vec<_>>();
 
-        let num_received_columns = self.verified_data_columns.len();
-        match num_received_columns.cmp(&num_expected_columns) {
-            Ordering::Greater => {
-                // Should never happen
-                Err(AvailabilityCheckError::Unexpected(format!(
-                    "too many columns got {num_received_columns} expected {num_expected_columns}"
-                )))
-            }
-            Ordering::Equal => {
-                // We have enough columns
-                let data_columns = self
-                    .verified_data_columns
-                    .iter()
-                    .map(|d| d.clone().into_inner())
-                    .collect::<Vec<_>>();
+                    self.span.in_scope(|| {
+                        debug!("All data columns received, data is available");
+                    });
 
-                self.span.in_scope(|| {
-                    debug!("All data columns received, data is available");
-                });
+                    data_columns
+                }
+                Ordering::Less => {
+                    // Not enough data columns received yet
+                    return Ok(None);
+                }
+            }
+        };
 
-                Ok(Some(data_columns))
-            }
-            Ordering::Less => {
-                // Not enough data columns received yet
-                Ok(None)
-            }
-        }
+        let available_envelope = AvailableEnvelope {
+            execution_block_hash: envelope.block_hash(),
+            envelope: envelope.clone(),
+            columns,
+            columns_available_timestamp: None,
+            spec: self.spec.clone(),
+        };
+
+        Ok(Some(AvailableExecutedEnvelope {
+            envelope: available_envelope,
+            import_data: import_data.clone(),
+            payload_verification_outcome: payload_verification_outcome.clone(),
+        }))
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(block_root: Hash256) -> Self {
+    pub fn empty(block_root: Hash256, spec: Arc<ChainSpec>) -> Self {
         let span = debug_span!(parent: None, "lh_pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
             block_root,
             bid: None,
+            envelope: None,
             verified_data_columns: vec![],
             reconstruction_started: false,
             span,
+            spec,
         }
     }
 
@@ -294,7 +345,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
         num_expected_columns: usize,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        if let Some(columns) = pending_components.make_available(num_expected_columns)? {
+        if let Some(available_envelope) = pending_components.make_available(num_expected_columns)? {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
             if let Some(components) = self.critical.write().get_mut(&block_root) {
@@ -308,7 +359,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             // imported, but re-inserted immediately, causing partial pending components to be
             // stored and served to peers.
             // Components are only removed via LRU eviction as finality advances.
-            Ok(Availability::Available(Box::new((block_root, columns))))
+            Ok(Availability::Available(Box::new(available_envelope)))
         } else {
             Ok(Availability::MissingComponents(block_root))
         }
@@ -330,8 +381,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut write_lock = self.critical.write();
 
         {
-            let pending_components =
-                write_lock.get_or_insert_mut(block_root, || PendingComponents::empty(block_root));
+            let pending_components = write_lock.get_or_insert_mut(block_root, || {
+                PendingComponents::empty(block_root, self.spec.clone())
+            });
             update_fn(pending_components)?
         }
 
@@ -433,6 +485,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
 #[cfg(test)]
 mod pending_components_tests {
+    use crate::test_utils::test_spec;
+
     use super::*;
     use types::MinimalEthSpec;
 
@@ -440,8 +494,9 @@ mod pending_components_tests {
 
     #[test]
     fn test_empty_pending_components() {
+        let spec = Arc::new(test_spec::<E>());
         let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root);
+        let components = PendingComponents::<E>::empty(block_root, spec);
 
         assert_eq!(components.block_root, block_root);
         assert!(components.bid.is_none());
@@ -452,8 +507,9 @@ mod pending_components_tests {
 
     #[test]
     fn test_get_cached_data_columns_indices_empty() {
+        let spec = Arc::new(test_spec::<E>());
         let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root);
+        let components = PendingComponents::<E>::empty(block_root, spec);
 
         let indices = components.get_cached_data_columns_indices();
         assert!(indices.is_empty());
@@ -461,8 +517,9 @@ mod pending_components_tests {
 
     #[test]
     fn test_status_str_no_bid() {
+        let spec = Arc::new(test_spec::<E>());
         let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root);
+        let components = PendingComponents::<E>::empty(block_root, spec);
 
         let status = components.status_str(10);
         assert_eq!(status, "data_columns 0/10");
@@ -470,8 +527,9 @@ mod pending_components_tests {
 
     #[test]
     fn test_num_blobs_expected_no_bid() {
+        let spec = Arc::new(test_spec::<E>());
         let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root);
+        let components = PendingComponents::<E>::empty(block_root, spec);
 
         let result = components.num_blobs_expected();
         assert!(result.is_err());
@@ -484,8 +542,9 @@ mod pending_components_tests {
 
     #[test]
     fn test_make_available_no_bid_returns_none() {
+        let spec = Arc::new(test_spec::<E>());
         let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root);
+        let components = PendingComponents::<E>::empty(block_root, spec);
 
         // Without a bid, make_available should return Ok(None)
         let result = components.make_available(10);

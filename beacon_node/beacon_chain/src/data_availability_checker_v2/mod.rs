@@ -3,6 +3,7 @@ use crate::data_availability_checker_v2::pending_components_cache::{
 };
 
 use crate::data_availability_checker::AvailabilityCheckError;
+use crate::payload_envelope_verification::AvailableExecutedEnvelope;
 use crate::{BeaconChain, BeaconChainTypes, CustodyContext, metrics};
 use kzg::Kzg;
 use slot_clock::SlotClock;
@@ -17,6 +18,7 @@ use types::{
     SignedExecutionPayloadBid, Slot,
 };
 
+mod payload_envelope_cache;
 mod pending_components_cache;
 
 use crate::data_column_verification::{
@@ -45,7 +47,7 @@ pub type AvailableData<E> = (Hash256, DataColumnSidecarList<E>);
 /// Indicates if the payloads data is fully `Available` or if we need more columns.
 pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
-    Available(Box<AvailableData<E>>),
+    Available(Box<AvailableExecutedEnvelope<E>>),
 }
 
 impl<E: EthSpec> Debug for Availability<E> {
@@ -54,7 +56,8 @@ impl<E: EthSpec> Debug for Availability<E> {
             Self::MissingComponents(block_root) => {
                 write!(f, "MissingComponents({})", block_root)
             }
-            Self::Available(data) => write!(f, "Available({}, {} columns)", data.0, data.1.len()),
+            // TODO(gloas) fix success case
+            Self::Available(data) => todo!(),
         }
     }
 }

@@ -41,7 +41,7 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub post_state: Box<BeaconState<E>>,
@@ -50,11 +50,11 @@ pub struct EnvelopeImportData<E: EthSpec> {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
-    execution_block_hash: ExecutionBlockHash,
-    envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    columns: DataColumnSidecarList<E>,
+    pub execution_block_hash: ExecutionBlockHash,
+    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    pub columns: DataColumnSidecarList<E>,
     /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
-    columns_available_timestamp: Option<std::time::Duration>,
+    pub columns_available_timestamp: Option<std::time::Duration>,
     pub spec: Arc<ChainSpec>,
 }
 
@@ -129,6 +129,33 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
                 envelope: _,
             } => Self::AvailabilityPending(),
         }
+    }
+}
+
+/// A payload ernvelope that has completed all envelope procesing checks, verification
+/// by an EL client but does not have all requisite columns to get imported into
+/// fork choice.
+pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
+    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    pub import_data: EnvelopeImportData<E>,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
+impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
+    pub fn new(
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        import_data: EnvelopeImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    ) -> Self {
+        Self {
+            envelope,
+            import_data,
+            payload_verification_outcome,
+        }
+    }
+
+    pub fn as_envelope(&self) -> &SignedExecutionPayloadEnvelope<E> {
+        &self.envelope
     }
 }
 

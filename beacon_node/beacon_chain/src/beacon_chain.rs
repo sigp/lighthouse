@@ -3799,31 +3799,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             AvailabilityOutcome::Payload(availability) => match availability {
-                PayloadAvailability::Available(available_payload_data) => {
+                PayloadAvailability::Available(available_envelope) => {
                     // TODO(gloas) execution publish_fn
                     // publish_fn()?;
 
-                    // Payload data is fully available
-                    let (block_root, data_columns) = *available_payload_data;
-                    self.import_available_payload_data(block_root, data_columns)
+                    // Payload envelope is fully available
+                    let res = self
+                        .import_available_execution_payload_envelope(available_envelope)
                         .await
+                        .unwrap();
+
+                    // TODO(gloas) unwrap
+                    Ok(res)
                 }
                 PayloadAvailability::MissingComponents(block_root) => Ok(
                     AvailabilityProcessingStatus::MissingComponents(slot, block_root),
                 ),
             },
         }
-    }
-
-    #[instrument(skip_all)]
-    pub async fn import_available_payload_data(
-        self: &Arc<Self>,
-        block_root: Hash256,
-        _data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        // TODO(gloas) this is just a stub implementation
-        // this function should mark payload data as available somehow
-        Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
 
     #[instrument(skip_all)]

@@ -64,7 +64,9 @@ impl<E: EthSpec> AvailabilityOutcome<E> {
             Self::Block(BlockAvailability::Available(block)) => block.import_data.block_root,
             Self::Block(BlockAvailability::MissingComponents(root)) => *root,
             // For payload availability, the first element of the tuple is the block root
-            Self::Payload(PayloadAvailability::Available(available_data)) => available_data.0,
+            Self::Payload(PayloadAvailability::Available(available_data)) => {
+                available_data.envelope.message().beacon_block_root
+            }
             Self::Payload(PayloadAvailability::MissingComponents(root)) => *root,
         }
     }
