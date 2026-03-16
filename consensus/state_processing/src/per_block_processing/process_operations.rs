@@ -580,6 +580,7 @@ fn process_builder_voluntary_exit<E: EthSpec>(
             state.genesis_validators_root(),
         );
         let message = signed_exit.message.signing_root(domain);
+        // TODO(gloas): use builder pubkey cache once available
         let bls_pubkey = pubkey
             .decompress()
             .map_err(|_| BlockOperationError::invalid(ExitInvalid::BadSignature))?;
