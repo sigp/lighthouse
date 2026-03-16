@@ -918,7 +918,8 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
 }
 
 /// Check if there is a pending deposit for a new validator with the given pubkey.
-// TODO(gloas): cache the deposit signature validation
+// TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
+// it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
 fn is_pending_validator<E: EthSpec>(
     state: &BeaconState<E>,
     pubkey: &PublicKeyBytes,
