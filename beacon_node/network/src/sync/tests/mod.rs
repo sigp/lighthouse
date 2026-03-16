@@ -3,7 +3,7 @@ use crate::sync::SyncMessage;
 use crate::sync::block_lookups::BlockLookupsMetrics;
 use crate::sync::manager::SyncManager;
 use crate::sync::tests::lookups::SimulateConfig;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::builder::Witness;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
@@ -77,8 +77,8 @@ struct TestRig {
     rng: ChaCha20Rng,
     fork_name: ForkName,
     /// Blocks that will be used in the test but may not be known to `harness` yet.
-    network_blocks_by_root: HashMap<Hash256, RpcBlock<E>>,
-    network_blocks_by_slot: HashMap<Slot, RpcBlock<E>>,
+    network_blocks_by_root: HashMap<Hash256, RangeSyncBlock<E>>,
+    network_blocks_by_slot: HashMap<Slot, RangeSyncBlock<E>>,
     penalties: Vec<ReportedPenalty>,
     /// All seen lookups through the test run
     seen_lookups: HashMap<Id, SeenLookup>,
