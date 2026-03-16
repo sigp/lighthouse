@@ -13,7 +13,7 @@ use crate::block_verification::{
     signature_verify_chain_segment, verify_header_signature,
 };
 use crate::block_verification_types::{
-    AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
+    AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
 };
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
@@ -137,7 +137,7 @@ use types::*;
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 /// Alias to appease clippy.
-type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
+type HashBlockTuple<E> = (Hash256, RangeSyncBlock<E>);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
@@ -2031,9 +2031,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // required information.
                 (justified_checkpoint, committee_len)
             } else {
+                // We assume that the `Pending` state has the same shufflings as a `Full` state
+                // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (advanced_state_root, mut state) = self
                     .store
-                    .get_advanced_hot_state(beacon_block_root, request_slot, beacon_state_root)?
+                    .get_advanced_hot_state(
+                        beacon_block_root,
+                        StatePayloadStatus::Pending,
+                        request_slot,
+                        beacon_state_root,
+                    )?
                     .ok_or(Error::MissingBeaconState(beacon_state_root))?;
                 if state.current_epoch() < request_epoch {
                     partial_state_advance(
@@ -2739,7 +2746,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is potentially long-running and should not run on the core executor.
     pub fn filter_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<RpcBlock<T::EthSpec>>,
+        chain_segment: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, Box<ChainSegmentResult>> {
         // This function will never import any blocks.
         let imported_blocks = vec![];
@@ -2848,7 +2855,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `Self::process_block`.
     pub async fn process_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<RpcBlock<T::EthSpec>>,
+        chain_segment: Vec<RangeSyncBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult {
         for block in chain_segment.iter() {
@@ -4662,12 +4669,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
             } else {
+                // TODO(gloas): this function needs updating to be envelope-aware
+                // See: https://github.com/sigp/lighthouse/issues/8957
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
+                    .get_advanced_hot_state(
+                        parent_block_root,
+                        StatePayloadStatus::Pending,
+                        proposal_slot,
+                        block.state_root(),
+                    )?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
                 (Cow::Owned(state), state_root)
             };
@@ -6599,9 +6613,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
+                // We assume that the `Pending` state has the same shufflings as a `Full` state
+                // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)?
+                    .get_advanced_hot_state(
+                        head_block_root,
+                        StatePayloadStatus::Pending,
+                        target_slot,
+                        head_block.state_root,
+                    )?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };

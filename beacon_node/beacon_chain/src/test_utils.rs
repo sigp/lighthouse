@@ -1,5 +1,5 @@
 use crate::blob_verification::GossipVerifiedBlob;
-use crate::block_verification_types::{AsBlock, AvailableBlockData, RpcBlock};
+use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
@@ -27,7 +27,7 @@ use bls::{
 use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
-    ExecutionLayer,
+    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas,
     auth::JwtKey,
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
@@ -52,7 +52,8 @@ use ssz_types::{RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::per_block_processing::{
-    BlockSignatureStrategy, VerifyBlockRoot, per_block_processing,
+    BlockSignatureStrategy, VerifyBlockRoot, deneb::kzg_commitment_to_versioned_hash,
+    per_block_processing,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -66,6 +67,7 @@ use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
+use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::U4294967296;
 use types::attestation::IndexedAttestationBase;
@@ -821,20 +823,20 @@ where
         mock_builder_server
     }
 
-    pub fn get_head_block(&self) -> RpcBlock<E> {
+    pub fn get_head_block(&self) -> RangeSyncBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
-        self.build_rpc_block_from_store_blobs(Some(block_root), block)
+        self.build_range_sync_block_from_store_blobs(Some(block_root), block)
     }
 
-    pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
+    pub fn get_full_block(&self, block_root: &Hash256) -> RangeSyncBlock<E> {
         let block = self
             .chain
             .get_blinded_block(block_root)
             .unwrap()
             .unwrap_or_else(|| panic!("block root does not exist in harness {block_root:?}"));
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        self.build_rpc_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
+        self.build_range_sync_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1092,6 +1094,86 @@ where
         (block_contents, block_response.state)
     }
 
+    /// Returns a newly created block, signed by the proposer for the given slot,
+    /// along with the execution payload envelope (for Gloas) and the pending state.
+    ///
+    /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
+    pub async fn make_block_with_envelope(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+    ) -> (
+        SignedBlockContentsTuple<E>,
+        Option<SignedExecutionPayloadEnvelope<E>>,
+        BeaconState<E>,
+    ) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        if state.fork_name_unchecked().gloas_enabled()
+            || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
+        {
+            complete_state_advance(&mut state, None, slot, &self.spec)
+                .expect("should be able to advance state to slot");
+            state.build_caches(&self.spec).expect("should build caches");
+
+            let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+            let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+            let graffiti_settings =
+                GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
+            let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
+
+            let (block, pending_state, _consensus_block_value) = self
+                .chain
+                .produce_block_on_state_gloas(
+                    state,
+                    None,
+                    slot,
+                    randao_reveal,
+                    graffiti_settings,
+                    ProduceBlockVerification::VerifyRandao,
+                )
+                .await
+                .unwrap();
+
+            let signed_block = Arc::new(block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &pending_state.fork(),
+                pending_state.genesis_validators_root(),
+                &self.spec,
+            ));
+
+            // Retrieve the cached envelope produced during block production and sign it.
+            let signed_envelope = self
+                .chain
+                .pending_payload_envelopes
+                .write()
+                .remove(slot)
+                .map(|envelope| {
+                    let epoch = slot.epoch(E::slots_per_epoch());
+                    let domain = self.spec.get_domain(
+                        epoch,
+                        Domain::BeaconBuilder,
+                        &pending_state.fork(),
+                        pending_state.genesis_validators_root(),
+                    );
+                    let message = envelope.signing_root(domain);
+                    let signature = self.validator_keypairs[proposer_index].sk.sign(message);
+                    SignedExecutionPayloadEnvelope {
+                        message: envelope,
+                        signature,
+                    }
+                });
+
+            let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
+            (block_contents, signed_envelope, pending_state)
+        } else {
+            let (block_contents, state) = self.make_block(state, slot).await;
+            (block_contents, None, state)
+        }
+    }
+
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
     /// caches are built but before the generated block is processed.
     pub async fn make_block_return_pre_state(
@@ -1258,15 +1340,12 @@ where
 
         let signed_block = self.sign_beacon_block(block, state);
         let block_root = signed_block.canonical_root();
-        let rpc_block = RpcBlock::BlockOnly {
-            block_root,
-            block: Arc::new(signed_block),
-        };
+        let lookup_block = LookupBlock::new(Arc::new(signed_block));
         self.chain.slot_clock.set_slot(slot.as_u64());
         self.chain
             .process_block(
                 block_root,
-                rpc_block,
+                lookup_block,
                 NotifyExecutionLayer::No,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -2525,20 +2604,33 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
+        let block_hash: SignedBeaconBlockHash = if !is_available {
+            self.chain
+                .process_block(
+                    block_root,
+                    LookupBlock::new(block),
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        } else {
+            let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
+            self.chain
+                .process_block(
+                    block_root,
+                    range_sync_block,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::RangeSync,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        };
 
-        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, is_available)?;
-        let block_hash: SignedBeaconBlockHash = self
-            .chain
-            .process_block(
-                block_root,
-                rpc_block,
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::RangeSync,
-                || Ok(()),
-            )
-            .await?
-            .try_into()
-            .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
@@ -2558,30 +2650,122 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
-        let rpc_block = self.build_rpc_block_from_blobs(block, blob_items, is_available)?;
-        let block_hash: SignedBeaconBlockHash = self
-            .chain
-            .process_block(
-                block_root,
-                rpc_block,
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::RangeSync,
-                || Ok(()),
-            )
-            .await?
-            .try_into()
-            .expect("block blobs are available");
+        let block_hash: SignedBeaconBlockHash = if is_available {
+            let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
+            self.chain
+                .process_block(
+                    block_root,
+                    range_sync_block,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::RangeSync,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        } else {
+            self.chain
+                .process_block(
+                    block_root,
+                    LookupBlock::new(block),
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Lookup,
+                    || Ok(()),
+                )
+                .await?
+                .try_into()
+                .expect("block blobs are available")
+        };
+
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 
-    /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from
+    /// Process an execution payload envelope for a Gloas block.
+    pub async fn process_envelope(
+        &self,
+        block_root: Hash256,
+        signed_envelope: SignedExecutionPayloadEnvelope<E>,
+        pending_state: &mut BeaconState<E>,
+    ) -> Hash256 {
+        let state_root = signed_envelope.message.state_root;
+        debug!(
+            slot = %signed_envelope.message.slot,
+            ?state_root,
+            "Processing execution payload envelope"
+        );
+        let block_state_root = pending_state
+            .update_tree_hash_cache()
+            .expect("should compute pending state root");
+
+        state_processing::envelope_processing::process_execution_payload_envelope(
+            pending_state,
+            Some(block_state_root),
+            &signed_envelope,
+            state_processing::VerifySignatures::True,
+            state_processing::envelope_processing::VerifyStateRoot::True,
+            &self.spec,
+        )
+        .expect("should process envelope");
+
+        // Notify the EL of the new payload so forkchoiceUpdated can reference it.
+        let block = self
+            .chain
+            .store
+            .get_blinded_block(&block_root)
+            .expect("should read block from store")
+            .expect("block should exist in store");
+
+        let bid = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should have a payload bid")
+            .message;
+
+        let versioned_hashes = bid
+            .blob_kzg_commitments
+            .iter()
+            .map(kzg_commitment_to_versioned_hash)
+            .collect();
+
+        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+            execution_payload: &signed_envelope.message.payload,
+            versioned_hashes,
+            parent_beacon_block_root: block.message().parent_root(),
+            execution_requests: &signed_envelope.message.execution_requests,
+        });
+
+        self.chain
+            .execution_layer
+            .as_ref()
+            .expect("harness should have execution layer")
+            .notify_new_payload(request)
+            .await
+            .expect("newPayload should succeed");
+
+        // Store the envelope.
+        self.chain
+            .store
+            .put_payload_envelope(&block_root, signed_envelope)
+            .expect("should store envelope");
+
+        // Store the Full state.
+        self.chain
+            .store
+            .put_state(&state_root, pending_state)
+            .expect("should store full state");
+
+        state_root
+    }
+
+    /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
     /// the database.
-    pub fn build_rpc_block_from_store_blobs(
+    pub fn build_range_sync_block_from_store_blobs(
         &self,
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
-    ) -> RpcBlock<E> {
+    ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
         let has_blobs = block
             .message()
@@ -2589,9 +2773,9 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new(
+            return RangeSyncBlock::new(
                 block,
-                Some(AvailableBlockData::NoData),
+                AvailableBlockData::NoData,
                 &self.chain.data_availability_checker,
                 self.chain.spec.clone(),
             )
@@ -2608,9 +2792,9 @@ where
                 .unwrap();
             let custody_columns = columns.into_iter().collect::<Vec<_>>();
             let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &self.chain.data_availability_checker,
                 self.chain.spec.clone(),
             )
@@ -2623,9 +2807,9 @@ where
                 AvailableBlockData::NoData
             };
 
-            RpcBlock::new(
+            RangeSyncBlock::new(
                 block,
-                Some(block_data),
+                block_data,
                 &self.chain.data_availability_checker,
                 self.chain.spec.clone(),
             )
@@ -2633,18 +2817,17 @@ where
         }
     }
 
-    /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
-    pub fn build_rpc_block_from_blobs(
+    /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and `BlobsList`.
+    pub fn build_range_sync_block_from_blobs(
         &self,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
-        is_available: bool,
-    ) -> Result<RpcBlock<E>, BlockError> {
+    ) -> Result<RangeSyncBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let epoch = block.slot().epoch(E::slots_per_epoch());
             let sampling_columns = self.chain.sampling_columns_for_epoch(epoch);
 
-            if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
+            if blob_items.is_some_and(|(kzg_proofs, _)| !kzg_proofs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
                 // `sampling_column_count` for testing purpose only, because the chain does not
                 // currently have any knowledge of the columns being custodied.
@@ -2652,33 +2835,17 @@ where
                     .into_iter()
                     .filter(|d| sampling_columns.contains(d.index()))
                     .collect::<Vec<_>>();
-                if is_available {
-                    let block_data = AvailableBlockData::new_with_data_columns(columns);
-                    RpcBlock::new(
-                        block,
-                        Some(block_data),
-                        &self.chain.data_availability_checker,
-                        self.chain.spec.clone(),
-                    )?
-                } else {
-                    RpcBlock::new(
-                        block,
-                        None,
-                        &self.chain.data_availability_checker,
-                        self.chain.spec.clone(),
-                    )?
-                }
-            } else if is_available {
-                RpcBlock::new(
+                let block_data = AvailableBlockData::new_with_data_columns(columns);
+                RangeSyncBlock::new(
                     block,
-                    Some(AvailableBlockData::NoData),
+                    block_data,
                     &self.chain.data_availability_checker,
                     self.chain.spec.clone(),
                 )?
             } else {
-                RpcBlock::new(
+                RangeSyncBlock::new(
                     block,
-                    None,
+                    AvailableBlockData::NoData,
                     &self.chain.data_availability_checker,
                     self.chain.spec.clone(),
                 )?
@@ -2690,27 +2857,18 @@ where
                 })
                 .transpose()
                 .unwrap();
-            if is_available {
-                let block_data = if let Some(blobs) = blobs {
-                    AvailableBlockData::new_with_blobs(blobs)
-                } else {
-                    AvailableBlockData::NoData
-                };
-
-                RpcBlock::new(
-                    block,
-                    Some(block_data),
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )?
+            let block_data = if let Some(blobs) = blobs {
+                AvailableBlockData::new_with_blobs(blobs)
             } else {
-                RpcBlock::new(
-                    block,
-                    None,
-                    &self.chain.data_availability_checker,
-                    self.chain.spec.clone(),
-                )?
-            }
+                AvailableBlockData::NoData
+            };
+
+            RangeSyncBlock::new(
+                block,
+                block_data,
+                &self.chain.data_availability_checker,
+                self.chain.spec.clone(),
+            )?
         })
     }
 
