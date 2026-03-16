@@ -35,7 +35,7 @@
 use crate::metrics;
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::{BTreeSet, HashMap};
-use tracing::{debug, debug_span, info};
+use tracing::{debug, debug_span};
 use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch, Slot};
 
 #[derive(Debug, strum::IntoStaticStr)]
@@ -555,20 +555,25 @@ impl FastConfirmationRule {
             current_slot,
         );
 
-        let t0 = std::time::Instant::now();
-
         // Rebuild committee assignments from the head state.
-        self.head_assignments.rebuild::<E>(state, current_slot)?;
-        let t1 = t0.elapsed();
+        {
+            let _span = debug_span!("fcr_rebuild_assignments").entered();
+            self.head_assignments.rebuild::<E>(state, current_slot)?;
+        }
 
-        self.rebuild_head_balance_source::<E>(state, current_slot)?;
-        let t2 = t0.elapsed();
+        {
+            let _span = debug_span!("fcr_rebuild_head_balance").entered();
+            self.rebuild_head_balance_source::<E>(state, current_slot)?;
+        }
 
         // Rebuild balance sources if the observed justified checkpoints changed.
-        self.update_balance_sources(state)?;
-        let t3 = t0.elapsed();
+        {
+            let _span = debug_span!("fcr_update_balance_sources").entered();
+            self.update_balance_sources(state)?;
+        }
 
         if !self.spec_test_mode {
+            let _span = debug_span!("fcr_get_latest_confirmed").entered();
             self.confirmed_root = self.get_latest_confirmed::<E>(
                 head_root,
                 finalized_checkpoint,
@@ -579,19 +584,6 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )?;
-        }
-        let t4 = t0.elapsed();
-
-        if t4.as_millis() > 5 {
-            info!(
-                slot = %current_slot,
-                total_ms = t4.as_millis(),
-                assignments_ms = t1.as_millis(),
-                head_balance_ms = (t2 - t1).as_millis(),
-                update_balance_ms = (t3 - t2).as_millis(),
-                algorithm_ms = (t4 - t3).as_millis(),
-                "FCR slow invocation"
-            );
         }
 
         Ok(())
