@@ -1,3 +1,23 @@
+//! Range sync tests for `BlocksByRange`, `BlobsByRange`, `DataColumnsByRange`.
+//!
+//! Tests follow the pattern from `lookups.rs`:
+//! ```ignore
+//! async fn test_name() {
+//!     let mut r = TestRig::default();
+//!     r.setup_xyz().await;
+//!     r.simulate(SimulateConfig::happy_path()).await;
+//!     r.assert_range_sync_completed();
+//! }
+//! ```
+//!
+//! Rules:
+//! - Tests must be succinct and readable (3-10 lines per test body)
+//! - All complex logic lives in helpers (setup, SimulateConfig, assert)
+//! - Test bodies must not manually grab requests, send SyncMessages, or do anything overly specific
+//! - All tests use `simulate()` if they need peers to fulfill requests
+//! - Extend `SimulateConfig` for new range-specific behaviors
+//! - Extend `simulate()` to support by_range methods
+
 use super::lookups::SimulateConfig;
 use super::*;
 use crate::status::ToStatusMessage;
