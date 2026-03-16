@@ -89,11 +89,27 @@ Use scoped rayon pools from beacon processor, not global pool. Global pool cause
 
 ## Good Practices
 
-### 6. TODOs Need Issues
+### 6. Timing: Use Tracing Spans, Never Manual Timing
+
+```rust
+// NEVER — manual timing is invisible to tracing infrastructure
+let t0 = std::time::Instant::now();
+do_work();
+let elapsed = t0.elapsed();
+info!(ms = elapsed.as_millis(), "slow");
+
+// ALWAYS — use tracing spans, they integrate with metrics and tooling
+{
+    let _span = debug_span!("do_work").entered();
+    do_work();
+}
+```
+
+### 7. TODOs Need Issues
 
 All `TODO` comments must link to a GitHub issue.
 
-### 7. Clear Variable Names
+### 8. Clear Variable Names
 
 Avoid ambiguous abbreviations (`bb`, `bl`). Use `beacon_block`, `blob`.
 
