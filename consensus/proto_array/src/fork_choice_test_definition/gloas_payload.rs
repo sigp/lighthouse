@@ -571,6 +571,120 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
     }
 }
 
+/// Test interleaving of blocks, payload validation, and attestations.
+///
+/// Scenario:
+///   - Genesis block (slot 0)
+///   - Block 1 (slot 1) extends genesis, Full chain
+///   - Block 2 (slot 1) extends genesis, Empty chain
+///   - Before payload arrives: payload_received is false for block 1
+///   - Process execution payload for block 1 → payload_received becomes true
+///   - Payload attestations arrive voting block 1's payload as timely + available
+///   - Head should follow block 1 because the PTC votes now count (payload_received = true)
+pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTestDefinition {
+    let mut ops = vec![];
+
+    // Block 1 at slot 1: extends genesis Full chain.
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(1),
+        root: get_root(1),
+        parent_root: get_root(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(0)),
+        execution_payload_block_hash: Some(get_hash(1)),
+    });
+
+    // Block 2 at slot 1: extends genesis Empty chain (parent_hash doesn't match genesis EL hash).
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(1),
+        root: get_root(2),
+        parent_root: get_root(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(99)),
+        execution_payload_block_hash: Some(get_hash(100)),
+    });
+
+    // Both children have parent_payload_status set correctly.
+    ops.push(Operation::AssertParentPayloadStatus {
+        block_root: get_root(1),
+        expected_status: PayloadStatus::Full,
+    });
+    ops.push(Operation::AssertParentPayloadStatus {
+        block_root: get_root(2),
+        expected_status: PayloadStatus::Empty,
+    });
+
+    // Before payload arrives: payload_received is false on genesis.
+    ops.push(Operation::AssertPayloadReceived {
+        block_root: get_root(0),
+        expected: false,
+    });
+
+    // Give one vote to each child so they have equal weight.
+    ops.push(Operation::ProcessAttestation {
+        validator_index: 0,
+        block_root: get_root(1),
+        attestation_slot: Slot::new(1),
+    });
+    ops.push(Operation::ProcessAttestation {
+        validator_index: 1,
+        block_root: get_root(2),
+        attestation_slot: Slot::new(1),
+    });
+
+    // Equal weight, no payload received on genesis → tiebreaker uses PTC votes which
+    // require payload_received. Without it, is_payload_timely returns false → prefers Empty.
+    // Block 2 (Empty) wins because it matches the Empty preference.
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: vec![1, 1],
+        expected_head: get_root(2),
+        current_slot: Slot::new(100),
+    });
+
+    // Now the execution payload for genesis arrives and is validated.
+    ops.push(Operation::ProcessExecutionPayload {
+        block_root: get_root(0),
+    });
+
+    // payload_received is now true.
+    ops.push(Operation::AssertPayloadReceived {
+        block_root: get_root(0),
+        expected: true,
+    });
+
+    // Set PTC votes on genesis as timely + data available (simulates PTC voting).
+    ops.push(Operation::SetPayloadTiebreak {
+        block_root: get_root(0),
+        is_timely: true,
+        is_data_available: true,
+    });
+
+    // Now with payload_received=true and PTC votes exceeding threshold:
+    // is_payload_timely=true, is_payload_data_available=true → prefers Full.
+    // Block 1 (Full) wins because it matches the Full preference.
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: vec![1, 1],
+        expected_head: get_root(1),
+        current_slot: Slot::new(100),
+    });
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: Some(get_hash(42)),
+        execution_payload_block_hash: Some(get_hash(0)),
+        spec: Some(gloas_spec()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -608,6 +722,12 @@ mod tests {
     #[test]
     fn interleaved_attestations() {
         let test = get_gloas_interleaved_attestations_test_definition();
+        test.run();
+    }
+
+    #[test]
+    fn payload_received_interleaving() {
+        let test = get_gloas_payload_received_interleaving_test_definition();
         test.run();
     }
 }

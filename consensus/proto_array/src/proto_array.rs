@@ -2,11 +2,13 @@ use crate::error::InvalidBestNodeInfo;
 use crate::{Block, ExecutionStatus, JustifiedBalances, PayloadStatus, error::Error};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
+use ssz::BitVector;
 use ssz::Encode;
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
+use typenum::U512;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     Slot,
@@ -131,14 +133,20 @@ pub struct ProtoNode {
     pub execution_payload_block_hash: ExecutionBlockHash,
     /// PTC timeliness vote bitfield, indexed by PTC committee position.
     /// Bit i set means PTC member i voted `payload_present = true`.
-    /// Tiebreak derived as: `count_ones() > ptc_size / 2`.
+    /// Tiebreak derived as: `num_set_bits() > ptc_size / 2`.
     #[superstruct(only(V29))]
-    pub payload_timeliness_votes: Vec<u8>,
+    pub payload_timeliness_votes: BitVector<U512>,
     /// PTC data availability vote bitfield, indexed by PTC committee position.
     /// Bit i set means PTC member i voted `blob_data_available = true`.
-    /// Tiebreak derived as: `count_ones() > ptc_size / 2`.
+    /// Tiebreak derived as: `num_set_bits() > ptc_size / 2`.
     #[superstruct(only(V29))]
-    pub payload_data_availability_votes: Vec<u8>,
+    pub payload_data_availability_votes: BitVector<U512>,
+    /// Whether the execution payload for this block has been received and validated locally.
+    /// Maps to `root in store.payload_states` in the spec.
+    /// When true, `is_payload_timely` and `is_payload_data_available` return true
+    /// regardless of PTC vote counts.
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub payload_received: bool,
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -385,26 +393,18 @@ impl ProtoArray {
                     .checked_add(delta)
                     .ok_or(Error::DeltaOverflow(parent_index))?;
 
-                // Per spec's `is_supporting_vote`: a vote for descendant B supports
-                // ancestor A's payload status based on B's `parent_payload_status`.
-                // Route the child's *total* weight delta to the parent's appropriate
-                // payload bucket.
-                match node.parent_payload_status() {
-                    Ok(PayloadStatus::Full) => {
-                        parent_delta.full_delta = parent_delta
-                            .full_delta
-                            .checked_add(delta)
-                            .ok_or(Error::DeltaOverflow(parent_index))?;
-                    }
-                    Ok(PayloadStatus::Empty) => {
-                        parent_delta.empty_delta = parent_delta
-                            .empty_delta
-                            .checked_add(delta)
-                            .ok_or(Error::DeltaOverflow(parent_index))?;
-                    }
-                    // Pending or V17 nodes: no payload propagation.
-                    _ => {}
-                }
+                // Per spec's `is_supporting_vote`: a vote supports a parent's
+                // FULL/EMPTY virtual node based on the voter's `payload_present`
+                // flag, NOT based on which child the vote goes through.
+                // Propagate each child's full/empty deltas independently.
+                parent_delta.full_delta = parent_delta
+                    .full_delta
+                    .checked_add(node_full_delta)
+                    .ok_or(Error::DeltaOverflow(parent_index))?;
+                parent_delta.empty_delta = parent_delta
+                    .empty_delta
+                    .checked_add(node_empty_delta)
+                    .ok_or(Error::DeltaOverflow(parent_index))?;
             }
         }
 
@@ -540,8 +540,9 @@ impl ProtoArray {
                 empty_payload_weight: 0,
                 full_payload_weight: 0,
                 execution_payload_block_hash,
-                payload_timeliness_votes: empty_ptc_bitfield(E::ptc_size()),
-                payload_data_availability_votes: empty_ptc_bitfield(E::ptc_size()),
+                payload_timeliness_votes: BitVector::default(),
+                payload_data_availability_votes: BitVector::default(),
+                payload_received: false,
             })
         };
 
@@ -584,9 +585,11 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Process an excution payload for a Gloas block.
+    /// Process an execution payload for a Gloas block.
     ///
-    /// this function assumes the
+    /// Sets `payload_received` to true, which makes `is_payload_timely` and
+    /// `is_payload_data_available` return true regardless of PTC votes.
+    /// This maps to `store.payload_states[root] = state` in the spec.
     pub fn on_valid_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error> {
         let index = *self
             .indices
@@ -599,10 +602,7 @@ impl ProtoArray {
         let v29 = node
             .as_v29_mut()
             .map_err(|_| Error::InvalidNodeVariant { block_root })?;
-        // A valid execution payload means the payload is timely and data is available.
-        // Set all bits to ensure the threshold is met regardless of PTC size.
-        v29.payload_timeliness_votes.fill(0xFF);
-        v29.payload_data_availability_votes.fill(0xFF);
+        v29.payload_received = true;
 
         Ok(())
     }
@@ -669,8 +669,13 @@ impl ProtoArray {
                         });
                     }
                 },
-                // Gloas nodes don't carry `ExecutionStatus`.
+                // Gloas nodes don't carry `ExecutionStatus`. Mark the validated
+                // block as payload-received so that `is_payload_timely` /
+                // `is_payload_data_available` and `index == 1` attestations work.
                 ProtoNode::V29(node) => {
+                    if index == verified_node_index {
+                        node.payload_received = true;
+                    }
                     if let Some(parent_index) = node.parent {
                         parent_index
                     } else {
@@ -1057,6 +1062,22 @@ impl ProtoArray {
             best_finalized_checkpoint,
         )?;
 
+        // Per spec `should_extend_payload`: if the proposer-boosted block is a child of
+        // this parent and extends Empty, force Empty preference regardless of
+        // weights/tiebreaker.
+        let proposer_boost_root = self.previous_proposer_boost.root;
+        let proposer_boost = !proposer_boost_root.is_zero()
+            && self
+                .indices
+                .get(&proposer_boost_root)
+                .and_then(|&idx| self.nodes.get(idx))
+                .is_some_and(|boost_node| {
+                    boost_node.parent() == Some(parent_index)
+                        && boost_node
+                            .parent_payload_status()
+                            .map_or(false, |s| s != PayloadStatus::Full)
+                });
+
         // These three variables are aliases to the three options that we may set the
         // `parent.best_child` and `parent.best_descendant` to.
         //
@@ -1112,12 +1133,14 @@ impl ProtoArray {
                             child,
                             current_slot,
                             E::ptc_size(),
+                            proposer_boost,
                         );
                         let best_child_matches = child_matches_parent_payload_preference(
                             parent,
                             best_child,
                             current_slot,
                             E::ptc_size(),
+                            proposer_boost,
                         );
 
                         if child_matches && !best_child_matches {
@@ -1390,27 +1413,30 @@ impl ProtoArray {
 }
 
 /// For V29 parents, returns `true` if the child's `parent_payload_status` matches the parent's
-/// preferred payload status. When full and empty weights are unequal, the higher weight wins.
-/// When equal, the tiebreaker uses the parent's `payload_tiebreak`: prefer Full if the block
-/// was timely and data is available; otherwise prefer Empty.
+/// preferred payload status per spec `should_extend_payload`.
+///
+/// If `proposer_boost` is set, the parent unconditionally prefers Empty (the proposer-boosted
+/// block is a child of this parent and extends Empty). Otherwise, when full and empty weights
+/// are unequal the higher weight wins; when equal, the tiebreaker uses PTC votes.
+///
 /// For V17 parents (or mixed), always returns `true` (no payload preference).
-///
-/// TODO(gloas): the spec's `should_extend_payload` has additional conditions beyond the
-/// tiebreaker: it also checks proposer_boost_root (empty, different parent, or extends full).
-/// See: https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md#new-should_extend_payload
-///
-/// TODO(gloas): the spec's `should_extend_payload` has additional conditions beyond the
-/// tiebreaker: it also checks proposer_boost_root (empty, different parent, or extends full).
-/// See: https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md#new-should_extend_payload
 fn child_matches_parent_payload_preference(
     parent: &ProtoNode,
     child: &ProtoNode,
     current_slot: Slot,
     ptc_size: usize,
+    proposer_boost: bool,
 ) -> bool {
     let (Ok(parent_v29), Ok(child_v29)) = (parent.as_v29(), child.as_v29()) else {
         return true;
     };
+
+    // Per spec `should_extend_payload`: if the proposer-boosted block extends Empty from
+    // this parent, unconditionally prefer Empty.
+    if proposer_boost {
+        return child_v29.parent_payload_status == PayloadStatus::Empty;
+    }
+
     // Per spec `get_weight`: FULL/EMPTY virtual nodes at `current_slot - 1` have weight 0.
     // The PTC is still voting, so payload preference is determined solely by the tiebreaker.
     let use_tiebreaker_only = parent.slot() + 1 == current_slot;
@@ -1424,8 +1450,15 @@ fn child_matches_parent_payload_preference(
         false
     } else {
         // Equal weights (or current-slot parent): tiebreaker per spec.
-        is_payload_timely(&parent_v29.payload_timeliness_votes, ptc_size)
-            && is_payload_data_available(&parent_v29.payload_data_availability_votes, ptc_size)
+        is_payload_timely(
+            &parent_v29.payload_timeliness_votes,
+            ptc_size,
+            parent_v29.payload_received,
+        ) && is_payload_data_available(
+            &parent_v29.payload_data_availability_votes,
+            ptc_size,
+            parent_v29.payload_received,
+        )
     };
     if prefers_full {
         child_v29.parent_payload_status == PayloadStatus::Full
@@ -1434,24 +1467,30 @@ fn child_matches_parent_payload_preference(
     }
 }
 
-/// Count the number of set bits in a byte-slice bitfield.
-pub fn count_set_bits(bitfield: &[u8]) -> usize {
-    bitfield.iter().map(|b| b.count_ones() as usize).sum()
-}
-
-/// Create a zero-initialized bitfield for the given PTC size.
-pub fn empty_ptc_bitfield(ptc_size: usize) -> Vec<u8> {
-    vec![0u8; ptc_size.div_ceil(8)]
-}
-
 /// Derive `is_payload_timely` from the timeliness vote bitfield.
-pub fn is_payload_timely(timeliness_votes: &[u8], ptc_size: usize) -> bool {
-    count_set_bits(timeliness_votes) > ptc_size / 2
+///
+/// Per spec: returns false if the payload has not been received locally
+/// (`payload_received == false`, i.e. `root not in store.payload_states`),
+/// regardless of PTC votes. Both local receipt and PTC threshold are required.
+pub fn is_payload_timely(
+    timeliness_votes: &BitVector<U512>,
+    ptc_size: usize,
+    payload_received: bool,
+) -> bool {
+    payload_received && timeliness_votes.num_set_bits() > ptc_size / 2
 }
 
 /// Derive `is_payload_data_available` from the data availability vote bitfield.
-pub fn is_payload_data_available(availability_votes: &[u8], ptc_size: usize) -> bool {
-    count_set_bits(availability_votes) > ptc_size / 2
+///
+/// Per spec: returns false if the payload has not been received locally
+/// (`payload_received == false`, i.e. `root not in store.payload_states`),
+/// regardless of PTC votes. Both local receipt and PTC threshold are required.
+pub fn is_payload_data_available(
+    availability_votes: &BitVector<U512>,
+    ptc_size: usize,
+    payload_received: bool,
+) -> bool {
+    payload_received && availability_votes.num_set_bits() > ptc_size / 2
 }
 
 /// A helper method to calculate the proposer boost based on the given `justified_balances`.

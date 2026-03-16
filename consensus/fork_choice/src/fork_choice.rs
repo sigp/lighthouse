@@ -175,8 +175,13 @@ pub enum InvalidAttestation {
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     AttestsToFutureBlock { block: Slot, attestation: Slot },
+    /// Post-GLOAS: attestation index must be 0 or 1.
+    InvalidAttestationIndex { index: u64 },
     /// A same-slot attestation has a non-zero index, which is invalid post-GLOAS.
     InvalidSameSlotAttestationIndex { slot: Slot },
+    /// Post-GLOAS: attestation with index == 1 (payload_present) requires the block's
+    /// payload to have been received (`root in store.payload_states`).
+    PayloadNotReceived { beacon_block_root: Hash256 },
     /// A payload attestation votes payload_present for a block in the current slot, which is
     /// invalid because the payload cannot be known yet.
     PayloadPresentDuringSameSlot { slot: Slot },
@@ -256,6 +261,8 @@ pub struct QueuedAttestation {
     attesting_indices: Vec<u64>,
     block_root: Hash256,
     target_epoch: Epoch,
+    /// Per GLOAS spec: `payload_present = attestation.data.index == 1`.
+    payload_present: bool,
 }
 
 impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
@@ -265,6 +272,7 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
             attesting_indices: a.attesting_indices_to_vec(),
             block_root: a.data().beacon_block_root,
             target_epoch: a.data().target.epoch,
+            payload_present: a.data().index == 1,
         }
     }
 }
@@ -1136,15 +1144,34 @@ where
             });
         }
 
-        // Post-GLOAS: same-slot attestations must have index == 0. Attestations with
-        // index != 0 during the same slot as the block are invalid.
         if spec
             .fork_name_at_slot::<E>(indexed_attestation.data().slot)
             .gloas_enabled()
-            && indexed_attestation.data().slot == block.slot
-            && indexed_attestation.data().index != 0
         {
-            return Err(InvalidAttestation::InvalidSameSlotAttestationIndex { slot: block.slot });
+            let index = indexed_attestation.data().index;
+
+            // Post-GLOAS: attestation index must be 0 or 1.
+            if index > 1 {
+                return Err(InvalidAttestation::InvalidAttestationIndex { index });
+            }
+
+            // Same-slot attestations must have index == 0.
+            if indexed_attestation.data().slot == block.slot && index != 0 {
+                return Err(InvalidAttestation::InvalidSameSlotAttestationIndex {
+                    slot: block.slot,
+                });
+            }
+
+            // index == 1 (payload_present) requires the block's payload to have been received.
+            if index == 1
+                && !self
+                    .proto_array
+                    .is_payload_received(&indexed_attestation.data().beacon_block_root)
+            {
+                return Err(InvalidAttestation::PayloadNotReceived {
+                    beacon_block_root: indexed_attestation.data().beacon_block_root,
+                });
+            }
         }
 
         Ok(())
@@ -1245,12 +1272,16 @@ where
 
         self.validate_on_attestation(attestation, is_from_block, spec)?;
 
+        // Per GLOAS spec: `payload_present = attestation.data.index == 1`.
+        let payload_present = attestation.data().index == 1;
+
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.data().beacon_block_root,
                     attestation.data().slot,
+                    payload_present,
                 )?;
             }
         } else {
@@ -1433,6 +1464,7 @@ where
                     *validator_index as usize,
                     attestation.block_root,
                     attestation.slot,
+                    attestation.payload_present,
                 )?;
             }
         }
@@ -1850,6 +1882,7 @@ mod tests {
                 attesting_indices: vec![],
                 block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
+                payload_present: false,
             })
             .collect()
     }

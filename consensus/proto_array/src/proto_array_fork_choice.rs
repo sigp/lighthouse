@@ -63,9 +63,9 @@ pub enum ExecutionStatus {
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
-    Pending = 0,
-    Empty = 1,
-    Full = 2,
+    Empty = 0,
+    Full = 1,
+    Pending = 2,
 }
 
 impl ExecutionStatus {
@@ -523,12 +523,14 @@ impl ProtoArrayForkChoice {
         validator_index: usize,
         block_root: Hash256,
         attestation_slot: Slot,
+        payload_present: bool,
     ) -> Result<(), String> {
         let vote = self.votes.get_mut(validator_index);
 
         if attestation_slot > vote.next_slot || *vote == VoteTracker::default() {
             vote.next_root = block_root;
             vote.next_slot = attestation_slot;
+            vote.next_payload_present = payload_present;
         }
 
         Ok(())
@@ -560,23 +562,14 @@ impl ProtoArrayForkChoice {
             .as_v29_mut()
             .map_err(|_| format!("process_payload_attestation: node {block_root:?} is not V29"))?;
 
-        let byte_index = ptc_index / 8;
-        let bit_mask = 1u8 << (ptc_index % 8);
-
-        if let Some(byte) = v29.payload_timeliness_votes.get_mut(byte_index) {
-            if payload_present {
-                *byte |= bit_mask;
-            } else {
-                *byte &= !bit_mask;
-            }
-        }
-        if let Some(byte) = v29.payload_data_availability_votes.get_mut(byte_index) {
-            if blob_data_available {
-                *byte |= bit_mask;
-            } else {
-                *byte &= !bit_mask;
-            }
-        }
+        v29.payload_timeliness_votes
+            .set(ptc_index, payload_present)
+            .map_err(|e| format!("process_payload_attestation: timeliness set failed: {e:?}"))?;
+        v29.payload_data_availability_votes
+            .set(ptc_index, blob_data_available)
+            .map_err(|e| {
+                format!("process_payload_attestation: data availability set failed: {e:?}")
+            })?;
 
         Ok(())
     }
@@ -981,6 +974,14 @@ impl ProtoArrayForkChoice {
         block.execution_status().ok()
     }
 
+    /// Returns whether the execution payload for a block has been received.
+    /// Returns `false` for pre-GLOAS (V17) nodes or unknown blocks.
+    pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
+        self.get_proto_node(block_root)
+            .and_then(|node| node.payload_received().ok())
+            .unwrap_or(false)
+    }
+
     /// Returns the weight of a given block.
     pub fn get_weight(&self, block_root: &Hash256) -> Option<u64> {
         let block_index = self.proto_array.indices.get(block_root)?;
@@ -1004,9 +1005,15 @@ impl ProtoArrayForkChoice {
             Some(PayloadStatus::Full)
         } else if v29.empty_payload_weight > v29.full_payload_weight {
             Some(PayloadStatus::Empty)
-        } else if is_payload_timely(&v29.payload_timeliness_votes, E::ptc_size())
-            && is_payload_data_available(&v29.payload_data_availability_votes, E::ptc_size())
-        {
+        } else if is_payload_timely(
+            &v29.payload_timeliness_votes,
+            E::ptc_size(),
+            v29.payload_received,
+        ) && is_payload_data_available(
+            &v29.payload_data_availability_votes,
+            E::ptc_size(),
+            v29.payload_received,
+        ) {
             Some(PayloadStatus::Full)
         } else {
             Some(PayloadStatus::Empty)

@@ -8,6 +8,7 @@ use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, Prot
 use crate::{InvalidationOperation, JustifiedBalances};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
+use ssz::BitVector;
 use std::collections::BTreeSet;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
@@ -95,6 +96,15 @@ pub enum Operation {
         block_root: Hash256,
         is_timely: bool,
         is_data_available: bool,
+    },
+    /// Simulate receiving and validating an execution payload for `block_root`.
+    /// Sets `payload_received = true` on the V29 node via the live validation path.
+    ProcessExecutionPayload {
+        block_root: Hash256,
+    },
+    AssertPayloadReceived {
+        block_root: Hash256,
+        expected: bool,
     },
 }
 
@@ -286,7 +296,7 @@ impl ForkChoiceTestDefinition {
                     attestation_slot,
                 } => {
                     fork_choice
-                        .process_attestation(validator_index, block_root, attestation_slot)
+                        .process_attestation(validator_index, block_root, attestation_slot, false)
                         .unwrap_or_else(|_| {
                             panic!(
                                 "process_attestation op at index {} returned error",
@@ -494,9 +504,38 @@ impl ForkChoiceTestDefinition {
                     });
                     // Set all bits (exceeds any threshold) or clear all bits.
                     let fill = if is_timely { 0xFF } else { 0x00 };
-                    node_v29.payload_timeliness_votes.fill(fill);
+                    node_v29.payload_timeliness_votes =
+                        BitVector::from_bytes(smallvec::smallvec![fill; 64])
+                            .expect("valid 512-bit bitvector");
                     let fill = if is_data_available { 0xFF } else { 0x00 };
-                    node_v29.payload_data_availability_votes.fill(fill);
+                    node_v29.payload_data_availability_votes =
+                        BitVector::from_bytes(smallvec::smallvec![fill; 64])
+                            .expect("valid 512-bit bitvector");
+                    // Per spec, is_payload_timely/is_payload_data_available require
+                    // the payload to be in payload_states (payload_received).
+                    node_v29.payload_received = is_timely || is_data_available;
+                }
+                Operation::ProcessExecutionPayload { block_root } => {
+                    fork_choice
+                        .on_execution_payload(block_root)
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "on_execution_payload op at index {} returned error: {}",
+                                op_index, e
+                            )
+                        });
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::AssertPayloadReceived {
+                    block_root,
+                    expected,
+                } => {
+                    let actual = fork_choice.is_payload_received(&block_root);
+                    assert_eq!(
+                        actual, expected,
+                        "payload_received mismatch at op index {}",
+                        op_index
+                    );
                 }
             }
         }
