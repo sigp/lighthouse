@@ -2,16 +2,11 @@ use account_manager::{
     CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG,
     validator::{
         CMD as VALIDATOR_CMD,
-        create::*,
+        create::{AT_MOST_FLAG, COUNT_FLAG},
         import::{self, CMD as IMPORT_CMD},
-        modify::{ALL, CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG},
+        modify::{ALL, CMD as MODIFY_CMD, DISABLE, ENABLE},
     },
-    wallet::{
-        CMD as WALLET_CMD,
-        create::{CMD as CREATE_CMD, *},
-        list::CMD as LIST_CMD,
-    },
-    *,
+    wallet::{CMD as WALLET_CMD, create::CMD as CREATE_CMD, list::CMD as LIST_CMD},
 };
 use account_utils::{
     STDIN_INPUTS_FLAG,
@@ -29,6 +24,17 @@ use std::str::from_utf8;
 use tempfile::{TempDir, tempdir};
 use validator_dir::ValidatorDir;
 use zeroize::Zeroizing;
+
+const VALIDATOR_DIR_FLAG: &str = "validator-dir";
+const SECRETS_DIR_FLAG: &str = "secrets-dir";
+const PUBKEY_FLAG: &str = "pubkey";
+const NAME_FLAG: &str = "name";
+const PASSWORD_FLAG: &str = "password-file";
+const MNEMONIC_FLAG: &str = "mnemonic-output-path";
+const WALLET_NAME_FLAG: &str = "wallet-name";
+const WALLET_PASSWORD_FLAG: &str = "wallet-password";
+const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
+const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
 
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {

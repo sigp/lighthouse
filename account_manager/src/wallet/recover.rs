@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use super::cli::Recover;
 
 pub const CMD: &str = "recover";
-pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_run(
     recover_config: &Recover,
