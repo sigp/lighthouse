@@ -535,14 +535,18 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             Timeouts::use_optimized_timeouts(self.spec.get_slot_duration())
         };
 
+        let client = eth2::reqwest::Client::builder()
+            .user_agent(&self.user_agent)
+            .build()
+            .unwrap_or_default();
+
         let new_candidates: Vec<CandidateBeaconNode> = new_list
             .clone()
             .into_iter()
             .enumerate()
             .map(|(index, url)| {
                 CandidateBeaconNode::new(
-                    BeaconNodeHttpClient::new(url, timeouts.clone())
-                        .with_user_agent(&self.user_agent),
+                    BeaconNodeHttpClient::from_components(url, client.clone(), timeouts.clone()),
                     index,
                 )
             })

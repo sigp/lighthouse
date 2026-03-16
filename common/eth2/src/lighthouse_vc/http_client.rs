@@ -66,14 +66,6 @@ impl ValidatorClientHttpClient {
         })
     }
 
-    pub fn with_user_agent(mut self, user_agent: &str) -> Self {
-        self.client = reqwest::Client::builder()
-            .user_agent(user_agent)
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        self
-    }
-
     pub fn from_components(
         server: SensitiveUrl,
         client: reqwest::Client,

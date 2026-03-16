@@ -374,6 +374,7 @@ impl Config {
                 freezer_db_path: None,
                 update_period_secs,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
+                user_agent: config.user_agent.clone(),
             });
         }
 

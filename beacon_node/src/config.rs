@@ -252,6 +252,7 @@ pub fn get_config<E: EthSpec>(
             freezer_db_path: None,
             update_period_secs,
             monitoring_endpoint: monitoring_endpoint.to_string(),
+            user_agent: String::new(), // Set later from client_config.user_agent
         });
     }
 

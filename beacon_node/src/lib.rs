@@ -117,6 +117,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = if let Some(monitoring_config) = &mut client_config.monitoring_api {
             monitoring_config.db_path = Some(db_path);
             monitoring_config.freezer_db_path = Some(freezer_db_path);
+            monitoring_config.user_agent = client_config.user_agent.clone();
             builder.monitoring_client(monitoring_config)?
         } else {
             builder

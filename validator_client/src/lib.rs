@@ -287,6 +287,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let beacon_node_http_client = beacon_node_http_client_builder
                 // Set default timeout to be the full slot duration.
                 .timeout(slot_duration)
+                .user_agent(&config.user_agent)
                 .build()
                 .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
 

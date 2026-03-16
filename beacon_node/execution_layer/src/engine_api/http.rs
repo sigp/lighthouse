@@ -612,9 +612,10 @@ impl HttpJsonRpc {
     pub fn new(
         url: SensitiveUrl,
         execution_timeout_multiplier: Option<u32>,
+        user_agent: &str,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Client::builder().user_agent(user_agent).build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -627,9 +628,10 @@ impl HttpJsonRpc {
         url: SensitiveUrl,
         auth: Auth,
         execution_timeout_multiplier: Option<u32>,
+        user_agent: &str,
     ) -> Result<Self, Error> {
         Ok(Self {
-            client: Client::builder().build()?,
+            client: Client::builder().user_agent(user_agent).build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
@@ -1494,13 +1496,13 @@ mod test {
                 let echo_auth =
                     Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
                 (
-                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None).unwrap()),
-                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None, "").unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None, "").unwrap()),
                 )
             } else {
                 (
-                    Arc::new(HttpJsonRpc::new(rpc_url, None).unwrap()),
-                    Arc::new(HttpJsonRpc::new(echo_url, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new(rpc_url, None, "").unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url, None, "").unwrap()),
                 )
             };
 

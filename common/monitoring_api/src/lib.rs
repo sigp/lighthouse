@@ -58,6 +58,8 @@ pub struct Config {
     pub freezer_db_path: Option<PathBuf>,
     /// User-defined update period in seconds.
     pub update_period_secs: Option<u64>,
+    /// User-Agent string for HTTP requests.
+    pub user_agent: String,
 }
 
 #[derive(Clone)]
@@ -73,8 +75,12 @@ pub struct MonitoringHttpClient {
 
 impl MonitoringHttpClient {
     pub fn new(config: &Config) -> Result<Self, String> {
+        let client = reqwest::Client::builder()
+            .user_agent(&config.user_agent)
+            .build()
+            .map_err(|e| format!("Unable to build monitoring HTTP client: {:?}", e))?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
             update_period: Duration::from_secs(

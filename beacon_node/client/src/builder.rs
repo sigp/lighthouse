@@ -178,9 +178,10 @@ where
             None
         };
 
-        let execution_layer = if let Some(config) = config.execution_layer.clone() {
+        let execution_layer = if let Some(mut el_config) = config.execution_layer.clone() {
+            el_config.user_agent = config.user_agent.clone();
             let context = runtime_context.clone();
-            let execution_layer = ExecutionLayer::from_config(config, context.executor.clone())
+            let execution_layer = ExecutionLayer::from_config(el_config, context.executor.clone())
                 .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)
         } else {
@@ -384,13 +385,17 @@ where
                     info!("Blocks will be downloaded all the way back to genesis");
                 }
 
-                let remote = BeaconNodeHttpClient::new(
+                let client = eth2::reqwest::Client::builder()
+                    .user_agent(&config.user_agent)
+                    .build()
+                    .unwrap_or_default();
+                let remote = BeaconNodeHttpClient::from_components(
                     url,
+                    client,
                     Timeouts::set_all(Duration::from_secs(
                         config.chain.checkpoint_sync_url_timeout,
                     )),
-                )
-                .with_user_agent(&config.user_agent);
+                );
 
                 debug!("Downloading finalized state");
                 let state = remote

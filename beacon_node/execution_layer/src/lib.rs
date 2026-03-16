@@ -467,6 +467,8 @@ pub struct Config {
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
     pub execution_timeout_multiplier: Option<u32>,
+    /// User-Agent string for HTTP clients (set by the top-level binary).
+    pub user_agent: String,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -491,6 +493,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             jwt_version,
             default_datadir,
             execution_timeout_multiplier,
+            user_agent,
         } = config;
 
         let execution_url = url.ok_or(Error::NoEngine)?;
@@ -530,8 +533,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
-            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
-                .map_err(Error::ApiError)?;
+            let api = HttpJsonRpc::new_with_auth(
+                execution_url,
+                auth,
+                execution_timeout_multiplier,
+                &user_agent,
+            )
+            .map_err(Error::ApiError)?;
             Engine::new(api, executor.clone())
         };
 
