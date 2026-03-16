@@ -3,7 +3,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::chain_config::{
     DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
     DEFAULT_RE_ORG_PARENT_THRESHOLD, DisallowedReOrgOffsets,
@@ -561,21 +561,13 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(
-                self.harness.chain.process_block(
-                    block_root,
-                    RpcBlock::new(
-                        block.clone(),
-                        None,
-                        &self.harness.chain.data_availability_checker,
-                        self.harness.chain.spec.clone(),
-                    )
-                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                ),
-            )?
+            .block_on_dangerous(self.harness.chain.process_block(
+                block_root,
+                LookupBlock::new(block.clone()),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
@@ -659,21 +651,13 @@ impl<E: EthSpec> Tester<E> {
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self
-            .block_on_dangerous(
-                self.harness.chain.process_block(
-                    block_root,
-                    RpcBlock::new(
-                        block.clone(),
-                        None,
-                        &self.harness.chain.data_availability_checker,
-                        self.harness.chain.spec.clone(),
-                    )
-                    .map_err(|e| Error::InternalError(format!("{:?}", e)))?,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                ),
-            )?
+            .block_on_dangerous(self.harness.chain.process_block(
+                block_root,
+                LookupBlock::new(block.clone()),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {

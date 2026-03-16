@@ -50,7 +50,7 @@
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
-use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
+use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
@@ -585,7 +585,7 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// will be returned.
 #[instrument(skip_all)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
-    mut chain_segment: Vec<(Hash256, RpcBlock<T::EthSpec>)>,
+    mut chain_segment: Vec<(Hash256, RangeSyncBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
 ) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
     if chain_segment.is_empty() {
@@ -616,24 +616,14 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        match block {
-            RpcBlock::FullyAvailable(available_block) => {
-                available_blocks.push(available_block.clone());
-                signature_verified_blocks.push(SignatureVerifiedBlock {
-                    block: MaybeAvailableBlock::Available(available_block),
-                    block_root,
-                    parent: None,
-                    consensus_context,
-                });
-            }
-            RpcBlock::BlockOnly { .. } => {
-                // RangeSync and BackfillSync already ensure that the chain segment is fully available
-                // so this shouldn't be possible in practice.
-                return Err(BlockError::InternalError(
-                    "Chain segment is not fully available".to_string(),
-                ));
-            }
-        }
+        let available_block = block.into_available_block();
+        available_blocks.push(available_block.clone());
+        signature_verified_blocks.push(SignatureVerifiedBlock {
+            block: MaybeAvailableBlock::Available(available_block),
+            block_root,
+            parent: None,
+            consensus_context,
+        });
     }
 
     chain
@@ -1300,11 +1290,11 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     }
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
     #[instrument(
-        name = "rpc_block_into_execution_pending_block_slashable",
+        name = "range_sync_block_into_execution_pending_block_slashable",
         level = "debug"
         skip_all,
     )]
@@ -1318,24 +1308,51 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
-        let maybe_available_block = match &self {
-            RpcBlock::FullyAvailable(available_block) => {
-                chain
-                    .data_availability_checker
-                    .verify_kzg_for_available_block(available_block)
-                    .map_err(|e| {
-                        BlockSlashInfo::SignatureNotChecked(
-                            self.signed_block_header(),
-                            BlockError::AvailabilityCheck(e),
-                        )
-                    })?;
-                MaybeAvailableBlock::Available(available_block.clone())
-            }
-            // No need to perform KZG verification unless we have a fully available block
-            RpcBlock::BlockOnly { block, block_root } => MaybeAvailableBlock::AvailabilityPending {
-                block_root: *block_root,
-                block: block.clone(),
-            },
+        let available_block = self.into_available_block();
+        chain
+            .data_availability_checker
+            .verify_kzg_for_available_block(&available_block)
+            .map_err(|e| {
+                BlockSlashInfo::SignatureNotChecked(
+                    available_block.as_block().signed_block_header(),
+                    BlockError::AvailabilityCheck(e),
+                )
+            })?;
+        let maybe_available_block = MaybeAvailableBlock::Available(available_block);
+        SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
+            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        self.as_block()
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block_cloned()
+    }
+}
+
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for LookupBlock<T::EthSpec> {
+    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
+    /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
+    #[instrument(
+        name = "lookup_block_into_execution_pending_block_slashable",
+        level = "debug"
+        skip_all,
+    )]
+    fn into_execution_pending_block_slashable(
+        self,
+        block_root: Hash256,
+        chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
+        // Perform an early check to prevent wasting time on irrelevant blocks.
+        let block_root = check_block_relevancy(self.as_block(), block_root, chain)
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+
+        let maybe_available_block = MaybeAvailableBlock::AvailabilityPending {
+            block_root,
+            block: self.block_cloned(),
         };
 
         SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
