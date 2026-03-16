@@ -1150,6 +1150,30 @@ impl TestRig {
         self.trigger_with_last_block();
     }
 
+    /// Import blocks for slots 1..=up_to_slot into the local chain (advance local head)
+    pub(super) async fn import_blocks_up_to_slot(&mut self, up_to_slot: u64) {
+        for slot in 1..=up_to_slot {
+            let rpc_block = self
+                .network_blocks_by_slot
+                .get(&Slot::new(slot))
+                .unwrap_or_else(|| panic!("No block at slot {slot}"))
+                .clone();
+            let block_root = rpc_block.canonical_root();
+            self.harness
+                .chain
+                .process_block(
+                    block_root,
+                    rpc_block,
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::Gossip,
+                    || Ok(()),
+                )
+                .await
+                .unwrap();
+        }
+        self.harness.chain.recompute_head_at_current_slot().await;
+    }
+
     /// Import a block directly into the chain without going through lookup sync
     async fn import_block_by_root(&mut self, block_root: Hash256) {
         let rpc_block = self

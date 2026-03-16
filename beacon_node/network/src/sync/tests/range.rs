@@ -151,6 +151,20 @@ impl TestRig {
         remote_info
     }
 
+    /// Finalized sync where local node already has blocks up to `local_epochs`.
+    /// Triggers optimistic start: the chain tries to download a batch at the local head
+    /// epoch concurrently with sequential processing from the start.
+    async fn setup_finalized_sync_with_local_head(&mut self, local_epochs: usize) {
+        let target_epochs = local_epochs + 3; // target beyond local head
+        self.build_chain(target_epochs * SLOTS_PER_EPOCH).await;
+        self.import_blocks_up_to_slot((local_epochs * SLOTS_PER_EPOCH) as u64)
+            .await;
+        let remote_info = self.finalized_remote_info_advanced_by((target_epochs as u64).into());
+        self.add_fullnode_peers(remote_info.clone(), 100);
+        self.add_supernode_peer(remote_info);
+        self.assert_state(RangeSyncType::Finalized);
+    }
+
     /// Add enough peers to cover all custody columns (same chain as insufficient setup)
     fn add_remaining_finalized_peers(&mut self, remote_info: SyncInfo) {
         self.add_fullnode_peers(remote_info.clone(), 100);
@@ -397,6 +411,35 @@ async fn ee_offline_then_online_resumes_sync() {
     r.simulate(SimulateConfig::happy_path().with_ee_offline_for_n_range_responses(2))
         .await;
     r.assert_range_sync_completed();
+}
+
+/// Local node already has blocks up to epoch 3. Finalized sync starts targeting epoch 6.
+/// The chain uses optimistic start: downloads a batch at the local head epoch concurrently
+/// with sequential processing from the start. All blocks ingested.
+#[tokio::test]
+async fn finalized_sync_with_local_head_partial() {
+    let mut r = TestRig::default();
+    r.setup_finalized_sync_with_local_head(3).await;
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_range_sync_completed();
+}
+
+/// Local node has all blocks except the last one. Finalized sync only needs to fill the
+/// final gap. Tests optimistic start where local head is near the target.
+#[tokio::test]
+async fn finalized_sync_with_local_head_near_target() {
+    let mut r = TestRig::default();
+    let target_epochs = 5;
+    let local_slots = (target_epochs * SLOTS_PER_EPOCH) - 1; // all blocks except last
+    r.build_chain(target_epochs * SLOTS_PER_EPOCH).await;
+    r.import_blocks_up_to_slot(local_slots as u64).await;
+    let remote_info = r.finalized_remote_info_advanced_by((target_epochs as u64).into());
+    r.add_fullnode_peers(remote_info.clone(), 100);
+    r.add_supernode_peer(remote_info);
+    r.assert_state(RangeSyncType::Finalized);
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_range_sync_completed();
+    r.assert_head_slot((target_epochs * SLOTS_PER_EPOCH) as u64);
 }
 
 /// PeerDAS only: single fullnode peer doesn't cover all custody columns → no requests sent.
