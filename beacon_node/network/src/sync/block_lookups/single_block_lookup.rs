@@ -115,6 +115,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn reset_requests(&mut self) {
         self.block_request_state = BlockRequestState::new(self.block_root);
         self.component_requests = ComponentRequests::WaitingForBlock;
+        self.awaiting_envelope = None;
     }
 
     /// Return the slot of this lookup's block if it's currently cached as `AwaitingProcessing`

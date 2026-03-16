@@ -1311,8 +1311,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::RpcBlock | WorkType::RpcPayloadEnvelope => {
                             work_queues.rpc_block_queue.len()
                         }
-                        WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
+                        WorkType::RpcBlobs => {
                             work_queues.rpc_blob_queue.len()
+                        }
+                        WorkType::IgnoredRpcBlock => {
+                            work_queues.rpc_block_queue.len()
                         }
                         WorkType::RpcCustodyColumn => work_queues.rpc_custody_column_queue.len(),
                         WorkType::ColumnReconstruction => {

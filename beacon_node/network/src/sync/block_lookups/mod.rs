@@ -567,7 +567,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                     BlockProcessingResult::Err(e) => {
                         debug!(%id, error = ?e, "Payload envelope processing failed");
-                        // TODO(EIP-7732): resolve awaiting_envelope on affected lookups so they can retry
+                        // Clear awaiting_envelope on the child lookup that triggered this
+                        // envelope request so it can retry block processing.
+                        if let Some(lookup) = self.single_block_lookups.get_mut(&id) {
+                            lookup.resolve_awaiting_envelope();
+                        }
                     }
                     _ => {}
                 }

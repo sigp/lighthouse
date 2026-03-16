@@ -3358,7 +3358,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .beacon_processor_send
                 .try_send(WorkEvent {
                     drop_during_sync: false,
-                    work: Work::Reprocess(ReprocessQueueMessage::UnknownBlockEnvelope(
+                    work: Work::Reprocess(ReprocessQueueMessage::UnknownBlockForEnvelope(
                         QueuedGossipEnvelope {
                             beacon_block_slot: envelope_slot,
                             beacon_block_root,
@@ -3420,8 +3420,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let envelope_slot = verified_envelope.signed_envelope.slot();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
         match self.chain.slot() {
-            // We only need to do a simple check about the envelope slot vs the current slot beacuse
-            // `verify_envelope_for_gossip` already ensuresthat the envelope slot is within tolerance
+            // We only need to do a simple check about the envelope slot vs the current slot because
+            // `verify_envelope_for_gossip` already ensures that the envelope slot is within tolerance
             // for envelope imports.
             Ok(current_slot) if envelope_slot > current_slot => {
                 warn!(
@@ -3484,17 +3484,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                // TODO(gloas) do we need to send a `PayloadImported` event to the reporcess queue?
+                // TODO(gloas) do we need to send a `PayloadImported` event to the reprocess queue?
                 debug!(
                     ?block_root,
                     %peer_id,
                     "Gossipsub envelope processed"
                 );
-
-                // TODO(gloas) do we need to recompute head?
-                // should canonical_head return the block and the payload now?
-                self.chain.recompute_head_at_current_slot().await;
-
+                // Head recomputation is handled inside process_execution_payload_envelope.
                 // TODO(gloas) metrics
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
@@ -3505,9 +3501,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 )
             }
 
-            Err(_) => {
+            Err(e) => {
                 // TODO(gloas) implement peer penalties
-                warn!("process_gossip_verified_execution_payload_envelope_failed")
+                warn!(
+                    error = ?e,
+                    %peer_id,
+                    ?beacon_block_root,
+                    "Gossip envelope processing failed"
+                )
             }
         }
     }

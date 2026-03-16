@@ -102,7 +102,7 @@ pub enum ReprocessQueueMessage {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedGossipBlock),
     /// An execution payload envelope that references a block not yet in fork choice.
-    UnknownBlockEnvelope(QueuedGossipEnvelope),
+    UnknownBlockForEnvelope(QueuedGossipEnvelope),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock),
@@ -535,7 +535,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             }
             // An envelope that references an unknown block. Queue it until the block is
             // imported, or until the timeout expires.
-            InboundEvent::Msg(UnknownBlockEnvelope(queued_envelope)) => {
+            InboundEvent::Msg(UnknownBlockForEnvelope(queued_envelope)) => {
                 let block_root = queued_envelope.beacon_block_root;
 
                 // Don't add the same envelope to the queue twice. This prevents DoS attacks.
