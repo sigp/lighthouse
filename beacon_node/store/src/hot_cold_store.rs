@@ -3817,9 +3817,11 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         .into());
     }
 
-    // finalized_state.slot() must be at an epoch boundary
+    // finalized_state.slot() must be at an epoch boundary and a pending state
     // else we may introduce bugs to the migration/pruning logic
-    if finalized_state.slot() % E::slots_per_epoch() != 0 {
+    if finalized_state.slot() % E::slots_per_epoch() != 0
+        || finalized_state.payload_status() != StatePayloadStatus::Pending
+    {
         return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
     }
 
