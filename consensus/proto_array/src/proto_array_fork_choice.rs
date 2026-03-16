@@ -991,29 +991,43 @@ impl ProtoArrayForkChoice {
             .map(|node| node.weight())
     }
 
-    /// Returns the payload status of the head node based on accumulated weights.
+    /// Returns the payload status of the head node based on accumulated weights and tiebreaker.
     ///
     /// Returns `Full` if `full_payload_weight > empty_payload_weight`.
     /// Returns `Empty` if `empty_payload_weight > full_payload_weight`.
-    /// On ties, consult the node's runtime `payload_tiebreak`: prefer `Full` only when timely and
-    /// data is available, otherwise `Empty`.
-    /// Returns `Empty` otherwise. Returns `None` for V17 nodes.
-    pub fn head_payload_status<E: EthSpec>(&self, head_root: &Hash256) -> Option<PayloadStatus> {
+    /// On ties:
+    ///   - Previous slot (`slot + 1 == current_slot`): prefer Full only when timely and
+    ///     data available (per `should_extend_payload`).
+    ///   - Otherwise: prefer Full when payload has been received.
+    /// Returns `None` for V17 nodes.
+    pub fn head_payload_status<E: EthSpec>(
+        &self,
+        head_root: &Hash256,
+        current_slot: Slot,
+    ) -> Option<PayloadStatus> {
         let node = self.get_proto_node(head_root)?;
         let v29 = node.as_v29().ok()?;
         if v29.full_payload_weight > v29.empty_payload_weight {
             Some(PayloadStatus::Full)
         } else if v29.empty_payload_weight > v29.full_payload_weight {
             Some(PayloadStatus::Empty)
-        } else if is_payload_timely(
-            &v29.payload_timeliness_votes,
-            E::ptc_size(),
-            v29.payload_received,
-        ) && is_payload_data_available(
-            &v29.payload_data_availability_votes,
-            E::ptc_size(),
-            v29.payload_received,
-        ) {
+        } else if node.slot() + 1 == current_slot {
+            // Previous slot: should_extend_payload = is_payload_timely && is_payload_data_available
+            if is_payload_timely(
+                &v29.payload_timeliness_votes,
+                E::ptc_size(),
+                v29.payload_received,
+            ) && is_payload_data_available(
+                &v29.payload_data_availability_votes,
+                E::ptc_size(),
+                v29.payload_received,
+            ) {
+                Some(PayloadStatus::Full)
+            } else {
+                Some(PayloadStatus::Empty)
+            }
+        } else if v29.payload_received {
+            // Not previous slot: Full wins tiebreaker (1 > 0) when payload received.
             Some(PayloadStatus::Full)
         } else {
             Some(PayloadStatus::Empty)

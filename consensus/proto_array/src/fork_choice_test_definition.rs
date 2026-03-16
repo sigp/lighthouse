@@ -91,6 +91,7 @@ pub enum Operation {
     AssertHeadPayloadStatus {
         head_root: Hash256,
         expected_status: PayloadStatus,
+        current_slot: Slot,
     },
     SetPayloadTiebreak {
         block_root: Hash256,
@@ -456,9 +457,13 @@ impl ForkChoiceTestDefinition {
                 Operation::AssertHeadPayloadStatus {
                     head_root,
                     expected_status,
+                    current_slot,
                 } => {
                     let actual = fork_choice
-                        .head_payload_status::<MainnetEthSpec>(&head_root)
+                        .head_payload_status::<MainnetEthSpec>(
+                            &head_root,
+                            current_slot,
+                        )
                         .unwrap_or_else(|| {
                             panic!(
                                 "AssertHeadPayloadStatus: head root not found at op index {}",

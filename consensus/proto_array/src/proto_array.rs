@@ -1448,8 +1448,8 @@ fn child_matches_parent_payload_preference(
         && parent_v29.empty_payload_weight > parent_v29.full_payload_weight
     {
         false
-    } else {
-        // Equal weights (or current-slot parent): tiebreaker per spec.
+    } else if use_tiebreaker_only {
+        // Previous slot: should_extend_payload = is_payload_timely && is_payload_data_available.
         is_payload_timely(
             &parent_v29.payload_timeliness_votes,
             ptc_size,
@@ -1459,6 +1459,10 @@ fn child_matches_parent_payload_preference(
             ptc_size,
             parent_v29.payload_received,
         )
+    } else {
+        // Not previous slot: should_extend_payload = true.
+        // Full wins the tiebreaker (1 > 0) when the payload has been received.
+        parent_v29.payload_received
     };
     if prefers_full {
         child_v29.parent_payload_status == PayloadStatus::Full

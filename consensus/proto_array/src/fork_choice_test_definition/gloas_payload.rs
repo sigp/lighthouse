@@ -145,6 +145,7 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertHeadPayloadStatus {
         head_root: get_root(1),
         expected_status: PayloadStatus::Empty,
+        current_slot: Slot::new(0),
     });
 
     // Flip validator 0 to Empty; both bits now clear.
@@ -170,6 +171,7 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertHeadPayloadStatus {
         head_root: get_root(1),
         expected_status: PayloadStatus::Empty,
+        current_slot: Slot::new(0),
     });
 
     // Same-slot attestation to a new head candidate should be Pending (no payload bucket change).
@@ -204,6 +206,7 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertHeadPayloadStatus {
         head_root: get_root(5),
         expected_status: PayloadStatus::Empty,
+        current_slot: Slot::new(0),
     });
 
     ForkChoiceTestDefinition {
