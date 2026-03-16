@@ -6713,27 +6713,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Collect states, using the next blocks to determine if states are full (have Gloas
         // payloads).
         for (i, (block_root, block)) in blocks.iter().enumerate() {
-            let state_root = if block.fork_name_unchecked().gloas_enabled() {
-                let opt_envelope = self.store.get_payload_envelope(&block_root)?;
+            let (opt_envelope, state_root) = if block.fork_name_unchecked().gloas_enabled() {
+                let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
 
                 if let Some((_, next_block)) = blocks.get(i + 1) {
                     let block_hash = block.payload_bid_block_hash()?;
                     if next_block.is_parent_block_full(block_hash) {
-                        opt_envelope
-                            .ok_or_else(|| {
-                                Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
-                            })?
-                            .message
-                            .state_root
+                        let envelope = opt_envelope.ok_or_else(|| {
+                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
+                        })?;
+                        let state_root = envelope.message.state_root;
+                        (Some(envelope), state_root)
                     } else {
-                        block.state_root()
+                        (None, block.state_root())
                     }
                 } else {
                     // TODO(gloas): should use fork choice/cached head for last block in sequence
-                    opt_envelope.map_or(block.state_root(), |envelope| envelope.message.state_root)
+                    opt_envelope
+                        .as_ref()
+                        .map_or((None, block.state_root()), |envelope| {
+                            (Some(envelope.clone()), envelope.message.state_root)
+                        })
                 }
             } else {
-                block.state_root()
+                (None, block.state_root())
             };
 
             let mut beacon_state = self
@@ -6753,6 +6756,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let snapshot = BeaconSnapshot {
                 beacon_block: block.clone(),
+                execution_envelope: opt_envelope,
                 beacon_block_root: *block_root,
                 beacon_state,
             };
