@@ -435,6 +435,12 @@ impl<T: BeaconChainTypes> CanonicalHeadReader for CanonicalHead<T> {
     }
 }
 
+impl<T: BeaconChainTypes> CanonicalHeadReader for BeaconChain<T> {
+    fn block_has_canonical_payload(&self, root: &Hash256) -> Result<bool, Error> {
+        self.canonical_head.block_has_canonical_payload(root)
+    }
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Contains the "best block"; the head of the canonical `BeaconChain`.
     ///

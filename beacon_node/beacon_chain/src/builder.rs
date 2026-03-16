@@ -1019,7 +1019,7 @@ where
             execution_layer: self.execution_layer.clone(),
             genesis_validators_root,
             genesis_time,
-            canonical_head: Arc::new(canonical_head),
+            canonical_head,
             genesis_block_root,
             genesis_state_root,
             fork_choice_signal_tx,

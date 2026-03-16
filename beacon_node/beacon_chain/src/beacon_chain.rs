@@ -435,7 +435,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
-    pub canonical_head: Arc<CanonicalHead<T>>,
+    pub canonical_head: CanonicalHead<T>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
     /// The root of the genesis state.
@@ -1150,9 +1150,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(PayloadEnvelopeStreamer::<T, CanonicalHead<T>>::new(
+        Ok(PayloadEnvelopeStreamer::<T, BeaconChain<T>>::new(
             self.execution_layer.clone(),
-            self.canonical_head.clone(),
+            self.clone(),
             self.store.clone(),
             self.task_executor.clone(),
             request_source,
