@@ -307,6 +307,20 @@ async fn batch_peer_returns_wrong_column_slots_then_succeeds() {
     r.assert_successful_range_sync();
 }
 
+/// PeerDAS: peer returns only half the requested columns. Block-sidecar coupling detects
+/// missing columns → CouplingError::DataColumnPeerFailure → retry_partial_batch from other peers.
+#[tokio::test]
+async fn batch_peer_returns_partial_columns_then_succeeds() {
+    let mut r = TestRig::default();
+    if !r.fork_name.fulu_enabled() {
+        return;
+    }
+    r.setup_finalized_sync().await;
+    r.simulate(SimulateConfig::happy_path().with_partial_range_columns_n_times(1))
+        .await;
+    r.assert_successful_range_sync();
+}
+
 /// Batch processing returns NonFaultyFailure (e.g. transient error). Batch goes back to
 /// AwaitingDownload, retries without penalty, sync completes.
 #[tokio::test]

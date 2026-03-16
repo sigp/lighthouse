@@ -77,6 +77,9 @@ pub struct SimulateConfig {
     return_wrong_range_column_indices_n_times: usize,
     /// Number of DataColumnsByRange requests that return columns with unrequested slots
     return_wrong_range_column_slots_n_times: usize,
+    /// Number of DataColumnsByRange requests that return fewer columns than requested
+    /// (drops half the columns). Triggers CouplingError::DataColumnPeerFailure → retry_partial_batch
+    return_partial_range_columns_n_times: usize,
     /// Set EE offline at start, bring back online after this many BlocksByRange responses
     ee_offline_for_n_range_responses: Option<usize>,
     /// Disconnect all peers after responding to this many BlocksByRange requests
@@ -178,6 +181,11 @@ impl SimulateConfig {
 
     pub(super) fn with_wrong_range_column_slots_n_times(mut self, n: usize) -> Self {
         self.return_wrong_range_column_slots_n_times = n;
+        self
+    }
+
+    pub(super) fn with_partial_range_columns_n_times(mut self, n: usize) -> Self {
+        self.return_partial_range_columns_n_times = n;
         self
     }
 
@@ -786,10 +794,25 @@ impl TestRig {
                     return;
                 }
 
-                // Note: This function is permissive, blocks may have zero columns and it won't
-                // error. Some caveats:
-                // - The genesis block never has columns
-                // - Some blocks may not have columns as the blob count is random
+                // Return only half the requested columns N times — triggers CouplingError
+                if self.complete_strategy.return_partial_range_columns_n_times > 0 {
+                    self.complete_strategy.return_partial_range_columns_n_times -= 1;
+                    let columns = (req.start_slot..req.start_slot + req.count)
+                        .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
+                        .filter_map(|block| block.block_data().and_then(|d| d.data_columns()))
+                        .flat_map(|columns| {
+                            columns
+                                .into_iter()
+                                .filter(|c| req.columns.contains(c.index()))
+                        })
+                        .enumerate()
+                        .filter(|(i, _)| i % 2 == 0) // keep every other column
+                        .map(|(_, c)| c)
+                        .collect::<Vec<_>>();
+                    self.send_rpc_columns_response(req_id, peer_id, &columns);
+                    return;
+                }
+
                 let columns = (req.start_slot..req.start_slot + req.count)
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
                     .filter_map(|block| block.block_data().and_then(|d| d.data_columns()))
