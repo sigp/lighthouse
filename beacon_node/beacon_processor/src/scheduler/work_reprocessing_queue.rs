@@ -538,6 +538,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
             InboundEvent::Msg(UnknownBlockForEnvelope(queued_envelope)) => {
                 let block_root = queued_envelope.beacon_block_root;
 
+                // TODO(gloas): Perform lightweight pre-validation before queuing
+                // (e.g. verify builder signature) to prevent unsigned garbage from
+                // consuming queue slots.
+
                 // Don't add the same envelope to the queue twice. This prevents DoS attacks.
                 if self.awaiting_envelopes_per_root.contains_key(&block_root) {
                     trace!(
@@ -547,17 +551,24 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     return;
                 }
 
-                // Check to ensure this won't over-fill the queue.
+                // When the queue is full, evict the oldest entry to make room for newer envelopes.
                 if self.awaiting_envelopes_per_root.len() >= MAXIMUM_QUEUED_ENVELOPES {
                     if self.envelope_delay_debounce.elapsed() {
                         warn!(
                             queue_size = MAXIMUM_QUEUED_ENVELOPES,
                             msg = "system resources may be saturated",
-                            "Envelope delay queue is full"
+                            "Envelope delay queue is full, evicting oldest entry"
                         );
                     }
-                    // Drop the envelope.
-                    return;
+                    if let Some(oldest_root) =
+                        self.awaiting_envelopes_per_root.keys().next().copied()
+                    {
+                        if let Some((_envelope, delay_key)) =
+                            self.awaiting_envelopes_per_root.remove(&oldest_root)
+                        {
+                            self.envelope_delay_queue.remove(&delay_key);
+                        }
+                    }
                 }
 
                 // Register the timeout.
@@ -1568,7 +1579,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn envelope_capacity_drops_overflow() {
+    async fn envelope_capacity_evicts_oldest() {
         create_test_tracing_subscriber();
 
         let mut queue = test_queue();
@@ -1591,7 +1602,7 @@ mod tests {
             MAXIMUM_QUEUED_ENVELOPES
         );
 
-        // One more should be dropped.
+        // One more should evict the oldest and insert the new one.
         let overflow_root = Hash256::repeat_byte(0xff);
         let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
             beacon_block_slot: Slot::new(1),
@@ -1600,13 +1611,13 @@ mod tests {
         });
         queue.handle_message(InboundEvent::Msg(msg));
 
-        // Queue should still be at capacity, overflow root not present.
+        // Queue should still be at capacity, with the new root present.
         assert_eq!(
             queue.awaiting_envelopes_per_root.len(),
             MAXIMUM_QUEUED_ENVELOPES
         );
         assert!(
-            !queue
+            queue
                 .awaiting_envelopes_per_root
                 .contains_key(&overflow_root)
         );

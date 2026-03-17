@@ -813,6 +813,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // on the delayed ones.
                         } else if let Some(item) = work_queues.delayed_block_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.delayed_envelope_queue.pop() {
+                            Some(item)
                         // Check gossip blocks and payloads before gossip attestations, since a block might be
                         // required to verify some attestations.
                         } else if let Some(item) = work_queues.gossip_block_queue.pop() {
@@ -1132,7 +1134,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 work_queues.delayed_block_queue.push(work, work_id)
                             }
                             Work::DelayedImportEnvelope { .. } => {
-                                work_queues.delayed_block_queue.push(work, work_id)
+                                work_queues.delayed_envelope_queue.push(work, work_id)
                             }
                             Work::GossipVoluntaryExit { .. } => {
                                 work_queues.gossip_voluntary_exit_queue.push(work, work_id)
@@ -1261,7 +1263,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.gossip_data_column_queue.len()
                         }
                         WorkType::DelayedImportBlock => work_queues.delayed_block_queue.len(),
-                        WorkType::DelayedImportEnvelope => work_queues.delayed_block_queue.len(),
+                        WorkType::DelayedImportEnvelope => work_queues.delayed_envelope_queue.len(),
                         WorkType::GossipVoluntaryExit => {
                             work_queues.gossip_voluntary_exit_queue.len()
                         }
