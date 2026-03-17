@@ -486,7 +486,7 @@ pub async fn check_attestation_correctness<E: EthSpec>(
 
     let end_epoch = upto_epoch
         .checked_sub(2)
-        .ok_or_else(|| format!("upto_epoch must be >= 2 to have attestation rewards"))?;
+        .ok_or_else(|| "upto_epoch must be >= 2 to have attestation rewards".to_string())?;
     for epoch in start_epoch..=end_epoch {
         let response = remote_node
             .post_beacon_rewards_attestations(Epoch::new(epoch), &[])
