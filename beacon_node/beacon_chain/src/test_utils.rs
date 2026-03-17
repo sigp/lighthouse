@@ -2970,7 +2970,8 @@ where
         BlockError,
     > {
         self.set_current_slot(slot);
-        let (block_contents, new_state) = self.make_block(state, slot).await;
+        let (block_contents, opt_envelope, mut new_state) =
+            self.make_block_with_envelope(state, slot).await;
 
         let block_hash = self
             .process_block(
@@ -2979,6 +2980,11 @@ where
                 block_contents.clone(),
             )
             .await?;
+
+        if let Some(envelope) = opt_envelope {
+            self.process_envelope(block_hash.into(), envelope, &mut new_state)
+                .await;
+        }
         Ok((block_hash, block_contents, new_state))
     }
 
