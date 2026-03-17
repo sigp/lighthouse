@@ -51,6 +51,12 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         execution_payload_block_hash: Some(get_hash(4)),
     });
 
+    // Mark root_1 as having received its execution payload so that
+    // its FULL virtual node exists in the GLOAS fork choice tree.
+    ops.push(Operation::ProcessExecutionPayload {
+        block_root: get_root(1),
+    });
+
     ops.push(Operation::AssertParentPayloadStatus {
         block_root: get_root(1),
         expected_status: PayloadStatus::Full,
@@ -109,6 +115,12 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
         execution_payload_parent_hash: Some(get_hash(0)),
         execution_payload_block_hash: Some(get_hash(1)),
+    });
+
+    // Mark root_1 as having received its execution payload so that
+    // its FULL virtual node exists in the GLOAS fork choice tree.
+    ops.push(Operation::ProcessExecutionPayload {
+        block_root: get_root(1),
     });
 
     // One Full and one Empty vote for the same head block: tie probes via runtime tiebreak,
@@ -263,6 +275,12 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
         execution_payload_block_hash: Some(get_hash(4)),
     });
 
+    // Mark root_1 as having received its execution payload so that
+    // its FULL virtual node exists in the GLOAS fork choice tree.
+    ops.push(Operation::ProcessExecutionPayload {
+        block_root: get_root(1),
+    });
+
     // Equal branch weights: tiebreak FULL picks branch rooted at 3.
     ops.push(Operation::SetPayloadTiebreak {
         block_root: get_root(0),
@@ -357,6 +375,12 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
         finalized_checkpoint: get_checkpoint(0),
         execution_payload_parent_hash: Some(get_hash(100)),
         execution_payload_block_hash: Some(get_hash(4)),
+    });
+
+    // Mark root_1 as having received its execution payload so that
+    // its FULL virtual node exists in the GLOAS fork choice tree.
+    ops.push(Operation::ProcessExecutionPayload {
+        block_root: get_root(1),
     });
 
     // Parent prefers Full on equal branch weights (tiebreaker).
@@ -521,6 +545,12 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
         execution_payload_block_hash: Some(get_hash(4)),
     });
 
+    // Mark root_1 as having received its execution payload so that
+    // its FULL virtual node exists in the GLOAS fork choice tree.
+    ops.push(Operation::ProcessExecutionPayload {
+        block_root: get_root(1),
+    });
+
     // Step 4: Set tiebreaker to Empty on genesis → Empty branch wins.
     ops.push(Operation::SetPayloadTiebreak {
         block_root: get_root(0),
@@ -619,10 +649,11 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         expected_status: PayloadStatus::Empty,
     });
 
-    // Before payload arrives: payload_received is false on genesis.
+    // Per spec `get_forkchoice_store`: genesis starts with payload_received=true
+    // (anchor block is in `payload_states`).
     ops.push(Operation::AssertPayloadReceived {
         block_root: get_root(0),
-        expected: false,
+        expected: true,
     });
 
     // Give one vote to each child so they have equal weight.
@@ -637,38 +668,37 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         attestation_slot: Slot::new(1),
     });
 
-    // Equal weight, no payload received on genesis → tiebreaker uses PTC votes which
-    // require payload_received. Without it, is_payload_timely returns false → prefers Empty.
-    // Block 2 (Empty) wins because it matches the Empty preference.
+    // Equal weight, payload_received=true on genesis → tiebreaker uses
+    // payload_received (not previous slot, equal payload weights) → prefers Full.
+    // Block 1 (Full) wins because it matches the Full preference.
     ops.push(Operation::FindHead {
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1, 1],
-        expected_head: get_root(2),
+        expected_head: get_root(1),
         current_slot: Slot::new(100),
     });
 
-    // Now the execution payload for genesis arrives and is validated.
+    // ProcessExecutionPayload on genesis is a no-op (already received at init).
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(0),
     });
 
-    // payload_received is now true.
     ops.push(Operation::AssertPayloadReceived {
         block_root: get_root(0),
         expected: true,
     });
 
     // Set PTC votes on genesis as timely + data available (simulates PTC voting).
+    // This doesn't change the preference since genesis is not the previous slot
+    // (slot 0 + 1 != current_slot 100).
     ops.push(Operation::SetPayloadTiebreak {
         block_root: get_root(0),
         is_timely: true,
         is_data_available: true,
     });
 
-    // Now with payload_received=true and PTC votes exceeding threshold:
-    // is_payload_timely=true, is_payload_data_available=true → prefers Full.
-    // Block 1 (Full) wins because it matches the Full preference.
+    // Still prefers Full via payload_received tiebreaker → Block 1 (Full) wins.
     ops.push(Operation::FindHead {
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),

@@ -1004,7 +1004,7 @@ impl ProtoArrayForkChoice {
     pub fn head_payload_status<E: EthSpec>(
         &self,
         head_root: &Hash256,
-        current_slot: Slot,
+        _current_slot: Slot,
     ) -> Option<PayloadStatus> {
         let node = self.get_proto_node(head_root)?;
         let v29 = node.as_v29().ok()?;
@@ -1012,23 +1012,15 @@ impl ProtoArrayForkChoice {
             Some(PayloadStatus::Full)
         } else if v29.empty_payload_weight > v29.full_payload_weight {
             Some(PayloadStatus::Empty)
-        } else if node.slot() + 1 == current_slot {
-            // Previous slot: should_extend_payload = is_payload_timely && is_payload_data_available
-            if is_payload_timely(
-                &v29.payload_timeliness_votes,
-                E::ptc_size(),
-                v29.payload_received,
-            ) && is_payload_data_available(
-                &v29.payload_data_availability_votes,
-                E::ptc_size(),
-                v29.payload_received,
-            ) {
-                Some(PayloadStatus::Full)
-            } else {
-                Some(PayloadStatus::Empty)
-            }
-        } else if v29.payload_received {
-            // Not previous slot: Full wins tiebreaker (1 > 0) when payload received.
+        } else if is_payload_timely(
+            &v29.payload_timeliness_votes,
+            E::ptc_size(),
+            v29.payload_received,
+        ) && is_payload_data_available(
+            &v29.payload_data_availability_votes,
+            E::ptc_size(),
+            v29.payload_received,
+        ) {
             Some(PayloadStatus::Full)
         } else {
             Some(PayloadStatus::Empty)
