@@ -3379,25 +3379,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
 
-                    EnvelopeError::PriorToFinalization { .. } => {
-                        warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Reject,
-                        );
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "gossip_envelope_prior_finalization",
-                        );
-                    }
-
                     EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     | EnvelopeError::BlockProcessingError(_)
                     | EnvelopeError::EnvelopeProcessingError(_)
-                    | EnvelopeError::BlockError(_) => {
+                    | EnvelopeError::BlockError(_)
+                    | EnvelopeError::PriorToFinalization { .. } => {
                         warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
                         self.propagate_validation_result(
                             message_id,
@@ -3516,24 +3503,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                EnvelopeError::BlockRootUnknown { .. } => {
-                    debug!(error = ?e, "Envelope processing failed");
-                }
-
-                EnvelopeError::PriorToFinalization { .. } => {
-                    warn!(error = ?e, "Envelope processing failed");
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "gossip_envelope_processing_prior_finalization",
-                    );
-                }
-
                 EnvelopeError::BeaconChainError(_)
                 | EnvelopeError::BeaconStateError(_)
                 | EnvelopeError::BlockProcessingError(_)
                 | EnvelopeError::EnvelopeProcessingError(_)
-                | EnvelopeError::BlockError(_) => {
+                | EnvelopeError::BlockError(_)
+                | EnvelopeError::BlockRootUnknown { .. }
+                | EnvelopeError::PriorToFinalization { .. } => {
                     warn!(error = ?e, "Envelope processing failed");
                     self.gossip_penalize_peer(
                         peer_id,
