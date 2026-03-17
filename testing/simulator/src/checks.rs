@@ -484,10 +484,10 @@ pub async fn check_attestation_correctness<E: EthSpec>(
     let mut source_successes: f64 = 0.0;
     let mut total: f64 = 0.0;
 
-    // We need to ensure we have at least 2 epochs of attestations to compute rewards from.
-    let effective_start = start_epoch.max(2);
-    let end_epoch = upto_epoch.saturating_sub(2);
-    for epoch in effective_start..=end_epoch {
+    let end_epoch = upto_epoch
+        .checked_sub(2)
+        .ok_or_else(|| format!("upto_epoch must be >= 2 to have attestation rewards"))?;
+    for epoch in start_epoch..=end_epoch {
         let response = remote_node
             .post_beacon_rewards_attestations(Epoch::new(epoch), &[])
             .await
