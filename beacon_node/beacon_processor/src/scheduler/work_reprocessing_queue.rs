@@ -562,12 +562,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                     if let Some(oldest_root) =
                         self.awaiting_envelopes_per_root.keys().next().copied()
-                    {
-                        if let Some((_envelope, delay_key)) =
+                        && let Some((_envelope, delay_key)) =
                             self.awaiting_envelopes_per_root.remove(&oldest_root)
-                        {
-                            self.envelope_delay_queue.remove(&delay_key);
-                        }
+                    {
+                        self.envelope_delay_queue.remove(&delay_key);
                     }
                 }
 
