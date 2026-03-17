@@ -47,6 +47,8 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # Heze fork is not implemented
+    "tests/.*/heze/.*",
     # TODO(gloas): remove these ignores as Gloas consensus is implemented
     "tests/.*/gloas/fork_choice/.*",
     # Ignore MatrixEntry SSZ tests for now.

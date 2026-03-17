@@ -4,7 +4,10 @@ use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
-use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
+use crate::per_block_processing::builder::{
+    convert_validator_index_to_builder_index, is_builder_index,
+};
+use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use bls::{PublicKeyBytes, SignatureBytes};
 use ssz_types::FixedVector;
@@ -507,11 +510,111 @@ pub fn process_exits<E: EthSpec>(
     // Verify and apply each exit in series. We iterate in series because higher-index exits may
     // become invalid due to the application of lower-index ones.
     for (i, exit) in voluntary_exits.iter().enumerate() {
-        verify_exit(state, None, exit, verify_signatures, spec)
+        // Exits must specify an epoch when they become valid; they are not valid before then.
+        let current_epoch = state.current_epoch();
+        if current_epoch < exit.message.epoch {
+            return Err(BlockOperationError::invalid(ExitInvalid::FutureEpoch {
+                state: current_epoch,
+                exit: exit.message.epoch,
+            })
+            .into_with_index(i));
+        }
+
+        // [New in Gloas:EIP7732]
+        if state.fork_name_unchecked().gloas_enabled()
+            && is_builder_index(exit.message.validator_index)
+        {
+            process_builder_voluntary_exit(state, exit, verify_signatures, spec)
+                .map_err(|e| e.into_with_index(i))?;
+            continue;
+        }
+
+        verify_exit(state, Some(current_epoch), exit, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
+    Ok(())
+}
+
+/// Process a builder voluntary exit. [New in Gloas:EIP7732]
+fn process_builder_voluntary_exit<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    signed_exit: &SignedVoluntaryExit,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockOperationError<ExitInvalid>> {
+    let builder_index =
+        convert_validator_index_to_builder_index(signed_exit.message.validator_index);
+
+    let builder = state
+        .builders()?
+        .get(builder_index as usize)
+        .cloned()
+        .ok_or(BlockOperationError::invalid(ExitInvalid::ValidatorUnknown(
+            signed_exit.message.validator_index,
+        )))?;
+
+    // Verify the builder is active
+    let finalized_epoch = state.finalized_checkpoint().epoch;
+    if !builder.is_active_at_finalized_epoch(finalized_epoch, spec) {
+        return Err(BlockOperationError::invalid(ExitInvalid::NotActive(
+            signed_exit.message.validator_index,
+        )));
+    }
+
+    // Only exit builder if it has no pending withdrawals in the queue
+    let pending_balance = state.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+    if pending_balance != 0 {
+        return Err(BlockOperationError::invalid(
+            ExitInvalid::PendingWithdrawalInQueue(signed_exit.message.validator_index),
+        ));
+    }
+
+    // Verify signature (using EIP-7044 domain: capella_fork_version for Deneb+)
+    if verify_signatures.is_true() {
+        let pubkey = builder.pubkey;
+        let domain = spec.compute_domain(
+            Domain::VoluntaryExit,
+            spec.capella_fork_version,
+            state.genesis_validators_root(),
+        );
+        let message = signed_exit.message.signing_root(domain);
+        // TODO(gloas): use builder pubkey cache once available
+        let bls_pubkey = pubkey
+            .decompress()
+            .map_err(|_| BlockOperationError::invalid(ExitInvalid::BadSignature))?;
+        if !signed_exit.signature.verify(&bls_pubkey, message) {
+            return Err(BlockOperationError::invalid(ExitInvalid::BadSignature));
+        }
+    }
+
+    // Initiate builder exit
+    initiate_builder_exit(state, builder_index, spec)?;
+
+    Ok(())
+}
+
+/// Initiate the exit of a builder. [New in Gloas:EIP7732]
+fn initiate_builder_exit<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    builder_index: u64,
+    spec: &ChainSpec,
+) -> Result<(), BeaconStateError> {
+    let current_epoch = state.current_epoch();
+    let builder = state
+        .builders_mut()?
+        .get_mut(builder_index as usize)
+        .ok_or(BeaconStateError::UnknownBuilder(builder_index))?;
+
+    // Return if builder already initiated exit
+    if builder.withdrawable_epoch != spec.far_future_epoch {
+        return Ok(());
+    }
+
+    // Set builder exit epoch
+    builder.withdrawable_epoch = current_epoch.safe_add(spec.min_builder_withdrawability_delay)?;
+
     Ok(())
 }
 
@@ -814,6 +917,30 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
     Ok(())
 }
 
+/// Check if there is a pending deposit for a new validator with the given pubkey.
+// TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
+// it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
+fn is_pending_validator<E: EthSpec>(
+    state: &BeaconState<E>,
+    pubkey: &PublicKeyBytes,
+    spec: &ChainSpec,
+) -> Result<bool, BlockProcessingError> {
+    for deposit in state.pending_deposits()?.iter() {
+        if deposit.pubkey == *pubkey {
+            let deposit_data = DepositData {
+                pubkey: deposit.pubkey,
+                withdrawal_credentials: deposit.withdrawal_credentials,
+                amount: deposit.amount,
+                signature: deposit.signature.clone(),
+            };
+            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 pub fn process_deposit_request_post_gloas<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_request: &DepositRequest,
@@ -835,10 +962,14 @@ pub fn process_deposit_request_post_gloas<E: EthSpec>(
     let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
     let is_validator = validator_index.is_some();
 
-    let is_builder_prefix =
+    let has_builder_prefix =
         is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
 
-    if is_builder || (is_builder_prefix && !is_validator) {
+    if is_builder
+        || (has_builder_prefix
+            && !is_validator
+            && !is_pending_validator(state, &deposit_request.pubkey, spec)?)
+    {
         // Apply builder deposits immediately
         apply_deposit_for_builder(
             state,

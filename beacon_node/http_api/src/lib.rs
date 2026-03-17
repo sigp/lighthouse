@@ -2104,9 +2104,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                             let execution_status_string = node
                                 .execution_status()
-                                .ok()
-                                .map(|status| status.to_string())
-                                .unwrap_or_else(|| "n/a".to_string());
+                                .map_or_else(|_| "irrelevant".to_string(), |s| s.to_string());
 
                             ForkChoiceNode {
                                 slot: node.slot(),

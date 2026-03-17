@@ -4845,43 +4845,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // get_attestation_score(parent, parent_payload_status) where parent_payload_status
         // is determined by the head block's relationship to its parent.
         let head_weight = info.head_node.weight();
-        let parent_weight = if let Ok(head_payload_status) = info.head_node.parent_payload_status()
-        {
-            // Post-GLOAS: use the payload-filtered weight matching how the head
-            // extends from its parent.
-            match head_payload_status {
-                proto_array::PayloadStatus::Full => {
-                    info.parent_node.full_payload_weight().map_err(|()| {
-                        Box::new(ProposerHeadError::Error(
-                            Error::ProposerHeadForkChoiceError(
-                                fork_choice::Error::ProtoArrayError(
-                                    proto_array::Error::InvalidNodeVariant {
-                                        block_root: info.parent_node.root(),
-                                    },
-                                ),
-                            ),
-                        ))
-                    })?
+        let parent_weight =
+            if let (Ok(head_payload_status), Ok(parent_v29)) = (
+                info.head_node.parent_payload_status(),
+                info.parent_node.as_v29(),
+            ) {
+                // Post-GLOAS: use the payload-filtered weight matching how the head
+                // extends from its parent.
+                match head_payload_status {
+                    proto_array::PayloadStatus::Full => parent_v29.full_payload_weight,
+                    proto_array::PayloadStatus::Empty => parent_v29.empty_payload_weight,
+                    proto_array::PayloadStatus::Pending => info.parent_node.weight(),
                 }
-                proto_array::PayloadStatus::Empty => {
-                    info.parent_node.empty_payload_weight().map_err(|()| {
-                        Box::new(ProposerHeadError::Error(
-                            Error::ProposerHeadForkChoiceError(
-                                fork_choice::Error::ProtoArrayError(
-                                    proto_array::Error::InvalidNodeVariant {
-                                        block_root: info.parent_node.root(),
-                                    },
-                                ),
-                            ),
-                        ))
-                    })?
-                }
-                proto_array::PayloadStatus::Pending => info.parent_node.weight(),
-            }
-        } else {
-            // Pre-GLOAS (V17): use total weight.
-            info.parent_node.weight()
-        };
+            } else {
+                // Pre-GLOAS or fork boundary: use total weight.
+                info.parent_node.weight()
+            };
 
         let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
             (

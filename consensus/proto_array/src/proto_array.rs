@@ -182,8 +182,11 @@ impl Default for ProposerBoost {
 /// ancestors can compare children using payload-aware tie breaking.
 #[derive(Clone, PartialEq, Debug, Copy)]
 pub struct NodeDelta {
+    /// Total weight change for the node. All votes contribute regardless of payload status.
     pub delta: i64,
+    /// Weight change from `PayloadStatus::Empty` votes.
     pub empty_delta: i64,
+    /// Weight change from `PayloadStatus::Full` votes.
     pub full_delta: i64,
 }
 
@@ -399,6 +402,7 @@ impl ProtoArray {
 
             // Apply the delta to the node.
             if execution_status_is_invalid {
+                // Invalid nodes always have a weight of 0.
                 *node.weight_mut() = 0;
             } else {
                 *node.weight_mut() = apply_delta(node.weight(), delta, node_index)?;
@@ -1127,10 +1131,9 @@ impl ProtoArray {
         );
         let no_change = (parent.best_child(), parent.best_descendant());
 
-        // For V29 (GLOAS) parents, the spec's virtual tree model requires choosing
-        // FULL or EMPTY direction at each node BEFORE considering concrete children.
-        // Only children whose parent_payload_status matches the preferred direction
-        // are eligible for best_child. This is PRIMARY, not a tiebreaker.
+        // For V29 (GLOAS) parents, the spec's virtual tree model determines a preferred
+        // FULL or EMPTY direction at each node. Weight is the primary selector among
+        // viable children; direction matching is the tiebreaker when weights are equal.
         let child_matches_dir = child_matches_parent_payload_preference(
             parent,
             child,
