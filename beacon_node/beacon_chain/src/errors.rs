@@ -2,13 +2,13 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::execution_payload_envelope_streamer::Error as EnvelopeStreamerError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
+use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
@@ -325,15 +325,6 @@ pub enum BlockProductionError {
     BlsError(bls::Error),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented(String),
-}
-
-impl From<task_executor::SpawnBlockingError> for BeaconChainError {
-    fn from(e: task_executor::SpawnBlockingError) -> Self {
-        match e {
-            task_executor::SpawnBlockingError::RuntimeShutdown => BeaconChainError::RuntimeShutdown,
-            task_executor::SpawnBlockingError::JoinError(e) => BeaconChainError::TokioJoin(e),
-        }
-    }
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

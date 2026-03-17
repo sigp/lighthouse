@@ -3,7 +3,7 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::execution_payload_envelope_streamer::EnvelopeRequestSource;
+use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
@@ -304,19 +304,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let requested_envelopes = request.beacon_block_roots.len();
-        let mut envelope_stream = match self.chain.get_payload_envelopes(
+        let mut envelope_stream = self.chain.get_payload_envelopes(
             request.beacon_block_roots.to_vec(),
             EnvelopeRequestSource::ByRoot,
-        ) {
-            Ok(envelope_stream) => envelope_stream,
-            Err(e) => {
-                error!( error = ?e, "Error getting payload envelope stream");
-                return Err((
-                    RpcErrorResponse::ServerError,
-                    "Error getting payload envelope stream",
-                ));
-            }
-        };
+        );
         // Fetching payload envelopes is async because it may have to hit the execution layer for payloads.
         let mut send_envelope_count = 0;
         while let Some((root, result)) = envelope_stream.next().await {
@@ -1186,16 +1177,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        let mut envelope_stream = match self
+        let mut envelope_stream = self
             .chain
-            .get_payload_envelopes(block_roots, EnvelopeRequestSource::ByRange)
-        {
-            Ok(envelope_stream) => envelope_stream,
-            Err(e) => {
-                error!(error = ?e, "Error getting payload envelope stream");
-                return Err((RpcErrorResponse::ServerError, "Iterator error"));
-            }
-        };
+            .get_payload_envelopes(block_roots, EnvelopeRequestSource::ByRange);
 
         // Fetching payload envelopes is async because it may have to hit the execution layer for payloads.
         let mut envelopes_sent = 0;

@@ -28,7 +28,6 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_payload_envelope_streamer::{EnvelopeRequestSource, PayloadEnvelopeStreamer};
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
@@ -55,6 +54,8 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
+#[cfg(not(test))]
+use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
@@ -1136,28 +1137,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
+    #[cfg(not(test))]
     #[allow(clippy::type_complexity)]
     pub fn get_payload_envelopes(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
         request_source: EnvelopeRequestSource,
-    ) -> Result<
-        impl Stream<
-            Item = (
-                Hash256,
-                Arc<Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
-            ),
-        >,
-        Error,
+    ) -> impl Stream<
+        Item = (
+            Hash256,
+            Arc<Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
+        ),
     > {
-        Ok(PayloadEnvelopeStreamer::<T, BeaconChain<T>>::new(
-            self.execution_layer.clone(),
-            self.clone(),
-            self.store.clone(),
-            self.task_executor.clone(),
-            request_source,
-        )?
-        .launch_stream(block_roots))
+        launch_payload_envelope_stream(self.clone(), block_roots, request_source)
     }
 
     pub fn get_data_columns_checking_all_caches(
