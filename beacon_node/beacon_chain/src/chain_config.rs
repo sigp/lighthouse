@@ -38,7 +38,7 @@ pub struct ChainConfig {
     /// If `None`, there is no weak subjectivity verification.
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
-    pub reconstruct_historic_states: bool,
+    pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
     /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
@@ -117,6 +117,8 @@ pub struct ChainConfig {
     /// On Holesky there is a block which is added to this set by default but which can be removed
     /// by using `--invalid-block-roots ""`.
     pub invalid_block_roots: HashSet<Hash256>,
+    /// When set to true, the beacon node can be started even if the head state is outside the weak subjectivity period.
+    pub ignore_ws_check: bool,
     /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
     pub disable_get_blobs: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
@@ -128,7 +130,7 @@ impl Default for ChainConfig {
         Self {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
-            reconstruct_historic_states: false,
+            archive: false,
             max_network_size: 10 * 1_048_576, // 10M
             re_org_head_threshold: Some(DEFAULT_RE_ORG_HEAD_THRESHOLD),
             re_org_parent_threshold: Some(DEFAULT_RE_ORG_PARENT_THRESHOLD),
@@ -160,6 +162,7 @@ impl Default for ChainConfig {
             block_publishing_delay: None,
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
+            ignore_ws_check: false,
             disable_get_blobs: false,
             node_custody_type: NodeCustodyType::Fullnode,
         }

@@ -7,6 +7,7 @@ use crate::per_block_processing::{
     verify_attester_slashing, verify_bls_to_execution_change, verify_exit,
     verify_proposer_slashing,
 };
+#[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use educe::Educe;
 use smallvec::{SmallVec, smallvec};
@@ -39,13 +40,17 @@ pub trait TransformPersist {
 ///
 /// The inner `op` field is private, meaning instances of this type can only be constructed
 /// by calling `validate`.
-#[derive(Educe, Debug, Clone, Arbitrary)]
+#[derive(Educe, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[educe(
     PartialEq,
     Eq,
     Hash(bound(T: TransformPersist + std::hash::Hash, E: EthSpec))
 )]
-#[arbitrary(bound = "T: TransformPersist + Arbitrary<'arbitrary>, E: EthSpec")]
+#[cfg_attr(
+    feature = "arbitrary",
+    arbitrary(bound = "T: TransformPersist + Arbitrary<'arbitrary>, E: EthSpec")
+)]
 pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
     op: T,
     verified_against: VerifiedAgainst,
@@ -133,7 +138,8 @@ struct SigVerifiedOpDecode<P: Decode> {
 ///
 /// We need to store multiple `ForkVersion`s because attester slashings contain two indexed
 /// attestations which may be signed using different versions.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode, TestRandom, Arbitrary)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode, TestRandom)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 pub struct VerifiedAgainst {
     fork_versions: SmallVec<[ForkVersion; MAX_FORKS_VERIFIED_AGAINST]>,
 }

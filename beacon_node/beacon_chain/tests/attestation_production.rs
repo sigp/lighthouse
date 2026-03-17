@@ -1,7 +1,6 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
-use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
@@ -223,19 +222,9 @@ async fn produces_attestations() {
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
 
-            let rpc_block =
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
-
-            let available_block = match rpc_block {
-                RpcBlock::FullyAvailable(available_block) => {
-                    chain
-                        .data_availability_checker
-                        .verify_kzg_for_available_block(&available_block)
-                        .unwrap();
-                    available_block
-                }
-                RpcBlock::BlockOnly { .. } => panic!("block should be available"),
-            };
+            let range_sync_block = harness
+                .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
+            let available_block = range_sync_block.into_available_block();
 
             let early_attestation = {
                 let proto_block = chain
@@ -292,20 +281,12 @@ async fn early_attester_cache_old_request() {
         .get_block(&head.beacon_block_root)
         .unwrap();
 
-    let rpc_block = harness
-        .build_rpc_block_from_store_blobs(Some(head.beacon_block_root), head.beacon_block.clone());
-
-    let available_block = match rpc_block {
-        RpcBlock::FullyAvailable(available_block) => {
-            harness
-                .chain
-                .data_availability_checker
-                .verify_kzg_for_available_block(&available_block)
-                .unwrap();
-            available_block
-        }
-        RpcBlock::BlockOnly { .. } => panic!("block should be available"),
-    };
+    let available_block = harness
+        .build_range_sync_block_from_store_blobs(
+            Some(head.beacon_block_root),
+            head.beacon_block.clone(),
+        )
+        .into_available_block();
 
     harness
         .chain

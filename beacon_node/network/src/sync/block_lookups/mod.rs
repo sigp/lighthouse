@@ -121,15 +121,24 @@ pub struct BlockLookups<T: BeaconChainTypes> {
 
     // TODO: Why not index lookups by block_root?
     single_block_lookups: FnvHashMap<SingleLookupId, SingleBlockLookup<T>>,
+
+    /// Used for testing assertions
+    metrics: BlockLookupsMetrics,
 }
 
 #[cfg(test)]
 use lighthouse_network::service::api_types::Id;
 
 #[cfg(test)]
-/// Tuple of `SingleLookupId`, requested block root, awaiting parent block root (if any),
-/// and list of peers that claim to have imported this set of block components.
-pub(crate) type BlockLookupSummary = (Id, Hash256, Option<Hash256>, Vec<PeerId>);
+#[derive(Debug)]
+pub(crate) struct BlockLookupSummary {
+    /// Lookup ID
+    pub id: Id,
+    /// Requested block root
+    pub block_root: Hash256,
+    /// List of peers that claim to have imported this set of block components.
+    pub peers: Vec<PeerId>,
+}
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new() -> Self {
@@ -138,7 +147,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 IGNORED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
             single_block_lookups: Default::default(),
+            metrics: <_>::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn metrics(&self) -> &BlockLookupsMetrics {
+        &self.metrics
     }
 
     #[cfg(test)]
@@ -155,7 +170,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
-            .map(|(id, l)| (*id, l.block_root(), l.awaiting_parent(), l.all_peers()))
+            .map(|(id, l)| BlockLookupSummary {
+                id: *id,
+                block_root: l.block_root(),
+                peers: l.all_peers(),
+            })
             .collect()
     }
 
@@ -306,7 +325,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // attributability. A peer can send us garbage blocks over blocks_by_root, and
                     // then correct blocks via blocks_by_range.
 
-                    self.drop_lookup_and_children(*lookup_id);
+                    self.drop_lookup_and_children(*lookup_id, "chain_too_long");
                 } else {
                     // Should never happen
                     error!(
@@ -379,7 +398,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
         // the risk of OOM in case of bugs of malicious activity.
-        if self.single_block_lookups.len() > MAX_LOOKUPS {
+        if self.single_block_lookups.len() >= MAX_LOOKUPS {
             warn!(?block_root, "Dropping lookup reached max");
             return false;
         }
@@ -414,6 +433,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "Created block lookup"
         );
         metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
+        self.metrics.created_lookups += 1;
 
         let result = lookup.continue_requests(cx);
         if self.on_lookup_result(id, result, "new_current_lookup", cx) {
@@ -513,8 +533,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        for (_, lookup) in self.single_block_lookups.iter_mut() {
+        for (id, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
+            if lookup.has_no_peers() {
+                debug!(%id, "Lookup has no peers");
+            }
         }
     }
 
@@ -566,7 +589,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..)) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..))
+            | BlockProcessingResult::Err(BlockError::GenesisBlock) => {
                 // Successfully imported
                 request_state.on_processing_success()?;
                 Action::Continue
@@ -747,6 +771,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let lookup_result = if imported {
             Ok(LookupResult::Completed)
         } else {
+            // A lookup may be in the following state:
+            // - Block awaiting processing from a different source
+            // - Blobs downloaded processed, and inserted into the da_checker
+            //
+            // At this point the block fails processing (e.g. execution engine offline) and it is
+            // removed from the da_checker. Note that ALL components are removed from the da_checker
+            // so when we re-download and process the block we get the error
+            // MissingComponentsAfterAllProcessed and get stuck.
+            lookup.reset_requests();
             lookup.continue_requests(cx)
         };
         let id = *id;
@@ -779,14 +812,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Drops `dropped_id` lookup and all its children recursively. Lookups awaiting a parent need
     /// the parent to make progress to resolve, therefore we must drop them if the parent is
     /// dropped.
-    pub fn drop_lookup_and_children(&mut self, dropped_id: SingleLookupId) {
+    pub fn drop_lookup_and_children(&mut self, dropped_id: SingleLookupId, reason: &'static str) {
         if let Some(dropped_lookup) = self.single_block_lookups.remove(&dropped_id) {
             debug!(
                 id = ?dropped_id,
                 block_root = ?dropped_lookup.block_root(),
                 awaiting_parent = ?dropped_lookup.awaiting_parent(),
+                reason,
                 "Dropping lookup"
             );
+            metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[reason]);
+            self.metrics.dropped_lookups += 1;
 
             let child_lookups = self
                 .single_block_lookups
@@ -796,7 +832,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .collect::<Vec<_>>();
 
             for id in child_lookups {
-                self.drop_lookup_and_children(id);
+                self.drop_lookup_and_children(id, reason);
             }
         }
     }
@@ -814,8 +850,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Ok(LookupResult::Pending) => true, // no action
             Ok(LookupResult::Completed) => {
                 if let Some(lookup) = self.single_block_lookups.remove(&id) {
-                    debug!(block = ?lookup.block_root(), id, "Dropping completed lookup");
+                    debug!(
+                        block = ?lookup.block_root(),
+                        id,
+                        "Dropping completed lookup"
+                    );
                     metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
+                    self.metrics.completed_lookups += 1;
                     // Block imported, continue the requests of pending child blocks
                     self.continue_child_lookups(lookup.block_root(), cx);
                     self.update_metrics();
@@ -829,8 +870,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(LookupRequestError::UnknownLookup) => false,
             Err(error) => {
                 debug!(id, source, ?error, "Dropping lookup on request error");
-                metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.into()]);
-                self.drop_lookup_and_children(id);
+                self.drop_lookup_and_children(id, error.into());
                 self.update_metrics();
                 false
             }
@@ -897,7 +937,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 %block_root,
                 "Dropping lookup with no peers"
             );
-            self.drop_lookup_and_children(lookup_id);
+            self.drop_lookup_and_children(lookup_id, "no_peers");
         }
     }
 
@@ -946,7 +986,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
 
             metrics::inc_counter(&metrics::SYNC_LOOKUPS_STUCK);
-            self.drop_lookup_and_children(ancestor_stuck_lookup.id);
+            self.drop_lookup_and_children(ancestor_stuck_lookup.id, "lookup_stuck");
         }
     }
 
@@ -1021,4 +1061,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Ok(())
         }
     }
+}
+
+#[derive(Default, Clone, Debug)]
+pub(crate) struct BlockLookupsMetrics {
+    pub created_lookups: usize,
+    pub dropped_lookups: usize,
+    pub completed_lookups: usize,
 }

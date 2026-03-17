@@ -6,6 +6,7 @@
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
+use crate::sync::batch::BatchMetricsState;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fnv::FnvHashMap;
@@ -17,6 +18,7 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 use tracing::{debug, error};
 use types::EthSpec;
 use types::{Epoch, Hash256, Slot};
@@ -41,6 +43,13 @@ pub enum RangeSyncState {
 pub type SyncChainStatus =
     Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str>;
 
+#[cfg(test)]
+#[derive(Default, Debug)]
+pub struct ChainCollectionMetrics {
+    pub chains_added: usize,
+    pub chains_removed: usize,
+}
+
 /// A collection of finalized and head chains currently being processed.
 pub struct ChainCollection<T: BeaconChainTypes> {
     /// The beacon chain for processing.
@@ -51,6 +60,9 @@ pub struct ChainCollection<T: BeaconChainTypes> {
     head_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The current sync state of the process.
     state: RangeSyncState,
+    #[cfg(test)]
+    /// Used for testing assertions
+    metrics: ChainCollectionMetrics,
 }
 
 impl<T: BeaconChainTypes> ChainCollection<T> {
@@ -60,12 +72,23 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             finalized_chains: FnvHashMap::default(),
             head_chains: FnvHashMap::default(),
             state: RangeSyncState::Idle,
+            #[cfg(test)]
+            metrics: <_>::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn metrics(&self) -> &ChainCollectionMetrics {
+        &self.metrics
     }
 
     /// Updates the Syncing state of the collection after a chain is removed.
     fn on_chain_removed(&mut self, id: &ChainId, was_syncing: bool, sync_type: RangeSyncType) {
         metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_REMOVED, &[sync_type.as_str()]);
+        #[cfg(test)]
+        {
+            self.metrics.chains_removed += 1;
+        }
         self.update_metrics();
 
         match self.state {
@@ -351,7 +374,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .iter()
             .map(|(id, chain)| (chain.available_peers(), !chain.is_syncing(), *id))
             .collect::<Vec<_>>();
-        preferred_ids.sort_unstable();
+        // Sort in descending order
+        preferred_ids.sort_unstable_by(|a, b| b.cmp(a));
 
         let mut syncing_chains = SmallVec::<[Id; PARALLEL_HEAD_CHAINS]>::new();
         for (_, _, id) in preferred_ids {
@@ -510,7 +534,30 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 );
                 collection.insert(id, new_chain);
                 metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_ADDED, &[sync_type.as_str()]);
+                #[cfg(test)]
+                {
+                    self.metrics.chains_added += 1;
+                }
                 self.update_metrics();
+            }
+        }
+    }
+
+    pub fn register_metrics(&self) {
+        for (sync_type, chains) in [
+            ("range_finalized", &self.finalized_chains),
+            ("range_head", &self.head_chains),
+        ] {
+            for state in BatchMetricsState::iter() {
+                let count: usize = chains
+                    .values()
+                    .map(|chain| chain.count_batches_in_state(state))
+                    .sum();
+                metrics::set_gauge_vec(
+                    &metrics::SYNCING_CHAIN_BATCHES,
+                    &[sync_type, state.into()],
+                    count as i64,
+                );
             }
         }
     }

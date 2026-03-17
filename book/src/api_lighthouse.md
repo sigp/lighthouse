@@ -590,60 +590,6 @@ Caveats:
   This is because the state *prior* to the `start_epoch` needs to be loaded from the database,
   and loading a state on a boundary is most efficient.
 
-## `/lighthouse/analysis/block_rewards`
-
-Fetch information about the block rewards paid to proposers for a range of consecutive blocks.
-
-Two query parameters are required:
-
-- `start_slot` (inclusive): the slot of the first block to compute rewards for.
-- `end_slot` (inclusive): the slot of the last block to compute rewards for.
-
-Example:
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=1" | jq
-```
-
-The first few lines of the response would look like:
-
-```json
-[
-  {
-    "total": 637260,
-    "block_root": "0x4a089c5e390bb98e66b27358f157df825128ea953cee9d191229c0bcf423a4f6",
-    "meta": {
-      "slot": "1",
-      "parent_slot": "0",
-      "proposer_index": 93,
-      "graffiti": "EF #vm-eth2-raw-iron-101"
-    },
-    "attestation_rewards": {
-      "total": 637260,
-      "prev_epoch_total": 0,
-      "curr_epoch_total": 637260,
-      "per_attestation_rewards": [
-        {
-          "50102": 780,
-        }
-      ]
-    }
-  }
-]
-```
-
-Caveats:
-
-- Presently only attestation and sync committee rewards are computed.
-- The output format is verbose and subject to change. Please see [`BlockReward`][block_reward_src]
-  in the source.
-- For maximum efficiency the `start_slot` should satisfy `start_slot % slots_per_restore_point == 1`.
-  This is because the state *prior* to the `start_slot` needs to be loaded from the database, and
-  loading a state on a boundary is most efficient.
-
-[block_reward_src]:
-https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
-
 ## `/lighthouse/analysis/block_packing`
 
 Fetch information about the block packing efficiency of blocks for a range of consecutive

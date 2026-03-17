@@ -462,6 +462,13 @@ pub static SYNCING_CHAIN_BATCH_AWAITING_PROCESSING: LazyLock<Result<Histogram>> 
             ]),
         )
     });
+pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "sync_batches",
+        "Number of batches in sync chains by sync type and state",
+        &["sync_type", "state"],
+    )
+});
 pub static SYNC_SINGLE_BLOCK_LOOKUPS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "sync_single_block_lookups",
@@ -505,6 +512,40 @@ pub static SYNC_UNKNOWN_NETWORK_REQUESTS: LazyLock<Result<IntCounterVec>> = Lazy
         "sync_unknwon_network_request",
         "Total count of network messages received for unknown active requests",
         &["type"],
+    )
+});
+pub static SYNC_RPC_REQUEST_SUCCESSES: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "sync_rpc_requests_success_total",
+        "Total count of sync RPC requests successes",
+        &["protocol"],
+    )
+});
+pub static SYNC_RPC_REQUEST_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "sync_rpc_requests_error_total",
+        "Total count of sync RPC requests errors",
+        &["protocol", "error"],
+    )
+});
+pub static SYNC_RPC_REQUEST_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec_with_buckets(
+        "sync_rpc_request_duration_sec",
+        "Time to complete a successful sync RPC requesst",
+        Ok(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 1.0, 2.0,
+        ]),
+        &["protocol"],
+    )
+});
+
+/*
+ * Execution Payload Envelope Delay Metrics
+ */
+pub static ENVELOPE_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "payload_envelope_delay_gossip",
+        "The first time we see this payload envelope from gossip as a delay from the start of the slot",
     )
 });
 
