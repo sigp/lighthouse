@@ -552,6 +552,13 @@ impl ProtoArray {
                 PayloadStatus::Full
             };
 
+            // Per spec `get_forkchoice_store`: the anchor (genesis) block has
+            // its payload state initialized (`payload_states = {anchor_root: ...}`).
+            // Without `payload_received = true` on genesis, the FULL virtual
+            // child doesn't exist in the spec's `get_node_children`, making all
+            // Full concrete children of genesis unreachable in `get_head`.
+            let is_genesis = parent_index.is_none();
+
             ProtoNode::V29(ProtoNodeV29 {
                 slot: block.slot,
                 root: block.root,
@@ -573,7 +580,7 @@ impl ProtoArray {
                 execution_payload_block_hash,
                 payload_timeliness_votes: BitVector::default(),
                 payload_data_availability_votes: BitVector::default(),
-                payload_received: false,
+                payload_received: is_genesis,
             })
         };
 
@@ -1120,6 +1127,18 @@ impl ProtoArray {
         );
         let no_change = (parent.best_child(), parent.best_descendant());
 
+        // For V29 (GLOAS) parents, the spec's virtual tree model requires choosing
+        // FULL or EMPTY direction at each node BEFORE considering concrete children.
+        // Only children whose parent_payload_status matches the preferred direction
+        // are eligible for best_child. This is PRIMARY, not a tiebreaker.
+        let child_matches_dir = child_matches_parent_payload_preference(
+            parent,
+            child,
+            current_slot,
+            E::ptc_size(),
+            proposer_boost,
+        );
+
         let (new_best_child, new_best_descendant) =
             if let Some(best_child_index) = parent.best_child() {
                 if best_child_index == child_index && !child_leads_to_viable_head {
@@ -1143,6 +1162,14 @@ impl ProtoArray {
                         best_finalized_checkpoint,
                     )?;
 
+                    let best_child_matches_dir = child_matches_parent_payload_preference(
+                        parent,
+                        best_child,
+                        current_slot,
+                        E::ptc_size(),
+                        proposer_boost,
+                    );
+
                     if child_leads_to_viable_head && !best_child_leads_to_viable_head {
                         // The child leads to a viable head, but the current best-child doesn't.
                         change_to_child
@@ -1150,49 +1177,27 @@ impl ProtoArray {
                         // The best child leads to a viable head, but the child doesn't.
                         no_change
                     } else if child.weight() > best_child.weight() {
-                        // Weight is the primary ordering criterion.
+                        // Weight is the primary selector after viability.
                         change_to_child
                     } else if child.weight() < best_child.weight() {
                         no_change
+                    } else if child_matches_dir && !best_child_matches_dir {
+                        // Equal weight: direction matching is the tiebreaker.
+                        change_to_child
+                    } else if !child_matches_dir && best_child_matches_dir {
+                        no_change
+                    } else if *child.root() >= *best_child.root() {
+                        // Final tie-breaker: break by root hash.
+                        change_to_child
                     } else {
-                        // Equal weights: for V29 parents, prefer the child whose
-                        // parent_payload_status matches the parent's payload preference
-                        // (full vs empty). This corresponds to the spec's
-                        // `get_payload_status_tiebreaker` ordering in `get_head`.
-                        let child_matches = child_matches_parent_payload_preference(
-                            parent,
-                            child,
-                            current_slot,
-                            E::ptc_size(),
-                            proposer_boost,
-                        );
-                        let best_child_matches = child_matches_parent_payload_preference(
-                            parent,
-                            best_child,
-                            current_slot,
-                            E::ptc_size(),
-                            proposer_boost,
-                        );
-
-                        if child_matches && !best_child_matches {
-                            // Child extends the preferred payload chain, best_child doesn't.
-                            change_to_child
-                        } else if !child_matches && best_child_matches {
-                            // Best child extends the preferred payload chain, child doesn't.
-                            no_change
-                        } else if *child.root() >= *best_child.root() {
-                            // Final tie-breaker: both match or both don't, break by root.
-                            change_to_child
-                        } else {
-                            no_change
-                        }
+                        no_change
                     }
                 }
             } else if child_leads_to_viable_head {
-                // There is no current best-child and the child is viable.
+                // No current best-child: set if child is viable.
                 change_to_child
             } else {
-                // There is no current best-child but the child is not viable.
+                // Child is not viable.
                 no_change
             };
 
