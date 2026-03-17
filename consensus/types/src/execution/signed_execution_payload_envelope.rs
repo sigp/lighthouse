@@ -8,7 +8,7 @@ use bls::{PublicKey, Signature};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
-use ssz::{BYTES_PER_LENGTH_OFFSET, Encode as SszEncode};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -26,7 +26,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     /// Returns the minimum SSZ-encoded size (all variable-length fields empty).
     pub fn min_size() -> usize {
         Self {
-            message: ExecutionPayloadEnvelope::default(),
+            message: ExecutionPayloadEnvelope::empty(),
             signature: Signature::empty(),
         }
         .as_ssz_bytes()
@@ -36,21 +36,9 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     /// Returns the maximum SSZ-encoded size.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn max_size() -> usize {
-        // Start from the min size (all variable-length fields empty)
-        Self::min_size()
-            // ExecutionPayloadGloas variable-length fields:
-            + (E::max_extra_data_bytes() * <u8 as SszEncode>::ssz_fixed_len())
-            + (E::max_transactions_per_payload()
-                * (BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            + (E::max_withdrawals_per_payload()
-                * <crate::Withdrawal as SszEncode>::ssz_fixed_len())
-            // ExecutionRequests variable-length fields:
-            + (E::max_deposit_requests_per_payload()
-                * <crate::DepositRequest as SszEncode>::ssz_fixed_len())
-            + (E::max_withdrawal_requests_per_payload()
-                * <crate::WithdrawalRequest as SszEncode>::ssz_fixed_len())
-            + (E::max_consolidation_requests_per_payload()
-                * <crate::ConsolidationRequest as SszEncode>::ssz_fixed_len())
+        // Signature is fixed-size, so the variable-length delta is entirely from the envelope.
+        Self::min_size() + ExecutionPayloadEnvelope::<E>::max_size()
+            - ExecutionPayloadEnvelope::<E>::min_size()
     }
 
     pub fn slot(&self) -> Slot {
