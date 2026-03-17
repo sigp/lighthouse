@@ -38,7 +38,7 @@ fn roots(chain: &[SlotEntry]) -> Vec<Hash256> {
     chain.iter().map(|s| s.block_root).collect()
 }
 
-/// Build test chain data. Deterministic roots are used (no real block construction needed).
+/// Build test chain data.
 fn build_chain(
     num_slots: u64,
     skipped_slots: &[u64],
@@ -117,8 +117,6 @@ fn mock_canonical_head(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &
     mock.expect_block_has_canonical_payload()
         .returning(move |root| Ok(!non_canonical.contains(root)));
 }
-
-// ── Assertion helpers ──
 
 fn unwrap_result(
     result: &Arc<PayloadEnvelopeResult<E>>,

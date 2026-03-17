@@ -68,7 +68,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             Ok(Some(cached_envelope))
         } else {
             // TODO(gloas) we'll want to use the execution layer directly to call
-            //  the engine api method eth_getBlockByHash()
+            //  the engine api method eth_getPayloadBodiesByRange()
             match self.adapter.get_payload_envelope(beacon_block_root) {
                 Ok(opt_envelope) => Ok(opt_envelope.map(Arc::new)),
                 Err(e) => Err(BeaconChainError::DBError(e)),
