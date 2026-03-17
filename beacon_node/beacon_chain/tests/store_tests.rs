@@ -5599,6 +5599,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
             "slot = {slot}"
         );
     }
+    check_db_invariants(&harness);
 }
 
 /// Test that Pending and Full states have the correct payload status through round-trip
@@ -5666,6 +5667,7 @@ async fn test_gloas_state_payload_status() {
 
         state = full_state;
     }
+    check_db_invariants(&harness);
 }
 
 /// Test block replay with and without envelopes.
@@ -5805,6 +5807,7 @@ async fn test_gloas_block_replay_with_envelopes() {
         replayed_full, expected_full,
         "replayed full state should match stored full state"
     );
+    check_db_invariants(&harness);
 }
 
 /// Test the hot state hierarchy with Full states stored as ReplayFrom.
@@ -5886,6 +5889,7 @@ async fn test_gloas_hot_state_hierarchy() {
     // Verify chain dump and iterators work with Gloas states.
     check_chain_dump(&harness, num_blocks + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
