@@ -1940,6 +1940,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             {
                 if block.as_block().is_parent_block_full(parent_bid_block_hash) {
                     // TODO(gloas): loading the envelope here is not very efficient
+                    // TODO(gloas): check parent payload existence prior to this point?
                     let envelope = chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
                         BeaconChainError::DBInconsistent(format!(
                             "Missing envelope for parent block {root:?}",
