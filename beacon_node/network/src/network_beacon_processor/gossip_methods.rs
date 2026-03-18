@@ -1296,7 +1296,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .chain
                 .data_availability_checker
                 .partial_assembler()
-                .mark_as_complete(block_root, col)
+                .is_some_and(|a| a.mark_as_complete(block_root, col))
         {
             metrics::inc_counter_vec(
                 &metrics::BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL,

@@ -330,7 +330,9 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     }
 
     // Initialize the partial assembler with the columns from the engine
-    let assembler = chain_adapter.partial_assembler();
+    let Some(assembler) = chain_adapter.partial_assembler() else {
+        return Ok(None);
+    };
     let merge_result = assembler
         .merge_partials(block_root, custody_columns_to_import, header)
         .ok_or_else(|| {

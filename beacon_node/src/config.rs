@@ -110,6 +110,11 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
+    if parse_flag(cli_args, "enable-partial-columns") {
+        client_config.network.enable_partial_columns = true;
+        client_config.chain.enable_partial_columns = true;
+    }
+
     // Parse custody mode from CLI flags
     let is_supernode = parse_flag(cli_args, "supernode");
     let is_semi_supernode = parse_flag(cli_args, "semi-supernode");
@@ -1485,10 +1490,6 @@ pub fn set_network_config(
                     idontwant_message_size_threshold
                 )
             })?;
-    }
-
-    if parse_flag(cli_args, "enable-partial-columns") {
-        config.enable_partial_columns = true;
     }
 
     Ok(())

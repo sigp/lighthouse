@@ -79,7 +79,7 @@ const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
-    partial_assembler: Arc<PartialDataColumnAssembler<T::EthSpec>>,
+    partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
     custody_context: Arc<CustodyContext<T::EthSpec>>,
@@ -122,15 +122,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         kzg: Arc<Kzg>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
+        enable_partial_columns: bool,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY_NON_ZERO,
             custody_context.clone(),
             spec.clone(),
         )?;
-        let partial_assembler = Arc::new(PartialDataColumnAssembler::new(
-            OVERFLOW_LRU_CAPACITY_NON_ZERO,
-        ));
+        let partial_assembler = if enable_partial_columns {
+            Some(Arc::new(PartialDataColumnAssembler::new(
+                OVERFLOW_LRU_CAPACITY_NON_ZERO,
+            )))
+        } else {
+            None
+        };
         Ok(Self {
             complete_blob_backfill,
             partial_assembler,
@@ -146,8 +151,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self.custody_context
     }
 
-    pub fn partial_assembler(&self) -> &Arc<PartialDataColumnAssembler<T::EthSpec>> {
-        &self.partial_assembler
+    pub fn partial_assembler(&self) -> Option<&Arc<PartialDataColumnAssembler<T::EthSpec>>> {
+        self.partial_assembler.as_ref()
     }
 
     /// Checks if the block root is currently in the availability cache awaiting import because
@@ -206,16 +211,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         // Check assembler for partial columns
-        match self.partial_assembler.get_partial(block_root, column_index) {
-            Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                // Compare: find which cells from incoming full column aren't in cached partial
-                compare_full_to_partial(cell_count, cached_partial.as_data_column())
+        if let Some(assembler) = &self.partial_assembler {
+            match assembler.get_partial(block_root, column_index) {
+                Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                    // Compare: find which cells from incoming full column aren't in cached partial
+                    compare_full_to_partial(cell_count, cached_partial.as_data_column())
+                }
+                Some(AssemblyColumn::Complete) => Some(vec![]),
+                None => {
+                    // No cached data, all cells are "missing" (new data we want)
+                    Some((0..cell_count).collect())
+                }
             }
-            Some(AssemblyColumn::Complete) => Some(vec![]),
-            None => {
-                // No cached data, all cells are "missing" (new data we want)
-                Some((0..cell_count).collect())
-            }
+        } else {
+            // No assembler, all cells are missing
+            Some((0..cell_count).collect())
         }
     }
 
@@ -242,24 +252,29 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         // Check assembler for partial columns
-        match self.partial_assembler.get_partial(block_root, column_index) {
-            Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                // Compare: find which cells from incoming full column aren't in cached partial
-                compare_partial_to_partial(data_column, cached_partial.as_data_column())
-            }
-            Some(AssemblyColumn::Complete) => Some(vec![]),
-            None => {
-                // No cached data, return all present cells as "missing" (new data we want)
-                let incoming_cells: Vec<usize> = data_column
-                    .sidecar
-                    .cells_present_bitmap
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, present)| present.then_some(idx))
-                    .collect();
-                Some(incoming_cells)
+        if let Some(assembler) = &self.partial_assembler {
+            match assembler.get_partial(block_root, column_index) {
+                Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                    // Compare: find which cells from incoming full column aren't in cached partial
+                    return compare_partial_to_partial(
+                        data_column,
+                        cached_partial.as_data_column(),
+                    );
+                }
+                Some(AssemblyColumn::Complete) => return Some(vec![]),
+                None => {}
             }
         }
+
+        // No assembler or no data, return all cells as missing
+        let incoming_cells: Vec<usize> = data_column
+            .sidecar
+            .cells_present_bitmap
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, present)| present.then_some(idx))
+            .collect();
+        Some(incoming_cells)
     }
 
     /// Get a blob from the availability cache.
@@ -417,9 +432,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let block = executed_block.as_block();
-        if let Ok(header) = block.try_into() {
-            self.partial_assembler
-                .init(block.canonical_root(), Arc::new(header));
+        if let Some(assembler) = &self.partial_assembler
+            && let Ok(header) = block.try_into()
+        {
+            assembler.init(block.canonical_root(), Arc::new(header));
         }
         self.availability_cache.put_executed_block(executed_block)
     }
@@ -432,8 +448,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: BlockImportSource,
     ) -> Result<(), Error> {
-        if let Ok(header) = block.as_ref().try_into() {
-            self.partial_assembler.init(block_root, Arc::new(header));
+        if let Some(assembler) = &self.partial_assembler
+            && let Ok(header) = block.as_ref().try_into()
+        {
+            assembler.init(block_root, Arc::new(header));
         }
         self.availability_cache
             .put_pre_execution_block(block_root, block, source)
@@ -670,7 +688,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
 async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
-    partial_assembler: Arc<PartialDataColumnAssembler<T::EthSpec>>,
+    partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
 ) {
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
@@ -722,7 +740,9 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
                     error!(error = ?e,"Failed to maintain availability cache");
                 }
-                partial_assembler.do_maintenance(cutoff_epoch);
+                if let Some(assembler) = &partial_assembler {
+                    assembler.do_maintenance(cutoff_epoch);
+                }
             }
             None => {
                 error!("Failed to read slot clock");
@@ -1409,6 +1429,7 @@ mod test {
             kzg,
             custody_context,
             spec,
+            true,
         )
         .expect("should initialise data availability checker")
     }

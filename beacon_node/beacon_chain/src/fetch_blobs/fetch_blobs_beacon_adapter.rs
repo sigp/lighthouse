@@ -1,5 +1,6 @@
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
 use crate::observed_data_sidecars::ObservationKey;
+use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
 use kzg::Kzg;
@@ -35,10 +36,11 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         &self.chain.task_executor
     }
 
-    pub(crate) fn partial_assembler(
-        &self,
-    ) -> &Arc<crate::partial_data_column_assembler::PartialDataColumnAssembler<T::EthSpec>> {
-        self.chain.data_availability_checker.partial_assembler()
+    pub(crate) fn partial_assembler(&self) -> Option<Arc<PartialDataColumnAssembler<T::EthSpec>>> {
+        self.chain
+            .data_availability_checker
+            .partial_assembler()
+            .cloned()
     }
 
     pub(crate) async fn get_blobs_v1(

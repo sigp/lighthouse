@@ -239,6 +239,7 @@ pub fn test_da_checker<E: EthSpec>(
         kzg,
         custody_context,
         spec,
+        true,
     )
     .expect("should initialise data availability checker")
 }

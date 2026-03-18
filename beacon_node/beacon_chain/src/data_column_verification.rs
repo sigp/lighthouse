@@ -484,7 +484,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         let newly_cached = chain
             .data_availability_checker
             .partial_assembler()
-            .init(group_id, header.clone());
+            .is_some_and(|a| a.init(group_id, header.clone()));
 
         chain
             .observed_slashable
@@ -809,7 +809,7 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
         let Some(header) = chain
             .data_availability_checker
             .partial_assembler()
-            .get_header(&column.block_root)
+            .and_then(|a| a.get_header(&column.block_root))
         else {
             return PartialColumnVerificationResult::Err(
                 GossipPartialDataColumnError::MissingHeader,

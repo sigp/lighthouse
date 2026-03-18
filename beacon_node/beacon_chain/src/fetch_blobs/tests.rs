@@ -627,6 +627,6 @@ fn mock_beacon_adapter(fork_name: ForkName, get_blobs_v3: bool) -> MockFetchBlob
         .returning(move || Ok(get_blobs_v3));
     mock_adapter
         .expect_partial_assembler()
-        .return_const(Arc::new(partial_assembler));
+        .return_const(Some(Arc::new(partial_assembler)));
     mock_adapter
 }

@@ -2257,7 +2257,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(cached_header) = self
             .data_availability_checker
             .partial_assembler()
-            .get_header(&block_root)
+            .and_then(|a| a.get_header(&block_root))
         {
             return if *cached_header == data_column_header {
                 metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES);
@@ -3212,10 +3212,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
+        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+            // Partial messages are apparently not activated
+            return Ok(None);
+        };
+
         // Merge the partial into the assembler
-        let merge_result = self
-            .data_availability_checker
-            .partial_assembler()
+        let merge_result = assembler
             .merge_partials(
                 block_root,
                 vec![verified_partial],
