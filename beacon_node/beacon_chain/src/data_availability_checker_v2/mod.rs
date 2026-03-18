@@ -14,8 +14,8 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    SignedExecutionPayloadBid, Slot,
+    BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, Slot,
 };
 
 mod payload_envelope_cache;
@@ -48,6 +48,16 @@ pub type AvailableData<E> = (Hash256, DataColumnSidecarList<E>);
 pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
     Available(Box<AvailableExecutedEnvelope<E>>),
+}
+
+pub enum PayloadEnvelopeProcessingStatus<E: EthSpec> {
+    /// Envelope is not in any pre-import cache. Envelope may be in the data-base or in the fork-choice.
+    Unknown,
+    /// Envelope is currently processing but not yet validated.
+    NotValidated(Arc<SignedExecutionPayloadEnvelope<E>>, BlockImportSource),
+    /// Envelope is fully valid, but not yet imported. It's cached in the da_checker while awaiting
+    /// missing envelope components.
+    ExecutionValidated(Arc<SignedExecutionPayloadEnvelope<E>>),
 }
 
 impl<E: EthSpec> Debug for Availability<E> {
@@ -146,6 +156,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     cached_column_opt.is_some_and(|cached| *cached == *data_column)
                 })
             })
+    }
+
+    pub fn put_pre_executed_payload_envelope(
+        &self,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        source: BlockImportSource,
+    ) -> Result<(), AvailabilityCheckError> {
+        self.availability_cache
+            .put_pre_executed_payload_envelope(envelope, source)
     }
 
     /// Insert RPC custody columns and check if the payload becomes available.

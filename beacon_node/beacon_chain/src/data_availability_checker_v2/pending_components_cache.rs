@@ -2,6 +2,7 @@ use crate::BeaconChainTypes;
 use crate::CustodyContext;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::data_availability_checker_v2::Availability;
+use crate::data_availability_checker_v2::PayloadEnvelopeProcessingStatus;
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
 use crate::payload_envelope_verification::AvailableEnvelope;
@@ -42,6 +43,7 @@ pub struct PendingComponents<E: EthSpec> {
 }
 
 impl<E: EthSpec> PendingComponents<E> {
+
     /// Returns an immutable reference to the cached data column.
     pub fn get_cached_data_column(
         &self,
@@ -80,7 +82,7 @@ impl<E: EthSpec> PendingComponents<E> {
         self.bid = Some(bid);
     }
 
-    pub fn insert_pending_executed_envelope(
+    pub fn insert_pre_executed_envelope(
         &mut self,
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         import_source: BlockImportSource,
@@ -249,6 +251,24 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         })
     }
 
+    /// Returns the envelope processing status for the given `block_root`. A `None` response indicates that
+    /// the envelope has not yet been inserted into the cache.
+    pub fn get_envelope_processing_status(&self, block_root: &Hash256) -> Option<PayloadEnvelopeProcessingStatus<T::EthSpec>> {
+        self.critical
+            .read()
+            .peek(block_root)
+            .and_then(|pending_components| {
+                pending_components.envelope.as_ref().map(|envelope| match envelope {
+                    CachedPayloadEnvelope::PreExecution(e, source) => {
+                        PayloadEnvelopeProcessingStatus::NotValidated(e.clone(), *source)
+                    }
+                    CachedPayloadEnvelope::Executed(e) => {
+                        PayloadEnvelopeProcessingStatus::ExecutionValidated(e.envelope.clone())
+                    }
+                })
+            })
+    }
+
     /// Fetch data columns of a given `block_root` from the cache without affecting the LRU ordering
     pub fn peek_data_columns(
         &self,
@@ -299,6 +319,43 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         });
 
         self.check_availability(block_root, pending_components, num_expected_columns)
+    }
+
+    pub fn put_pre_executed_payload_envelope(
+        &self,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        source: BlockImportSource,
+    ) -> Result<(), AvailabilityCheckError> {
+        let epoch = envelope.epoch();
+        let beacon_block_root = envelope.beacon_block_root();
+        let pending_components =
+            self.update_or_insert_pending_components(beacon_block_root, |pending_components| {
+                pending_components.insert_pre_executed_envelope(envelope, source);
+                Ok(())
+            })?;
+
+        let num_expected_columns_opt = self.get_num_expected_columns(epoch);
+
+        pending_components.span.in_scope(|| {
+            debug!(
+                component = "pre executed payload envelope",
+                status = pending_components.status_str(num_expected_columns_opt),
+                "Component added to data availability checker"
+            );
+        });
+
+        Ok(())
+    }
+
+    /// Removes a pre-executed envelope from the cache.
+    /// This does NOT remove an existing executed envelope.
+    pub fn remove_pre_executed_envelope(&self, block_root: &Hash256) {
+        // The read lock is immediately dropped so we can safely remove the envelope from the cache.
+        if let Some(PayloadEnvelopeProcessingStatus::NotValidated(_, _)) = self.get_envelope_processing_status(block_root) {
+            // If the envelope is execution invalid, this status is permanent and idempotent to this
+            // block_root. We drop its components (e.g. columns) because they will never be useful.
+            self.critical.write().pop(block_root);
+        }
     }
 
     #[allow(clippy::type_complexity)]

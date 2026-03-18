@@ -39,6 +39,7 @@ pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
 
+use crate::data_availability_checker::AvailabilityCheckError;
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -221,6 +222,9 @@ pub enum EnvelopeError {
     ExecutionPayloadError(ExecutionPayloadError),
     /// An error from block-level checks reused during envelope import
     BlockError(BlockError),
+    /// The envelope satisfied all validity conditions except consistency
+    /// with the corresponding columns that we received over gossip/rpc.
+    AvailabilityCheck(AvailabilityCheckError),
     /// Internal error
     InternalError(String),
 }
@@ -261,7 +265,12 @@ impl From<BlockError> for EnvelopeError {
     }
 }
 
-/// Pull errors up from EnvelopeProcessingError to EnvelopeError
+impl From<AvailabilityCheckError> for EnvelopeError {
+    fn from(e: AvailabilityCheckError) -> Self {
+        EnvelopeError::AvailabilityCheck(e)
+    }
+}
+
 impl From<EnvelopeProcessingError> for EnvelopeError {
     fn from(e: EnvelopeProcessingError) -> Self {
         match e {

@@ -27,13 +27,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given payload envelope was invalid, or an error was encountered during
     /// verification.
-    #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source))]
+    #[instrument(skip_all, fields(block_root = ?block_root, envelope_source = %envelope_source))]
     pub async fn process_execution_payload_envelope(
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_envelope: GossipVerifiedEnvelope<T>,
         notify_execution_layer: NotifyExecutionLayer,
-        block_source: BlockImportSource,
+        envelope_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         let block_slot = unverified_envelope.signed_envelope.slot();
@@ -49,7 +49,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // TODO(gloas) insert the pre-executed envelope into some type of cache.
+        self.data_availability_checker
+            .v2()
+            .put_pre_executed_payload_envelope(
+                unverified_envelope.envelope_cloned(),
+                envelope_source,
+            )?;
 
         let _full_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_TIMES);
 
@@ -79,11 +84,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .into_executed_payload_envelope(execution_pending)
                 .await
                 .inspect_err(|_| {
-                    // TODO(gloas) If the envelope fails execution for whatever reason (e.g. engine offline),
+                    // If the envelope fails execution for whatever reason (e.g. engine offline),
                     // and we keep it in the cache, then the node will NOT perform lookup and
-                    // reprocess this block until the block is evicted from DA checker, causing the
-                    // chain to get stuck temporarily if the block is canonical. Therefore we remove
+                    // reprocess this envelope until the envelope is evicted from DA checker, causing the
+                    // chain to get stuck temporarily if the envelope is canonical. Therefore we remove
                     // it from the cache if execution fails.
+                    // self.data_availability_checker.v2().remove_pre_executed_envelop(block_root);
                 })?;
 
             // Record the time it took to wait for execution layer verification.
@@ -111,7 +117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 info!(
                     ?block_root,
                     %block_slot,
-                    source = %block_source,
+                    source = %envelope_source,
                     "Execution payload envelope imported"
                 );
 
