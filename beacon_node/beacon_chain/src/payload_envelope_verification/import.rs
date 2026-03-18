@@ -1,16 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use fork_choice::PayloadVerificationStatus;
-use slot_clock::SlotClock;
-use store::StoreOp;
-use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BeaconState, BlockImportSource, Hash256, Slot};
-
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
     ExecutedEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope,
 };
+use crate::data_availability_checker_v2::Availability as PayloadAvailability;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
     NotifyExecutionLayer,
@@ -22,6 +17,11 @@ use crate::{
     },
     validator_monitor::get_slot_delay_ms,
 };
+use fork_choice::PayloadVerificationStatus;
+use slot_clock::SlotClock;
+use store::StoreOp;
+use tracing::{debug, error, info, info_span, instrument, warn};
+use types::{BeaconState, BlockImportSource, Hash256, Slot};
 
 const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u32 = 64;
 
@@ -161,6 +161,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Imports a fully available payload envelope. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`
+    ///
+    /// An error is returned if the enveope was unable to be imported. It may be partially imported
+    /// (i.e., this function is not atomic).
+    async fn process_payload_envelope_availability(
+        self: &Arc<Self>,
+        slot: Slot,
+        availability: AvailabilityOutcome<T::EthSpec>,
+        publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
+    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+        match availability {
+            AvailabilityOutcome::Block(_) => {
+                return Err(EnvelopeError::InternalError("Received a block availability outcome variant when a payload envelope variant was expected".to_string()))
+            }
+            AvailabilityOutcome::Payload(availability) => match availability {
+                PayloadAvailability::Available(available_envelope) => {
+                    publish_fn()?;
+
+                    // Payload envelope is fully available
+                    self.import_available_execution_payload_envelope(available_envelope)
+                        .await
+                }
+                PayloadAvailability::MissingComponents(block_root) => Ok(
+                    AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+                ),
+            },
+        }
+    }
+
     /// Checks if the payload envelope is available, and imports immediately if so, otherwise caches the envelope
     /// in the data availability checker.
     #[instrument(skip_all)]
@@ -174,9 +203,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .v2()
                 .put_executed_payload_envelope(envelope)?,
         );
-        self.process_availability(slot, availability, || Ok(()))
+        self.process_payload_envelope_availability(slot, availability, || Ok(()))
             .await
-            .map_err(EnvelopeError::BlockError)
     }
 
     /// Accepts a fully-verified payload envelope and awaits on its payload verification handle to

@@ -20,7 +20,6 @@ use types::{
     Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, Slot,
 };
 
-mod payload_envelope_cache;
 mod pending_components_cache;
 
 use crate::data_column_verification::{

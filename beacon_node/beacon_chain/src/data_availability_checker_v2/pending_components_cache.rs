@@ -81,7 +81,7 @@ impl<E: EthSpec> PendingComponents<E> {
         self.bid = Some(bid);
     }
 
-    pub fn insert_executed_paylaod_envelope(
+    pub fn insert_executed_payload_envelope(
         &mut self,
         envelope: AvailabilityPendingExecutedEnvelope<E>,
     ) {
@@ -94,14 +94,6 @@ impl<E: EthSpec> PendingComponents<E> {
         import_source: BlockImportSource,
     ) {
         self.envelope = Some(CachedPayloadEnvelope::PreExecution(envelope, import_source))
-    }
-
-    /// Inserts an executed payload envelope into the cache.
-    pub fn insert_executed_payload_envelope(
-        &mut self,
-        envelope: AvailabilityPendingExecutedEnvelope<E>,
-    ) {
-        self.envelope = Some(CachedPayloadEnvelope::Executed(Box::new(envelope)))
     }
 
     /// Returns the number of blobs expected by reading the bid's kzg commitments.

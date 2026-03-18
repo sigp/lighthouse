@@ -322,12 +322,6 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
-    /// An error occurred while processing a payload envelope.
-    ///
-    /// ## Peer scoring
-    ///
-    /// Peer scoring depends on the inner `EnvelopeError`.
-    EnvelopeError(EnvelopeError),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -344,12 +338,6 @@ pub enum InvalidSignature {
 impl From<AvailabilityCheckError> for BlockError {
     fn from(e: AvailabilityCheckError) -> Self {
         Self::AvailabilityCheck(e)
-    }
-}
-
-impl From<EnvelopeError> for BlockError {
-    fn from(e: EnvelopeError) -> Self {
-        Self::EnvelopeError(e)
     }
 }
 
