@@ -3779,7 +3779,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
-    async fn process_availability(
+    pub(crate) async fn process_availability(
         self: &Arc<Self>,
         slot: Slot,
         availability: AvailabilityOutcome<T::EthSpec>,
@@ -3801,16 +3801,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             AvailabilityOutcome::Payload(availability) => match availability {
                 PayloadAvailability::Available(available_envelope) => {
                     // TODO(gloas) execution publish_fn
-                    // publish_fn()?;
+                    publish_fn()?;
 
                     // Payload envelope is fully available
-                    let res = self
-                        .import_available_execution_payload_envelope(available_envelope)
+                    self.import_available_execution_payload_envelope(available_envelope)
                         .await
-                        .unwrap();
-
-                    // TODO(gloas) unwrap
-                    Ok(res)
+                        .map_err(BlockError::from)
                 }
                 PayloadAvailability::MissingComponents(block_root) => Ok(
                     AvailabilityProcessingStatus::MissingComponents(slot, block_root),

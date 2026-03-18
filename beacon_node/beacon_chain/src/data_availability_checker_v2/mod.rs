@@ -3,7 +3,9 @@ use crate::data_availability_checker_v2::pending_components_cache::{
 };
 
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::payload_envelope_verification::AvailableExecutedEnvelope;
+use crate::payload_envelope_verification::{
+    AvailabilityPendingExecutedEnvelope, AvailableExecutedEnvelope,
+};
 use crate::{BeaconChain, BeaconChainTypes, CustodyContext, metrics};
 use kzg::Kzg;
 use slot_clock::SlotClock;
@@ -12,7 +14,7 @@ use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, trace};
 use types::{
     BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, Slot,
@@ -158,6 +160,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
+    pub fn put_executed_payload_envelope(
+        &self,
+        executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache
+            .put_executed_payload_envelope(executed_envelope)
+    }
+
     pub fn put_pre_executed_payload_envelope(
         &self,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
@@ -167,10 +177,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pre_executed_payload_envelope(envelope, source)
     }
 
-    pub fn remove_pre_executed_payload_envelope(
-        &self,
-        block_root: &Hash256,
-    ) {
+    pub fn remove_pre_executed_payload_envelope(&self, block_root: &Hash256) {
         self.availability_cache
             .remove_pre_executed_envelope(block_root);
     }
@@ -373,7 +380,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
             "availability_cache_service",
         );
     } else {
-        debug!("Gloas fork not configured, not starting availability cache maintenance service");
+        trace!("Gloas fork not configured, not starting availability cache maintenance service");
     }
 }
 

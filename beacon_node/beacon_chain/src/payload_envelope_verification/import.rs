@@ -13,8 +13,14 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
-    NotifyExecutionLayer, block_verification_types::AvailableBlockData, metrics,
-    payload_envelope_verification::ExecutionPendingEnvelope, validator_monitor::get_slot_delay_ms,
+    NotifyExecutionLayer,
+    block_verification_types::AvailableBlockData,
+    data_availability_router::AvailabilityOutcome,
+    metrics,
+    payload_envelope_verification::{
+        AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
+    },
+    validator_monitor::get_slot_delay_ms,
 };
 
 const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u32 = 64;
@@ -89,7 +95,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // reprocess this envelope until the envelope is evicted from DA checker, causing the
                     // chain to get stuck temporarily if the envelope is canonical. Therefore we remove
                     // it from the cache if execution fails.
-                    // self.data_availability_checker.v2().remove_pre_executed_envelop(block_root);
+                    self.data_availability_checker
+                        .v2()
+                        .remove_pre_executed_payload_envelope(&block_root);
                 })?;
 
             // Record the time it took to wait for execution layer verification.
@@ -104,9 +112,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.import_available_execution_payload_envelope(Box::new(envelope))
                         .await
                 }
-                ExecutedEnvelope::AvailabilityPending() => Err(EnvelopeError::InternalError(
-                    "Pending payload envelope not yet implemented".to_owned(),
-                )),
+                ExecutedEnvelope::AvailabilityPending(envelope) => {
+                    self.check_envelope_availability_and_import(envelope).await
+                }
             }
         };
 
@@ -151,6 +159,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(other)
             }
         }
+    }
+
+    /// Checks if the payload envelope is available, and imports immediately if so, otherwise caches the envelope
+    /// in the data availability checker.
+    #[instrument(skip_all)]
+    async fn check_envelope_availability_and_import(
+        self: &Arc<Self>,
+        envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+        let slot = envelope.envelope.slot();
+        let availability = AvailabilityOutcome::Payload(
+            self.data_availability_checker
+                .v2()
+                .put_executed_payload_envelope(envelope)?,
+        );
+        self.process_availability(slot, availability, || Ok(()))
+            .await
+            .map_err(EnvelopeError::BlockError)
     }
 
     /// Accepts a fully-verified payload envelope and awaits on its payload verification handle to

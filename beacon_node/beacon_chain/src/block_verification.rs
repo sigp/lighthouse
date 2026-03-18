@@ -60,6 +60,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::EnvelopeError;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -321,6 +322,12 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// An error occurred while processing a payload envelope.
+    ///
+    /// ## Peer scoring
+    ///
+    /// Peer scoring depends on the inner `EnvelopeError`.
+    EnvelopeError(EnvelopeError),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -337,6 +344,12 @@ pub enum InvalidSignature {
 impl From<AvailabilityCheckError> for BlockError {
     fn from(e: AvailabilityCheckError) -> Self {
         Self::AvailabilityCheck(e)
+    }
+}
+
+impl From<EnvelopeError> for BlockError {
+    fn from(e: EnvelopeError) -> Self {
+        Self::EnvelopeError(e)
     }
 }
 

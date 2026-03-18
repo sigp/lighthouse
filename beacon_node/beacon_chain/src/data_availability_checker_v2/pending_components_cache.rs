@@ -43,7 +43,6 @@ pub struct PendingComponents<E: EthSpec> {
 }
 
 impl<E: EthSpec> PendingComponents<E> {
-
     /// Returns an immutable reference to the cached data column.
     pub fn get_cached_data_column(
         &self,
@@ -82,7 +81,14 @@ impl<E: EthSpec> PendingComponents<E> {
         self.bid = Some(bid);
     }
 
-    pub fn insert_pre_executed_envelope(
+    pub fn insert_executed_paylaod_envelope(
+        &mut self,
+        envelope: AvailabilityPendingExecutedEnvelope<E>,
+    ) {
+        self.envelope = Some(CachedPayloadEnvelope::Executed(Box::new(envelope)))
+    }
+
+    pub fn insert_pre_executed_payload_envelope(
         &mut self,
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         import_source: BlockImportSource,
@@ -91,7 +97,10 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Inserts an executed payload envelope into the cache.
-    pub fn insert_executed_envelope(&mut self, envelope: AvailabilityPendingExecutedEnvelope<E>) {
+    pub fn insert_executed_payload_envelope(
+        &mut self,
+        envelope: AvailabilityPendingExecutedEnvelope<E>,
+    ) {
         self.envelope = Some(CachedPayloadEnvelope::Executed(Box::new(envelope)))
     }
 
@@ -253,19 +262,25 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     /// Returns the envelope processing status for the given `block_root`. A `None` response indicates that
     /// the envelope has not yet been inserted into the cache.
-    pub fn get_envelope_processing_status(&self, block_root: &Hash256) -> Option<PayloadEnvelopeProcessingStatus<T::EthSpec>> {
+    pub fn get_envelope_processing_status(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<PayloadEnvelopeProcessingStatus<T::EthSpec>> {
         self.critical
             .read()
             .peek(block_root)
             .and_then(|pending_components| {
-                pending_components.envelope.as_ref().map(|envelope| match envelope {
-                    CachedPayloadEnvelope::PreExecution(e, source) => {
-                        PayloadEnvelopeProcessingStatus::NotValidated(e.clone(), *source)
-                    }
-                    CachedPayloadEnvelope::Executed(e) => {
-                        PayloadEnvelopeProcessingStatus::ExecutionValidated(e.envelope.clone())
-                    }
-                })
+                pending_components
+                    .envelope
+                    .as_ref()
+                    .map(|envelope| match envelope {
+                        CachedPayloadEnvelope::PreExecution(e, source) => {
+                            PayloadEnvelopeProcessingStatus::NotValidated(e.clone(), *source)
+                        }
+                        CachedPayloadEnvelope::Executed(e) => {
+                            PayloadEnvelopeProcessingStatus::ExecutionValidated(e.envelope.clone())
+                        }
+                    })
             })
     }
 
@@ -321,6 +336,35 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         self.check_availability(block_root, pending_components, num_expected_columns)
     }
 
+    pub fn put_executed_payload_envelope(
+        &self,
+        executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let epoch = executed_envelope.envelope.epoch();
+        let beacon_block_root = executed_envelope.envelope.beacon_block_root();
+        let pending_components =
+            self.update_or_insert_pending_components(beacon_block_root, |pending_components| {
+                pending_components.insert_executed_payload_envelope(executed_envelope);
+                Ok(())
+            })?;
+
+        let num_expected_columns_opt = self.get_num_expected_columns(epoch);
+
+        pending_components.span.in_scope(|| {
+            debug!(
+                component = "executed envelope",
+                status = pending_components.status_str(num_expected_columns_opt),
+                "Component added to data availability checker"
+            );
+        });
+
+        self.check_availability(
+            beacon_block_root,
+            pending_components,
+            num_expected_columns_opt,
+        )
+    }
+
     pub fn put_pre_executed_payload_envelope(
         &self,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
@@ -330,7 +374,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let beacon_block_root = envelope.beacon_block_root();
         let pending_components =
             self.update_or_insert_pending_components(beacon_block_root, |pending_components| {
-                pending_components.insert_pre_executed_envelope(envelope, source);
+                pending_components.insert_pre_executed_payload_envelope(envelope, source);
                 Ok(())
             })?;
 
@@ -351,7 +395,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     /// This does NOT remove an existing executed envelope.
     pub fn remove_pre_executed_envelope(&self, block_root: &Hash256) {
         // The read lock is immediately dropped so we can safely remove the envelope from the cache.
-        if let Some(PayloadEnvelopeProcessingStatus::NotValidated(_, _)) = self.get_envelope_processing_status(block_root) {
+        if let Some(PayloadEnvelopeProcessingStatus::NotValidated(_, _)) =
+            self.get_envelope_processing_status(block_root)
+        {
             // If the envelope is execution invalid, this status is permanent and idempotent to this
             // block_root. We drop its components (e.g. columns) because they will never be useful.
             self.critical.write().pop(block_root);

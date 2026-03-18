@@ -106,8 +106,7 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 ///    fully available.
 pub enum ExecutedEnvelope<E: EthSpec> {
     Available(AvailableExecutedEnvelope<E>),
-    // TODO(gloas) implement availability pending
-    AvailabilityPending(),
+    AvailabilityPending(AvailabilityPendingExecutedEnvelope<E>),
 }
 
 impl<E: EthSpec> ExecutedEnvelope<E> {
@@ -124,11 +123,14 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
                     payload_verification_outcome,
                 ))
             }
-            // TODO(gloas) implement availability pending
             MaybeAvailableEnvelope::AvailabilityPending {
                 block_hash: _,
-                envelope: _,
-            } => Self::AvailabilityPending(),
+                envelope,
+            } => Self::AvailabilityPending(AvailabilityPendingExecutedEnvelope::new(
+                envelope,
+                import_data,
+                payload_verification_outcome,
+            )),
         }
     }
 }
