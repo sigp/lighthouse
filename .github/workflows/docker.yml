@@ -160,7 +160,7 @@ jobs:
 
                   # For version tags, also create/update the latest tag to keep stable up to date
                   # Only create latest tag for proper release versions (e.g. v1.2.3, not v1.2.3-alpha)
-                  if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v[.\d]{5,8}$ ]]; then
+                  if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v\d{1,2}\.\d{1,2}\.\d{1,2}$ ]]; then
                     docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:latest \
                         ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX} \
                         ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX};
