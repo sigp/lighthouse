@@ -167,6 +167,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pre_executed_payload_envelope(envelope, source)
     }
 
+    pub fn remove_pre_executed_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) {
+        self.availability_cache
+            .remove_pre_executed_envelope(block_root);
+    }
+
     /// Insert RPC custody columns and check if the payload becomes available.
     #[instrument(skip_all, level = "trace")]
     pub fn put_rpc_custody_columns(
