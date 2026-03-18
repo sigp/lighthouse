@@ -330,7 +330,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let finalized_block_root = notif.finalized_checkpoint.root;
 
         // The enshrined finalized state should be in the state cache.
-        let finalized_state = match db.get_state(&finalized_state_root.into(), None, true) {
+        let finalized_state = match db.get_hot_state(&finalized_state_root.into(), true) {
             Ok(Some(state)) => state,
             other => {
                 error!(
@@ -631,6 +631,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         // Compute the set of finalized state roots that we must keep to make the dynamic HDiff system
         // work.
+        // TODO(gloas): this is slightly inefficient in that we currently keep 2x (pending and full)
         let required_finalized_diff_state_slots = store
             .hierarchy
             .closest_layer_points(new_finalized_slot, store.hot_hdiff_start_slot()?);

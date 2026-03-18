@@ -5882,7 +5882,7 @@ async fn test_gloas_hot_state_hierarchy() {
         let mut loaded_state = store
             .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
             .unwrap()
-            .unwrap();
+            .unwrap_or_else(|| panic!("missing state at {slot}/{state_root:?}"));
         assert_eq!(loaded_state.canonical_root().unwrap(), state_root);
     }
 
