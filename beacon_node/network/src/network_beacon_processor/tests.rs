@@ -2340,3 +2340,8 @@ async fn test_payload_envelopes_by_range_no_duplicates_with_skip_slots() {
         unique_roots.len(),
     );
 }
+
+// TODO(ePBS): Add integration tests for envelope deferral (UnknownBlockForEnvelope):
+//   1. Gossip envelope arrives before its block → queued via UnknownBlockForEnvelope
+//   2. Block imported → envelope released and processed successfully
+//   3. Timeout path → envelope released and re-verified
