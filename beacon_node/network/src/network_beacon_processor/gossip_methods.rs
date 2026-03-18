@@ -6,7 +6,6 @@ use crate::{
 };
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
-use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -21,7 +20,9 @@ use beacon_chain::{
 };
 use beacon_chain::{
     blob_verification::{GossipBlobError, GossipVerifiedBlob},
-    payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope,
+    payload_envelope_verification::{
+        EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
+    },
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -50,8 +51,8 @@ use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
-        ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedGossipEnvelope, QueuedLightClientUpdate,
+        QueuedUnaggregate, ReprocessQueueMessage,
     },
 };
 
@@ -3369,14 +3370,65 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
 
-                    EnvelopeError::BlockRootUnknown { .. } => {
-                        // TODO(gloas): request block over RPC
-                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
+                    EnvelopeError::BlockRootUnknown { block_root } => {
+                        let envelope_slot = envelope.slot();
+
+                        debug!(
+                            ?block_root,
+                            %envelope_slot,
+                            "Envelope references unknown block, deferring to reprocess queue"
+                        );
+
                         self.propagate_validation_result(
-                            message_id,
+                            message_id.clone(),
                             peer_id,
                             MessageAcceptance::Ignore,
                         );
+
+                        let inner_self = self.clone();
+                        let chain = self.chain.clone();
+                        let process_fn = Box::pin(async move {
+                            match chain.verify_envelope_for_gossip(envelope).await {
+                                Ok(verified_envelope) => {
+                                    inner_self
+                                        .process_gossip_verified_execution_payload_envelope(
+                                            peer_id,
+                                            message_id,
+                                            verified_envelope,
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    debug!(
+                                        error = ?e,
+                                        "Deferred envelope failed verification"
+                                    );
+                                }
+                            }
+                        });
+
+                        if self
+                            .beacon_processor_send
+                            .try_send(WorkEvent {
+                                drop_during_sync: false,
+                                work: Work::Reprocess(
+                                    ReprocessQueueMessage::UnknownBlockForEnvelope(
+                                        QueuedGossipEnvelope {
+                                            beacon_block_slot: envelope_slot,
+                                            beacon_block_root: block_root,
+                                            process_fn,
+                                        },
+                                    ),
+                                ),
+                            })
+                            .is_err()
+                        {
+                            error!(
+                                %envelope_slot,
+                                ?block_root,
+                                "Failed to defer envelope import"
+                            );
+                        }
                     }
 
                     EnvelopeError::BeaconChainError(_)

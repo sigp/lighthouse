@@ -26,7 +26,10 @@ use std::sync::{
 use task_executor::TaskExecutor;
 use tokio::time::{Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, debug_span, error, instrument, warn};
-use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
+use types::{
+    AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot,
+    StatePayloadStatus,
+};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
 /// the state advancement.
@@ -277,9 +280,16 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         (snapshot.beacon_block_root, snapshot.beacon_state_root())
     };
 
+    // TODO(gloas): do better once we have fork choice
+    let payload_status = StatePayloadStatus::Pending;
     let (head_state_root, mut state) = beacon_chain
         .store
-        .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
+        .get_advanced_hot_state(
+            head_block_root,
+            payload_status,
+            current_slot,
+            head_block_state_root,
+        )?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
     let initial_slot = state.slot();

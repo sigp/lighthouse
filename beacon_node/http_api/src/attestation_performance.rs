@@ -205,8 +205,9 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        // TODO(gloas): add payloads
         replayer = replayer
-            .apply_blocks(blocks, None)
+            .apply_blocks(blocks, vec![], None)
             .map_err(|e| custom_server_error(format!("{:?}", e)))?;
     }
 
