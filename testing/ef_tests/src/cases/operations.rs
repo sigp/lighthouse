@@ -716,8 +716,13 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
 
         // Check BLS setting here before SSZ deserialization, as most types require signatures
         // to be valid.
-        let (operation, bls_error) = if metadata.bls_setting.unwrap_or_default().check().is_ok() {
-            match O::decode(&path.join(O::filename()), fork_name, spec) {
+        let operation_path = path.join(O::filename());
+        let (operation, bls_error) = if !operation_path.is_file() {
+            // Some test cases (e.g. builder_voluntary_exit__success) have no operation file.
+            // TODO(gloas): remove this once the test vectors are fixed
+            (None, None)
+        } else if metadata.bls_setting.unwrap_or_default().check().is_ok() {
+            match O::decode(&operation_path, fork_name, spec) {
                 Ok(op) => (Some(op), None),
                 Err(Error::InvalidBLSInput(error)) => (None, Some(error)),
                 Err(e) => return Err(e),

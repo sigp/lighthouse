@@ -128,6 +128,7 @@ pub struct BeaconProcessorQueueLengths {
     gossip_data_column_queue: usize,
     gossip_partial_data_column_queue: usize,
     delayed_block_queue: usize,
+    delayed_envelope_queue: usize,
     status_queue: usize,
     block_brange_queue: usize,
     block_broots_queue: usize,
@@ -199,6 +200,7 @@ impl BeaconProcessorQueueLengths {
             gossip_data_column_queue: 1024,
             gossip_partial_data_column_queue: 1024,
             delayed_block_queue: 1024,
+            delayed_envelope_queue: 1024,
             status_queue: 1024,
             block_brange_queue: 1024,
             block_broots_queue: 1024,
@@ -253,6 +255,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub gossip_data_column_queue: FifoQueue<Work<E>>,
     pub gossip_partial_data_column_queue: FifoQueue<Work<E>>,
     pub delayed_block_queue: FifoQueue<Work<E>>,
+    pub delayed_envelope_queue: FifoQueue<Work<E>>,
     pub status_queue: FifoQueue<Work<E>>,
     pub block_brange_queue: FifoQueue<Work<E>>,
     pub block_broots_queue: FifoQueue<Work<E>>,
@@ -320,6 +323,7 @@ impl<E: EthSpec> WorkQueues<E> {
         let gossip_partial_data_column_queue =
             FifoQueue::new(queue_lengths.gossip_partial_data_column_queue);
         let delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
+        let delayed_envelope_queue = FifoQueue::new(queue_lengths.delayed_envelope_queue);
 
         let status_queue = FifoQueue::new(queue_lengths.status_queue);
         let block_brange_queue = FifoQueue::new(queue_lengths.block_brange_queue);
@@ -381,6 +385,7 @@ impl<E: EthSpec> WorkQueues<E> {
             gossip_data_column_queue,
             gossip_partial_data_column_queue,
             delayed_block_queue,
+            delayed_envelope_queue,
             status_queue,
             block_brange_queue,
             block_broots_queue,

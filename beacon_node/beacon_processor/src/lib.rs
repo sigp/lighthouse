@@ -41,7 +41,8 @@
 pub use crate::scheduler::BeaconProcessorQueueLengths;
 use crate::scheduler::work_queue::WorkQueues;
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedGossipEnvelope,
+    ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -242,6 +243,18 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     process_fn,
                 },
             },
+            ReadyWork::Envelope(QueuedGossipEnvelope {
+                beacon_block_slot,
+                beacon_block_root,
+                process_fn,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::DelayedImportEnvelope {
+                    beacon_block_slot,
+                    beacon_block_root,
+                    process_fn,
+                },
+            },
             ReadyWork::RpcBlock(QueuedRpcBlock {
                 beacon_block_root,
                 process_fn,
@@ -385,6 +398,11 @@ pub enum Work<E: EthSpec> {
         beacon_block_root: Hash256,
         process_fn: AsyncFn,
     },
+    DelayedImportEnvelope {
+        beacon_block_slot: Slot,
+        beacon_block_root: Hash256,
+        process_fn: AsyncFn,
+    },
     GossipVoluntaryExit(BlockingFn),
     GossipProposerSlashing(BlockingFn),
     GossipAttesterSlashing(BlockingFn),
@@ -449,6 +467,7 @@ pub enum WorkType {
     GossipDataColumnSidecar,
     GossipPartialDataColumnSidecar,
     DelayedImportBlock,
+    DelayedImportEnvelope,
     GossipVoluntaryExit,
     GossipProposerSlashing,
     GossipAttesterSlashing,
@@ -501,6 +520,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
             Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
+            Work::DelayedImportEnvelope { .. } => WorkType::DelayedImportEnvelope,
             Work::GossipVoluntaryExit(_) => WorkType::GossipVoluntaryExit,
             Work::GossipProposerSlashing(_) => WorkType::GossipProposerSlashing,
             Work::GossipAttesterSlashing(_) => WorkType::GossipAttesterSlashing,
@@ -795,6 +815,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = work_queues.delayed_block_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = work_queues.delayed_envelope_queue.pop() {
                             Some(item)
                         // Check gossip blocks and payloads before gossip attestations, since a block might be
                         // required to verify some attestations.
@@ -1121,6 +1143,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::DelayedImportBlock { .. } => {
                                 work_queues.delayed_block_queue.push(work, work_id)
                             }
+                            Work::DelayedImportEnvelope { .. } => {
+                                work_queues.delayed_envelope_queue.push(work, work_id)
+                            }
                             Work::GossipVoluntaryExit { .. } => {
                                 work_queues.gossip_voluntary_exit_queue.push(work, work_id)
                             }
@@ -1251,6 +1276,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.gossip_partial_data_column_queue.len()
                         }
                         WorkType::DelayedImportBlock => work_queues.delayed_block_queue.len(),
+                        WorkType::DelayedImportEnvelope => work_queues.delayed_envelope_queue.len(),
                         WorkType::GossipVoluntaryExit => {
                             work_queues.gossip_voluntary_exit_queue.len()
                         }
@@ -1445,6 +1471,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::DelayedImportBlock {
+                beacon_block_slot: _,
+                beacon_block_root: _,
+                process_fn,
+            }
+            | Work::DelayedImportEnvelope {
                 beacon_block_slot: _,
                 beacon_block_root: _,
                 process_fn,

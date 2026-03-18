@@ -7195,15 +7195,16 @@ impl ApiTester {
         assert_eq!(result.execution_optimistic, Some(true));
     }
 
-    async fn test_get_beacon_rewards_blocks_at_head(&self) -> StandardBlockReward {
+    async fn test_get_beacon_rewards_blocks_at_head(
+        &self,
+    ) -> ExecutionOptimisticFinalizedResponse<StandardBlockReward> {
         self.client
             .get_beacon_rewards_blocks(CoreBlockId::Head)
             .await
             .unwrap()
-            .data
     }
 
-    async fn test_beacon_block_rewards_electra(self) -> Self {
+    async fn test_beacon_block_rewards_fulu(self) -> Self {
         for _ in 0..E::slots_per_epoch() {
             let state = self.harness.get_current_state();
             let slot = state.slot() + Slot::new(1);
@@ -7217,8 +7218,80 @@ impl ApiTester {
                 .compute_beacon_block_reward(signed_block.message(), &mut state)
                 .unwrap();
             self.harness.extend_slots(1).await;
-            let api_beacon_block_reward = self.test_get_beacon_rewards_blocks_at_head().await;
-            assert_eq!(beacon_block_reward, api_beacon_block_reward);
+            let response = self.test_get_beacon_rewards_blocks_at_head().await;
+            assert_eq!(response.execution_optimistic, Some(false));
+            assert_eq!(response.finalized, Some(false));
+            assert_eq!(beacon_block_reward, response.data);
+        }
+        self
+    }
+
+    async fn test_get_beacon_rewards_sync_committee_at_head(
+        &self,
+    ) -> ExecutionOptimisticFinalizedResponse<Vec<SyncCommitteeReward>> {
+        self.client
+            .post_beacon_rewards_sync_committee(CoreBlockId::Head, &[])
+            .await
+            .unwrap()
+    }
+
+    async fn test_beacon_sync_committee_rewards_fulu(self) -> Self {
+        for _ in 0..E::slots_per_epoch() {
+            let state = self.harness.get_current_state();
+            let slot = state.slot() + Slot::new(1);
+
+            let ((signed_block, _maybe_blob_sidecars), mut state) =
+                self.harness.make_block_return_pre_state(state, slot).await;
+
+            let mut expected_rewards = self
+                .harness
+                .chain
+                .compute_sync_committee_rewards(signed_block.message(), &mut state)
+                .unwrap();
+            expected_rewards.sort_by_key(|r| r.validator_index);
+
+            self.harness.extend_slots(1).await;
+
+            let response = self.test_get_beacon_rewards_sync_committee_at_head().await;
+            assert_eq!(response.execution_optimistic, Some(false));
+            assert_eq!(response.finalized, Some(false));
+            let mut api_rewards = response.data;
+            api_rewards.sort_by_key(|r| r.validator_index);
+            assert_eq!(expected_rewards, api_rewards);
+        }
+        self
+    }
+
+    async fn test_get_beacon_rewards_attestations(
+        &self,
+        epoch: Epoch,
+    ) -> ExecutionOptimisticFinalizedResponse<StandardAttestationRewards> {
+        self.client
+            .post_beacon_rewards_attestations(epoch, &[])
+            .await
+            .unwrap()
+    }
+
+    async fn test_beacon_attestation_rewards_fulu(self) -> Self {
+        // Check 3 epochs.
+        let num_epochs = 3;
+        for _ in 0..num_epochs {
+            self.harness
+                .extend_slots(E::slots_per_epoch() as usize)
+                .await;
+
+            let epoch = self.chain.epoch().unwrap() - 1;
+
+            let expected_rewards = self
+                .harness
+                .chain
+                .compute_attestation_rewards(epoch, vec![])
+                .unwrap();
+
+            let response = self.test_get_beacon_rewards_attestations(epoch).await;
+            assert_eq!(response.execution_optimistic, Some(false));
+            assert_eq!(response.finalized, Some(false));
+            assert_eq!(expected_rewards, response.data);
         }
         self
     }
@@ -8534,16 +8607,47 @@ async fn expected_withdrawals_valid_capella() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_beacon_rewards_blocks_electra() {
+async fn get_beacon_rewards_blocks_fulu() {
     let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
     config.spec.deneb_fork_epoch = Some(Epoch::new(0));
     config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_config(config)
         .await
-        .test_beacon_block_rewards_electra()
+        .test_beacon_block_rewards_fulu()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_rewards_sync_committee_fulu() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_sync_committee_rewards_fulu()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_rewards_attestations_fulu() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_attestation_rewards_fulu()
         .await;
 }
 
