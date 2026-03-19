@@ -432,14 +432,24 @@ impl ProtoArray {
                 // FULL/EMPTY virtual node based on the voter's `payload_present`
                 // flag, NOT based on which child the vote goes through.
                 // Propagate each child's full/empty deltas independently.
-                parent_delta.full_delta = parent_delta
-                    .full_delta
-                    .checked_add(node_full_delta)
-                    .ok_or(Error::DeltaOverflow(parent_index))?;
-                parent_delta.empty_delta = parent_delta
-                    .empty_delta
-                    .checked_add(node_empty_delta)
-                    .ok_or(Error::DeltaOverflow(parent_index))?;
+                match node.parent_payload_status() {
+                    Ok(PayloadStatus::Full) => {
+                        parent_delta.full_delta = parent_delta
+                            .full_delta
+                            .checked_add(delta)
+                            .ok_or(Error::DeltaOverflow(parent_index))?;
+                    }
+                    Ok(PayloadStatus::Empty) => {
+                        parent_delta.empty_delta = parent_delta
+                            .empty_delta
+                            .checked_add(delta)
+                            .ok_or(Error::DeltaOverflow(parent_index))?;
+                    }
+                    Ok(PayloadStatus::Pending) | Err(..) => {
+                        // Pending is not reachable. Parent payload status must be Full or Empty.
+                        // TODO(gloas): add ParentPayloadStatus = Full | Empty.
+                    }
+                }
             }
         }
 
