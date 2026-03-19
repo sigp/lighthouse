@@ -1381,6 +1381,9 @@ impl ChainSpec {
             sync_message_due: Duration::from_millis(1999),
             contribution_and_proof_due: Duration::from_millis(4000),
 
+            // Networking Fulu
+            blob_schedule: BlobSchedule::default(),
+
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -2834,6 +2837,8 @@ mod yaml_tests {
     use super::*;
     use crate::core::MinimalEthSpec;
     use paste::paste;
+    use std::env;
+    use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::NamedTempFile;
 
@@ -3465,5 +3470,156 @@ mod yaml_tests {
         // 15000 bps = 150% of slot duration, which is invalid
         spec.attestation_due_bps = 15000;
         spec.compute_derived_values::<MainnetEthSpec>();
+    }
+
+    fn configs_base_path() -> PathBuf {
+        env::var("CARGO_MANIFEST_DIR")
+            .expect("should know manifest dir")
+            .parse::<PathBuf>()
+            .expect("should parse manifest dir as path")
+            .join("configs")
+    }
+
+    /// Upstream config keys that Lighthouse intentionally does not include in its
+    /// `Config` struct. These are forks/features not yet implemented. Update this
+    /// list as new forks are added.
+    const UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE: &[&str] = &[
+        // Forks not yet implemented
+        "HEZE_FORK_VERSION",
+        "HEZE_FORK_EPOCH",
+        "EIP7928_FORK_VERSION",
+        "EIP7928_FORK_EPOCH",
+        "EIP8025_FORK_VERSION",
+        "EIP8025_FORK_EPOCH",
+        // Gloas params not yet in Config
+        "ATTESTATION_DUE_BPS_GLOAS",
+        "AGGREGATE_DUE_BPS_GLOAS",
+        "SYNC_MESSAGE_DUE_BPS_GLOAS",
+        "CONTRIBUTION_DUE_BPS_GLOAS",
+        "PAYLOAD_ATTESTATION_DUE_BPS",
+        "MIN_BUILDER_WITHDRAWABILITY_DELAY",
+        "MAX_REQUEST_PAYLOADS",
+        // Gloas fork choice params not yet in Config
+        "REORG_HEAD_WEIGHT_THRESHOLD",
+        "REORG_PARENT_WEIGHT_THRESHOLD",
+        "REORG_MAX_EPOCHS_SINCE_FINALIZATION",
+        // Heze networking
+        "VIEW_FREEZE_CUTOFF_BPS",
+        "INCLUSION_LIST_SUBMISSION_DUE_BPS",
+        "PROPOSER_INCLUSION_LIST_CUTOFF_BPS",
+        "MAX_REQUEST_INCLUSION_LIST",
+        "MAX_BYTES_PER_INCLUSION_LIST",
+    ];
+
+    /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.
+    ///
+    /// 1. Extracts keys from the raw YAML text (to avoid serde_yaml's inability
+    ///    to parse integers > u64 into `Value`/`Mapping` types) and checks that
+    ///    every key is either known to `Config` or explicitly listed in
+    ///    `UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE`.
+    /// 2. Deserializes the upstream YAML as `Config` (which has custom
+    ///    deserializers for large values like `TERMINAL_TOTAL_DIFFICULTY`) and
+    ///    compares against `Config::from_chain_spec`.
+    ///
+    /// The upstream YAML is missing `SECONDS_PER_SLOT` (replaced by
+    /// `SLOT_DURATION_MS` in recent spec versions), so we inject it before parsing.
+    fn config_test<E: EthSpec>(spec: &ChainSpec, config_name: &str) {
+        let file_path = configs_base_path().join(format!("{config_name}.yaml"));
+        let upstream_yaml = std::fs::read_to_string(&file_path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", file_path.display()));
+
+        // Upstream uses SLOT_DURATION_MS but our Config requires SECONDS_PER_SLOT.
+        // Inject it from the slot_duration_ms value.
+        let upstream_yaml = inject_seconds_per_slot(&upstream_yaml);
+
+        // Extract top-level keys from the raw YAML text. We can't parse as
+        // serde_yaml::Mapping because serde_yaml cannot represent integers
+        // exceeding u64 (e.g. TERMINAL_TOTAL_DIFFICULTY). Config YAML uses a
+        // simple `KEY: value` format with no indentation for top-level keys.
+        let upstream_keys: std::collections::BTreeSet<String> = upstream_yaml
+            .lines()
+            .filter_map(|line| {
+                // Skip comments, blank lines, and indented lines (nested YAML).
+                if line.is_empty()
+                    || line.starts_with('#')
+                    || line.starts_with(' ')
+                    || line.starts_with('\t')
+                {
+                    return None;
+                }
+                line.split(':').next().map(|k| k.to_string())
+            })
+            .collect();
+
+        // Get the set of keys that Config knows about by serializing and collecting
+        // keys. Also include keys for optional fields that may be skipped during
+        // serialization (e.g. CONFIG_NAME).
+        let our_config = Config::from_chain_spec::<E>(spec);
+        let our_yaml = serde_yaml::to_string(&our_config).expect("failed to serialize Config");
+        let our_mapping: serde_yaml::Mapping =
+            serde_yaml::from_str(&our_yaml).expect("failed to re-parse our Config");
+        let mut known_keys: std::collections::BTreeSet<String> = our_mapping
+            .keys()
+            .filter_map(|k| k.as_str().map(String::from))
+            .collect();
+        // Fields that Config knows but may skip during serialization.
+        known_keys.insert("CONFIG_NAME".to_string());
+        known_keys.insert("SLOT_DURATION_MS".to_string());
+
+        // Check for upstream keys that our Config doesn't know about.
+        let ignored: std::collections::BTreeSet<&str> =
+            UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE.iter().copied().collect();
+        let mut missing_keys: Vec<&String> = upstream_keys
+            .iter()
+            .filter(|k| !known_keys.contains(k.as_str()) && !ignored.contains(k.as_str()))
+            .collect();
+        missing_keys.sort();
+
+        assert!(
+            missing_keys.is_empty(),
+            "Upstream {config_name} config has keys not present in Lighthouse Config \
+             (add to Config or to UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE): {missing_keys:?}"
+        );
+
+        // Compare values for all fields Config knows about.
+        let mut upstream_config: Config = serde_yaml::from_str(&upstream_yaml)
+            .unwrap_or_else(|e| panic!("failed to parse {config_name} as Config: {e}"));
+
+        // CONFIG_NAME is network metadata (not a spec parameter), so align it
+        // before comparing.
+        upstream_config.config_name = our_config.config_name.clone();
+        assert_eq!(
+            upstream_config, our_config,
+            "Config mismatch for {config_name}"
+        );
+    }
+
+    /// Inject `SECONDS_PER_SLOT` into an upstream config YAML string by
+    /// deriving it from `SLOT_DURATION_MS`.
+    fn inject_seconds_per_slot(yaml: &str) -> String {
+        for line in yaml.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("SLOT_DURATION_MS:") {
+                let ms_str = rest.split('#').next().unwrap_or("").trim();
+                let ms: u64 = ms_str.parse().unwrap_or_else(|e| {
+                    panic!("failed to parse SLOT_DURATION_MS value '{ms_str}': {e}")
+                });
+                let seconds = ms / 1000;
+                return format!("{yaml}\nSECONDS_PER_SLOT: {seconds}\n");
+            }
+        }
+        yaml.to_string()
+    }
+
+    #[test]
+    fn mainnet_config_consistent() {
+        let spec = ChainSpec::mainnet();
+        config_test::<MainnetEthSpec>(&spec, "mainnet");
+    }
+
+    #[test]
+    fn minimal_config_consistent() {
+        let spec = ChainSpec::minimal();
+        config_test::<MinimalEthSpec>(&spec, "minimal");
     }
 }
