@@ -1906,6 +1906,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Recompute the payload status for a state at `slot` that is stored in the cold DB.
+    ///
+    /// This function returns an error for any `slot` that is outside the range of slots stored in
+    /// the freezer DB.
+    ///
+    /// For all slots prior to Gloas, it returns `Pending`.
+    ///
+    /// For post-Gloas slots the algorithm is:
+    ///
+    /// 1. Load the most recently applied block at `slot` (may not be from `slot` in case of a skip)
+    /// 2. Load the canonical `state_root` at the slot of the block. If this `state_root` matches
+    ///    the one in the block then we know the state at *that* slot is canonically empty (no
+    ///    payload). Conversely, if it is different, we know that the block's slot is full (assuming
+    ///    no database corruption).
+    /// 3. The payload status of `slot` is the same as the payload status of `block.slot()`, because
+    ///    we only care about whether a beacon block or payload was applied most recently, and
+    ///    `block` is by definition the most-recently-applied block.
+    ///
+    /// All of this mucking around could be avoided if we do a schema migration to record the
+    /// payload status in the database. For now, this is simpler.
     fn get_cold_state_payload_status(&self, slot: Slot) -> Result<StatePayloadStatus, Error> {
         // Pre-Gloas states are always `Pending`.
         if !self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
