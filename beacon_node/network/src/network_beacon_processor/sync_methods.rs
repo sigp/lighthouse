@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::data::{FixedBlobSidecarList, PartialDataColumnHeader};
+use types::data::FixedBlobSidecarList;
 use types::kzg_ext::format_kzg_commitments;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
@@ -218,11 +218,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Block is valid, we can now attempt fetching blobs from EL using version hashes
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
-                if let Ok(header) = PartialDataColumnHeader::try_from(signed_beacon_block.as_ref())
-                {
+                if let Ok(header) = signed_beacon_block.as_ref().try_into() {
                     let publish_blobs = false;
-                    self.fetch_engine_blobs_and_publish(&header, block_root, publish_blobs)
-                        .await;
+                    self.fetch_engine_blobs_and_publish(
+                        Arc::new(header),
+                        block_root,
+                        publish_blobs,
+                    )
+                    .await;
                 }
             }
             _ => {}

@@ -23,8 +23,9 @@ use crate::data_availability_checker::{
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
 use crate::data_column_verification::{
-    GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedPartialDataColumnHeader,
-    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
+    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
+    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
     validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -2244,10 +2245,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub fn verify_partial_data_column_header_for_gossip(
-        self: &Arc<Self>,
+        &self,
         block_root: Hash256,
         data_column_header: PartialDataColumnHeader<T::EthSpec>,
-    ) -> Result<GossipVerifiedPartialDataColumnHeader<T::EthSpec>, GossipDataColumnError> {
+    ) -> Result<GossipVerifiedPartialDataColumnHeader<T::EthSpec>, GossipPartialDataColumnError>
+    {
         metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(
             &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES,
@@ -2260,10 +2262,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return if *cached_header == data_column_header {
                 metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES);
                 Ok(GossipVerifiedPartialDataColumnHeader::new_from_cached(
-                    data_column_header,
+                    cached_header,
                 ))
             } else {
-                Err(GossipDataColumnError::PartialHeaderMismatches)
+                Err(GossipPartialDataColumnError::HeaderMismatches)
             };
         }
 
@@ -2280,13 +2282,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: PartialDataColumn<T::EthSpec>,
-    ) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipDataColumnError> {
+    ) -> PartialColumnVerificationResult<T::EthSpec> {
         metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        validate_partial_data_column_sidecar_for_gossip(data_column_sidecar, self).inspect(|_| {
+        let ret = validate_partial_data_column_sidecar_for_gossip(data_column_sidecar, self);
+        if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
             metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        })
+        }
+        ret
     }
 
     #[instrument(skip_all, level = "trace")]
@@ -3176,6 +3180,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_partial_data_column(
         self: &Arc<Self>,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
+        verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
         slot: Slot,
     ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
         let block_root = verified_partial.block_root();
@@ -3211,7 +3216,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let merge_result = self
             .data_availability_checker
             .partial_assembler()
-            .merge_partials(block_root, vec![verified_partial])
+            .merge_partials(
+                block_root,
+                vec![verified_partial],
+                verified_header.into_header(),
+            )
             .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
 
         metrics::inc_counter_vec_by(

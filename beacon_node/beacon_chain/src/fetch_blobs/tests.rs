@@ -43,7 +43,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &(&block).try_into().unwrap(),
+            Arc::new((&block).try_into().unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -68,7 +68,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -96,7 +96,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -129,7 +129,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -168,7 +168,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -210,7 +210,7 @@ mod get_blobs_v2 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -278,7 +278,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(&block_no_blobs).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(&block_no_blobs).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -305,7 +305,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -351,7 +351,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -391,7 +391,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -439,7 +439,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )
@@ -483,7 +483,7 @@ mod get_blobs_v1 {
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
-            &PartialDataColumnHeader::try_from(block.as_ref()).unwrap(),
+            Arc::new(PartialDataColumnHeader::try_from(block.as_ref()).unwrap()),
             &custody_columns,
             publish_fn,
         )

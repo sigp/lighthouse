@@ -39,8 +39,8 @@ use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, PartialDataColumn, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, ValidatorSubscription,
+    EthSpec, ForkContext, PartialDataColumn, PartialDataColumnHeader, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
 mod tests;
@@ -84,8 +84,9 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<E>> },
     /// Publish partial data column sidecars via the partial gossipsub protocol.
-    PublishPartial {
+    PublishPartialColumns {
         columns: Vec<Arc<PartialDataColumn<E>>>,
+        header: Arc<PartialDataColumnHeader<E>>,
     },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
@@ -682,8 +683,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 );
                 self.libp2p.publish(messages);
             }
-            NetworkMessage::PublishPartial { columns } => {
-                self.libp2p.publish_partial(columns);
+            NetworkMessage::PublishPartialColumns { columns, header } => {
+                self.libp2p.publish_partial(columns, header);
             }
             NetworkMessage::ReportPeer {
                 peer_id,

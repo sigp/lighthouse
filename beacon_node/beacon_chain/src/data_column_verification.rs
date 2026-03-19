@@ -187,19 +187,6 @@ pub enum GossipDataColumnError {
         max_blobs_per_block: usize,
         commitments_len: usize,
     },
-    /// The partial data column header does not match the valid one we have already cached.
-    ///
-    /// ## Peer scoring
-    /// The column sidecar is invalid and the peer is faulty
-    PartialHeaderMismatches,
-    /// The partial data column header block root does not match the group id.
-    ///
-    /// ## Peer scoring
-    /// The column sidecar is invalid and the peer is faulty
-    PartialHeaderIncorrectRoot {
-        group_id: Hash256,
-        header_hash: Hash256,
-    },
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -211,6 +198,49 @@ impl From<BeaconChainError> for GossipDataColumnError {
 impl From<BeaconStateError> for GossipDataColumnError {
     fn from(e: BeaconStateError) -> Self {
         GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e).into())
+    }
+}
+
+#[derive(Debug)]
+pub enum GossipPartialDataColumnError {
+    GossipDataColumnError(GossipDataColumnError),
+    /// The partial data column does not contain a header, and we do not have it cached.
+    ///
+    /// ## Peer scoring
+    /// The peer SHOULD send us the header on the first partial message, but is not required to.
+    /// Still, the peer incorrectly assumed that we have the header, and sent us data we can not
+    /// process due to that. Penalize it slightly.
+    MissingHeader,
+    /// The partial data column header does not match the valid one we have already cached.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    HeaderMismatches,
+    /// The partial data column header block root does not match the group id.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    HeaderIncorrectRoot {
+        group_id: Hash256,
+        header_hash: Hash256,
+    },
+}
+
+impl From<GossipDataColumnError> for GossipPartialDataColumnError {
+    fn from(e: GossipDataColumnError) -> Self {
+        GossipPartialDataColumnError::GossipDataColumnError(e)
+    }
+}
+
+impl From<BeaconChainError> for GossipPartialDataColumnError {
+    fn from(e: BeaconChainError) -> Self {
+        GossipDataColumnError::from(e).into()
+    }
+}
+
+impl From<BeaconStateError> for GossipPartialDataColumnError {
+    fn from(e: BeaconStateError) -> Self {
+        GossipDataColumnError::from(e).into()
     }
 }
 
@@ -415,7 +445,7 @@ impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
 #[derive(Debug, Educe, Clone)]
 #[educe(PartialEq, Eq)]
 pub struct GossipVerifiedPartialDataColumnHeader<E: EthSpec> {
-    header: PartialDataColumnHeader<E>,
+    header: Arc<PartialDataColumnHeader<E>>,
     previously_cached: bool,
 }
 
@@ -424,15 +454,15 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         group_id: Hash256,
         header: PartialDataColumnHeader<E>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, GossipDataColumnError> {
+    ) -> Result<Self, GossipPartialDataColumnError> {
         let column_slot = header.slot();
         if header.kzg_commitments.is_empty() {
-            return Err(GossipDataColumnError::UnexpectedDataColumn);
+            return Err(GossipDataColumnError::UnexpectedDataColumn.into());
         }
 
         let header_hash = header.signed_block_header.message.canonical_root();
         if group_id != header_hash {
-            return Err(GossipDataColumnError::PartialHeaderIncorrectRoot {
+            return Err(GossipPartialDataColumnError::HeaderIncorrectRoot {
                 group_id,
                 header_hash,
             });
@@ -448,10 +478,13 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         verify_slot_higher_than_parent(&parent_block, column_slot)?;
         verify_proposer_and_signature(&header.signed_block_header, &parent_block, chain)?;
 
+        let header = Arc::new(header);
+
         // Cache the valid header
         let newly_cached = chain
             .data_availability_checker
-            .put_partial_data_column_header(header.clone());
+            .partial_assembler()
+            .init(group_id, header.clone());
 
         chain
             .observed_slashable
@@ -461,7 +494,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
                 header.signed_block_header.message.proposer_index,
                 header_hash,
             )
-            .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+            .map_err(BeaconChainError::from)?;
 
         Ok(Self {
             header,
@@ -469,7 +502,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         })
     }
 
-    pub fn new_from_cached(header: PartialDataColumnHeader<E>) -> Self {
+    pub fn new_from_cached(header: Arc<PartialDataColumnHeader<E>>) -> Self {
         Self {
             header,
             previously_cached: true,
@@ -478,6 +511,14 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
 
     pub fn was_cached(&self) -> bool {
         self.previously_cached
+    }
+
+    pub fn as_header(&self) -> &PartialDataColumnHeader<E> {
+        &self.header
+    }
+
+    pub fn into_header(self) -> Arc<PartialDataColumnHeader<E>> {
+        self.header
     }
 }
 
@@ -529,17 +570,6 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         Self {
             data: kzg_verified.to_data_column(),
         }
-    }
-
-    /// Verify a column already marked as custody column
-    pub fn new(
-        data_column: CustodyDataColumn<E>,
-        kzg: &Kzg,
-    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
-        verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
-        Ok(Self {
-            data: data_column.data,
-        })
     }
 
     pub fn reconstruct_columns(
@@ -649,10 +679,24 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 #[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
     data_column: PartialDataColumn<E>,
+    unverified_cells: Vec<usize>,
+    header: &GossipVerifiedPartialDataColumnHeader<E>,
     kzg: &Kzg,
-) -> Result<KzgVerifiedPartialDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
+) -> Result<KzgVerifiedPartialDataColumn<E>, GossipPartialDataColumnError> {
+    let Some(filtered_column) = data_column
+        .sidecar
+        .filter(|idx| unverified_cells.contains(&idx))
+    else {
+        return Err(GossipDataColumnError::PriorKnownUnpublished.into());
+    };
+
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
-    validate_partial_data_columns(kzg, iter::once(&data_column))?;
+    validate_partial_data_columns(
+        kzg,
+        iter::once((data_column.index, filtered_column)),
+        header.header.kzg_commitments.as_ref(),
+    )
+    .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
     Ok(KzgVerifiedPartialDataColumn { data: data_column })
 }
 
@@ -744,32 +788,82 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
 
 #[instrument(skip_all, level = "debug")]
 pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
-    data_column: PartialDataColumn<T::EthSpec>,
+    mut column: PartialDataColumn<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<KzgVerifiedPartialDataColumn<T::EthSpec>, GossipDataColumnError> {
-    let block_root = data_column.block_root;
+) -> PartialColumnVerificationResult<T::EthSpec> {
+    let block_root = column.block_root;
 
-    let filtered_column = if let Some(missing_cells) = chain
-        .data_availability_checker
-        .determine_missing_cells_partial(&block_root, &data_column)
-    {
-        if missing_cells.is_empty() {
-            return Err(GossipDataColumnError::PriorKnownUnpublished);
+    // Remove the header (if any) to avoid wasted memory.
+    let header = column.sidecar.take_header();
+
+    let header = if let Some(header) = header {
+        // Header was sent, so it is required to be valid
+        match chain.verify_partial_data_column_header_for_gossip(block_root, header) {
+            Ok(verified) => verified,
+            Err(err) => {
+                return PartialColumnVerificationResult::Err(err);
+            }
         }
-
-        data_column
-            .clone_filter(|idx| missing_cells.contains(&idx))
-            .ok_or_else(|| GossipDataColumnError::PriorKnownUnpublished)?
     } else {
-        data_column
+        // There is no header, so we check if we have a cached one to use
+        let Some(header) = chain
+            .data_availability_checker
+            .partial_assembler()
+            .get_header(&column.block_root)
+        else {
+            return PartialColumnVerificationResult::Err(
+                GossipPartialDataColumnError::MissingHeader,
+            );
+        };
+        GossipVerifiedPartialDataColumnHeader::new_from_cached(header)
     };
+
+    let Some(missing_cells) = chain
+        .data_availability_checker
+        .determine_missing_cells_partial(&block_root, &column)
+    else {
+        // TODO(dknopik): This shuld be a different error
+        return PartialColumnVerificationResult::ErrWithValidHeader {
+            err: GossipDataColumnError::PriorKnownUnpublished.into(),
+            header,
+        };
+    };
+
+    if missing_cells.is_empty() {
+        return PartialColumnVerificationResult::ErrWithValidHeader {
+            err: GossipDataColumnError::PriorKnownUnpublished.into(),
+            header,
+        };
+    }
 
     // We do not have to check block related data here, as we create the verifiable column from
     // gossip accepted block
-
     let kzg = &chain.kzg;
-    verify_kzg_for_partial_data_column(filtered_column, kzg)
-        .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))
+    let column = match verify_kzg_for_partial_data_column(column, missing_cells, &header, kzg) {
+        Ok(column) => column,
+        Err(err) => {
+            return PartialColumnVerificationResult::ErrWithValidHeader { err, header };
+        }
+    };
+
+    PartialColumnVerificationResult::Ok { column, header }
+}
+
+/// The result of a `validate_partial_data_column_sidecar_for_gossip` call. Any headers returned
+/// herein were cached during this call or previously cached.
+pub enum PartialColumnVerificationResult<E: EthSpec> {
+    /// Verification succeeded fully.
+    Ok {
+        column: KzgVerifiedPartialDataColumn<E>,
+        header: GossipVerifiedPartialDataColumnHeader<E>,
+    },
+    /// Verification of the column failed, but the header is valid.
+    ErrWithValidHeader {
+        err: GossipPartialDataColumnError,
+        header: GossipVerifiedPartialDataColumnHeader<E>,
+    },
+    /// Verification of the column or header failed, and no valid header was cached previously.
+    Err(GossipPartialDataColumnError),
 }
 
 /// Verify if the data column sidecar is valid.

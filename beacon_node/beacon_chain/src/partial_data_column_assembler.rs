@@ -3,10 +3,8 @@ use crate::data_column_verification::{
 };
 use lru::LruCache;
 use parking_lot::RwLock;
-use parking_lot::lock_api::RwLockReadGuard;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::ops::Deref;
 use std::sync::Arc;
 use types::data::{ColumnIndex, DataColumnSidecar, PartialDataColumn, PartialDataColumnHeader};
 use types::{DataColumnSidecarFulu, EthSpec, Hash256};
@@ -19,7 +17,7 @@ pub struct PartialDataColumnAssembler<E: EthSpec> {
 
 /// Tracks partial columns being assembled for a single block
 struct PartialAssembly<E: EthSpec> {
-    header: PartialDataColumnHeader<E>,
+    header: Arc<PartialDataColumnHeader<E>>,
     has_local_blobs: bool,
     /// Map of column_index -> partial column being assembled
     columns: HashMap<ColumnIndex, AssemblyColumn<E>>,
@@ -51,19 +49,12 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     }
 
     /// Returns true unless the header was already contained or the passed argument failed to convert to a header
-    pub fn init<T>(&self, block_root: Hash256, header: T) -> bool
-    where
-        T: TryInto<PartialDataColumnHeader<E>>,
-    {
+    pub fn init(&self, block_root: Hash256, header: Arc<PartialDataColumnHeader<E>>) -> bool {
         let mut assemblies = self.assemblies.write();
 
         if assemblies.contains(&block_root) {
             return false;
         }
-
-        let Ok(header) = header.try_into() else {
-            return false;
-        };
 
         let assembly = PartialAssembly {
             header,
@@ -76,28 +67,20 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         true
     }
 
-    /// Merge a received partial column into the assembly.
-    /// Returns the merge result indicating if column is now complete.
+    /// Merge one or more received partial columns into the assembly.
+    /// Returns the merge result indicating if the columns are now complete.
     pub fn merge_partials(
         &self,
         block_root: Hash256,
         partials: Vec<KzgVerifiedCustodyPartialDataColumn<E>>,
+        header: Arc<PartialDataColumnHeader<E>>,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies
-            .try_get_or_insert_mut(block_root, || {
-                partials
-                    .iter()
-                    .filter_map(|partial| partial.as_data_column().sidecar.header.first())
-                    .next()
-                    .map(|header| PartialAssembly {
-                        header: header.clone(),
-                        has_local_blobs: false,
-                        columns: HashMap::new(),
-                    })
-                    .ok_or(())
-            })
-            .ok()?;
+        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
+            header: header.clone(),
+            has_local_blobs: false,
+            columns: HashMap::new(),
+        });
 
         let mut full_columns = Vec::new();
         let mut updated_partials = Vec::new();
@@ -167,11 +150,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn mark_as_complete(&self, block_root: Hash256, column: &DataColumnSidecarFulu<E>) -> bool {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
-            header: PartialDataColumnHeader {
+            header: Arc::new(PartialDataColumnHeader {
                 kzg_commitments: column.kzg_commitments.clone(),
                 signed_block_header: column.signed_block_header.clone(),
                 kzg_commitments_inclusion_proof: column.kzg_commitments_inclusion_proof.clone(),
-            },
+            }),
             has_local_blobs: false,
             columns: Default::default(),
         });
@@ -201,7 +184,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn get_partials_and_mark_as_local_fetched(
         &self,
         block_root: Hash256,
-        header: &PartialDataColumnHeader<E>,
+        header: &Arc<PartialDataColumnHeader<E>>,
     ) -> Option<Vec<KzgVerifiedCustodyPartialDataColumn<E>>> {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
@@ -227,14 +210,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     }
 
     /// Get header for a block if we have an active assembly
-    pub fn get_header(
-        &self,
-        block_root: &Hash256,
-    ) -> Option<impl Deref<Target = PartialDataColumnHeader<E>>> {
-        RwLockReadGuard::try_map(self.assemblies.read(), |assemblies| {
-            assemblies.peek(block_root).map(|a| &a.header)
-        })
-        .ok()
+    pub fn get_header(&self, block_root: &Hash256) -> Option<Arc<PartialDataColumnHeader<E>>> {
+        self.assemblies
+            .read()
+            .peek(block_root)
+            .map(|a| a.header.clone())
     }
 
     /// Maintenance: remove assemblies older than cutoff epoch

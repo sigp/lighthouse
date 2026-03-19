@@ -12,9 +12,10 @@ use types::data::{
 };
 use types::kzg_ext::KzgCommitments;
 use types::{
-    Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
-    DataColumnSidecarGloas, DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
+    Blob, BlobSidecar, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar,
+    DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarList, EthSpec, Hash256,
+    KzgCommitment, KzgProof, PartialDataColumnSidecarRef, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
 };
 
 /// Converts a blob ssz FixedVector to a reference to a fixed-size array
@@ -116,17 +117,15 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
 /// Partial columns may have missing cells, indicated by a bitmap. We only verify present cells.
 pub fn validate_partial_data_columns<'a, E: EthSpec>(
     kzg: &Kzg,
-    data_column_iter: impl Iterator<Item = &'a PartialDataColumn<E>>,
+    data_column_iter: impl Iterator<Item = (ColumnIndex, PartialDataColumnSidecarRef<'a, E>)>,
+    kzg_commitments: &[KzgCommitment],
 ) -> Result<(), (Option<u64>, KzgError)> {
     let mut cells = Vec::new();
     let mut proofs = Vec::new();
     let mut column_indices = Vec::new();
     let mut commitments = Vec::new();
 
-    for data_column in data_column_iter {
-        let col_index = data_column.index;
-        let sidecar = &data_column.sidecar;
-
+    for (col_index, sidecar) in data_column_iter {
         if sidecar.column.is_empty() {
             return Err((Some(col_index), KzgError::KzgVerificationFailed));
         }
@@ -134,15 +133,7 @@ pub fn validate_partial_data_columns<'a, E: EthSpec>(
         // Partial columns have a bitmap indicating present cells
         // We iterate over the bitmap and only process present cells
         let mut present_iterator = sidecar.column.iter().zip(sidecar.kzg_proofs.iter());
-        for (present, commitment) in sidecar.cells_present_bitmap.iter().zip(
-            data_column
-                .sidecar
-                .header
-                .first()
-                .ok_or((Some(col_index), KzgError::PartialWithoutHeader))?
-                .kzg_commitments
-                .iter(),
-        ) {
+        for (present, commitment) in sidecar.cells_present_bitmap.iter().zip(kzg_commitments) {
             if present {
                 let (cell, proof) = present_iterator.next().ok_or((
                     Some(col_index),
@@ -550,7 +541,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                 .get_mut(col)
                 .ok_or(format!("Missing data column proofs at index {col}"))?;
 
-            column.push(Arc::new(cell));
+            column.push(cell);
             column_proofs.push(*proof);
         }
     }

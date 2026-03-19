@@ -876,7 +876,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn fetch_engine_blobs_and_publish(
         self: &Arc<Self>,
-        header: &PartialDataColumnHeader<T::EthSpec>,
+        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
         block_root: Hash256,
         publish_blobs: bool,
     ) {
@@ -908,7 +908,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            header,
+            header.clone(),
             custody_columns,
             publish_fn,
         )
@@ -958,14 +958,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .data_availability_checker
             .partial_assembler()
-            .get_partials_and_mark_as_local_fetched(block_root, header)
+            .get_partials_and_mark_as_local_fetched(block_root, &header)
         {
             debug!(block = %block_root, "Publishing all partials after getBlobs");
-            self.send_network_message(NetworkMessage::PublishPartial {
+            self.send_network_message(NetworkMessage::PublishPartialColumns {
                 columns: columns
                     .into_iter()
                     .map(|partial| partial.into_inner())
                     .collect(),
+                header,
             });
         }
     }

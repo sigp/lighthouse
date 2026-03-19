@@ -222,20 +222,12 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
 
         let block_root = self.block_root();
 
-        let column = self
-            .column
-            .iter()
-            .map(|col| Arc::new(col.clone()))
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("our column has the same bound");
-
         PartialDataColumn {
             block_root,
             index: self.index,
             sidecar: PartialDataColumnSidecar {
                 cells_present_bitmap: bitmap,
-                column,
+                column: self.column.clone(),
                 kzg_proofs: self.kzg_proofs.clone(),
                 header: VariableList::repeat_full(PartialDataColumnHeader {
                     kzg_commitments: self.kzg_commitments.clone(),

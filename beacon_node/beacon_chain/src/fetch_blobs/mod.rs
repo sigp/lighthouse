@@ -68,7 +68,7 @@ pub enum FetchEngineBlobError {
 pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    header: &PartialDataColumnHeader<T::EthSpec>,
+    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
     custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
@@ -87,7 +87,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
-    header: &PartialDataColumnHeader<T::EthSpec>,
+    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
     custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
@@ -123,7 +123,7 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         fetch_and_process_blobs_v1(
             chain_adapter,
             block_root,
-            header,
+            &header,
             versioned_hashes,
             publish_fn,
         )
@@ -222,12 +222,13 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
 async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
-    header: &PartialDataColumnHeader<T::EthSpec>,
+    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
     versioned_hashes: Vec<VersionedHash>,
     custody_columns_indices: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
+    let slot = header.slot();
 
     metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
 
@@ -314,7 +315,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     let custody_columns_to_import = compute_custody_columns_to_import(
         &chain_adapter,
         block_root,
-        header,
+        &header,
         blobs_and_proofs,
         custody_columns_indices,
     )
@@ -331,7 +332,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     // Initialize the partial assembler with the columns from the engine
     let assembler = chain_adapter.partial_assembler();
     let merge_result = assembler
-        .merge_partials(block_root, custody_columns_to_import)
+        .merge_partials(block_root, custody_columns_to_import, header)
         .ok_or_else(|| {
             FetchEngineBlobError::InternalError(
                 "Failed to merge partials into assembler".to_string(),
@@ -351,14 +352,14 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     let availability_processing_status = if !merge_result.full_columns.is_empty() {
         chain_adapter
             .process_engine_blobs(
-                header.slot(),
+                slot,
                 block_root,
                 EngineGetBlobsOutput::CustodyColumns(merge_result.full_columns),
             )
             .await?
     } else {
         // No complete columns yet, still missing components
-        AvailabilityProcessingStatus::MissingComponents(header.slot(), block_root)
+        AvailabilityProcessingStatus::MissingComponents(slot, block_root)
     };
 
     Ok(Some(availability_processing_status))

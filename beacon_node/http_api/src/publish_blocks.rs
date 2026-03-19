@@ -16,6 +16,7 @@ use eth2::types::{
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
+use logging::crit;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use reqwest::StatusCode;
@@ -520,10 +521,16 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
     }
     let mut full_messages = Vec::new();
     let mut partial_columns = Vec::new();
+    let mut partial_header = None;
 
     for data_col in data_column_sidecars {
         if let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref() {
-            partial_columns.push(Arc::new(fulu_data_col.to_partial()));
+            let mut partial = fulu_data_col.to_partial();
+            let header = partial.sidecar.take_header();
+            if let Some(header) = header {
+                partial_header = Some(header);
+            }
+            partial_columns.push(Arc::new(partial));
         }
 
         let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
@@ -541,13 +548,20 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
 
     // Publish partial messages
     if !partial_columns.is_empty() {
-        crate::utils::publish_network_message(
-            sender_clone,
-            NetworkMessage::PublishPartial {
-                columns: partial_columns,
-            },
-        )
-        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))?;
+        if let Some(header) = partial_header {
+            crate::utils::publish_network_message(
+                sender_clone,
+                NetworkMessage::PublishPartialColumns {
+                    columns: partial_columns,
+                    header: Arc::new(header),
+                },
+            )
+            .map_err(|_| {
+                BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
+            })?;
+        } else {
+            crit!("Unable to extract header from full columns")
+        }
     }
 
     Ok(())

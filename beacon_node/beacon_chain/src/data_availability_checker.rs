@@ -21,8 +21,8 @@ use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumn, PartialDataColumnHeader,
-    SignedBeaconBlock, Slot, new_non_zero_usize,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumn, SignedBeaconBlock, Slot,
+    new_non_zero_usize,
 };
 
 mod error;
@@ -417,7 +417,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let block = executed_block.as_block();
-        self.partial_assembler.init(block.canonical_root(), block);
+        if let Ok(header) = block.try_into() {
+            self.partial_assembler
+                .init(block.canonical_root(), Arc::new(header));
+        }
         self.availability_cache.put_executed_block(executed_block)
     }
 
@@ -429,19 +432,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: BlockImportSource,
     ) -> Result<(), Error> {
-        self.partial_assembler.init(block_root, block.as_ref());
+        if let Ok(header) = block.as_ref().try_into() {
+            self.partial_assembler.init(block_root, Arc::new(header));
+        }
         self.availability_cache
             .put_pre_execution_block(block_root, block, source)
-    }
-
-    /// Inserts a partial data column header into the assembler.
-    /// Returns true if this was the first insertion.
-    pub fn put_partial_data_column_header(
-        &self,
-        header: PartialDataColumnHeader<T::EthSpec>,
-    ) -> bool {
-        self.partial_assembler
-            .init(header.signed_block_header.message.canonical_root(), header)
     }
 
     /// Removes a pre-execution block from the cache.

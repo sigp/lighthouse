@@ -44,7 +44,7 @@ use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
-    Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    PartialDataColumnHeader, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -922,7 +922,11 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes partial data column sidecars to the gossipsub network.
-    pub fn publish_partial(&mut self, columns: Vec<Arc<PartialDataColumn<E>>>) {
+    pub fn publish_partial(
+        &mut self,
+        columns: Vec<Arc<PartialDataColumn<E>>>,
+        header: Arc<PartialDataColumnHeader<E>>,
+    ) {
         if !self.network_globals.config.enable_partial_columns {
             return;
         }
@@ -943,10 +947,7 @@ impl<E: EthSpec> Network<E> {
             let header_sent_set = self
                 .partial_column_header_tracker
                 .get_for_block(column.block_root);
-            let Ok(partial_message) = OutgoingPartialColumn::new(column, header_sent_set) else {
-                error!("Unable to publish partial column without header");
-                continue;
-            };
+            let partial_message = OutgoingPartialColumn::new(column, &header, header_sent_set);
             let publish_topic: Topic = topic.clone().into();
 
             if let Err(e) = self

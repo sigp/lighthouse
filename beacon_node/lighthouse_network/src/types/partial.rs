@@ -3,20 +3,18 @@ use itertools::Itertools;
 use libp2p::gossipsub::partial_messages::{Metadata, Partial, PartialAction, PartialError};
 use parking_lot::Mutex;
 use ssz::{Decode, Encode};
-use ssz_types::VariableList;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::debug;
-use types::{CellBitmap, PartialDataColumn};
-use types::{EthSpec, Hash256};
-use types::{PartialDataColumnPartsMetadata, PartialDataColumnSidecar};
+use types::{
+    CellBitmap, EthSpec, Hash256, PartialDataColumn, PartialDataColumnHeader,
+    PartialDataColumnPartsMetadata, PartialDataColumnSidecar, PartialDataColumnSidecarRef,
+};
 
 const PARTIAL_COLUMNS_VERSION_BYTE: u8 = 0;
 
 pub type HeaderSentSet = Arc<Mutex<HashSet<PeerId>>>;
-
-pub struct NoHeaderInColumnError;
 
 #[derive(Debug, Clone)]
 pub struct OutgoingPartialColumn<E: EthSpec> {
@@ -29,12 +27,9 @@ pub struct OutgoingPartialColumn<E: EthSpec> {
 impl<E: EthSpec> OutgoingPartialColumn<E> {
     pub fn new(
         partial_column: Arc<PartialDataColumn<E>>,
+        header: &PartialDataColumnHeader<E>,
         header_sent_set: HeaderSentSet,
-    ) -> Result<Self, NoHeaderInColumnError> {
-        let Some(header) = partial_column.sidecar.header.first().cloned() else {
-            return Err(NoHeaderInColumnError);
-        };
-
+    ) -> Self {
         // For now, always request all cells
         let mut request = partial_column.sidecar.cells_present_bitmap.clone();
         for idx in 0..request.len() {
@@ -48,23 +43,23 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         }
         .into();
 
-        let header_message = PartialDataColumnSidecar {
+        let header_message = PartialDataColumnSidecarRef {
             cells_present_bitmap: CellBitmap::<E>::with_capacity(
                 partial_column.sidecar.cells_present_bitmap.len(),
             )
             .expect("Taking length from bitmap with same bound"),
-            column: VariableList::empty(),
-            kzg_proofs: VariableList::empty(),
-            header: VariableList::repeat_full(header),
+            column: vec![],
+            kzg_proofs: vec![],
+            header: vec![header],
         }
         .as_ssz_bytes();
 
-        Ok(OutgoingPartialColumn {
+        OutgoingPartialColumn {
             partial_column,
             metadata,
             header_message,
             header_sent_set,
-        })
+        }
     }
 }
 
@@ -211,7 +206,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                 let send = self
                     .partial_column
                     .sidecar
-                    .clone_filter(|idx| want.get(idx).expect("Bound checked above"))
+                    .filter(|idx| want.get(idx).expect("Bound checked above"))
                     .map(|sidecar| {
                         debug!(
                             peer=%peer_id,

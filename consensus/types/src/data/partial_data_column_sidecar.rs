@@ -11,7 +11,7 @@ use ssz::{BitList, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::fmt::Display;
-use std::sync::Arc;
+use std::mem;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -28,9 +28,21 @@ pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub cells_present_bitmap: CellBitmap<E>,
-    pub column: VariableList<Arc<Cell<E>>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>,
+    pub column: VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     pub header: VariableList<PartialDataColumnHeader<E>, U1>,
+}
+
+/// Equivalent to `PartialDataColumnSidecar`, but containing references to the cells. This is done
+/// so that we can get a part of a sidecar without expensively cloning all the contents.
+#[derive(Debug, Clone, Encode)]
+pub struct PartialDataColumnSidecarRef<'a, E: EthSpec> {
+    pub cells_present_bitmap: CellBitmap<E>,
+    // It is fine to use `Vec` here as we never decode directly into this type, and only create
+    // this from the `PartialDataColumnSidecar` type above. This avoids a few ugly `expect` calls.
+    pub column: Vec<&'a Cell<E>>,
+    pub kzg_proofs: Vec<&'a KzgProof>,
+    pub header: Vec<&'a PartialDataColumnHeader<E>>,
 }
 
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
@@ -38,7 +50,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
         // min size is one cell
         Self {
             cells_present_bitmap: BitList::with_capacity(1).unwrap(),
-            column: VariableList::new(vec![Arc::new(Cell::<E>::default())]).unwrap(),
+            column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
             header: VariableList::new(vec![]).unwrap(),
         }
@@ -73,16 +85,15 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
         self.cells_present_bitmap.iter().all(|bit| bit)
     }
 
-    /// Creates a new partial data column sidecar containing only the blob indices for which the
-    /// passed closure returns `true` and were present in `self`. Will return `None` if there is no
-    /// overlap.
-    pub fn clone_filter<F>(&self, filter: F) -> Option<Self>
+    /// Creates a reference to this sidecar containing only the blob indices for which the passed
+    /// closure returns `true` and is present in `self`. Will return `None` if there is no overlap.
+    pub fn filter<F>(&self, filter: F) -> Option<PartialDataColumnSidecarRef<'_, E>>
     where
         F: Fn(usize) -> bool,
     {
         let mut new_bitmap = self.cells_present_bitmap.clone();
-        let mut new_column = VariableList::default();
-        let mut new_proofs = VariableList::default();
+        let mut new_column = Vec::new();
+        let mut new_proofs = Vec::new();
         let mut column_idx = 0;
 
         for (blob_idx, present) in self.cells_present_bitmap.iter().enumerate() {
@@ -90,13 +101,9 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
                 if filter(blob_idx) {
                     // Keep this cell
                     let cell = self.column.get(column_idx)?;
-                    new_column
-                        .push(cell.clone())
-                        .expect("Has same capacity as existing column");
+                    new_column.push(cell);
                     let proof = self.kzg_proofs.get(column_idx)?;
-                    new_proofs
-                        .push(*proof)
-                        .expect("Has same capacity as existing column");
+                    new_proofs.push(proof);
                 } else {
                     // Mark as not present
                     new_bitmap
@@ -113,11 +120,11 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             return None;
         }
 
-        Some(Self {
+        Some(PartialDataColumnSidecarRef {
             cells_present_bitmap: new_bitmap,
             column: new_column,
             kzg_proofs: new_proofs,
-            header: self.header.clone(),
+            header: self.header.iter().collect(),
         })
     }
 
@@ -175,6 +182,10 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
                 other.header.clone()
             },
         })
+    }
+
+    pub fn take_header(&mut self) -> Option<PartialDataColumnHeader<E>> {
+        Vec::from(mem::take(&mut self.header)).pop()
     }
 }
 
@@ -251,17 +262,6 @@ pub struct PartialDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumn<E> {
-    pub fn clone_filter<F>(&self, filter: F) -> Option<Self>
-    where
-        F: Fn(usize) -> bool,
-    {
-        Some(PartialDataColumn {
-            sidecar: self.sidecar.clone_filter(filter)?,
-            block_root: self.block_root,
-            index: self.index,
-        })
-    }
-
     pub fn try_clone_full(&self) -> Option<DataColumnSidecar<E>> {
         if !self.sidecar.is_complete() {
             return None;
@@ -272,14 +272,7 @@ impl<E: EthSpec> PartialDataColumn<E> {
 
         Some(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: self.index,
-            column: VariableList::new(
-                self.sidecar
-                    .column
-                    .iter()
-                    .map(|cell| cell.as_ref().clone())
-                    .collect(),
-            )
-            .expect("Same bounds"),
+            column: self.sidecar.column.clone(),
             kzg_commitments: header.kzg_commitments.clone(),
             kzg_proofs: self.sidecar.kzg_proofs.clone(),
             signed_block_header: header.signed_block_header.clone(),
