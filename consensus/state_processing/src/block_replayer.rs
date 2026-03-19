@@ -313,6 +313,7 @@ where
                 // indicates that the parent is full (and it hasn't already been applied).
                 state_root = if block.fork_name_unchecked().gloas_enabled()
                     && self.state.slot() == self.state.latest_block_header().slot
+                    && self.state.payload_status() == StatePayloadStatus::Pending
                 {
                     let latest_bid_block_hash = self
                         .state

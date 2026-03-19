@@ -358,6 +358,7 @@ where
         Ok((
             BeaconSnapshot {
                 beacon_block_root,
+                execution_envelope: None,
                 beacon_block: Arc::new(beacon_block),
                 beacon_state,
             },
@@ -616,8 +617,10 @@ where
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
+        // TODO(gloas): add check that checkpoint state is Pending
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };
@@ -800,6 +803,7 @@ where
 
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(head_block),
             beacon_state: head_state,
         };
