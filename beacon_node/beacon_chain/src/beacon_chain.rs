@@ -22,7 +22,6 @@ use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataColumnReconstructionResult,
 };
-use crate::data_availability_checker_v2::Availability as PayloadAvailability;
 use crate::data_availability_router::{
     AvailabilityOutcome, DataAvailabilityRouter, ReconstructionOutcome,
 };
@@ -3799,7 +3798,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             AvailabilityOutcome::Payload(_) => {
-                return Err(BlockError::InternalError("Received a payload envelope availability outcome variant when a block variant was expected".to_string()))
+                Err(BlockError::InternalError("Received a payload envelope availability outcome variant when a block variant was expected".to_string()))
             },
         }
     }

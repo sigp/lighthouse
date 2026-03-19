@@ -1867,11 +1867,6 @@ pub type SignedBlockContentsTuple<E> = (
     Option<(KzgProofs<E>, BlobsList<E>)>,
 );
 
-pub type SignedPayloadEnvelopeContentsTuple<E> = (
-    Arc<SignedExecutionPayloadEnvelope<E>>,
-    Option<(KzgProofs<E>, BlobsList<E>)>,
-);
-
 fn parse_required_header<T>(
     headers: &HeaderMap,
     header_name: &str,

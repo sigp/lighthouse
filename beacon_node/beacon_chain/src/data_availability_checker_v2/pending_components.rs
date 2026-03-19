@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::BlockImportSource;
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope,
 };
 
 pub enum CachedPayloadEnvelope<E: EthSpec> {
@@ -22,9 +22,6 @@ pub enum CachedPayloadEnvelope<E: EthSpec> {
 /// The columns are all gossip and kzg verified.
 /// The payload is considered "available" when all required columns are received.
 pub struct PendingComponents<E: EthSpec> {
-    /// The block root is stored for tracing context in the span.
-    #[allow(dead_code)]
-    pub block_root: Hash256,
     /// The execution payload bid containing blob_kzg_commitments.
     pub bid: Option<Arc<SignedExecutionPayloadBid<E>>>,
     /// a cached pre or post executed payload envelope
@@ -182,7 +179,6 @@ impl<E: EthSpec> PendingComponents<E> {
         let span = debug_span!(parent: None, "lh_pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
-            block_root,
             bid: None,
             envelope: None,
             verified_data_columns: vec![],
@@ -240,7 +236,6 @@ mod pending_components_tests {
         let block_root = Hash256::random();
         let components = PendingComponents::<E>::empty(block_root, spec);
 
-        assert_eq!(components.block_root, block_root);
         assert!(components.bid.is_none());
         assert!(components.verified_data_columns.is_empty());
         assert!(!components.reconstruction_started);

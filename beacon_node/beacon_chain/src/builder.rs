@@ -994,7 +994,6 @@ where
 
         let da_checker_v2 = Arc::new(
             DataAvailabilityCheckerV2::new(
-                slot_clock.clone(),
                 self.kzg.clone(),
                 custody_context.clone(),
                 self.spec.clone(),

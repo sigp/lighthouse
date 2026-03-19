@@ -173,7 +173,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         match availability {
             AvailabilityOutcome::Block(_) => {
-                return Err(EnvelopeError::InternalError("Received a block availability outcome variant when a payload envelope variant was expected".to_string()))
+                Err(EnvelopeError::InternalError("Received a block availability outcome variant when a payload envelope variant was expected".to_string()))
             }
             AvailabilityOutcome::Payload(availability) => match availability {
                 PayloadAvailability::Available(available_envelope) => {

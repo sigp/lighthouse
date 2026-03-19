@@ -20,10 +20,12 @@ use crate::block_verification_types::AvailabilityPendingExecutedBlock;
 use crate::custody_context::CustodyContext;
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock,
-    DataAvailabilityChecker, DataColumnReconstructionResult as BlockReconstructionResult,
+    DataAvailabilityChecker, DataAvailabilityCheckerMetrics as BlockMetrics,
+    DataColumnReconstructionResult as BlockReconstructionResult,
 };
 use crate::data_availability_checker_v2::{
     Availability as PayloadAvailability, DataAvailabilityChecker as DataAvailabilityCheckerV2,
+    DataAvailabilityCheckerMetrics as PayloadMetrics,
     DataColumnReconstructionResult as PayloadReconstructionResult,
 };
 use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
@@ -387,17 +389,44 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
         self.v1.put_gossip_verified_blobs(block_root, blobs)
     }
 
-    /// Direct access to v1 checker for block execution/availability checks.
-    ///
-    /// Use this for operations that are specific to the legacy DA checker,
+    // ── Metrics ──
+
+    pub fn metrics(&self) -> DataAvailabilityRouterMetrics {
+        DataAvailabilityRouterMetrics {
+            block: self.v1.metrics(),
+            payload: self.v2.metrics(),
+        }
+    }
+
+    // ── Direct access ──
+
+    /// Direct access to the block-level DA checker (pre-Gloas).
+    /// Used for block availability checks, range sync, and blob verification.
     pub fn v1(&self) -> &Arc<DataAvailabilityChecker<T>> {
         &self.v1
     }
 
-    /// Direct access to v2 checker for payload availability checks.
-    ///
-    /// Use this for operations that are specific to the Gloas DA checker,
+    /// Direct access to the envelope-level DA checker (Gloas).
+    /// Used for payload envelope availability checks and column verification.
     pub fn v2(&self) -> &Arc<DataAvailabilityCheckerV2<T>> {
         &self.v2
     }
+}
+
+pub struct DataAvailabilityRouterMetrics {
+    pub block: BlockMetrics,
+    pub payload: PayloadMetrics,
+}
+
+pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
+    executor: task_executor::TaskExecutor,
+    chain: Arc<crate::BeaconChain<T>>,
+) {
+    crate::data_availability_checker::start_availability_cache_maintenance_service(
+        executor.clone(),
+        chain.clone(),
+    );
+    crate::data_availability_checker_v2::start_availability_cache_maintenance_service(
+        executor, chain,
+    );
 }
