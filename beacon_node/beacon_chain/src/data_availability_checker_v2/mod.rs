@@ -829,6 +829,10 @@ mod data_availability_checker_tests {
         assert_eq!(cache.block_cache_size(), 0);
     }
 
+    // TODO(gloas): Add tests for `put_rpc_custody_columns` and `put_gossip_verified_data_columns`
+    // once the Gloas harness can produce KZG-valid columns. These wrappers add KZG verification
+    // and custody column filtering on top of `put_kzg_verified_custody_data_columns`.
+
     #[tokio::test]
     async fn test_put_columns_creates_pending_components() {
         if !is_gloas_enabled() {

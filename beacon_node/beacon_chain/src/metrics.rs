@@ -1897,12 +1897,6 @@ pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: LazyLock<Result<I
             "Number of entries in the data availability overflow block memory cache.",
         )
     });
-pub static DATA_AVAILABILITY_PAYLOAD_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "data_availability_payload_cache_size",
-        "Number of entries in the data availability payload envelope cache.",
-    )
-});
 pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(

@@ -20,8 +20,10 @@ use crate::chain_config::ChainConfig;
 use crate::custody_context::CustodyContextSsz;
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
-    DataColumnReconstructionResult,
+    DataColumnReconstructionResult as DataColumnReconstructionResultV1,
 };
+
+use crate::data_availability_checker_v2::DataColumnReconstructionResult as DataColumnReconstructionResultV2;
 use crate::data_availability_router::{
     AvailabilityOutcome, DataAvailabilityRouter, ReconstructionOutcome,
 };
@@ -3337,7 +3339,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match result {
             ReconstructionOutcome::Block(data_column_reconstruction_result) => {
                 match data_column_reconstruction_result {
-                    DataColumnReconstructionResult::Success((
+                    DataColumnReconstructionResultV1::Success((
                         availability,
                         data_columns_to_publish,
                     )) => {
@@ -3356,8 +3358,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             Some((availability_processing_status, data_columns_to_publish))
                         })
                     }
-                    DataColumnReconstructionResult::NotStarted(reason)
-                    | DataColumnReconstructionResult::RecoveredColumnsNotImported(reason) => {
+                    DataColumnReconstructionResultV1::NotStarted(reason)
+                    | DataColumnReconstructionResultV1::RecoveredColumnsNotImported(reason) => {
                         // We use metric here because logging this would be *very* noisy.
                         metrics::inc_counter_vec(
                             &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
@@ -3368,9 +3370,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             // TODO(gloas) handle data column reconstruction for gloas.
-            ReconstructionOutcome::Payload(_data_column_reconstruction_result) => Err(
-                BlockError::InternalError("Not yet implemented for gloas".to_owned()),
-            ),
+            ReconstructionOutcome::Payload(data_column_reconstruction_result) => {
+                match data_column_reconstruction_result {
+                    DataColumnReconstructionResultV2::Success((
+                        availability,
+                        data_columns_to_publish,
+                    )) => {
+                        let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
+                            // This should be unreachable because empty result would return `RecoveredColumnsNotImported` instead of success.
+                            return Ok(None);
+                        };
+
+                        self.process_availability(
+                            slot,
+                            AvailabilityOutcome::Payload(availability),
+                            || Ok(()),
+                        )
+                        .await
+                        .map(|availability_processing_status| {
+                            Some((availability_processing_status, data_columns_to_publish))
+                        })
+                    }
+                    DataColumnReconstructionResultV2::NotStarted(reason)
+                    | DataColumnReconstructionResultV2::RecoveredColumnsNotImported(reason) => {
+                        // We use metric here because logging this would be *very* noisy.
+                        metrics::inc_counter_vec(
+                            &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
+                            &[reason],
+                        );
+                        Ok(None)
+                    }
+                }
+            }
         }
     }
 

@@ -169,7 +169,7 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
         self.v1.custody_context()
     }
 
-    /// Query data columns from the appropriate checker based on slot.
+    /// Query data columns from the appropriate checker based on fork.
     pub fn get_data_columns(
         &self,
         block_root: Hash256,
@@ -208,7 +208,7 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
         }
     }
 
-    /// Insert RPC custody columns, routing to the correct checker based on fork.
+    /// Insert RPC custody columns, routing to the correct checker based on slot.
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
@@ -226,7 +226,7 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
         }
     }
 
-    /// Insert gossip-verified data columns, routing to the correct checker based on fork.
+    /// Insert gossip-verified data columns, routing to the correct checker based on slot.
     pub fn put_gossip_verified_data_columns<O: ObservationStrategy>(
         &self,
         block_root: Hash256,
@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
         }
     }
 
-    /// Insert KZG-verified custody data columns, routing to the correct checker based on fork.
+    /// Insert KZG-verified custody data columns, routing to the correct checker based on slot.
     pub fn put_kzg_verified_custody_data_columns(
         &self,
         block_root: Hash256,
@@ -262,7 +262,7 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
         }
     }
 
-    /// Attempt to reconstruct missing data columns, routing to the correct checker based on fork.
+    /// Attempt to reconstruct missing data columns, routing to the correct checker based on slot.
     pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
