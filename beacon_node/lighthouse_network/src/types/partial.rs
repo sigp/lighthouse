@@ -189,6 +189,9 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                 send: None,
             }),
             Some(metadata) => {
+                // The peer is apparently aware of the header, make sure we track that:
+                self.header_sent_set.lock().insert(peer_id);
+
                 let peer_metadata = PartialDataColumnPartsMetadata::<E>::from_ssz_bytes(metadata)
                     .map_err(|_| PartialError::InvalidFormat)?;
                 let expected_len = self.partial_column.sidecar.cells_present_bitmap.len();
