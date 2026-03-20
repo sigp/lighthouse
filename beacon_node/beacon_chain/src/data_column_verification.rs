@@ -1227,9 +1227,12 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 
 #[cfg(test)]
 mod test {
+    use crate::ChainConfig;
     use crate::data_column_verification::{
-        GossipDataColumnError, GossipVerifiedDataColumn,
+        GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
+        GossipVerifiedPartialDataColumnHeader, PartialColumnVerificationResult,
         validate_data_column_sidecar_for_gossip_fulu,
+        validate_partial_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::{
@@ -1237,10 +1240,11 @@ mod test {
     };
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
+    use ssz::BitList;
     use std::sync::Arc;
     use types::{
         DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec, ForkName,
-        MainnetEthSpec,
+        MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
     };
 
     type E = MainnetEthSpec;
@@ -1364,5 +1368,241 @@ mod test {
             result.err(),
             Some(GossipDataColumnError::MaxBlobsPerBlockExceeded { .. })
         ));
+    }
+
+    /// Build a Fulu harness with partial columns enabled.
+    async fn partial_column_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
+        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        let chain_config = ChainConfig {
+            enable_partial_columns: true,
+            ..Default::default()
+        };
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .deterministic_keypairs(64)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .chain_config(chain_config)
+            .build();
+        harness.advance_slot();
+        harness
+    }
+
+    /// Build a partial column harness with a block containing 1 blob commitment
+    /// and the header pre-cached in the partial assembler.
+    async fn partial_column_harness_with_block() -> (
+        BeaconChainHarness<EphemeralHarnessType<E>>,
+        types::Hash256,
+        Arc<PartialDataColumnHeader<E>>,
+    ) {
+        let harness = partial_column_harness().await;
+
+        // Generate a block with 1 blob so we have valid data columns.
+        let fork = harness
+            .spec
+            .fork_name_at_epoch(harness.get_current_slot().epoch(E::slots_per_epoch()));
+        let BlobsBundle::<E> {
+            commitments,
+            proofs: _,
+            blobs: _,
+        } = generate_blobs(1, fork).unwrap().0;
+
+        let slot = harness.get_current_slot();
+        let state = harness.get_current_state();
+        let ((block, _blobs_opt), _state) = harness
+            .make_block_with_modifier(state, slot, |block| {
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() =
+                    vec![commitments[0]].try_into().unwrap();
+            })
+            .await;
+
+        let block_root = block.canonical_root();
+        let header: PartialDataColumnHeader<E> = block.as_ref().try_into().unwrap();
+        let header = Arc::new(header);
+
+        // Pre-cache the header in the partial assembler so headerless partials can be verified.
+        harness
+            .chain
+            .data_availability_checker
+            .partial_assembler()
+            .unwrap()
+            .init(block_root, header.clone());
+
+        (harness, block_root, header)
+    }
+
+    #[tokio::test]
+    async fn partial_empty_message_without_cells_returns_error() {
+        let (harness, block_root, header) = partial_column_harness_with_block().await;
+
+        // Create a headerless partial with no cells — should trigger EmptyMessage.
+        let num_commitments = header.kzg_commitments.len();
+        let empty_bitmap =
+            BitList::<<E as EthSpec>::MaxBlobCommitmentsPerBlock>::with_capacity(num_commitments)
+                .unwrap();
+
+        let column = PartialDataColumn {
+            block_root,
+            index: 0,
+            sidecar: PartialDataColumnSidecar {
+                cells_present_bitmap: empty_bitmap,
+                column: vec![].try_into().unwrap(),
+                kzg_proofs: vec![].try_into().unwrap(),
+                header: ssz_types::VariableList::new(vec![]).unwrap(),
+            },
+        };
+
+        let result = validate_partial_data_column_sidecar_for_gossip(column, &harness.chain);
+        assert!(
+            matches!(
+                result,
+                PartialColumnVerificationResult::ErrWithValidHeader {
+                    err: GossipPartialDataColumnError::EmptyMessage,
+                    ..
+                }
+            ),
+            "Expected EmptyMessage"
+        );
+    }
+
+    #[tokio::test]
+    async fn partial_inconsistent_present_count_returns_error() {
+        let (harness, block_root, header) = partial_column_harness_with_block().await;
+
+        // Create a bitmap that says 2 bits are set, but only provide 1 cell/proof.
+        let num_commitments = header.kzg_commitments.len();
+        let mut bitmap =
+            BitList::<<E as EthSpec>::MaxBlobCommitmentsPerBlock>::with_capacity(num_commitments)
+                .unwrap();
+        bitmap.set(0, true).unwrap();
+
+        let column = PartialDataColumn {
+            block_root,
+            index: 0,
+            sidecar: PartialDataColumnSidecar {
+                cells_present_bitmap: bitmap,
+                column: vec![types::Cell::<E>::default()].try_into().unwrap(),
+                // Provide 2 proofs but only 1 cell ← mismatch with popcount=1
+                kzg_proofs: vec![types::KzgProof::empty(), types::KzgProof::empty()]
+                    .try_into()
+                    .unwrap(),
+                header: ssz_types::VariableList::new(vec![]).unwrap(),
+            },
+        };
+
+        let result = validate_partial_data_column_sidecar_for_gossip(column, &harness.chain);
+        assert!(
+            matches!(
+                result,
+                PartialColumnVerificationResult::ErrWithValidHeader {
+                    err: GossipPartialDataColumnError::InconsistentPresentCount { .. },
+                    ..
+                }
+            ),
+            "Expected InconsistentPresentCount"
+        );
+    }
+
+    #[tokio::test]
+    async fn partial_inconsistent_max_count_returns_error() {
+        let (harness, block_root, _header) = partial_column_harness_with_block().await;
+
+        // Create a bitmap with length different from the number of commitments in the header.
+        // Header has 1 commitment, but we use a bitmap with capacity 3.
+        let mut bitmap =
+            BitList::<<E as EthSpec>::MaxBlobCommitmentsPerBlock>::with_capacity(3).unwrap();
+        bitmap.set(0, true).unwrap();
+
+        let column = PartialDataColumn {
+            block_root,
+            index: 0,
+            sidecar: PartialDataColumnSidecar {
+                cells_present_bitmap: bitmap,
+                column: vec![types::Cell::<E>::default()].try_into().unwrap(),
+                kzg_proofs: vec![types::KzgProof::empty()].try_into().unwrap(),
+                header: ssz_types::VariableList::new(vec![]).unwrap(),
+            },
+        };
+
+        let result = validate_partial_data_column_sidecar_for_gossip(column, &harness.chain);
+        assert!(
+            matches!(
+                result,
+                PartialColumnVerificationResult::ErrWithValidHeader {
+                    err: GossipPartialDataColumnError::InconsistentMaxCount { .. },
+                    ..
+                }
+            ),
+            "Expected InconsistentMaxCount"
+        );
+    }
+
+    #[tokio::test]
+    async fn partial_header_with_empty_commitments_fails() {
+        let harness = partial_column_harness().await;
+
+        let slot = harness.get_current_slot();
+        let state = harness.get_current_state();
+        let ((block, _), _) = harness
+            .make_block_with_modifier(state, slot, |block| {
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].try_into().unwrap();
+            })
+            .await;
+
+        let block_root = block.canonical_root();
+        let header: PartialDataColumnHeader<E> = block.as_ref().try_into().unwrap();
+        assert!(header.kzg_commitments.is_empty());
+
+        let result =
+            GossipVerifiedPartialDataColumnHeader::new(block_root, header, &*harness.chain);
+        assert!(
+            matches!(
+                result,
+                Err(GossipPartialDataColumnError::GossipDataColumnError(
+                    GossipDataColumnError::UnexpectedDataColumn
+                ))
+            ),
+            "Expected UnexpectedDataColumn, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn partial_header_root_mismatch_fails() {
+        let (harness, _block_root, header) = partial_column_harness_with_block().await;
+
+        // Use a wrong group_id (not matching the header's block root)
+        let wrong_root = types::Hash256::repeat_byte(0xff);
+        let header = PartialDataColumnHeader::clone(&header);
+
+        let result =
+            GossipVerifiedPartialDataColumnHeader::new(wrong_root, header, &*harness.chain);
+        assert!(
+            matches!(
+                result,
+                Err(GossipPartialDataColumnError::HeaderIncorrectRoot { .. })
+            ),
+            "Expected HeaderIncorrectRoot, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn partial_header_with_invalid_inclusion_proof_fails() {
+        let (harness, block_root, header) = partial_column_harness_with_block().await;
+
+        // Corrupt the inclusion proof
+        let mut header = PartialDataColumnHeader::clone(&header);
+        header.kzg_commitments_inclusion_proof[0] = types::Hash256::repeat_byte(0xaa);
+
+        let result =
+            GossipVerifiedPartialDataColumnHeader::new(block_root, header, &*harness.chain);
+        assert!(
+            matches!(
+                result,
+                Err(GossipPartialDataColumnError::GossipDataColumnError(
+                    GossipDataColumnError::InvalidInclusionProof
+                ))
+            ),
+            "Expected InvalidInclusionProof, got: {result:?}"
+        );
     }
 }

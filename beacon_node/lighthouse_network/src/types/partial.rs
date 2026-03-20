@@ -249,3 +249,250 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bls::Signature;
+    use fixed_bytes::FixedBytesExtended;
+    use libp2p::identity::Keypair;
+    use ssz_types::{FixedVector, VariableList};
+    use types::{
+        BeaconBlockHeader, MinimalEthSpec, PartialDataColumnHeader, SignedBeaconBlockHeader, Slot,
+    };
+
+    type E = MinimalEthSpec;
+
+    fn make_cell(marker: u8) -> types::Cell<E> {
+        let mut cell = types::Cell::<E>::default();
+        cell[0] = marker;
+        cell
+    }
+
+    fn make_header(num_commitments: usize) -> PartialDataColumnHeader<E> {
+        PartialDataColumnHeader {
+            kzg_commitments: vec![types::KzgCommitment([0u8; 48]); num_commitments]
+                .try_into()
+                .unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader {
+                    slot: Slot::new(1),
+                    proposer_index: 0,
+                    parent_root: Hash256::zero(),
+                    state_root: Hash256::zero(),
+                    body_root: Hash256::zero(),
+                },
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: FixedVector::new(
+                vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
+            )
+            .unwrap(),
+        }
+    }
+
+    fn make_partial_column(
+        block_root: Hash256,
+        total_blobs: usize,
+        present_indices: &[usize],
+    ) -> Arc<PartialDataColumn<E>> {
+        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+        for &idx in present_indices {
+            bitmap.set(idx, true).unwrap();
+        }
+
+        Arc::new(PartialDataColumn {
+            block_root,
+            index: 0,
+            sidecar: PartialDataColumnSidecar {
+                cells_present_bitmap: bitmap,
+                column: present_indices
+                    .iter()
+                    .map(|&idx| make_cell(idx as u8))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap(),
+                kzg_proofs: present_indices
+                    .iter()
+                    .map(|_| types::KzgProof::empty())
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap(),
+                header: VariableList::new(vec![]).unwrap(),
+            },
+        })
+    }
+
+    fn random_peer_id() -> PeerId {
+        let keypair = Keypair::generate_ed25519();
+        PeerId::from(keypair.public())
+    }
+
+    // -- MaybeKnownMetadata tests --
+
+    #[test]
+    fn update_from_unknown_initializes() {
+        let mut meta = MaybeKnownMetadata::<E>::Unknown;
+        let mut bitmap = CellBitmap::<E>::with_capacity(4).unwrap();
+        bitmap.set(0, true).unwrap();
+        let received = PartialDataColumnPartsMetadata {
+            available: bitmap.clone(),
+            request: bitmap,
+        };
+        let changed = meta.do_update(received).unwrap();
+        assert!(changed);
+        assert!(matches!(meta, MaybeKnownMetadata::Known { .. }));
+    }
+
+    #[test]
+    fn update_unions_bitmaps() {
+        let mut bitmap1 = CellBitmap::<E>::with_capacity(4).unwrap();
+        bitmap1.set(0, true).unwrap();
+        let mut meta: MaybeKnownMetadata<E> = PartialDataColumnPartsMetadata {
+            available: bitmap1.clone(),
+            request: bitmap1,
+        }
+        .into();
+
+        let mut bitmap2 = CellBitmap::<E>::with_capacity(4).unwrap();
+        bitmap2.set(1, true).unwrap();
+        let changed = meta
+            .do_update(PartialDataColumnPartsMetadata {
+                available: bitmap2.clone(),
+                request: bitmap2,
+            })
+            .unwrap();
+        assert!(changed);
+
+        if let MaybeKnownMetadata::Known { metadata, .. } = &meta {
+            assert!(metadata.available.get(0).unwrap());
+            assert!(metadata.available.get(1).unwrap());
+            assert!(!metadata.available.get(2).unwrap());
+        } else {
+            panic!("Expected Known metadata");
+        }
+    }
+
+    #[test]
+    fn update_returns_false_when_no_change() {
+        let mut bitmap = CellBitmap::<E>::with_capacity(4).unwrap();
+        bitmap.set(0, true).unwrap();
+        bitmap.set(1, true).unwrap();
+        let mut meta: MaybeKnownMetadata<E> = PartialDataColumnPartsMetadata {
+            available: bitmap.clone(),
+            request: bitmap.clone(),
+        }
+        .into();
+
+        // Update with a subset
+        let mut subset = CellBitmap::<E>::with_capacity(4).unwrap();
+        subset.set(0, true).unwrap();
+        let changed = meta
+            .do_update(PartialDataColumnPartsMetadata {
+                available: subset.clone(),
+                request: subset,
+            })
+            .unwrap();
+        assert!(!changed);
+    }
+
+    #[test]
+    fn update_rejects_mismatched_lengths() {
+        let mut bitmap4 = CellBitmap::<E>::with_capacity(4).unwrap();
+        bitmap4.set(0, true).unwrap();
+        let mut meta: MaybeKnownMetadata<E> = PartialDataColumnPartsMetadata {
+            available: bitmap4.clone(),
+            request: bitmap4,
+        }
+        .into();
+
+        let mut bitmap6 = CellBitmap::<E>::with_capacity(6).unwrap();
+        bitmap6.set(0, true).unwrap();
+        let result = meta.do_update(PartialDataColumnPartsMetadata {
+            available: bitmap6.clone(),
+            request: bitmap6,
+        });
+        assert!(result.is_err());
+    }
+
+    // -- OutgoingPartialColumn::partial_action_from_metadata tests --
+
+    #[test]
+    fn no_metadata_sends_header_once() {
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+        let partial = make_partial_column(root, 4, &[0, 1]);
+        let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+
+        let peer = random_peer_id();
+
+        // First call with no metadata → sends header
+        let action = outgoing.partial_action_from_metadata(peer, None).unwrap();
+        assert!(action.send.is_some());
+
+        // Second call for same peer → no send
+        let action2 = outgoing.partial_action_from_metadata(peer, None).unwrap();
+        assert!(action2.send.is_none());
+    }
+
+    #[test]
+    fn metadata_filters_cells_to_send() {
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+        // We have cells [0, 2, 3]
+        let partial = make_partial_column(root, 4, &[0, 2, 3]);
+        let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+
+        let peer = random_peer_id();
+
+        // Peer has [0, 1], wants [0, 1, 2, 3]
+        let mut peer_available = CellBitmap::<E>::with_capacity(4).unwrap();
+        peer_available.set(0, true).unwrap();
+        peer_available.set(1, true).unwrap();
+        let mut peer_request = CellBitmap::<E>::with_capacity(4).unwrap();
+        for i in 0..4 {
+            peer_request.set(i, true).unwrap();
+        }
+        let peer_meta = PartialDataColumnPartsMetadata::<E> {
+            available: peer_available,
+            request: peer_request,
+        };
+        let encoded = peer_meta.as_ssz_bytes();
+
+        let action = outgoing
+            .partial_action_from_metadata(peer, Some(&encoded))
+            .unwrap();
+        // We should send cells [2, 3] (want = request - available = [2,3], and we have [0,2,3])
+        assert!(action.send.is_some());
+    }
+
+    #[test]
+    fn metadata_sets_need_when_peer_has_unknown_cells() {
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+        // We have cells [0]
+        let partial = make_partial_column(root, 4, &[0]);
+        let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+
+        let peer = random_peer_id();
+
+        // Peer has [0, 1, 2] — cells [1, 2] are unknown to us
+        let mut peer_available = CellBitmap::<E>::with_capacity(4).unwrap();
+        peer_available.set(0, true).unwrap();
+        peer_available.set(1, true).unwrap();
+        peer_available.set(2, true).unwrap();
+        let peer_meta = PartialDataColumnPartsMetadata::<E> {
+            available: peer_available.clone(),
+            request: peer_available,
+        };
+        let encoded = peer_meta.as_ssz_bytes();
+
+        let action = outgoing
+            .partial_action_from_metadata(peer, Some(&encoded))
+            .unwrap();
+        assert!(action.need);
+    }
+}

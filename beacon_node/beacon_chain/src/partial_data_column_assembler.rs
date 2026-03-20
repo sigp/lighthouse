@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::data::{ColumnIndex, DataColumnSidecar, PartialDataColumn, PartialDataColumnHeader};
-use types::{DataColumnSidecarFulu, EthSpec, Hash256};
+use types::{DataColumnSidecarFulu, Epoch, EthSpec, Hash256};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {
@@ -218,7 +218,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     }
 
     /// Maintenance: remove assemblies older than cutoff epoch
-    pub fn do_maintenance(&self, cutoff_epoch: types::Epoch) {
+    pub fn do_maintenance(&self, cutoff_epoch: Epoch) {
         let mut assemblies = self.assemblies.write();
         let mut to_remove = vec![];
 
@@ -247,4 +247,302 @@ pub struct InitResult<E: EthSpec> {
     pub complete_columns: Vec<Arc<DataColumnSidecar<E>>>,
     /// Columns that need further assembly via gossip
     pub incomplete_partials: Vec<Arc<PartialDataColumn<E>>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_column_verification::{
+        KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    };
+    use bls::{FixedBytesExtended, Signature};
+    use kzg::{KzgCommitment, KzgProof};
+    use ssz_types::{FixedVector, VariableList};
+    use types::{
+        BeaconBlockHeader, Cell, CellBitmap, EthSpec, Hash256, MinimalEthSpec,
+        PartialDataColumnSidecar, SignedBeaconBlockHeader, Slot,
+    };
+
+    type E = MinimalEthSpec;
+
+    fn make_cell(marker: u8) -> Cell<E> {
+        let mut cell = Cell::<E>::default();
+        cell[0] = marker;
+        cell
+    }
+
+    fn make_header(num_commitments: usize) -> Arc<PartialDataColumnHeader<E>> {
+        Arc::new(PartialDataColumnHeader {
+            kzg_commitments: vec![KzgCommitment([0u8; 48]); num_commitments]
+                .try_into()
+                .unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader {
+                    slot: Slot::new(1),
+                    proposer_index: 0,
+                    parent_root: Hash256::zero(),
+                    state_root: Hash256::zero(),
+                    body_root: Hash256::zero(),
+                },
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: FixedVector::new(
+                vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
+            )
+            .unwrap(),
+        })
+    }
+
+    fn make_partial(
+        block_root: Hash256,
+        column_index: ColumnIndex,
+        total_blobs: usize,
+        present_indices: &[usize],
+    ) -> KzgVerifiedCustodyPartialDataColumn<E> {
+        make_partial_with_header(block_root, column_index, total_blobs, present_indices, true)
+    }
+
+    fn make_partial_with_header(
+        block_root: Hash256,
+        column_index: ColumnIndex,
+        total_blobs: usize,
+        present_indices: &[usize],
+        include_header: bool,
+    ) -> KzgVerifiedCustodyPartialDataColumn<E> {
+        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+        for &idx in present_indices {
+            bitmap.set(idx, true).unwrap();
+        }
+
+        let column: VariableList<_, _> = present_indices
+            .iter()
+            .map(|&idx| make_cell(idx as u8))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let proofs: VariableList<_, _> = present_indices
+            .iter()
+            .map(|_| KzgProof::empty())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        let header_list = if include_header {
+            VariableList::new(vec![(*make_header(total_blobs)).clone()]).unwrap()
+        } else {
+            VariableList::new(vec![]).unwrap()
+        };
+
+        let partial = PartialDataColumn {
+            block_root,
+            index: column_index,
+            sidecar: PartialDataColumnSidecar {
+                cells_present_bitmap: bitmap,
+                column,
+                kzg_proofs: proofs,
+                header: header_list,
+            },
+        };
+        KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
+            KzgVerifiedPartialDataColumn::__new_for_testing(partial),
+        )
+    }
+
+    fn make_assembler() -> PartialDataColumnAssembler<E> {
+        PartialDataColumnAssembler::new(NonZeroUsize::new(16).unwrap())
+    }
+
+    // -- init and get_header tests --
+
+    #[test]
+    fn init_stores_header() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+        assert!(assembler.init(root, header.clone()));
+        let retrieved = assembler.get_header(&root).unwrap();
+        assert_eq!(*retrieved, *header);
+    }
+
+    #[test]
+    fn init_returns_false_if_already_exists() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+        assert!(assembler.init(root, header.clone()));
+        assert!(!assembler.init(root, header));
+    }
+
+    // -- merge_partials tests --
+
+    #[test]
+    fn merge_partials_tracks_added_cells() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+
+        let partial = make_partial(root, 0, 4, &[0, 1, 2]);
+        let result = assembler
+            .merge_partials(root, vec![partial], header.clone())
+            .unwrap();
+        assert_eq!(result.added_cells, 3);
+
+        // Merge more cells for the same column
+        let partial2 = make_partial(root, 0, 4, &[2, 3]);
+        let result2 = assembler
+            .merge_partials(root, vec![partial2], header)
+            .unwrap();
+        // Only cell 3 is new (cell 2 was already present)
+        assert_eq!(result2.added_cells, 1);
+    }
+
+    #[test]
+    fn merge_partials_ignores_already_complete_column() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+
+        // Complete the column
+        let partial = make_partial(root, 0, 4, &[0, 1, 2, 3]);
+        let result = assembler
+            .merge_partials(root, vec![partial], header.clone())
+            .unwrap();
+        assert_eq!(result.added_cells, 4);
+        assert_eq!(result.full_columns.len(), 1);
+
+        // Try to merge more — should be ignored
+        let partial2 = make_partial(root, 0, 4, &[0, 1]);
+        let result2 = assembler
+            .merge_partials(root, vec![partial2], header)
+            .unwrap();
+        assert_eq!(result2.added_cells, 0);
+        assert!(result2.full_columns.is_empty());
+    }
+
+    #[test]
+    fn merge_partials_completes_column_progressively() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+
+        let partial1 = make_partial(root, 0, 4, &[0, 1]);
+        let result1 = assembler
+            .merge_partials(root, vec![partial1], header.clone())
+            .unwrap();
+        assert!(result1.full_columns.is_empty());
+
+        let partial2 = make_partial(root, 0, 4, &[2, 3]);
+        let result2 = assembler
+            .merge_partials(root, vec![partial2], header)
+            .unwrap();
+        assert_eq!(result2.full_columns.len(), 1);
+    }
+
+    #[test]
+    fn merge_partials_returns_updated_partials() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+
+        let partial = make_partial(root, 0, 4, &[0, 2]);
+        let result = assembler
+            .merge_partials(root, vec![partial], header)
+            .unwrap();
+        assert_eq!(result.updated_partials.len(), 1);
+        assert_eq!(result.updated_partials[0].index(), 0);
+    }
+
+    // -- mark_as_complete tests --
+
+    #[test]
+    fn mark_as_complete_replaces_incomplete() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = make_header(4);
+
+        // Merge an incomplete partial first
+        let partial = make_partial(root, 0, 4, &[0, 1]);
+        assembler.merge_partials(root, vec![partial], header);
+
+        let full_column = DataColumnSidecarFulu::<E> {
+            index: 0,
+            column: vec![Cell::<E>::default(); 4].try_into().unwrap(),
+            kzg_commitments: vec![KzgCommitment([0u8; 48]); 4].try_into().unwrap(),
+            kzg_proofs: vec![KzgProof::empty(); 4].try_into().unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader {
+                    slot: Slot::new(1),
+                    proposer_index: 0,
+                    parent_root: Hash256::zero(),
+                    state_root: Hash256::zero(),
+                    body_root: Hash256::zero(),
+                },
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: FixedVector::new(
+                vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
+            )
+            .unwrap(),
+        };
+        assert!(assembler.mark_as_complete(root, &full_column));
+    }
+
+    #[test]
+    fn mark_as_complete_returns_false_if_already_complete() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+
+        let full_column = DataColumnSidecarFulu::<E> {
+            index: 0,
+            column: vec![Cell::<E>::default(); 4].try_into().unwrap(),
+            kzg_commitments: vec![KzgCommitment([0u8; 48]); 4].try_into().unwrap(),
+            kzg_proofs: vec![KzgProof::empty(); 4].try_into().unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader {
+                    slot: Slot::new(1),
+                    proposer_index: 0,
+                    parent_root: Hash256::zero(),
+                    state_root: Hash256::zero(),
+                    body_root: Hash256::zero(),
+                },
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: FixedVector::new(
+                vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
+            )
+            .unwrap(),
+        };
+        assert!(assembler.mark_as_complete(root, &full_column));
+        assert!(!assembler.mark_as_complete(root, &full_column));
+    }
+
+    // -- do_maintenance tests --
+
+    #[test]
+    fn do_maintenance_removes_old_assemblies() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        // Header at slot 0 → epoch 0
+        let header = make_header(4);
+        assembler.init(root, header);
+        assert!(assembler.get_header(&root).is_some());
+
+        // Cutoff epoch 1 removes epoch 0
+        assembler.do_maintenance(Epoch::new(1));
+        assert!(assembler.get_header(&root).is_none());
+    }
+
+    #[test]
+    fn do_maintenance_keeps_recent_assemblies() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        // Header at slot 100 → epoch 100/8 = 12 for MinimalEthSpec (8 slots/epoch)
+        let mut header = (*make_header(4)).clone();
+        header.signed_block_header.message.slot = Slot::new(100);
+        let header = Arc::new(header);
+        assembler.init(root, header);
+
+        assembler.do_maintenance(Epoch::new(1));
+        assert!(assembler.get_header(&root).is_some());
+    }
 }

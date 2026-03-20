@@ -280,3 +280,201 @@ impl<E: EthSpec> PartialDataColumn<E> {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MinimalEthSpec;
+    use bls::Signature;
+    use fixed_bytes::FixedBytesExtended;
+    use kzg::KzgCommitment;
+
+    type E = MinimalEthSpec;
+
+    fn make_cell(marker: u8) -> Cell<E> {
+        let mut cell = Cell::<E>::default();
+        cell[0] = marker;
+        cell
+    }
+
+    fn make_sidecar_with_marker(
+        total_blobs: usize,
+        present_indices: &[usize],
+        marker_base: u8,
+    ) -> PartialDataColumnSidecar<E> {
+        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+        for &idx in present_indices {
+            bitmap.set(idx, true).unwrap();
+        }
+
+        let column: VariableList<_, _> = present_indices
+            .iter()
+            .map(|&idx| make_cell(marker_base.wrapping_add(idx as u8)))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let proofs: VariableList<_, _> = present_indices
+            .iter()
+            .map(|_| KzgProof::empty())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        PartialDataColumnSidecar {
+            cells_present_bitmap: bitmap,
+            column,
+            kzg_proofs: proofs,
+            header: VariableList::new(vec![]).unwrap(),
+        }
+    }
+
+    fn make_sidecar(total_blobs: usize, present_indices: &[usize]) -> PartialDataColumnSidecar<E> {
+        make_sidecar_with_marker(total_blobs, present_indices, 0)
+    }
+
+    fn make_header(num_commitments: usize) -> PartialDataColumnHeader<E> {
+        PartialDataColumnHeader {
+            kzg_commitments: vec![KzgCommitment([0u8; 48]); num_commitments]
+                .try_into()
+                .unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: crate::BeaconBlockHeader {
+                    slot: Slot::new(0),
+                    proposer_index: 0,
+                    parent_root: Hash256::zero(),
+                    state_root: Hash256::zero(),
+                    body_root: Hash256::zero(),
+                },
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: FixedVector::new(
+                vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
+            )
+            .unwrap(),
+        }
+    }
+
+    // -- filter tests --
+
+    #[test]
+    fn filter_keeps_matching_cells() {
+        let sidecar = make_sidecar(6, &[0, 2, 4]);
+        let filtered = sidecar.filter(|idx| idx == 0 || idx == 4).unwrap();
+        assert_eq!(filtered.column.len(), 2);
+        assert_eq!(filtered.kzg_proofs.len(), 2);
+        assert!(filtered.cells_present_bitmap.get(0).unwrap());
+        assert!(!filtered.cells_present_bitmap.get(2).unwrap());
+        assert!(filtered.cells_present_bitmap.get(4).unwrap());
+    }
+
+    #[test]
+    fn filter_returns_none_when_no_overlap() {
+        let sidecar = make_sidecar(6, &[0, 2, 4]);
+        assert!(sidecar.filter(|idx| idx == 1 || idx == 3).is_none());
+    }
+
+    #[test]
+    fn filter_preserves_all_when_all_match() {
+        let sidecar = make_sidecar(6, &[0, 2, 4]);
+        let filtered = sidecar.filter(|_| true).unwrap();
+        assert_eq!(filtered.column.len(), 3);
+        assert_eq!(filtered.kzg_proofs.len(), 3);
+        assert_eq!(filtered.cells_present_bitmap, sidecar.cells_present_bitmap);
+
+        // Also, check that the encoded version matches
+        assert_eq!(filtered.as_ssz_bytes(), sidecar.as_ssz_bytes());
+    }
+
+    // -- merge tests --
+
+    #[test]
+    fn merge_disjoint_partials() {
+        let a = make_sidecar(6, &[0, 2]);
+        let b = make_sidecar(6, &[1, 3]);
+        let merged = a.merge(&b).unwrap();
+        assert_eq!(merged.column.len(), 4);
+        assert_eq!(merged.kzg_proofs.len(), 4);
+        for i in 0..4 {
+            assert!(merged.cells_present_bitmap.get(i).unwrap());
+        }
+        assert!(!merged.cells_present_bitmap.get(4).unwrap());
+    }
+
+    #[test]
+    fn merge_overlapping_partials_prefers_self() {
+        let a = make_sidecar_with_marker(4, &[0, 1], 0);
+        let b = make_sidecar_with_marker(4, &[1, 2], 100);
+        let merged = a.merge(&b).unwrap();
+        assert_eq!(merged.column.len(), 3);
+        // Cell at bitmap index 1 is the second cell in the merged column.
+        // It should come from `a` (marker_base=0, so marker=0+1=1), not `b` (marker=100+1=101).
+        assert_eq!(merged.column[1][0], 1);
+    }
+
+    #[test]
+    fn merge_with_empty_other() {
+        let a = make_sidecar(4, &[0, 2]);
+        let b = make_sidecar(4, &[]);
+        let merged = a.merge(&b).unwrap();
+        assert_eq!(merged.column.len(), 2);
+        assert_eq!(merged.cells_present_bitmap, a.cells_present_bitmap);
+    }
+
+    #[test]
+    fn merge_preserves_header_from_self() {
+        let mut a = make_sidecar(4, &[0]);
+        a.header = VariableList::new(vec![make_header(4)]).unwrap();
+        let b = make_sidecar(4, &[1]);
+        let merged = a.merge(&b).unwrap();
+        assert!(!merged.header.is_empty());
+
+        // If self has no header, use other's
+        let c = make_sidecar(4, &[0]);
+        let mut d = make_sidecar(4, &[1]);
+        d.header = VariableList::new(vec![make_header(4)]).unwrap();
+        let merged2 = c.merge(&d).unwrap();
+        assert!(!merged2.header.is_empty());
+    }
+
+    // -- is_complete tests --
+
+    #[test]
+    fn is_complete_true_when_all_bits_set() {
+        let sidecar = make_sidecar(4, &[0, 1, 2, 3]);
+        assert!(sidecar.is_complete());
+    }
+
+    #[test]
+    fn is_complete_false_when_partial() {
+        let sidecar = make_sidecar(4, &[0, 2]);
+        assert!(!sidecar.is_complete());
+    }
+
+    // -- try_clone_full tests (on PartialDataColumn) --
+
+    #[test]
+    fn try_clone_full_succeeds_when_complete() {
+        let sidecar = make_sidecar(3, &[0, 1, 2]);
+        let header = make_header(3);
+        let partial = PartialDataColumn {
+            block_root: Hash256::zero(),
+            index: 5,
+            sidecar,
+        };
+        let full = partial.try_clone_full(&header).unwrap();
+        assert_eq!(*full.index(), 5);
+        assert_eq!(full.column().len(), 3);
+    }
+
+    #[test]
+    fn try_clone_full_returns_none_when_incomplete() {
+        let sidecar = make_sidecar(4, &[0, 2]);
+        let header = make_header(4);
+        let partial = PartialDataColumn {
+            block_root: Hash256::zero(),
+            index: 0,
+            sidecar,
+        };
+        assert!(partial.try_clone_full(&header).is_none());
+    }
+}
