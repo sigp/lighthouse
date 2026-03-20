@@ -240,23 +240,12 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         let _timer =
             metrics::start_timer(&metrics::BEACON_ENGINE_GET_BLOBS_V3_REQUEST_DURATION_SECONDS);
 
-        let response = chain_adapter
+        chain_adapter
             .get_blobs_v3(versioned_hashes)
             .await
             .inspect_err(|_| {
                 inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
-            })?;
-
-        if response
-            .as_ref()
-            .is_some_and(|vec| vec.iter().all(|blob| blob.is_some()))
-        {
-            inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V3_COMPLETE_RESPONSES_TOTAL);
-        } else {
-            inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V3_PARTIAL_RESPONSES_TOTAL);
-        }
-
-        response
+            })?
     } else {
         debug!(num_expected_blobs, "Fetching all blobs from the EL");
 
@@ -287,20 +276,31 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     let num_fetched_blobs = blobs_and_proofs.iter().filter(|opt| opt.is_some()).count();
     metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
 
-    if !get_blobs_v3 && num_fetched_blobs != num_expected_blobs {
-        // This scenario is not supposed to happen if the EL is spec compliant.
-        // It should either return all requested blobs or none, but NOT partial responses.
-        // If we attempt to compute columns with partial blobs, we'd end up with invalid columns.
-        warn!(
-            num_fetched_blobs,
-            num_expected_blobs, "The EL did not return all requested blobs"
-        );
-        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
-        return Ok(None);
+    if num_fetched_blobs != num_expected_blobs {
+        if !get_blobs_v3 {
+            // This scenario is not supposed to happen if the EL is spec compliant.
+            // It should either return all requested blobs or none, but NOT partial responses.
+            // If we attempt to compute columns with partial blobs, we'd end up with invalid columns.
+            warn!(
+                num_fetched_blobs,
+                num_expected_blobs, "The EL did not return all requested blobs"
+            );
+            inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
+            return Ok(None);
+        } else {
+            inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V3_PARTIAL_RESPONSES_TOTAL);
+            debug!(
+                num_fetched_blobs,
+                num_expected_blobs, "Blobs partially received from the EL"
+            );
+        }
+    } else {
+        debug!(num_fetched_blobs, "All blobs received from the EL");
+        inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
+        if get_blobs_v3 {
+            inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V3_COMPLETE_RESPONSES_TOTAL);
+        }
     }
-
-    debug!(num_fetched_blobs, "Blobs received from the EL");
-    inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
 
     if chain_adapter.fork_choice_contains_block(&block_root) {
         // Avoid computing columns if the block has already been imported.
