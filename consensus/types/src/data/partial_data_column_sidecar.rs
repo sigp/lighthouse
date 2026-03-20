@@ -262,13 +262,13 @@ pub struct PartialDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumn<E> {
-    pub fn try_clone_full(&self) -> Option<DataColumnSidecar<E>> {
+    pub fn try_clone_full(
+        &self,
+        header: &PartialDataColumnHeader<E>,
+    ) -> Option<DataColumnSidecar<E>> {
         if !self.sidecar.is_complete() {
             return None;
         }
-        let Some(header) = self.sidecar.header.first() else {
-            return None;
-        };
 
         Some(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: self.index,

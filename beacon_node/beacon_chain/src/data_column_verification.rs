@@ -117,6 +117,7 @@ pub enum GossipDataColumnError {
     /// We cannot process the columns without validating its parent, the peer isn't necessarily faulty.
     ParentUnknown {
         parent_root: Hash256,
+        slot: Slot,
     },
     /// The column conflicts with finalization, no need to propagate.
     ///
@@ -495,6 +496,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         verify_partial_column_header_inclusion_proof(&header)?;
         let parent_block = verify_parent_block_and_finalized_descendant(
             header.signed_block_header.message.parent_root,
+            column_slot,
             chain,
         )?;
         verify_slot_higher_than_parent(&parent_block, column_slot)?;
@@ -673,7 +675,10 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
             })
     }
 
-    pub fn try_clone_full(&self) -> Option<KzgVerifiedCustodyDataColumn<E>> {
+    pub fn try_clone_full(
+        &self,
+        header: &PartialDataColumnHeader<E>,
+    ) -> Option<KzgVerifiedCustodyDataColumn<E>> {
         self.data
             .try_clone_full()
             .map(|data| KzgVerifiedCustodyDataColumn {
@@ -779,8 +784,11 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     }
 
     verify_column_inclusion_proof(data_column_fulu)?;
-    let parent_block =
-        verify_parent_block_and_finalized_descendant(data_column_fulu.block_parent_root(), chain)?;
+    let parent_block = verify_parent_block_and_finalized_descendant(
+        data_column_fulu.block_parent_root(),
+        column_slot,
+        chain,
+    )?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
     verify_proposer_and_signature(&data_column_fulu.signed_block_header, &parent_block, chain)?;
     let kzg = &chain.kzg;
@@ -1033,6 +1041,7 @@ fn verify_slot_higher_than_parent(
 
 fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
     block_parent_root: Hash256,
+    slot: Slot,
     chain: &BeaconChain<T>,
 ) -> Result<ProtoBlock, GossipDataColumnError> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
@@ -1042,6 +1051,7 @@ fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
         return Err(GossipDataColumnError::ParentUnknown {
             parent_root: block_parent_root,
+            slot,
         });
     };
 

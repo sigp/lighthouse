@@ -144,7 +144,7 @@ pub enum SyncMessage<E: EthSpec> {
     UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
 
     /// A partial data column with an unknown parent has been received.
-    UnknownParentPartialDataColumn(PeerId, PartialDataColumn<E>),
+    UnknownParentPartialDataColumn(PeerId, Hash256, Hash256, Slot),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -904,21 +904,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             }
-            SyncMessage::UnknownParentPartialDataColumn(peer_id, partial_data_column) => {
-                let block_root = partial_data_column.block_root;
-                let Some(header) = partial_data_column.sidecar.header.first() else {
-                    // This should not happen - we need to know the header to know that we don't know the parent
-                    crit!(%block_root, "Got unknown parent partial column without header");
-                    return;
-                };
-                let data_column_slot = header.slot();
-                let parent_root = header.signed_block_header.message.parent_root;
+            SyncMessage::UnknownParentPartialDataColumn(peer_id, block_root, parent_root, slot) => {
                 debug!(%block_root, %parent_root, "Received unknown parent partial column message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
-                    data_column_slot,
+                    slot,
                     BlockComponent::PartialDataColumn(DownloadResult {
                         value: parent_root,
                         block_root,

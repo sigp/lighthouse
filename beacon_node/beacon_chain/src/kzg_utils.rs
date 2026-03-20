@@ -546,13 +546,15 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
         }
     }
 
+    let block_root = header.signed_block_header.message.canonical_root();
+
     let sidecars: Result<Vec<PartialDataColumn<E>>, String> = columns
         .into_iter()
         .zip(column_kzg_proofs)
         .enumerate()
         .map(|(index, (col, proofs))| {
             let column = PartialDataColumn {
-                block_root: header.signed_block_header.message.canonical_root(),
+                block_root,
                 index: index as u64,
                 sidecar: types::data::PartialDataColumnSidecar {
                     cells_present_bitmap: bitmap.clone(),
@@ -560,7 +562,7 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                     kzg_proofs: VariableList::try_from(proofs)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    header: VariableList::repeat_full(header.clone()),
+                    header: VariableList::empty(),
                 },
             };
             Ok(column)

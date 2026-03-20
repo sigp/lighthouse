@@ -861,15 +861,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Some(header)
             }
             PartialColumnVerificationResult::ErrWithValidHeader { header, err } => {
-                self.handle_partial_verification_error(
-                    peer_id, err, block_root, index, None, topic,
-                );
+                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
                 Some(header)
             }
             PartialColumnVerificationResult::Err(err) => {
-                self.handle_partial_verification_error(
-                    peer_id, err, block_root, index, None, topic,
-                );
+                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
                 None
             }
         };
@@ -899,7 +895,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         err: GossipPartialDataColumnError,
         block_root: Hash256,
         index: ColumnIndex,
-        partial_data_column: Option<PartialDataColumn<T::EthSpec>>,
         topic: GossipTopic,
     ) {
         match err {
@@ -919,24 +914,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Gossip partial data column already processed via the EL."
                     );
                 }
-                GossipDataColumnError::ParentUnknown { parent_root } => {
-                    if let Some(partial_data_column) = partial_data_column {
-                        debug!(
-                            action = "requesting parent",
-                            %block_root,
-                            %parent_root,
-                            "Unknown parent hash for partial column"
-                        );
-                        self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn(
-                            peer_id,
-                            partial_data_column,
-                        ));
-                    } else {
-                        crit!(
-                            %parent_root,
-                            "Unknown parent hash for partial column - but got no partial column to reprocess"
-                        )
-                    }
+                GossipDataColumnError::ParentUnknown { parent_root, slot } => {
+                    debug!(
+                        action = "requesting parent",
+                        %block_root,
+                        %parent_root,
+                        "Unknown parent hash for partial column"
+                    );
+                    self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn(
+                        peer_id,
+                        block_root,
+                        parent_root,
+                        slot,
+                    ));
                 }
                 GossipDataColumnError::PubkeyCacheTimeout
                 | GossipDataColumnError::BeaconChainError(_) => {
