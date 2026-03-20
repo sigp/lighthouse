@@ -34,6 +34,7 @@ pub struct SSZSnappyInboundCodec<E: EthSpec> {
     protocol: ProtocolId,
     inner: Uvi<usize>,
     len: Option<usize>,
+    decoded_buffer: Option<Vec<u8>>,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
     fork_context: Arc<ForkContext>,
@@ -54,6 +55,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
             inner: uvi_codec,
             protocol,
             len: None,
+            decoded_buffer: None,
             phantom: PhantomData,
             fork_context,
             max_packet_size,
@@ -187,22 +189,36 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
         // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
         let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
         let mut reader = FrameDecoder::new(limit_reader);
-        let mut decoded_buffer = vec![0; length];
+        let decoded_buffer = decoded_buffer(&mut self.decoded_buffer, length);
 
-        match reader.read_exact(&mut decoded_buffer) {
+        match reader.read_exact(decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().get_ref().position();
-                self.len = None;
-                let _read_bytes = src.split_to(n as usize);
-                handle_rpc_request(
+                let result = handle_rpc_request(
                     self.protocol.versioned_protocol,
-                    &decoded_buffer,
+                    decoded_buffer,
                     self.fork_context.current_fork_name(),
                     &self.fork_context.spec,
-                )
+                );
+                let _read_bytes = src.split_to(n as usize);
+                self.len = None;
+                self.decoded_buffer = None;
+                result
             }
-            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
+            Err(e) => match handle_error::<RequestType<E>>(
+                e,
+                reader.get_ref().get_ref().position(),
+                max_compressed_len,
+            ) {
+                Ok(None) => Ok(None),
+                Err(err) => {
+                    self.len = None;
+                    self.decoded_buffer = None;
+                    Err(err)
+                }
+                Ok(Some(_)) => unreachable!("handle_error only returns Ok(None) or Err"),
+            },
         }
     }
 }
@@ -211,6 +227,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 pub struct SSZSnappyOutboundCodec<E: EthSpec> {
     inner: Uvi<usize>,
     len: Option<usize>,
+    decoded_buffer: Option<Vec<u8>>,
     protocol: ProtocolId,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
@@ -237,6 +254,7 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
             protocol,
             max_packet_size,
             len: None,
+            decoded_buffer: None,
             fork_name: None,
             fork_context,
             phantom: PhantomData,
@@ -281,21 +299,37 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
         // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
         let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
         let mut reader = FrameDecoder::new(limit_reader);
+        let decoded_buffer = decoded_buffer(&mut self.decoded_buffer, length);
 
-        let mut decoded_buffer = vec![0; length];
-
-        match reader.read_exact(&mut decoded_buffer) {
+        match reader.read_exact(decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().get_ref().position();
-                self.len = None;
+                let result = handle_rpc_response(
+                    self.protocol.versioned_protocol,
+                    decoded_buffer,
+                    self.fork_name,
+                );
                 let _read_bytes = src.split_to(n as usize);
-                // Safe to `take` from `self.fork_name` as we have all the bytes we need to
-                // decode an ssz object at this point.
-                let fork_name = self.fork_name.take();
-                handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
+                self.len = None;
+                self.decoded_buffer = None;
+                self.fork_name = None;
+                result
             }
-            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
+            Err(e) => match handle_error::<RpcSuccessResponse<E>>(
+                e,
+                reader.get_ref().get_ref().position(),
+                max_compressed_len,
+            ) {
+                Ok(None) => Ok(None),
+                Err(err) => {
+                    self.len = None;
+                    self.decoded_buffer = None;
+                    self.fork_name = None;
+                    Err(err)
+                }
+                Ok(Some(_)) => unreachable!("handle_error only returns Ok(None) or Err"),
+            },
         }
     }
 
@@ -318,18 +352,32 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
         // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
         let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
         let mut reader = FrameDecoder::new(limit_reader);
-        let mut decoded_buffer = vec![0; length];
-        match reader.read_exact(&mut decoded_buffer) {
+        let decoded_buffer = decoded_buffer(&mut self.decoded_buffer, length);
+        match reader.read_exact(decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().get_ref().position();
-                self.len = None;
+                let result = Ok(Some(ErrorType(VariableList::from_ssz_bytes(
+                    decoded_buffer,
+                )?)));
                 let _read_bytes = src.split_to(n as usize);
-                Ok(Some(ErrorType(VariableList::from_ssz_bytes(
-                    &decoded_buffer,
-                )?)))
+                self.len = None;
+                self.decoded_buffer = None;
+                result
             }
-            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
+            Err(e) => match handle_error::<ErrorType>(
+                e,
+                reader.get_ref().get_ref().position(),
+                max_compressed_len,
+            ) {
+                Ok(None) => Ok(None),
+                Err(err) => {
+                    self.len = None;
+                    self.decoded_buffer = None;
+                    Err(err)
+                }
+                Ok(Some(_)) => unreachable!("handle_error only returns Ok(None) or Err"),
+            },
         }
     }
 }
@@ -434,6 +482,11 @@ impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
         // response code for the next chunk
         if let Ok(Some(_)) = inner_result {
             self.current_response_code = None;
+        } else if inner_result.is_err() {
+            self.current_response_code = None;
+            self.fork_name = None;
+            self.len = None;
+            self.decoded_buffer = None;
         }
         // return the result
         inner_result
@@ -510,6 +563,14 @@ fn handle_length(
             None => Ok(None), // need more bytes to decode length
         }
     }
+}
+
+fn decoded_buffer(decoded_buffer: &mut Option<Vec<u8>>, length: usize) -> &mut [u8] {
+    let buffer = decoded_buffer.get_or_insert_with(|| vec![0; length]);
+    if buffer.len() != length {
+        buffer.resize(length, 0);
+    }
+    buffer.as_mut_slice()
 }
 
 /// Decodes an `InboundRequest` from the byte stream.
@@ -2424,5 +2485,53 @@ mod tests {
             "Should return invalid data variant {}",
             err
         );
+    }
+
+    #[test]
+    fn test_partial_snappy_response_reuses_decoded_buffer() {
+        let spec = spec_with_all_forks_enabled();
+        let fork_ctx = Arc::new(fork_context(ForkName::latest(), &spec));
+        let max_packet_size = spec.max_payload_size as usize;
+        let protocol = ProtocolId::new(SupportedProtocol::BlocksByRangeV2, Encoding::SSZSnappy);
+
+        let mut codec =
+            SSZSnappyOutboundCodec::<Spec>::new(protocol, max_packet_size, fork_ctx.clone());
+
+        let mut payload = BytesMut::new();
+        payload.extend_from_slice(&[0u8]);
+        let deneb_epoch = spec.deneb_fork_epoch.unwrap();
+        payload.extend_from_slice(&fork_ctx.context_bytes(deneb_epoch));
+
+        let claimed_size = max_packet_size;
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+        uvi_codec.encode(claimed_size, &mut payload).unwrap();
+
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&vec![0xAB; claimed_size]).unwrap();
+        writer.flush().unwrap();
+        let compressed = writer.into_inner().unwrap();
+
+        let first_chunk_len = 16;
+        payload.extend_from_slice(&compressed[..first_chunk_len]);
+
+        assert!(codec.decode(&mut payload).unwrap().is_none());
+        assert_eq!(codec.len, Some(claimed_size));
+        let first_ptr = codec
+            .decoded_buffer
+            .as_ref()
+            .expect("partial frame should retain decoded buffer")
+            .as_ptr();
+
+        payload.extend_from_slice(&compressed[first_chunk_len..first_chunk_len + 1]);
+
+        assert!(codec.decode(&mut payload).unwrap().is_none());
+        assert_eq!(codec.len, Some(claimed_size));
+        let second_ptr = codec
+            .decoded_buffer
+            .as_ref()
+            .expect("partial frame should reuse decoded buffer")
+            .as_ptr();
+
+        assert_eq!(first_ptr, second_ptr);
     }
 }
