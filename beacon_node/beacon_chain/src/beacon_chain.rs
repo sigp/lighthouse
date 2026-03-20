@@ -6689,6 +6689,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut prev_block_root = None;
         let mut prev_beacon_state = None;
 
+        // Collect all blocks.
+        let mut blocks = vec![];
+
         for res in self.forwards_iter_block_roots(from_slot)? {
             let (beacon_block_root, _) = res?;
 
@@ -6704,16 +6707,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
-            let beacon_state_root = beacon_block.state_root();
+            blocks.push((beacon_block_root, Arc::new(beacon_block)));
+        }
 
-            // This branch is reached from the HTTP API. We assume the user wants
-            // to cache states so that future calls are faster.
+        // Collect states, using the next blocks to determine if states are full (have Gloas
+        // payloads).
+        for (i, (block_root, block)) in blocks.iter().enumerate() {
+            let (opt_envelope, state_root) = if block.fork_name_unchecked().gloas_enabled() {
+                let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
+
+                if let Some((_, next_block)) = blocks.get(i + 1) {
+                    let block_hash = block.payload_bid_block_hash()?;
+                    if next_block.is_parent_block_full(block_hash) {
+                        let envelope = opt_envelope.ok_or_else(|| {
+                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
+                        })?;
+                        let state_root = envelope.message.state_root;
+                        (Some(envelope), state_root)
+                    } else {
+                        (None, block.state_root())
+                    }
+                } else {
+                    // TODO(gloas): should use fork choice/cached head for last block in sequence
+                    opt_envelope
+                        .as_ref()
+                        .map_or((None, block.state_root()), |envelope| {
+                            (Some(envelope.clone()), envelope.message.state_root)
+                        })
+                }
+            } else {
+                (None, block.state_root())
+            };
+
             let mut beacon_state = self
                 .store
-                .get_state(&beacon_state_root, Some(beacon_block.slot()), true)?
-                .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
-                })?;
+                .get_state(&state_root, Some(block.slot()), true)?
+                .ok_or_else(|| Error::DBInconsistent(format!("Missing state {:?}", state_root)))?;
 
             // This beacon state might come from the freezer DB, which means it could have pending
             // updates or lots of untethered memory. We rebase it on the previous state in order to
@@ -6726,12 +6755,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             prev_beacon_state = Some(beacon_state.clone());
 
             let snapshot = BeaconSnapshot {
-                beacon_block: Arc::new(beacon_block),
-                beacon_block_root,
+                beacon_block: block.clone(),
+                execution_envelope: opt_envelope,
+                beacon_block_root: *block_root,
                 beacon_state,
             };
             dump.push(snapshot);
         }
+
         Ok(dump)
     }
 
