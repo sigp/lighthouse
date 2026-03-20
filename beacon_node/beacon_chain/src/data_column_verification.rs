@@ -224,6 +224,28 @@ pub enum GossipPartialDataColumnError {
         group_id: Hash256,
         header_hash: Hash256,
     },
+    /// The partial message has neither a header nor cells
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    EmptyMessage,
+    /// The partial message has a count of proofs anc/or cells that is inconsistent with the bitmap.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    InconsistentPresentCount {
+        bitmap_popcount: usize,
+        cells_len: usize,
+        proofs_len: usize,
+    },
+    /// The partial message has a bitmap length that is inconsistent with the number of commitments.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    InconsistentMaxCount {
+        bitmap_len: usize,
+        commitments_len: usize,
+    },
 }
 
 impl From<GossipDataColumnError> for GossipPartialDataColumnError {
@@ -810,13 +832,50 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
             .data_availability_checker
             .partial_assembler()
             .and_then(|a| a.get_header(&column.block_root))
+            .map(GossipVerifiedPartialDataColumnHeader::new_from_cached)
         else {
             return PartialColumnVerificationResult::Err(
                 GossipPartialDataColumnError::MissingHeader,
             );
         };
-        GossipVerifiedPartialDataColumnHeader::new_from_cached(header)
+
+        // If there was no header, there must be at least one cell.
+        if column.sidecar.column.is_empty() {
+            return PartialColumnVerificationResult::ErrWithValidHeader {
+                err: GossipPartialDataColumnError::EmptyMessage,
+                header,
+            };
+        }
+
+        header
     };
+
+    // The number of cells nad proofs must match the population count of the bitmap.
+    let bitmap_popcount = column.sidecar.cells_present_bitmap.num_set_bits();
+    let cells_len = column.sidecar.column.len();
+    let proofs_len = column.sidecar.kzg_proofs.len();
+    if bitmap_popcount != cells_len || bitmap_popcount != proofs_len {
+        return PartialColumnVerificationResult::ErrWithValidHeader {
+            err: GossipPartialDataColumnError::InconsistentPresentCount {
+                bitmap_popcount,
+                cells_len,
+                proofs_len,
+            },
+            header,
+        };
+    }
+
+    let bitmap_len = column.sidecar.cells_present_bitmap.len();
+    let commitments_len = header.as_header().kzg_commitments.len();
+    if bitmap_len != commitments_len {
+        return PartialColumnVerificationResult::ErrWithValidHeader {
+            err: GossipPartialDataColumnError::InconsistentMaxCount {
+                bitmap_len,
+                commitments_len,
+            },
+            header,
+        };
+    }
 
     let Some(missing_cells) = chain
         .data_availability_checker

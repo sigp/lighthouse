@@ -1025,7 +1025,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::LowToleranceError,
-                    "gossip_partial_data_column_high",
+                    "gossip_partial_data_column_low",
+                );
+            }
+            GossipPartialDataColumnError::EmptyMessage
+            | GossipPartialDataColumnError::InconsistentPresentCount { .. }
+            | GossipPartialDataColumnError::InconsistentMaxCount { .. } => {
+                debug!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Could not verify partial column"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_partial_data_column_low",
                 );
             }
         }
