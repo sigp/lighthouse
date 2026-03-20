@@ -274,6 +274,7 @@ impl ForkChoiceTestDefinition {
                         unrealized_finalized_checkpoint: None,
                         execution_payload_parent_hash,
                         execution_payload_block_hash,
+                        proposer_index: None,
                     };
                     fork_choice
                         .process_block::<MainnetEthSpec>(

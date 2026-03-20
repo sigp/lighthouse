@@ -622,6 +622,18 @@ impl<E: EthSpec> Tester<E> {
             self.apply_invalid_block(&block)?;
         }
 
+        // Per spec test runner: an on_block step implies receiving block's attestations
+        // and attester slashings.
+        if success {
+            for attestation in block.message().body().attestations() {
+                let att = attestation.clone_as_attestation();
+                let _ = self.process_attestation(&att);
+            }
+            for attester_slashing in block.message().body().attester_slashings() {
+                self.process_attester_slashing(attester_slashing);
+            }
+        }
+
         Ok(())
     }
 
@@ -710,6 +722,18 @@ impl<E: EthSpec> Tester<E> {
 
         if !valid && blobs.is_none() {
             self.apply_invalid_block(&block)?;
+        }
+
+        // Per spec test runner: an on_block step implies receiving block's attestations
+        // and attester slashings.
+        if success {
+            for attestation in block.message().body().attestations() {
+                let att = attestation.clone_as_attestation();
+                let _ = self.process_attestation(&att);
+            }
+            for attester_slashing in block.message().body().attester_slashings() {
+                self.process_attester_slashing(attester_slashing);
+            }
         }
 
         Ok(())

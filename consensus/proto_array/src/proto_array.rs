@@ -147,6 +147,19 @@ pub struct ProtoNode {
     /// regardless of PTC vote counts.
     #[superstruct(only(V29), partial_getter(copy))]
     pub payload_received: bool,
+    /// The proposer index for this block, used by `should_apply_proposer_boost`
+    /// to detect equivocations at the parent's slot.
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub proposer_index: u64,
+    /// Best child whose `parent_payload_status == Full`.
+    /// Maintained alongside `best_child` to avoid O(n) scans during the V29 head walk.
+    #[superstruct(only(V29), partial_getter(copy))]
+    #[ssz(with = "four_byte_option_usize")]
+    pub best_full_child: Option<usize>,
+    /// Best child whose `parent_payload_status == Empty`.
+    #[superstruct(only(V29), partial_getter(copy))]
+    #[ssz(with = "four_byte_option_usize")]
+    pub best_empty_child: Option<usize>,
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -380,17 +393,12 @@ impl ProtoArray {
             }
             // If we find the node matching the current proposer boost root, increase
             // the delta by the new score amount (unless the block has an invalid execution status).
-            //
-            // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-            //
-            // TODO(gloas): proposer boost should also be subtracted from `empty_delta` per spec,
-            // since the spec creates a virtual vote with `payload_present=False` for the proposer
-            // boost, biasing toward Empty for non-current-slot payload decisions.
+            // For Gloas (V29), `should_apply_proposer_boost` is checked after the loop
+            // with final weights, and the boost is removed if needed.
             if let Some(proposer_score_boost) = spec.proposer_score_boost
                 && proposer_boost_root != Hash256::zero()
-                    && proposer_boost_root == node.root()
-                    // Invalid nodes (or their ancestors) should not receive a proposer boost.
-                    && !execution_status_is_invalid
+                && proposer_boost_root == node.root()
+                && !execution_status_is_invalid
             {
                 proposer_score =
                     calculate_committee_fraction::<E>(new_justified_balances, proposer_score_boost)
@@ -428,29 +436,87 @@ impl ProtoArray {
                     .checked_add(delta)
                     .ok_or(Error::DeltaOverflow(parent_index))?;
 
-                // Per spec's `is_supporting_vote`: a vote supports a parent's
-                // FULL/EMPTY virtual node based on the voter's `payload_present`
-                // flag, NOT based on which child the vote goes through.
-                // Propagate each child's full/empty deltas independently.
-                match node.parent_payload_status() {
-                    Ok(PayloadStatus::Full) => {
+                // Route ALL child weight into the parent's FULL or EMPTY bucket
+                // based on the child's `parent_payload_status` (the ancestor path
+                // direction). If this child is on the FULL path from the parent,
+                // all weight supports the parent's FULL virtual node, and vice versa.
+                if let Ok(child_v29) = node.as_v29() {
+                    if child_v29.parent_payload_status == PayloadStatus::Full {
                         parent_delta.full_delta = parent_delta
                             .full_delta
                             .checked_add(delta)
                             .ok_or(Error::DeltaOverflow(parent_index))?;
-                    }
-                    Ok(PayloadStatus::Empty) => {
+                    } else {
                         parent_delta.empty_delta = parent_delta
                             .empty_delta
                             .checked_add(delta)
                             .ok_or(Error::DeltaOverflow(parent_index))?;
                     }
-                    Ok(PayloadStatus::Pending) | Err(..) => {
-                        // Pending is not reachable. Parent payload status must be Full or Empty.
-                        // TODO(gloas): add ParentPayloadStatus = Full | Empty.
-                    }
+                } else {
+                    // V17 child of a V29 parent (fork transition): treat as FULL
+                    // since V17 nodes always have execution payloads inline.
+                    parent_delta.full_delta = parent_delta
+                        .full_delta
+                        .checked_add(delta)
+                        .ok_or(Error::DeltaOverflow(parent_index))?;
                 }
             }
+        }
+
+        // Gloas: now that all weights are final, check `should_apply_proposer_boost`.
+        // If the boost should NOT apply, walk from the boosted node to root and subtract
+        // `proposer_score` from weight and payload weights in a single pass.
+        // We detect Gloas by checking the boosted node's variant (V29) directly.
+        if proposer_score > 0
+            && let Some(&boost_index) = self.indices.get(&proposer_boost_root)
+            && self
+                .nodes
+                .get(boost_index)
+                .is_some_and(|n| n.as_v29().is_ok())
+            && !self.should_apply_proposer_boost::<E>(
+                boost_index,
+                proposer_score,
+                new_justified_balances,
+                spec,
+            )?
+        {
+            // Single walk: subtract proposer_score from weight and payload weights.
+            let mut walk_index = Some(boost_index);
+            let mut child_payload_status: Option<PayloadStatus> = None;
+            while let Some(idx) = walk_index {
+                let node = self
+                    .nodes
+                    .get_mut(idx)
+                    .ok_or(Error::InvalidNodeIndex(idx))?;
+
+                *node.weight_mut() = node
+                    .weight()
+                    .checked_sub(proposer_score)
+                    .ok_or(Error::DeltaOverflow(idx))?;
+
+                // Subtract from the payload bucket that the child-on-path
+                // contributed to (based on the child's parent_payload_status).
+                if let Some(child_ps) = child_payload_status
+                    && let Ok(v29) = node.as_v29_mut()
+                {
+                    if child_ps == PayloadStatus::Full {
+                        v29.full_payload_weight = v29
+                            .full_payload_weight
+                            .checked_sub(proposer_score)
+                            .ok_or(Error::DeltaOverflow(idx))?;
+                    } else {
+                        v29.empty_payload_weight = v29
+                            .empty_payload_weight
+                            .checked_sub(proposer_score)
+                            .ok_or(Error::DeltaOverflow(idx))?;
+                    }
+                }
+
+                child_payload_status = node.parent_payload_status().ok();
+                walk_index = node.parent();
+            }
+
+            proposer_score = 0;
         }
 
         // After applying all deltas, update the `previous_proposer_boost`.
@@ -592,9 +658,31 @@ impl ProtoArray {
                 empty_payload_weight: 0,
                 full_payload_weight: 0,
                 execution_payload_block_hash,
-                payload_timeliness_votes: BitVector::default(),
-                payload_data_availability_votes: BitVector::default(),
+                // Per spec `get_forkchoice_store`: the anchor block's PTC votes are
+                // initialized to all-True, ensuring `is_payload_timely` and
+                // `is_payload_data_available` return true for the anchor.
+                payload_timeliness_votes: if is_genesis {
+                    let mut bv = BitVector::new();
+                    for i in 0..bv.len() {
+                        let _ = bv.set(i, true);
+                    }
+                    bv
+                } else {
+                    BitVector::default()
+                },
+                payload_data_availability_votes: if is_genesis {
+                    let mut bv = BitVector::new();
+                    for i in 0..bv.len() {
+                        let _ = bv.set(i, true);
+                    }
+                    bv
+                } else {
+                    BitVector::default()
+                },
                 payload_received: is_genesis,
+                proposer_index: block.proposer_index.unwrap_or(0),
+                best_full_child: None,
+                best_empty_child: None,
             })
         };
 
@@ -635,6 +723,66 @@ impl ProtoArray {
         }
 
         Ok(())
+    }
+
+    /// Spec's `should_apply_proposer_boost` for Gloas.
+    ///
+    /// Returns `true` if the proposer boost should be kept. Returns `false` if the
+    /// boost should be subtracted (invalidated) because the parent is weak and there
+    /// are no equivocating blocks at the parent's slot.
+    fn should_apply_proposer_boost<E: EthSpec>(
+        &self,
+        boost_index: usize,
+        proposer_score: u64,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error> {
+        let boost_node = self
+            .nodes
+            .get(boost_index)
+            .ok_or(Error::InvalidNodeIndex(boost_index))?;
+
+        let Some(parent_index) = boost_node.parent() else {
+            return Ok(true); // Genesis — always apply.
+        };
+
+        let parent = self
+            .nodes
+            .get(parent_index)
+            .ok_or(Error::InvalidNodeIndex(parent_index))?;
+
+        // Parent not from the immediately previous slot — always apply.
+        if parent.slot() + 1 < boost_node.slot() {
+            return Ok(true);
+        }
+
+        // Check if the parent is "weak" (low attestation weight).
+        // Parent weight currently includes the back-propagated boost, so subtract it.
+        let reorg_threshold = calculate_committee_fraction::<E>(
+            justified_balances,
+            spec.reorg_head_weight_threshold.unwrap_or(20),
+        )
+        .unwrap_or(0);
+
+        let parent_weight_without_boost = parent.weight().saturating_sub(proposer_score);
+        if parent_weight_without_boost >= reorg_threshold {
+            return Ok(true); // Parent is not weak — apply.
+        }
+
+        // Parent is weak. Apply boost unless there's an equivocating block at
+        // the parent's slot from the same proposer.
+        let parent_slot = parent.slot();
+        let parent_root = parent.root();
+        let parent_proposer = parent.proposer_index().unwrap_or(u64::MAX);
+
+        let has_equivocation = self.nodes.iter().any(|n| {
+            n.as_v29().is_ok()
+                && n.slot() == parent_slot
+                && n.root() != parent_root
+                && n.proposer_index().unwrap_or(u64::MAX - 1) == parent_proposer
+        });
+
+        Ok(!has_equivocation)
     }
 
     /// Process an execution payload for a Gloas block.
@@ -965,11 +1113,6 @@ impl ProtoArray {
 
         // Since there are no valid descendants of a justified block with an invalid execution
         // payload, there would be no head to choose from.
-        //
-        // Fork choice is effectively broken until a new justified root is set. It might not be
-        // practically possible to set a new justified root if we are unable to find a new head.
-        //
-        // This scenario is *unsupported*. It represents a serious consensus failure.
         // Execution status tracking only exists on V17 (pre-Gloas) nodes.
         if let Ok(v17) = justified_node.as_v17()
             && v17.execution_status.is_invalid()
@@ -979,6 +1122,42 @@ impl ProtoArray {
             });
         }
 
+        // For V29 (Gloas) justified nodes, use the virtual tree walk directly.
+        if justified_node.as_v29().is_ok() {
+            return self.find_head_v29_walk::<E>(justified_index, current_slot);
+        }
+
+        // Pre-Gloas justified node, but descendants may be V29.
+        // Walk via best_child chain; switch to V29 walk when we hit one.
+        if justified_node.best_child().is_some() || justified_node.best_descendant().is_some() {
+            let mut current_index = justified_index;
+            loop {
+                let node = self
+                    .nodes
+                    .get(current_index)
+                    .ok_or(Error::InvalidNodeIndex(current_index))?;
+
+                // Hit a V29 node — switch to virtual tree walk.
+                if node.as_v29().is_ok() {
+                    return self.find_head_v29_walk::<E>(current_index, current_slot);
+                }
+
+                // V17 node: follow best_child.
+                if let Some(bc_idx) = node.best_child() {
+                    current_index = bc_idx;
+                } else {
+                    break;
+                }
+            }
+
+            let head_node = self
+                .nodes
+                .get(current_index)
+                .ok_or(Error::InvalidNodeIndex(current_index))?;
+            return Ok(head_node.root());
+        }
+
+        // Pre-Gloas fallback: use best_descendant directly.
         let best_descendant_index = justified_node.best_descendant().unwrap_or(justified_index);
 
         let best_node = self
@@ -1005,6 +1184,81 @@ impl ProtoArray {
         }
 
         Ok(best_node.root())
+    }
+
+    /// V29 virtual tree walk for `find_head`.
+    ///
+    /// At each V29 node, determine the preferred payload direction (FULL or EMPTY)
+    /// by comparing weights, then follow the direction-specific best_child pointer.
+    /// O(depth) — no scanning.
+    fn find_head_v29_walk<E: EthSpec>(
+        &self,
+        start_index: usize,
+        current_slot: Slot,
+    ) -> Result<Hash256, Error> {
+        let ptc_size = E::ptc_size();
+        let mut current_index = start_index;
+
+        loop {
+            let node = self
+                .nodes
+                .get(current_index)
+                .ok_or(Error::InvalidNodeIndex(current_index))?;
+
+            let Ok(v29) = node.as_v29() else { break };
+
+            let prefer_full = Self::v29_prefer_full(v29, node.slot(), current_slot, ptc_size);
+
+            // O(1) lookup via direction-specific best_child pointers.
+            let next = if prefer_full {
+                v29.best_full_child
+            } else {
+                v29.best_empty_child
+            };
+
+            if let Some(child_index) = next {
+                current_index = child_index;
+            } else {
+                break;
+            }
+        }
+
+        let head_node = self
+            .nodes
+            .get(current_index)
+            .ok_or(Error::InvalidNodeIndex(current_index))?;
+        Ok(head_node.root())
+    }
+
+    /// Determine whether a V29 node prefers the FULL or EMPTY direction.
+    fn v29_prefer_full(
+        v29: &ProtoNodeV29,
+        node_slot: Slot,
+        current_slot: Slot,
+        ptc_size: usize,
+    ) -> bool {
+        if !v29.payload_received {
+            return false;
+        }
+        if node_slot + 1 != current_slot {
+            // Weight comparison, tiebreak to payload_received.
+            if v29.full_payload_weight != v29.empty_payload_weight {
+                v29.full_payload_weight > v29.empty_payload_weight
+            } else {
+                v29.payload_received
+            }
+        } else {
+            // Previous slot: PTC tiebreaker only.
+            is_payload_timely(
+                &v29.payload_timeliness_votes,
+                ptc_size,
+                v29.payload_received,
+            ) && is_payload_data_available(
+                &v29.payload_data_availability_votes,
+                ptc_size,
+                v29.payload_received,
+            )
+        }
     }
 
     /// Update the tree with new finalization information. The tree is only actually pruned if both
@@ -1071,6 +1325,20 @@ impl ProtoArray {
                         .checked_sub(finalized_index)
                         .ok_or(Error::IndexOverflow("best_descendant"))?,
                 );
+            }
+            if let Ok(v29) = node.as_v29_mut() {
+                if let Some(idx) = v29.best_full_child {
+                    v29.best_full_child = Some(
+                        idx.checked_sub(finalized_index)
+                            .ok_or(Error::IndexOverflow("best_full_child"))?,
+                    );
+                }
+                if let Some(idx) = v29.best_empty_child {
+                    v29.best_empty_child = Some(
+                        idx.checked_sub(finalized_index)
+                            .ok_or(Error::IndexOverflow("best_empty_child"))?,
+                    );
+                }
             }
         }
 
@@ -1214,6 +1482,16 @@ impl ProtoArray {
                 no_change
             };
 
+        // Capture child info before mutable borrows.
+        let child = self
+            .nodes
+            .get(child_index)
+            .ok_or(Error::InvalidNodeIndex(child_index))?;
+        let child_payload_dir = child.parent_payload_status().ok();
+        let child_weight = child.weight();
+        let child_root = child.root();
+
+        // Update general best_child/best_descendant.
         let parent = self
             .nodes
             .get_mut(parent_index)
@@ -1221,6 +1499,109 @@ impl ProtoArray {
 
         *parent.best_child_mut() = new_best_child;
         *parent.best_descendant_mut() = new_best_descendant;
+
+        // For V29 parents: also maintain direction-specific best_child pointers
+        // so the V29 head walk can pick the right child in O(1).
+        if parent.as_v29().is_ok()
+            && let Some(dir) = child_payload_dir
+        {
+            self.update_directional_best_child::<E>(
+                parent_index,
+                child_index,
+                dir,
+                child_leads_to_viable_head,
+                child_weight,
+                child_root,
+                current_slot,
+                best_justified_checkpoint,
+                best_finalized_checkpoint,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Update `best_full_child` or `best_empty_child` on a V29 parent.
+    #[allow(clippy::too_many_arguments)]
+    fn update_directional_best_child<E: EthSpec>(
+        &mut self,
+        parent_index: usize,
+        child_index: usize,
+        dir: PayloadStatus,
+        child_viable: bool,
+        child_weight: u64,
+        child_root: Hash256,
+        current_slot: Slot,
+        best_justified_checkpoint: Checkpoint,
+        best_finalized_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let parent_v29 = self
+            .nodes
+            .get(parent_index)
+            .ok_or(Error::InvalidNodeIndex(parent_index))?
+            .as_v29()
+            .map_err(|_| Error::InvalidNodeIndex(parent_index))?;
+
+        let current_best = match dir {
+            PayloadStatus::Full => parent_v29.best_full_child,
+            PayloadStatus::Empty => parent_v29.best_empty_child,
+            PayloadStatus::Pending => return Ok(()),
+        };
+
+        if !child_viable {
+            // Remove if this child was the directional best but is no longer viable.
+            if current_best == Some(child_index) {
+                let parent_v29 = self
+                    .nodes
+                    .get_mut(parent_index)
+                    .ok_or(Error::InvalidNodeIndex(parent_index))?
+                    .as_v29_mut()
+                    .map_err(|_| Error::InvalidNodeIndex(parent_index))?;
+                match dir {
+                    PayloadStatus::Full => parent_v29.best_full_child = None,
+                    PayloadStatus::Empty => parent_v29.best_empty_child = None,
+                    PayloadStatus::Pending => {}
+                }
+            }
+            return Ok(());
+        }
+
+        let replace = match current_best {
+            None => true,
+            Some(best_idx) => {
+                let best_node = self
+                    .nodes
+                    .get(best_idx)
+                    .ok_or(Error::InvalidNodeIndex(best_idx))?;
+                let best_viable = self.node_leads_to_viable_head::<E>(
+                    best_node,
+                    current_slot,
+                    best_justified_checkpoint,
+                    best_finalized_checkpoint,
+                )?;
+                if !best_viable {
+                    true
+                } else if child_weight != best_node.weight() {
+                    child_weight > best_node.weight()
+                } else {
+                    *child_root >= *best_node.root()
+                }
+            }
+        };
+
+        if replace {
+            let parent_v29 = self
+                .nodes
+                .get_mut(parent_index)
+                .ok_or(Error::InvalidNodeIndex(parent_index))?
+                .as_v29_mut()
+                .map_err(|_| Error::InvalidNodeIndex(parent_index))?;
+            match dir {
+                PayloadStatus::Full => parent_v29.best_full_child = Some(child_index),
+                PayloadStatus::Empty => parent_v29.best_empty_child = Some(child_index),
+                PayloadStatus::Pending => {}
+            }
+        }
 
         Ok(())
     }

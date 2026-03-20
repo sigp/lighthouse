@@ -992,6 +992,7 @@ where
                 unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
                 execution_payload_parent_hash,
                 execution_payload_block_hash,
+                proposer_index: Some(block.proposer_index()),
             },
             current_slot,
             self.justified_checkpoint(),

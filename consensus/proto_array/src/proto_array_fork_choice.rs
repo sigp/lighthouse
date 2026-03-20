@@ -182,6 +182,7 @@ pub struct Block {
     /// post-Gloas fields
     pub execution_payload_parent_hash: Option<ExecutionBlockHash>,
     pub execution_payload_block_hash: Option<ExecutionBlockHash>,
+    pub proposer_index: Option<u64>,
 }
 
 impl Block {
@@ -473,6 +474,7 @@ impl ProtoArrayForkChoice {
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash,
             execution_payload_block_hash,
+            proposer_index: None,
         };
 
         proto_array
@@ -965,6 +967,7 @@ impl ProtoArrayForkChoice {
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
             execution_payload_parent_hash: None,
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
+            proposer_index: block.proposer_index().ok(),
         })
     }
 
@@ -1004,26 +1007,42 @@ impl ProtoArrayForkChoice {
     pub fn head_payload_status<E: EthSpec>(
         &self,
         head_root: &Hash256,
-        _current_slot: Slot,
+        current_slot: Slot,
     ) -> Option<PayloadStatus> {
         let node = self.get_proto_node(head_root)?;
         let v29 = node.as_v29().ok()?;
-        if v29.full_payload_weight > v29.empty_payload_weight {
-            Some(PayloadStatus::Full)
-        } else if v29.empty_payload_weight > v29.full_payload_weight {
-            Some(PayloadStatus::Empty)
-        } else if is_payload_timely(
-            &v29.payload_timeliness_votes,
-            E::ptc_size(),
-            v29.payload_received,
-        ) && is_payload_data_available(
-            &v29.payload_data_availability_votes,
-            E::ptc_size(),
-            v29.payload_received,
-        ) {
-            Some(PayloadStatus::Full)
+
+        // Replicate the spec's virtual tree walk tiebreaker at the head node.
+        let use_tiebreaker_only = node.slot() + 1 == current_slot;
+
+        if !use_tiebreaker_only {
+            // Compare weights, then fall back to tiebreaker.
+            if v29.full_payload_weight > v29.empty_payload_weight {
+                return Some(PayloadStatus::Full);
+            } else if v29.empty_payload_weight > v29.full_payload_weight {
+                return Some(PayloadStatus::Empty);
+            }
+            // Equal weights: prefer FULL if payload received.
+            if v29.payload_received {
+                Some(PayloadStatus::Full)
+            } else {
+                Some(PayloadStatus::Empty)
+            }
         } else {
-            Some(PayloadStatus::Empty)
+            // Previous slot: should_extend_payload tiebreaker.
+            if is_payload_timely(
+                &v29.payload_timeliness_votes,
+                E::ptc_size(),
+                v29.payload_received,
+            ) && is_payload_data_available(
+                &v29.payload_data_availability_votes,
+                E::ptc_size(),
+                v29.payload_received,
+            ) {
+                Some(PayloadStatus::Full)
+            } else {
+                Some(PayloadStatus::Empty)
+            }
         }
     }
 
@@ -1337,6 +1356,7 @@ mod test_compute_deltas {
                     unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
+                    proposer_index: None,
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
@@ -1365,6 +1385,7 @@ mod test_compute_deltas {
                     unrealized_finalized_checkpoint: None,
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
+                    proposer_index: None,
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
@@ -1500,6 +1521,7 @@ mod test_compute_deltas {
                         unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                         execution_payload_parent_hash: None,
                         execution_payload_block_hash: None,
+                        proposer_index: None,
                     },
                     Slot::from(block.slot),
                     genesis_checkpoint,
