@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
 //! https://github.com/ethereum/beacon-APIs
