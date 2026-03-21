@@ -1227,7 +1227,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(4096),
+            min_builder_withdrawability_delay: Epoch::new(64),
 
             /*
              * Network specific
@@ -1371,6 +1371,7 @@ impl ChainSpec {
             // Gloas
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
+            min_builder_withdrawability_delay: Epoch::new(2),
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -2056,6 +2057,10 @@ pub struct Config {
     #[serde(default = "default_contribution_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     contribution_due_bps: u64,
+
+    #[serde(default = "default_min_builder_withdrawability_delay")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_builder_withdrawability_delay: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2279,6 +2284,10 @@ const fn default_sync_message_due_bps() -> u64 {
 
 const fn default_contribution_due_bps() -> u64 {
     6667
+}
+
+const fn default_min_builder_withdrawability_delay() -> u64 {
+    64
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2509,6 +2518,8 @@ impl Config {
             aggregate_due_bps: spec.aggregate_due_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
             contribution_due_bps: spec.contribution_due_bps,
+
+            min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
         }
     }
 
@@ -2600,6 +2611,7 @@ impl Config {
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            min_builder_withdrawability_delay,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2688,6 +2700,8 @@ impl Config {
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+
+            min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
 
             ..chain_spec.clone()
         };
@@ -3497,7 +3511,6 @@ mod yaml_tests {
         "SYNC_MESSAGE_DUE_BPS_GLOAS",
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "PAYLOAD_ATTESTATION_DUE_BPS",
-        "MIN_BUILDER_WITHDRAWABILITY_DELAY",
         "MAX_REQUEST_PAYLOADS",
         // Gloas fork choice params not yet in Config
         "REORG_HEAD_WEIGHT_THRESHOLD",
