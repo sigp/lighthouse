@@ -766,6 +766,17 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let withdrawals =
         Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into();
 
+    println!(
+        "withdrawals from get_expected_withdrawals: {:?}",
+        withdrawals
+    );
+    println!(
+        "state is slot {} and {:?}, latest block slot: {}",
+        state.slot(),
+        state.payload_status(),
+        state.latest_block_header().slot
+    );
+
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
     // `join_handle` can be used to await the result of the function.
     let join_handle = chain

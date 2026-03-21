@@ -184,23 +184,6 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
         }
     );
 
-    // Verify consistency with expected withdrawals
-    // NOTE: we don't bother hashing here except in case of error, because we can just compare for
-    // equality directly. This equality check could be more straight-forward if the types were
-    // changed to match (currently we are comparing VariableList to List). This could happen
-    // coincidentally when we adopt ProgressiveList.
-    envelope_verify!(
-        payload.withdrawals.len() == state.payload_expected_withdrawals()?.len()
-            && payload
-                .withdrawals
-                .iter()
-                .eq(state.payload_expected_withdrawals()?.iter()),
-        EnvelopeProcessingError::WithdrawalsRootMismatch {
-            state: state.payload_expected_withdrawals()?.tree_hash_root(),
-            payload: payload.withdrawals.tree_hash_root(),
-        }
-    );
-
     // Verify the gas limit
     envelope_verify!(
         committed_bid.gas_limit == payload.gas_limit,
@@ -235,6 +218,23 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
         EnvelopeProcessingError::TimestampMismatch {
             state: state_timestamp,
             envelope: payload.timestamp,
+        }
+    );
+
+    // Verify consistency with expected withdrawals
+    // NOTE: we don't bother hashing here except in case of error, because we can just compare for
+    // equality directly. This equality check could be more straight-forward if the types were
+    // changed to match (currently we are comparing VariableList to List). This could happen
+    // coincidentally when we adopt ProgressiveList.
+    envelope_verify!(
+        payload.withdrawals.len() == state.payload_expected_withdrawals()?.len()
+            && payload
+                .withdrawals
+                .iter()
+                .eq(state.payload_expected_withdrawals()?.iter()),
+        EnvelopeProcessingError::WithdrawalsRootMismatch {
+            state: dbg!(state.payload_expected_withdrawals()?).tree_hash_root(),
+            payload: dbg!(&payload.withdrawals).tree_hash_root(),
         }
     );
 
