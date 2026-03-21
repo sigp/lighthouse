@@ -96,8 +96,6 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub genesis_delay: u64,
-    // TODO deprecate seconds_per_slot
-    pub seconds_per_slot: u64,
     // Private so that this value can't get changed except via the `set_slot_duration_ms` function.
     slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
@@ -1059,7 +1057,6 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 604800, // 7 days
-            seconds_per_slot: 12,
             slot_duration_ms: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -1325,7 +1322,6 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
             shard_committee_period: 64,
             genesis_delay: 300,
-            seconds_per_slot: 6,
             slot_duration_ms: 6000,
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
@@ -1457,7 +1453,6 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 6000, // 100 minutes
-            seconds_per_slot: 5,
             slot_duration_ms: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -1625,7 +1620,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(4096),
+            min_builder_withdrawability_delay: Epoch::new(64),
 
             /*
              * Network specific
@@ -1901,8 +1896,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(with = "serde_utils::quoted_u64")]
-    seconds_per_slot: u64,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     slot_duration_ms: Option<MaybeQuoted<u64>>,
@@ -2452,7 +2445,6 @@ impl Config {
                 .gloas_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
-            seconds_per_slot: spec.seconds_per_slot,
             slot_duration_ms: Some(MaybeQuoted {
                 value: spec.slot_duration_ms,
             }),
@@ -2556,7 +2548,6 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch,
-            seconds_per_slot,
             slot_duration_ms,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2638,10 +2629,7 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
-            seconds_per_slot,
-            slot_duration_ms: slot_duration_ms
-                .map(|q| q.value)
-                .unwrap_or_else(|| seconds_per_slot.saturating_mul(1000)),
+            slot_duration_ms: slot_duration_ms?.value,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -2851,6 +2839,7 @@ mod yaml_tests {
     use super::*;
     use crate::core::MinimalEthSpec;
     use paste::paste;
+    use std::collections::BTreeSet;
     use std::env;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -3375,7 +3364,6 @@ mod yaml_tests {
         // Test slot duration
         let slot_duration = spec.get_slot_duration();
         assert_eq!(slot_duration, Duration::from_millis(12000));
-        assert_eq!(slot_duration, Duration::from_secs(spec.seconds_per_slot));
 
         // Test edge cases with custom spec
         let mut custom_spec = spec.clone();
@@ -3541,15 +3529,11 @@ mod yaml_tests {
         let upstream_yaml = std::fs::read_to_string(&file_path)
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", file_path.display()));
 
-        // Upstream uses SLOT_DURATION_MS but our Config requires SECONDS_PER_SLOT.
-        // Inject it from the slot_duration_ms value.
-        let upstream_yaml = inject_seconds_per_slot(&upstream_yaml);
-
         // Extract top-level keys from the raw YAML text. We can't parse as
         // serde_yaml::Mapping because serde_yaml cannot represent integers
         // exceeding u64 (e.g. TERMINAL_TOTAL_DIFFICULTY). Config YAML uses a
         // simple `KEY: value` format with no indentation for top-level keys.
-        let upstream_keys: std::collections::BTreeSet<String> = upstream_yaml
+        let upstream_keys: BTreeSet<String> = upstream_yaml
             .lines()
             .filter_map(|line| {
                 // Skip comments, blank lines, and indented lines (nested YAML).
@@ -3571,7 +3555,7 @@ mod yaml_tests {
         let our_yaml = serde_yaml::to_string(&our_config).expect("failed to serialize Config");
         let our_mapping: serde_yaml::Mapping =
             serde_yaml::from_str(&our_yaml).expect("failed to re-parse our Config");
-        let mut known_keys: std::collections::BTreeSet<String> = our_mapping
+        let mut known_keys: BTreeSet<String> = our_mapping
             .keys()
             .filter_map(|k| k.as_str().map(String::from))
             .collect();
@@ -3580,11 +3564,12 @@ mod yaml_tests {
         known_keys.insert("SLOT_DURATION_MS".to_string());
 
         // Check for upstream keys that our Config doesn't know about.
-        let ignored: std::collections::BTreeSet<&str> =
-            UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE.iter().copied().collect();
         let mut missing_keys: Vec<&String> = upstream_keys
             .iter()
-            .filter(|k| !known_keys.contains(k.as_str()) && !ignored.contains(k.as_str()))
+            .filter(|k| {
+                !known_keys.contains(k.as_str())
+                    && !UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE.contains(&k.as_str())
+            })
             .collect();
         missing_keys.sort();
 
@@ -3605,23 +3590,6 @@ mod yaml_tests {
             upstream_config, our_config,
             "Config mismatch for {config_name}"
         );
-    }
-
-    /// Inject `SECONDS_PER_SLOT` into an upstream config YAML string by
-    /// deriving it from `SLOT_DURATION_MS`.
-    fn inject_seconds_per_slot(yaml: &str) -> String {
-        for line in yaml.lines() {
-            let trimmed = line.trim();
-            if let Some(rest) = trimmed.strip_prefix("SLOT_DURATION_MS:") {
-                let ms_str = rest.split('#').next().unwrap_or("").trim();
-                let ms: u64 = ms_str.parse().unwrap_or_else(|e| {
-                    panic!("failed to parse SLOT_DURATION_MS value '{ms_str}': {e}")
-                });
-                let seconds = ms / 1000;
-                return format!("{yaml}\nSECONDS_PER_SLOT: {seconds}\n");
-            }
-        }
-        yaml.to_string()
     }
 
     #[test]
