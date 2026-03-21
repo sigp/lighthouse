@@ -3521,9 +3521,6 @@ mod yaml_tests {
     /// 2. Deserializes the upstream YAML as `Config` (which has custom
     ///    deserializers for large values like `TERMINAL_TOTAL_DIFFICULTY`) and
     ///    compares against `Config::from_chain_spec`.
-    ///
-    /// The upstream YAML is missing `SECONDS_PER_SLOT` (replaced by
-    /// `SLOT_DURATION_MS` in recent spec versions), so we inject it before parsing.
     fn config_test<E: EthSpec>(spec: &ChainSpec, config_name: &str) {
         let file_path = configs_base_path().join(format!("{config_name}.yaml"));
         let upstream_yaml = std::fs::read_to_string(&file_path)
@@ -3561,7 +3558,6 @@ mod yaml_tests {
             .collect();
         // Fields that Config knows but may skip during serialization.
         known_keys.insert("CONFIG_NAME".to_string());
-        known_keys.insert("SLOT_DURATION_MS".to_string());
 
         // Check for upstream keys that our Config doesn't know about.
         let mut missing_keys: Vec<&String> = upstream_keys
