@@ -763,19 +763,18 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let latest_execution_block_hash = *state.latest_block_hash()?;
     let latest_gas_limit = state.latest_execution_payload_bid()?.gas_limit;
 
-    let withdrawals =
-        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into();
-
-    println!(
-        "withdrawals from get_expected_withdrawals: {:?}",
-        withdrawals
-    );
-    println!(
-        "state is slot {} and {:?}, latest block slot: {}",
-        state.slot(),
-        state.payload_status(),
-        state.latest_block_header().slot
-    );
+    // In Gloas, when the parent block is not full, `process_withdrawals` returns early
+    // and `payload_expected_withdrawals` is not updated. The envelope verification checks
+    // against `state.payload_expected_withdrawals()`, so we must use the existing value
+    // rather than recomputing.
+    let withdrawals: Vec<Withdrawal> = if state.is_parent_block_full() {
+        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into()
+    } else {
+        state
+            .payload_expected_withdrawals()
+            .map(|list| list.to_vec())
+            .unwrap_or_default()
+    };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
     // `join_handle` can be used to await the result of the function.
