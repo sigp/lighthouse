@@ -125,7 +125,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             };
 
             // Check if merged column is now complete by trying to convert into full
-            let column = if let Some(full_column) = merged.try_clone_full() {
+            let column = if let Some(full_column) = merged.try_clone_full(&header) {
                 full_columns.push(full_column);
                 AssemblyColumn::Complete
             } else {

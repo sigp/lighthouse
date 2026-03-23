@@ -680,7 +680,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         header: &PartialDataColumnHeader<E>,
     ) -> Option<KzgVerifiedCustodyDataColumn<E>> {
         self.data
-            .try_clone_full()
+            .try_clone_full(header)
             .map(|data| KzgVerifiedCustodyDataColumn {
                 data: Arc::new(data),
             })

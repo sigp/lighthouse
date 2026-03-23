@@ -715,7 +715,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Accept,
                         );
                     }
-                    GossipDataColumnError::ParentUnknown { parent_root } => {
+                    GossipDataColumnError::ParentUnknown { parent_root, .. } => {
                         debug!(
                             action = "requesting parent",
                             %block_root,
