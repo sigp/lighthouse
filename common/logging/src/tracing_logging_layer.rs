@@ -146,7 +146,12 @@ where
         if self.log_format.as_deref() == Some("JSON") {
             build_log_json(&visitor, plain_level_str, meta, &span_data, &mut writer);
         } else if self.log_format.as_deref() == Some("LOGFMT") {
-            build_log_logfmt(&visitor, plain_level_str, &span_data, &mut writer);
+            build_log_logfmt(
+                &visitor,
+                &plain_level_str.to_lowercase(),
+                &span_data,
+                &mut writer,
+            );
         } else {
             build_log_text(
                 &visitor,
@@ -452,7 +457,9 @@ fn parse_field(val: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use crate::tracing_logging_layer::{FieldVisitor, build_log_text};
+    use crate::tracing_logging_layer::{
+        FieldVisitor, build_log_logfmt, build_log_text, logfmt_strip_quotes, logfmt_value,
+    };
     use std::io::Write;
 
     struct Buffer {
@@ -612,5 +619,164 @@ mod tests {
         );
 
         assert_eq!(expected, &writer.into_string());
+    }
+
+    #[test]
+    fn test_logfmt_value_simple() {
+        assert_eq!(logfmt_value("hello"), "hello");
+        assert_eq!(logfmt_value("42"), "42");
+        assert_eq!(logfmt_value("true"), "true");
+    }
+
+    #[test]
+    fn test_logfmt_value_empty() {
+        assert_eq!(logfmt_value(""), "\"\"");
+    }
+
+    #[test]
+    fn test_logfmt_value_spaces() {
+        assert_eq!(logfmt_value("hello world"), "\"hello world\"");
+    }
+
+    #[test]
+    fn test_logfmt_value_equals() {
+        assert_eq!(logfmt_value("key=val"), "\"key=val\"");
+    }
+
+    #[test]
+    fn test_logfmt_value_quotes() {
+        assert_eq!(logfmt_value(r#"say "hi""#), r#""say \"hi\"""#);
+    }
+
+    #[test]
+    fn test_logfmt_value_newlines() {
+        let result = logfmt_value("line1\nline2");
+        assert!(result.starts_with('"'), "should be quoted");
+        assert!(result.ends_with('"'), "should be quoted");
+        assert!(result.contains("line1"), "should contain line1");
+        assert!(result.contains("line2"), "should contain line2");
+    }
+
+    #[test]
+    fn test_logfmt_value_backslash() {
+        assert_eq!(logfmt_value(r"path\to\file"), r"path\to\file");
+    }
+
+    #[test]
+    fn test_logfmt_value_backslash_in_quoted() {
+        assert_eq!(logfmt_value(r#"path\to file"#), r#""path\\to file""#);
+    }
+
+    #[test]
+    fn test_logfmt_strip_quotes_no_quotes() {
+        assert_eq!(logfmt_strip_quotes("hello"), "hello");
+        assert_eq!(logfmt_strip_quotes(""), "");
+    }
+
+    #[test]
+    fn test_logfmt_strip_quotes_with_quotes() {
+        assert_eq!(logfmt_strip_quotes("\"hello\""), "hello");
+        assert_eq!(logfmt_strip_quotes("\"\""), "");
+    }
+
+    #[test]
+    fn test_logfmt_strip_quotes_single_quote() {
+        assert_eq!(logfmt_strip_quotes("\"hello"), "\"hello");
+        assert_eq!(logfmt_strip_quotes("hello\""), "hello\"");
+    }
+
+    fn build_log_logfmt_and_output(
+        log_fields: Vec<(String, String)>,
+        span_fields: Vec<(String, String)>,
+    ) -> String {
+        let visitor = FieldVisitor {
+            message: "test message".to_string(),
+            fields: log_fields,
+            is_crit: false,
+        };
+        let mut writer = Buffer::new();
+
+        build_log_logfmt(&visitor, "info", &span_fields, &mut writer);
+
+        let output = writer.into_string();
+        // Strip the timestamp prefix since it's non-deterministic.
+        // Format: ts=<timestamp> level=info msg=test message ...\n
+        let parts: Vec<&str> = output.splitn(3, ' ').collect();
+        assert!(parts[0].starts_with("ts="), "should start with ts=");
+        assert_eq!(parts[1], "level=info");
+        parts[2].to_string()
+    }
+
+    #[test]
+    fn test_build_log_logfmt_no_fields() {
+        let remaining = build_log_logfmt_and_output(vec![], vec![]);
+        assert_eq!(remaining, "msg=\"test message\"\n");
+    }
+
+    #[test]
+    fn test_build_log_logfmt_single_field() {
+        let log_fields = vec![("key".to_string(), "\"value\"".to_string())];
+        let remaining = build_log_logfmt_and_output(log_fields, vec![]);
+        assert_eq!(remaining, "msg=\"test message\" key=value\n");
+    }
+
+    #[test]
+    fn test_build_log_logfmt_multiple_fields() {
+        let log_fields = vec![
+            ("key1".to_string(), "\"val1\"".to_string()),
+            ("key2".to_string(), "\"val2\"".to_string()),
+        ];
+        let remaining = build_log_logfmt_and_output(log_fields, vec![]);
+        assert_eq!(remaining, "msg=\"test message\" key1=val1 key2=val2\n");
+    }
+
+    #[test]
+    fn test_build_log_logfmt_span_fields() {
+        let span_fields = vec![("span_key".to_string(), "\"span_val\"".to_string())];
+        let remaining = build_log_logfmt_and_output(vec![], span_fields);
+        assert_eq!(remaining, "msg=\"test message\" span_key=span_val\n");
+    }
+
+    #[test]
+    fn test_build_log_logfmt_event_and_span_fields() {
+        let log_fields = vec![("event_key".to_string(), "\"event_val\"".to_string())];
+        let span_fields = vec![("span_key".to_string(), "\"span_val\"".to_string())];
+        let remaining = build_log_logfmt_and_output(log_fields, span_fields);
+        assert_eq!(
+            remaining,
+            "msg=\"test message\" event_key=event_val span_key=span_val\n"
+        );
+    }
+
+    #[test]
+    fn test_build_log_logfmt_duplicate_fields_prefer_event() {
+        let log_fields = vec![("dup_key".to_string(), "\"event_val\"".to_string())];
+        let span_fields = vec![("dup_key".to_string(), "\"span_val\"".to_string())];
+        let remaining = build_log_logfmt_and_output(log_fields, span_fields);
+        assert_eq!(remaining, "msg=\"test message\" dup_key=event_val\n");
+    }
+
+    #[test]
+    fn test_build_log_logfmt_value_with_spaces() {
+        let log_fields = vec![("key".to_string(), "\"hello world\"".to_string())];
+        let remaining = build_log_logfmt_and_output(log_fields, vec![]);
+        assert_eq!(remaining, "msg=\"test message\" key=\"hello world\"\n");
+    }
+
+    #[test]
+    fn test_build_log_logfmt_numeric_values() {
+        let log_fields = vec![
+            ("count".to_string(), "42".to_string()),
+            ("ratio".to_string(), "3.14".to_string()),
+        ];
+        let remaining = build_log_logfmt_and_output(log_fields, vec![]);
+        assert_eq!(remaining, "msg=\"test message\" count=42 ratio=3.14\n");
+    }
+
+    #[test]
+    fn test_build_log_logfmt_bool_values() {
+        let log_fields = vec![("flag".to_string(), "true".to_string())];
+        let remaining = build_log_logfmt_and_output(log_fields, vec![]);
+        assert_eq!(remaining, "msg=\"test message\" flag=true\n");
     }
 }
