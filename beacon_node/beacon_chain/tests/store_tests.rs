@@ -708,11 +708,19 @@ async fn block_replayer_hooks() {
         .add_attested_blocks_at_slots(state.clone(), state_root, &block_slots, &all_validators)
         .await;
 
+    // In Gloas, the end state from `add_attested_blocks_at_slots` is Full (post-envelope),
+    // so we need to replay to the Full state to match.
+    let desired_payload_status = if end_state.fork_name_unchecked().gloas_enabled() {
+        StatePayloadStatus::Full
+    } else {
+        StatePayloadStatus::Pending
+    };
     let (blocks, envelopes) = store
         .load_blocks_to_replay(
             Slot::new(0),
             max_slot,
             end_block_root.into(),
+            desired_payload_status,
             StatePayloadStatus::Pending,
         )
         .unwrap();
@@ -723,6 +731,7 @@ async fn block_replayer_hooks() {
     let mut post_block_slots = vec![];
 
     let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
+        .desired_state_payload_status(desired_payload_status)
         .pre_slot_hook(Box::new(|_, state| {
             pre_slots.push(state.slot());
             Ok(())
@@ -2884,8 +2893,15 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
         .unwrap()
         .unwrap();
 
-    // The test premise requires the anchor block to have a payload.
-    assert!(wss_block.message().execution_payload().is_ok());
+    // The test premise requires the anchor block to have a payload (or a payload bid in Gloas).
+    assert!(
+        wss_block.message().execution_payload().is_ok()
+            || wss_block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .is_ok()
+    );
 
     let wss_blobs_opt = harness
         .chain
@@ -5725,6 +5741,7 @@ async fn test_gloas_block_replay_with_envelopes() {
             end_slot,
             last_block_root,
             StatePayloadStatus::Pending,
+            StatePayloadStatus::Pending,
         )
         .unwrap();
     assert!(
@@ -5758,6 +5775,7 @@ async fn test_gloas_block_replay_with_envelopes() {
             end_slot,
             last_block_root,
             StatePayloadStatus::Full,
+            StatePayloadStatus::Pending,
         )
         .unwrap();
     assert_eq!(

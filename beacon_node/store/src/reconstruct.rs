@@ -4,8 +4,9 @@ use crate::metrics;
 use crate::{Error, ItemStore};
 use itertools::{Itertools, process_results};
 use state_processing::{
-    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, per_block_processing,
-    per_slot_processing,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
+    envelope_processing::{VerifyStateRoot, process_execution_payload_envelope},
+    per_block_processing, per_slot_processing,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -67,7 +68,6 @@ where
 
         state.build_caches(&self.spec)?;
 
-        // TODO(gloas): handle payload envelope replay
         process_results(block_root_iter, |iter| -> Result<(), Error> {
             let mut io_batch = vec![];
 
@@ -90,14 +90,14 @@ where
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
 
                 // Apply block.
-                if let Some(block) = block {
+                if let Some(ref block) = block {
                     let mut ctxt = ConsensusContext::new(block.slot())
                         .set_current_block_root(block_root)
                         .set_proposer_index(block.message().proposer_index());
 
                     per_block_processing(
                         &mut state,
-                        &block,
+                        block,
                         BlockSignatureStrategy::NoVerification,
                         VerifyBlockRoot::True,
                         &mut ctxt,
@@ -107,6 +107,24 @@ where
 
                     prev_state_root = Some(block.state_root());
                 }
+
+                // Apply payload envelope for Gloas blocks (post-block, to transition
+                // state from Pending to Full).
+                if let Some(ref block) = block
+                    && let Some(envelope) = self.get_payload_envelope(&block_root)? {
+                        let block_state_root = block.state_root();
+                        process_execution_payload_envelope(
+                            &mut state,
+                            Some(block_state_root),
+                            &envelope,
+                            VerifySignatures::False,
+                            VerifyStateRoot::True,
+                            &self.spec,
+                        )
+                        .map_err(|e| HotColdDBError::BlockReplayEnvelopeError(format!("{e:?}")))?;
+
+                        prev_state_root = Some(envelope.message.state_root);
+                    }
 
                 let state_root = prev_state_root
                     .ok_or(())

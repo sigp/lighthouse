@@ -201,6 +201,7 @@ pub enum HotColdDBError {
     BlockReplayBeaconError(BeaconStateError),
     BlockReplaySlotError(SlotProcessingError),
     BlockReplayBlockError(BlockProcessingError),
+    BlockReplayEnvelopeError(String),
     InvalidSlotsPerRestorePoint {
         slots_per_restore_point: u64,
         slots_per_historical_root: u64,
@@ -2126,6 +2127,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             slot,
             latest_block_root,
             desired_payload_status,
+            base_state.payload_status(),
         )?;
         let _t = metrics::start_timer(&metrics::STORE_BEACON_REPLAY_HOT_BLOCKS_TIME);
 
@@ -2473,7 +2475,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(base_state);
         }
 
-        let (blocks, envelopes) = self.load_cold_blocks(base_state.slot() + 1, slot)?;
+        let base_slot = base_state.slot();
+        let (blocks, envelopes) =
+            self.load_cold_blocks(base_slot + 1, slot, base_state.payload_status(), base_slot)?;
 
         // Include state root for base state as it is required by block processing to not
         // have to hash the state.
@@ -2590,6 +2594,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         start_slot: Slot,
         end_slot: Slot,
+        base_payload_status: StatePayloadStatus,
+        base_state_slot: Slot,
     ) -> Result<
         (
             Vec<SignedBlindedBeaconBlock<E>>,
@@ -2626,6 +2632,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &blocks,
             end_block_root,
             desired_payload_status,
+            base_payload_status,
+            base_state_slot,
         )?;
 
         Ok((blocks, envelopes))
@@ -2647,6 +2655,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         end_slot: Slot,
         end_block_root: Hash256,
         desired_payload_status: StatePayloadStatus,
+        base_payload_status: StatePayloadStatus,
     ) -> Result<
         (
             Vec<SignedBlindedBeaconBlock<E>>,
@@ -2694,6 +2703,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &blocks,
             end_block_root,
             desired_payload_status,
+            base_payload_status,
+            start_slot,
         )?;
 
         Ok((blocks, envelopes))
@@ -2704,11 +2715,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blocks: &[SignedBlindedBeaconBlock<E>],
         end_block_root: Hash256,
         desired_payload_status: StatePayloadStatus,
+        base_payload_status: StatePayloadStatus,
+        base_state_slot: Slot,
     ) -> Result<Vec<SignedExecutionPayloadEnvelope<E>>, Error> {
         let mut envelopes = vec![];
 
-        for (block, next_block) in blocks.iter().tuple_windows() {
+        for (i, (block, next_block)) in blocks.iter().tuple_windows().enumerate() {
             if block.fork_name_unchecked().gloas_enabled() {
+                // Skip the anchor block's envelope if the base state already has it applied
+                // (Full status). The anchor block is at the base state's slot and is skipped
+                // by the block replayer. If the base state is Full, the replayer won't consume
+                // this block's envelope, so including it would cause the iterator to misalign.
+                if i == 0
+                    && base_payload_status == StatePayloadStatus::Full
+                    && block.slot() <= base_state_slot
+                {
+                    continue;
+                }
+
                 // Check next block to see if this block's payload is canonical on this chain.
                 let block_hash = block.payload_bid_block_hash()?;
                 if !next_block.is_parent_block_full(block_hash) {
@@ -2724,8 +2748,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
-        // Load the payload for the last block if desired.
-        if let StatePayloadStatus::Full = desired_payload_status {
+        // Load the payload for the last block if desired, unless the base state is already Full
+        // and no blocks after the base will be applied (the replayer will skip them all).
+        let base_already_full = base_payload_status == StatePayloadStatus::Full
+            && blocks.last().is_none_or(|b| b.slot() <= base_state_slot);
+        if let StatePayloadStatus::Full = desired_payload_status
+            && !base_already_full
+        {
             let envelope = self.get_payload_envelope(&end_block_root)?.ok_or(
                 HotColdDBError::MissingExecutionPayloadEnvelope(end_block_root),
             )?;

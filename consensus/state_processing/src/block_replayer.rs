@@ -380,8 +380,9 @@ where
             }
         }
 
-        // Apply the last payload if desired.
+        // Apply the last payload if desired and the state isn't already Full.
         let mut opt_state_root = if let StatePayloadStatus::Full = self.desired_state_payload_status
+            && self.state.payload_status() == StatePayloadStatus::Pending
             && let Some(last_block) = blocks.last()
         {
             let envelope = next_envelope_at_slot(self.state.slot())?;
